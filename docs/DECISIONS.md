@@ -71,3 +71,11 @@ Design sign-off for void document: films/GRAMMAR.md (with amendments A1 to A9), 
 
 ## 2026-10-10: void document takes the build slot (founder, in chat)
 The founder moved void document into build, overtaking Ratio, which is on hold in Blueprint with nothing torn down (production still serves release/2026.10.03-1). R-07 holds: one product in build.
+
+## 2026-10-10: Capture every log while the engine is built (founder, in chat)
+The studio engine is built while the pilot is made, so every run and every build step is recorded for refinement and for honest progress reports. Every Forge ticket must emit, and no ticket is done without:
+- Engine journal (`~/document-work/journal/<run>.jsonl`, never committed): one event per thing that happens, with run id, stage, unit, start/end, input sizes, model and version, settings, machine conditions, outcome, and on failure the error, the retry and what fixed it. Event kinds: stage, unit, timing, lint (rule, pass/fail, evidence), retry, error, decision (who decided and why), human (an ask or a hand fix), artifact (path, hash).
+- Timing ledger (`timings.jsonl`) stays the predictor's input; the journal links to it by run id.
+- Build log: every ticket's builder, verifier and reviewer runs, review rounds, blocking findings, time from start to merge, and the agent model used, written to the Board's `metrics/document` and the ticket's PR.
+- Issue log (`docs/ENGINE-LOG.md`, committed, append-only): every defect, surprise or workaround found while piloting, with the run id that shows it, so lessons can become doctrine.
+The Director's Lens and the weekly report read from these; nothing is reported that the logs cannot show.
