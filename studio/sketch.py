@@ -35,7 +35,7 @@ from PIL import Image
 
 W, H, FPS = 1280, 720, 30
 AUDIO_RATE = 48000
-LICENCES = {"public domain", "CC0", "CC-BY-4.0"}
+LICENCES = {"public domain", "CC0", "CC-BY-2.0", "CC-BY-4.0"}  # CC BY requires the credit line, which sources.json carries
 NARRATION_CEILING = 0.35
 VOID_ROOT = Path(os.environ.get("VOID_ROOT", "C:/Users/aacri/claudeprojects/voidnews"))
 
