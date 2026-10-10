@@ -227,13 +227,20 @@ GEONAMES = "GeoNames (CC BY 4.0)"
 # Lines no open dataset places, which no spec may draw solid: (pair of ADM0_A3 codes, why).
 UNPLACED = [({"BGD", "IND"}, "the Bengal award's line: no open dataset places it, so it is drawn only as "
                              "today's border, dashed")]
-SOLID = ("line", "line_dashed")
+# On an unplaced pair only today's border, dashed, may be drawn: every other line style reads as a placed line.
+ON_UNPLACED_OK = ("border_today",)
+
+
+def _refused_on_unplaced(style) -> bool:
+    return style in LINE and style not in ON_UNPLACED_OK
 
 
 def _as_set(v) -> set | None:
     """A `where` value as the set of values it accepts; None when the key is not filtered."""
     if v is None:
         return None
+    if isinstance(v, dict):
+        raise MapRefused(f"a where value is a value or a list of values, never a mapping ({v})")
     return set(v) if isinstance(v, (list, tuple, set)) else {v}
 
 
@@ -318,10 +325,15 @@ def check_spec(spec: dict) -> None:
             if pth.get("style") not in LINE or len(pth.get("points", [])) < 2:
                 raise MapRefused(f"{spec['id']}: a path needs a line style and two points")
     for ly in [ly for v in views for ly in v.get("layers", [])]:
-        if ly.get("style") in SOLID:
-            why = _unplaced_pair_possible(ly.get("where") or {})
+        where = ly.get("where") or {}
+        bad_where = [k for k, val in where.items() if isinstance(val, dict)]
+        if bad_where:
+            raise MapRefused(f"{spec['id']}: layer {ly.get('file')} where {bad_where[0]!r} is a mapping; "
+                             "a where value is a value or a list of values")
+        if _refused_on_unplaced(ly.get("style")):
+            why = _unplaced_pair_possible(where)
             if why:
-                raise MapRefused(f"{spec['id']}: a solid line {why}")
+                raise MapRefused(f"{spec['id']}: a {ly.get('style')!r} layer {why}")
         st = ly.get("style")
         if st not in POLY and st not in LINE:
             raise MapRefused(f"{spec['id']}: unknown layer style {st}")
@@ -441,6 +453,8 @@ def _matches(props: dict, where: dict | None) -> bool:
         return True
     for k, vals in where.items():
         v = props.get(k)
+        if isinstance(vals, dict):
+            raise MapRefused(f"where {k!r} is a mapping; a where value is a value or a list of values")
         if isinstance(vals, list):
             if v not in vals:
                 return False
@@ -738,7 +752,7 @@ def _draw_layers(cv: Canvas, spec: dict, proj: Projection, geodata: Path, used: 
             if ly.get("endpoints") and not _touches(_lines_of(g), ly["endpoints"], ly.get("tol", 0.03)):
                 continue
             n += 1
-            if style in SOLID:
+            if _refused_on_unplaced(style):
                 why = unplaced_feature(props)
                 if why:
                     raise MapRefused(f"{spec['id']}: layer {ly['file']} ({style}) matched a feature on "
