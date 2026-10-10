@@ -216,7 +216,8 @@ def test_geonames_places_need_geonames_credited_and_make_the_frame_cc_by():
     s["sources"].append({"id": maps.GEONAMES, "licence": "CC BY 4.0"})
     _, info = maps.render_map(s, GEO)
     assert info["source_line"].endswith("GeoNames (CC BY 4.0)")
-    assert maps.ledger_fields(s)["licence"] == "CC BY 4.0 (contains GeoNames data)"
+    assert maps.ledger_fields(s)["licence"] == "CC-BY-4.0"
+    assert maps.ledger_fields(s)["licence_note"] == "contains GeoNames data (CC BY 4.0); Natural Earth public domain"
 
 
 @pytest.mark.parametrize("short,ok", [("x" * 40, True), ("x" * 41, False)])
@@ -275,3 +276,54 @@ def test_the_plate_prints_the_short_source():
     item = {"data_source": "Natural Earth; a very long list of cited sources, items and pages", "source_short": "Short"}
     assert mark_detail({"mark": "DRAWN"}, item) == "from Short"
     assert mark_detail({"mark": "DRAWN"}, {"data_source": "Long"}) == "from Long"
+
+
+def test_every_ledger_licence_is_on_the_render_allowlist_exactly():
+    """The plancheck's licence-allowlist lint must pass every drawn ledger item the
+    engine can produce: with and without GeoNames."""
+    from studio.engine.render import LICENCE_OK
+    plain = spec()
+    geo = spec()
+    geo["places"][0]["geonameid"] = 1
+    geo["sources"].append({"id": maps.GEONAMES, "licence": "CC BY 4.0"})
+    for s in (plain, geo):
+        lic = maps.ledger_fields(s)["licence"]
+        assert LICENCE_OK.fullmatch(lic), lic
+        assert lic == lic.strip() and lic in ("CC0", "CC-BY-4.0")
+
+
+def _with_award(s, note=True):
+    s["layers"][3]["award"] = True
+    s["notes"] = (["Line approximate, from the award's description."] if note else ["Another note."])
+    return s
+
+
+def test_the_method_is_read_from_the_spec():
+    m = maps.method(spec())
+    assert m == {**m, "award_line": False, "geonames_positions": False}
+    assert "award" not in m["text"] and "GeoNames" not in m["text"]
+    s = _with_award(spec())
+    s["places"][0]["geonameid"] = 1
+    s["sources"].append({"id": maps.GEONAMES, "licence": "CC BY 4.0"})
+    m = maps.method(s)
+    assert m["award_line"] and m["approximate_note"] and m["geonames_positions"]
+    assert "award line" in m["text"] and "approximate" in m["text"] and "GeoNames" in m["text"]
+    assert maps.ledger_fields(s)["method"] == m
+
+
+def test_an_award_line_without_the_approximate_note_is_refused():
+    with pytest.raises(maps.MapRefused, match="Line approximate"):
+        maps.render_map(_with_award(spec(), note=False), GEO)
+
+
+def test_a_span_keeps_the_stretch_between_the_nearest_vertices():
+    line = [[0.0, 0.0], [1.0, 0.0], [2.0, 0.0], [3.0, 0.0], [4.0, 0.0]]
+    assert maps.span_line(line, {"from": [3.1, 0.05], "to": [1.0, 0.0]}) == line[1:4]
+    assert maps.span_line(line, {"from": [9.0, 9.0], "to": [1.0, 0.0]}) is None
+
+
+def test_a_spans_geonameid_needs_geonames_credited():
+    s = spec()
+    s["layers"][3]["span"] = {"from": [12.0, 10.1], "to": [11.8, 13.0], "basis": {"geonameid": 1}}
+    with pytest.raises(maps.MapRefused, match="GeoNames"):
+        maps.render_map(s, GEO)

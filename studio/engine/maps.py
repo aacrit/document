@@ -267,8 +267,11 @@ def check_spec(spec: dict) -> None:
     if src[0]["id"] != "Natural Earth" or len(src) < 2:
         raise MapRefused(f"{spec['id']}: sources are Natural Earth first, then at least one cited source")
     views = spec.get("views") or [spec]
-    if any("geonameid" in p for v in views for p in v.get("places", [])) and GEONAMES not in [x["id"] for x in src]:
-        raise MapRefused(f"{spec['id']}: places from GeoNames need the source {GEONAMES!r} on the frame")
+    if uses_geonames(spec) and GEONAMES not in [x["id"] for x in src]:
+        raise MapRefused(f"{spec['id']}: positions from GeoNames need the source {GEONAMES!r} on the frame")
+    if any(ly.get("award") for v in views for ly in v.get("layers", [])) and not has_approximate_note(spec):
+        raise MapRefused(f"{spec['id']}: an award line drawn on today's border needs the note "
+                         f"{APPROX_NOTE!r} on the frame")
     for v in views:
         if "extent" not in v:
             raise MapRefused(f"{spec['id']}: every view needs an extent")
@@ -300,6 +303,41 @@ def source_line(spec: dict) -> str:
     return "Data: " + data_source(spec)
 
 
+APPROX_NOTE = "Line approximate, from the award"
+
+
+def uses_geonames(spec: dict) -> bool:
+    return any(k == "geonameid" for k in _keys(spec))
+
+
+def has_approximate_note(spec: dict) -> bool:
+    return any(n.startswith(APPROX_NOTE) for n in spec.get("notes", []))
+
+
+def method(spec: dict) -> dict:
+    """What a map claims about how it was drawn, read from its spec: the ledger's
+    `method` is this, never hand-written."""
+    views = spec.get("views") or [spec]
+    layers = [ly for v in views for ly in v.get("layers", [])]
+    claims = {
+        "award_line": any(ly.get("award") for ly in layers),
+        "approximate_note": has_approximate_note(spec),
+        "geonames_positions": uses_geonames(spec),
+        "boundaries_not_drawn_note": any("not drawn" in n for n in spec.get("notes", [])),
+    }
+    text = ["base geography from Natural Earth"]
+    if claims["award_line"]:
+        text.append("the award line drawn on today's border (Natural Earth) only where the cited schedule runs")
+    if claims["approximate_note"]:
+        text.append("the frame notes the line is approximate")
+    if claims["geonames_positions"]:
+        text.append("named places positioned from GeoNames")
+    if claims["boundaries_not_drawn_note"]:
+        text.append("the frame states what is not drawn and why")
+    claims["text"] = "; ".join(text)
+    return claims
+
+
 def ledger_fields(spec: dict) -> dict:
     """What the drawn ledger says about a map, from the spec alone, so the mark
     plate, the ledger and the frame's source line always agree."""
@@ -307,8 +345,11 @@ def ledger_fields(spec: dict) -> dict:
     geo = GEONAMES in [s["id"] for s in spec["sources"]]
     return {"title": spec["title"], "data_source": ds, "source_short": spec["source_short"],
             "credit": "void document studio, drawn from " + ds,
-            "licence": "CC BY 4.0 (contains GeoNames data)" if geo else "CC0",
-            "data_sources": spec["sources"], "source_line": source_line(spec)}
+            # a canonical id the render engine's licence allowlist recognises; the why goes in licence_note
+            "licence": "CC-BY-4.0" if geo else "CC0",
+            "licence_note": ("contains GeoNames data (CC BY 4.0); Natural Earth public domain" if geo
+                             else "Natural Earth public domain"),
+            "data_sources": spec["sources"], "source_line": source_line(spec), "method": method(spec)}
 
 
 # --------------------------------------------------------------------------
@@ -388,6 +429,31 @@ def _polys_of(g) -> list:
     return []
 
 
+def _merge_touching(lines: list) -> list:
+    """Chain parts whose ends meet (in any order), so a dash pattern runs on across a
+    multi-part line instead of restarting at every short part. Deterministic: parts
+    are taken in their file order."""
+    rest = [list(ln) for ln in lines if ln]
+    out = []
+    while rest:
+        cur = rest.pop(0)
+        grew = True
+        while grew:
+            grew = False
+            for i, ln in enumerate(rest):
+                if _near(cur[-1], ln[0], 1e-6):
+                    cur = cur + ln[1:]
+                elif _near(ln[-1], cur[0], 1e-6):
+                    cur = ln + cur[1:]
+                else:
+                    continue
+                rest.pop(i)
+                grew = True
+                break
+        out.append(cur)
+    return out
+
+
 def _near(a, b, tol: float) -> bool:
     return abs(a[0] - b[0]) <= tol and abs(a[1] - b[1]) <= tol
 
@@ -416,6 +482,24 @@ def _clip_segment(p, q, box):
         if u0 > u1:
             return None
     return (p[0] + u0 * dx, p[1] + u0 * dy), (p[0] + u1 * dx, p[1] + u1 * dy)
+
+
+SPAN_TOL = 0.25  # degrees: a span's end must lie this close to a vertex of the line
+
+
+def span_line(line, span: dict):
+    """The stretch of `line` between the vertices nearest span["from"] and span["to"]
+    (each [lon, lat]), or None when either point is not on this line. Used where a
+    source describes a line by its ends (a schedule's junctions) on a longer border."""
+    def nearest(pt):
+        best = min(range(len(line)), key=lambda i: (line[i][0] - pt[0]) ** 2 + (line[i][1] - pt[1]) ** 2)
+        d = math.hypot(line[best][0] - pt[0], line[best][1] - pt[1])
+        return best if d <= SPAN_TOL else None
+    i, j = nearest(span["from"]), nearest(span["to"])
+    if i is None or j is None or i == j:
+        return None
+    a, b = sorted((i, j))
+    return line[a:b + 1]
 
 
 def clip_line(line, box) -> list[list]:
@@ -603,6 +687,8 @@ def _draw_layers(cv: Canvas, spec: dict, proj: Projection, geodata: Path, used: 
                 continue
             if clip and not _overlaps(bb, clip):
                 continue
+            if ly.get("geometry") and g["type"] != ly["geometry"]:
+                continue
             if ly.get("endpoints") and not _touches(_lines_of(g), ly["endpoints"], ly.get("tol", 0.03)):
                 continue
             n += 1
@@ -627,7 +713,11 @@ def _draw_layers(cv: Canvas, spec: dict, proj: Projection, geodata: Path, used: 
                 role, a, px, dash = LINE[style]
                 if lmask is None:
                     lmask, lmd = cv.mask()
-                for line in _lines_of(g):
+                for line in _merge_touching(_lines_of(g)):
+                    if ly.get("span"):
+                        line = span_line(line, ly["span"])
+                        if line is None:
+                            continue
                     parts = clip_line(line, clip) if clip else [line]
                     for part in parts:
                         pts = [proj(*p) for p in part]
