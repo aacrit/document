@@ -450,3 +450,15 @@ def test_a_mapping_in_where_is_refused():
         maps.render_map(s, GEO)
     with pytest.raises(maps.MapRefused, match="mapping"):
         maps._as_set({"in": ["BGD"]})
+
+
+def test_a_hand_drawn_path_along_an_unplaced_line_is_refused():
+    s = spec()
+    along = [[13.0, 10.3], [13.4, 12.0], [13.9, 12.9]]           # the fixture's BGD-IND feature, traced by hand
+    s["paths"] = [{"style": "line", "points": along}]
+    with pytest.raises(maps.MapRefused, match="hand-drawn 'line' path runs along the Bengal award"):
+        maps.render_map(s, GEO)
+    s["paths"] = [{"style": "border_today", "points": along}]
+    maps.render_map(s, GEO)
+    s["paths"] = [{"style": "line", "points": [[12.4, 11.6], [14.2, 11.0]], "arrow": True}]   # crossing it is a route
+    maps.render_map(s, GEO)

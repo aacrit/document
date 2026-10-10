@@ -1937,14 +1937,66 @@ def test_every_source_of_the_fixture_is_checked_and_passes(rendered):
     assert lint["status"] == "pass" and lint["evidence"]["files_checked"] >= 6 and lint["phase"] == "preflight"
 
 
-def test_until_renders_only_the_shots_that_start_before_it(film, tmp_path):
-    s = R.render(film, tmp_path / "o", height=HEIGHT, workers=2, min_free_gb=1, encode_preset="veryfast", until_s=5.0)
+def test_until_is_a_check_render_that_never_touches_the_full_master(film, rendered):
+    out = rendered["out"]
+    files = lambda: {str(p.relative_to(out)): J.sha256_file(p) for p in out.rglob("*") if p.is_file()
+                     and "check-" not in str(p.relative_to(out))}
+    before = files()
+    s = R.render(film, out, height=HEIGHT, workers=2, min_free_gb=1, encode_preset="veryfast", until_s=5.0)
+    assert files() == before                                   # master.mp4, sources.json, segments/ and work/ untouched
+    assert Path(s["master"]).name == "master.check-5s.mp4" and Path(s["sources"]).name == "sources.check-5s.json"
+    assert s["partial"] is True and s["until_s"] == 5.0 and s["rendered"] == ["S1", "S2", "S3"]
+    assert (out / "check-5s" / "segments").is_dir()
     pr = R.probe_video(Path(s["master"]))
-    assert s["rendered"] == ["S1", "S2", "S3"] and abs(pr["duration_s"] - s["duration_s"]) < 0.1
+    assert abs(pr["duration_s"] - s["duration_s"]) < 0.1
     evs = events(s)
+    assert evs[-1]["lens"] == "run.end" and evs[-1]["partial"] is True and evs[-1]["until_s"] == 5.0
+    roles = {e.get("role") for e in evs if e["kind"] == "artifact"}
+    assert "check-master" in roles and "master" not in roles and "segment" not in roles
     assert [e for e in evs if e["kind"] == "human" and e.get("override") == "--until"]
+    j = J.Journal(film="until-resume")
+    with pytest.raises(R.Refused):
+        R.render(film, out, height=HEIGHT, workers=1, min_free_gb=1, until_s=5.0, from_shot="S99", journal=j)
+    assert J.read(j.path)[-1]["resume"]["command"].endswith("--until 5")
+    doc = json.loads(Path(s["sources"]).read_text(encoding="utf-8"))
+    assert doc["partial"] is True and doc["master"] == "master.check-5s.mp4"
     with pytest.raises(R.Refused, match="--until"):
         R.trim_plan({"shots": [{"f0": 0}]}, 0)
+
+
+def test_a_truncated_jpeg_or_an_empty_wav_refuses_in_preflight(tmp_path):
+    from PIL import Image
+    film = make_film(tmp_path / "film")
+    jpg = film / "stills" / "FX-STILL-B.jpg"
+    Image.new("RGB", (395, 316), (120, 90, 60)).save(jpg, quality=95)
+    data = jpg.read_bytes()
+    jpg.write_bytes(data[: len(data) // 2])                   # the header and half the scan: verify() alone passes it
+    led = json.loads((film / "stills-ledger.json").read_text(encoding="utf-8"))
+    led["items"][1]["file"] = "FX-STILL-B.jpg"
+    (film / "stills-ledger.json").write_text(json.dumps(led), encoding="utf-8")
+    assert "truncated" in R.opens_as_image(jpg) and R.opens_as_image(film / "stills" / "FX-STILL-A.png") is None
+    (film / "audio" / "L2.wav").write_bytes(b"")
+    play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
+    j = J.Journal(film="truncated")
+    problems = R.preflight_sources(film, play, j, draft=True)    # a draft forgives a missing WAV, never an unreadable one
+    assert {(p["unit"], p["why"].split(":")[0]) for p in problems} == {("S4", "not a readable image"),
+                                                                       ("L2", "not a readable WAV")}
+
+
+def test_an_empty_decode_before_the_clips_end_raises_with_ffmpegs_message(plan, tmp_path, monkeypatch):
+    s6 = json.loads(json.dumps(next(s for s in plan["shots"] if s["id"] == "S6")))
+    bad = tmp_path / "bad.mp4"
+    bad.write_bytes(bytes(4096))
+    s6["_item"]["_path"] = str(bad)
+    monkeypatch.setattr(R.VideoReader, "tail_frame", lambda self: pytest.fail("a hold was assumed"))
+    r = R.VideoReader(s6, 0.5)
+    try:
+        assert not r.starts_in_hold()
+        with pytest.raises(R.EncodeError, match="no frames decoded for S6: .+"):
+            r.frame(0.5)
+    finally:
+        r.close()
+
 
 
 def test_narrator_drift_is_inconclusive_when_no_line_has_both_f0_and_centroid(tmp_path, monkeypatch):

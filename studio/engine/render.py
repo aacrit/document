@@ -351,11 +351,25 @@ def decodes_a_frame(path: Path | str) -> str | None:
     return f"no frame decoded{': ' + err[-200:] if err else ''}"
 
 
+def reads_as_wav(path: Path | str) -> str | None:
+    """None when soundfile reads the WAV's header and it holds at least one frame, else why not."""
+    import soundfile as sf
+    try:
+        info = sf.info(str(path))
+    except Exception as e:
+        return f"not a readable WAV: {type(e).__name__}: {e}"
+    return None if info.frames > 0 else "an empty WAV (0 frames)"
+
+
 def opens_as_image(path: Path | str) -> str | None:
-    """None when PIL reads the image file's header and structure, else why not."""
+    """None when PIL decodes every pixel of the image file, else why not. verify() alone
+    reads only the structure and passes a truncated JPEG, so the file is opened again and
+    loaded."""
     try:
         with Image.open(path) as im:
             im.verify()
+        with Image.open(path) as im:
+            im.load()
         return None
     except Exception as e:
         return f"not a readable image: {type(e).__name__}: {e}"
@@ -399,8 +413,13 @@ def preflight_sources(film: Path, play: dict, journal: Journal, *, draft: bool =
                 continue
             wav = voice_wav(film, ln)
             checked += 1
-            if not wav.exists() and not draft:
-                problems.append({"unit": ln["id"], "file": str(wav), "why": "voice WAV missing"})
+            if not wav.exists():
+                if not draft:
+                    problems.append({"unit": ln["id"], "file": str(wav), "why": "voice WAV missing"})
+                continue
+            why = reads_as_wav(wav)
+            if why:                                       # present but unreadable: refused even in a draft
+                problems.append({"unit": ln["id"], "file": str(wav), "why": why})
     journal.lint("sources-readable", not problems, stage="scout", unit="sources", phase="preflight",
                  evidence={"files_checked": checked, "problems": problems, "draft": draft,
                            "checks": "clips decode a frame, stills and drawn frames open, voice WAVs exist"})
@@ -1156,6 +1175,7 @@ class VideoReader:
         self.err = tempfile.TemporaryFile()
         self.src, self.vf, self.in_s = shot["_item"]["_path"], vf, float(shot["in_s"])
         self.src_dur = float((v.get("probe") or {}).get("duration_s") or 0.0)
+        self.src_fps = float((v.get("probe") or {}).get("fps") or 0.0) or float(FPS)
         self.proc = subprocess.Popen([ffmpeg(), "-v", "error", "-filter_threads", "1", "-threads", "1",
                                       "-ss", f"{ss:.4f}", "-t", f"{dur:.4f}", "-i", self.src,
                                       "-an", "-vf", vf, "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
@@ -1180,6 +1200,12 @@ class VideoReader:
             proc.wait()
         return last
 
+    def starts_in_hold(self) -> bool:
+        """The reader's seek point is at or past the source's last frame (one output frame of slack
+        for the conform's rounding). An empty decode from anywhere earlier is a real decode error
+        and raises with ffmpeg's own message."""
+        return self.src_dur > 0 and self.in_s + self.t0 >= self.src_dur - 1.0 / self.src_fps - 1.0 / FPS
+
     def tail_frame(self) -> bytes | None:
         """The clip's last decodable frame, conformed and fitted as every other frame is: the
         frame a hold shows. A reader that starts at or past it (the next shot dissolving out of a
@@ -1194,7 +1220,7 @@ class VideoReader:
             buf = self.proc.stdout.read(self.nbytes)
             if len(buf) < self.nbytes:
                 self.held += 1          # an output frame past the stream's last: the hold (GRAMMAR 7.1)
-                if self.last is None:
+                if self.last is None and self.starts_in_hold():
                     self.last = self.tail_frame()
                 break
             self.last, self.idx = buf, self.idx + 1
@@ -2470,7 +2496,11 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
     W, H = frame_size(height)
     journal = journal or Journal(film=film.name, out_dir=out)
     run_t0 = time.perf_counter()
-    resume_cmd = f"python -m studio.engine.render {film} --out {out} --res {height}"
+    resume_cmd = f"python -m studio.engine.render {film} --out {out} --res {height}" + (
+        f" --until {until_s:g}" if until_s is not None else "")
+    # A check render (--until) keeps its segments, mix and outputs apart: it never touches, or passes as, the full render.
+    check = f"check-{until_s:g}s" if until_s is not None else None
+    run_dir = out / check if check else out
     settings = {"height": H, "width": W, "fps": FPS, "workers": workers, "from": from_shot, "burn_subtitles": burn_subtitles,
                 "min_free_gb": min_free_gb, "encode_preset": encode_preset, "draft": draft, "fit_voices": fit_voices_opt,
                 "audio_only": audio_only, "until_s": until_s}
@@ -2534,7 +2564,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
                 raise Refused(f"--from {from_shot}: no such shot (shots: {', '.join(ids)})")
             from_idx = ids.index(from_shot)
 
-        seg_dir = out / "segments"
+        seg_dir = run_dir / "segments"
         seg_dir.mkdir(parents=True, exist_ok=True)
         asset_hash = {}
         for s in plan["shots"]:
@@ -2572,8 +2602,8 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         # Audio first (cheap), so the marks event can carry the voice shares.
         current.update(stage="assembly", unit="mix")
         journal.stage("assembly", "start")
-        work = out / "work"
-        work.mkdir(exist_ok=True)
+        work = run_dir / "work"
+        work.mkdir(parents=True, exist_ok=True)
         with journal.unit("assembly", "mix", size={"driver": "seconds", "value": round(plan["duration_s"], 3)}) as u:
             mix, placed = build_mix(plan, film, journal, draft=draft)
             import soundfile as sf
@@ -2596,6 +2626,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         if audio_only:                       # --audio-only: the pre-flight and the sound, no frames and no master
             journal.stage("assembly", "done", detail={"audio_only": True})
             summary = {"run": journal.run, "journal": str(journal.path), "mix": str(work / "mix-norm.wav"), "loudness": loud,
+                       "partial": bool(check), "until_s": until_s,
                        "frames": 0, "duration_s": plan["duration_s"], "wall_s": round(time.perf_counter() - run_t0, 2)}
             journal.event("stage", "run", None, lens="run.end", status="done", outcome="ok", audio_only=True,
                           **{k: v for k, v in summary.items() if k != "loudness"})
@@ -2737,7 +2768,8 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         out.mkdir(parents=True, exist_ok=True)
         listing = work / "segments.txt"
         listing.write_text("".join(f"file '{segs[i].as_posix()}'\n" for i in range(len(plan["shots"]))), encoding="utf-8")
-        master = out / "master.mp4"
+        master = out / (f"master.{check}.mp4" if check else "master.mp4")
+        sources_path = out / (f"sources.{check}.json" if check else "sources.json")
         threads = MASTER_THREADS          # fixed, so the master's bytes never depend on --workers
         enc_settings = {"codec": "libx264", "preset": encode_preset, "crf": MASTER_CRF, "pix_fmt": "yuv420p", "fps": FPS,
                         "color": "bt709", "audio": "aac 192k 48 kHz", "threads": threads}
@@ -2765,19 +2797,22 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         if not ok_fmt:
             raise Refused(f"the master is {pr['width']}x{pr['height']} at {pr['fps']} fps with {pr['frames']} frames; "
                           f"expected {W}x{H} at 24 with {plan['frames']}")
-        doc = sources_doc(plan, journal, {"loudness": loud, "master": "master.mp4"})
-        (out / "sources.json").write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
+        extra = {"loudness": loud, "master": master.name}
+        if check:
+            extra.update(partial=True, until_s=until_s)
+        doc = sources_doc(plan, journal, extra)
+        sources_path.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
         for i in range(len(plan["shots"])):
-            journal.artifact("motion", segs[i], unit=ids[i], role="segment")
-        journal.artifact("assembly", master, role="master")
-        journal.artifact("assembly", out / "sources.json", role="sources")
+            journal.artifact("motion", segs[i], unit=ids[i], role="check-segment" if check else "segment")
+        journal.artifact("assembly", master, role="check-master" if check else "master")
+        journal.artifact("assembly", sources_path, role="check-sources" if check else "sources")
         journal.stage("assembly", "done")
         wall = time.perf_counter() - run_t0
         journal.timing("run", "total", wall, size={"driver": "seconds", "value": round(dur, 3), "frames": plan["frames"]},
                        model=ENGINE_MODEL, settings=dict(settings, workers=n))
-        summary = {"run": journal.run, "journal": str(journal.path), "master": str(master), "sources": str(out / "sources.json"),
+        summary = {"run": journal.run, "journal": str(journal.path), "master": str(master), "sources": str(sources_path),
                    "frames": plan["frames"], "duration_s": dur, "wall_s": round(wall, 2), "rendered": [ids[i] for i in todo],
-                   "cached": [ids[i] for i in cached], "workers": n}
+                   "cached": [ids[i] for i in cached], "workers": n, "partial": bool(check), "until_s": until_s}
         journal.event("stage", "run", None, lens="run.end", status="done", outcome="ok", **summary)
         return summary
     except BaseException as exc:
