@@ -183,12 +183,14 @@ class Journal:
         return self.event("stage", stage, None, lens=lens, status=status, machine=self.machine(), **payload)
 
     def lint(self, rule: str, passed: bool, *, stage: str = "marks", unit: str | None = None, severity: str = "block",
-             evidence=None, grammar: str | None = None, phase: str | None = None) -> dict:
+             evidence=None, grammar: str | None = None, phase: str | None = None, status: str | None = None) -> dict:
         """severity: block (fails the render), warn (journaled, render goes on)
         or review (a reviewer-check item: the engine cannot judge it). phase:
         preflight (decided from the plan before any frame is rendered) or
-        post-render (a second confirmation on the rendered pixels)."""
-        status = "review" if severity == "review" else ("pass" if passed else "fail")
+        post-render (a second confirmation on the rendered pixels). status
+        overrides the result: ``inconclusive`` when the check could not
+        measure (it does not block; another check stays authoritative)."""
+        status = status or ("review" if severity == "review" else ("pass" if passed else "fail"))
         extra = {"phase": phase} if phase else {}
         return self.event("lint", stage, unit, rule=rule, status=status, severity=severity, grammar=grammar,
                           evidence=evidence, **extra)
