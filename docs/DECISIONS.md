@@ -94,3 +94,10 @@ Founder: "Dont audition, take your call." Five South Asian men's voices are fixe
 
 ## 2026-10-10: Programme loudness -18 LUFS (Chief of Staff ruling, GRAMMAR A15)
 The master target moves from -16 to -18 LUFS integrated, -1.5 dBTP, matching GRAMMAR 8.5's dialogue level and the founder's "calm". At -16 the per-line voice ceiling (-7.8 dBTP) forced six natural-sounding reader takes to fail peak control; at -18 (ceiling about -4.8 dBTP) none fail. Evidence: test of all 29 episode reader takes against the engine's own voice_peak_control.
+
+## 2026-10-10: DaVinci Resolve Studio joins the studio (founder, in chat)
+The founder's existing DaVinci Resolve Studio 20.1 licence is used (sunk cost; $0 running). The engine stays the source of truth (deterministic, linted, journaled). Resolve takes three jobs, each scripted and journaled:
+- R1 Restoration pre-pass: deflicker, dust removal, temporal noise reduction and stabilisation on archival clips via the Neural Engine, producing new clip files recorded in the footage ledger. Restored clips are marked RECONSTRUCTED with the treatments named ("restored: deflicker, dust, noise, stabilised"), on the same footing as the colour-cast ruling.
+- R2 Director's-cut round-trip: the engine exports each film as an OpenTimelineIO timeline for Resolve; edits made there are read back into the screenplay and must re-pass every rule before render.
+- R3 Mastering and delivery: final master and upload to the founder's YouTube channel from Resolve's Deliver page, which avoids the YouTube API audit; the founder clicks publish.
+Resolve runs on the GPU, so it takes the GPU lock: never at the same time as Orpheus or another render.
