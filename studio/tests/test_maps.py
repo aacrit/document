@@ -15,6 +15,18 @@ import pytest
 from studio.engine import maps
 
 FIX = Path(__file__).resolve().parent / "fixture" / "maps"
+GEO: Path = FIX  # replaced by the generated geodata folder before any test runs
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _geodata(tmp_path_factory):
+    """R-08: the fixture's GeoJSON is written at test time, never tracked."""
+    import sys
+    sys.path.insert(0, str(FIX))
+    import make_geodata
+    global GEO
+    GEO = make_geodata.write(tmp_path_factory.mktemp("geodata"))
+    yield
 
 
 def spec() -> dict:
@@ -22,8 +34,8 @@ def spec() -> dict:
 
 
 @pytest.fixture(scope="module")
-def rendered():
-    return maps.render_map(spec(), FIX)
+def rendered(_geodata):
+    return maps.render_map(spec(), GEO)
 
 
 def test_a_map_is_a_1920x1080_rgb_frame(rendered):
@@ -34,7 +46,7 @@ def test_a_map_is_a_1920x1080_rgb_frame(rendered):
 
 def test_a_map_renders_the_same_bytes_twice(rendered):
     img, _ = rendered
-    again, _ = maps.render_map(spec(), FIX)
+    again, _ = maps.render_map(spec(), GEO)
     a, b = maps.png_bytes(img), maps.png_bytes(again)
     assert hashlib.sha256(a).hexdigest() == hashlib.sha256(b).hexdigest()
 
@@ -42,6 +54,7 @@ def test_a_map_renders_the_same_bytes_twice(rendered):
 def test_the_frame_carries_its_source_line(rendered):
     img, info = rendered
     assert info["source_line"] == "Data: Natural Earth; fixture-src:p1"
+    assert info["source_line"] == maps.ledger_fields(spec())["source_line"]
     box = [b for b in info["boxes"] if b["kind"] == "source"]
     assert len(box) == 1 and box[0]["text"] == info["source_line"]
     x0, y0, x1, y1 = (int(round(v)) for v in box[0]["box"])
@@ -66,7 +79,7 @@ def test_a_spec_without_natural_earth_and_a_licensed_cited_source_is_refused(sou
     s = spec()
     s["sources"] = sources
     with pytest.raises(maps.MapRefused):
-        maps.render_map(s, FIX)
+        maps.render_map(s, GEO)
 
 
 def test_the_palette_reads_tokens_css():
@@ -84,8 +97,8 @@ def test_changing_a_token_changes_the_map(tmp_path):
     alt = tmp_path / "tokens.css"
     alt.write_text(src.replace("--doc-cold: #2f5fa8;", "--doc-cold: #3a6ab0;"), encoding="utf-8")
     assert maps.palette(alt)["cold"][:3] == (0x3A, 0x6A, 0xB0)
-    a, _ = maps.render_map(spec(), FIX)
-    b, _ = maps.render_map(spec(), FIX, tokens=alt)
+    a, _ = maps.render_map(spec(), GEO)
+    b, _ = maps.render_map(spec(), GEO, tokens=alt)
     assert maps.png_bytes(a) != maps.png_bytes(b)
 
 
@@ -121,53 +134,54 @@ def test_a_spec_never_carries_a_colour(key, value):
     s = spec()
     s["layers"][0][key] = value
     with pytest.raises(maps.MapRefused, match="colour"):
-        maps.render_map(s, FIX)
+        maps.render_map(s, GEO)
 
 
 def test_a_colour_literal_in_spec_text_is_refused():
     s = spec()
     s["notes"] = ["drawn in #2f5fa8"]
     with pytest.raises(maps.MapRefused):
-        maps.render_map(s, FIX)
+        maps.render_map(s, GEO)
 
 
 def test_an_em_dash_in_on_screen_copy_is_refused():
     s = spec()
     s["title"] = "A map — of nothing"
     with pytest.raises(maps.MapRefused, match="em dash"):
-        maps.render_map(s, FIX)
+        maps.render_map(s, GEO)
 
 
 def test_an_unknown_style_is_refused():
     s = spec()
     s["layers"][0]["style"] = "glow"
     with pytest.raises(maps.MapRefused, match="style"):
-        maps.render_map(s, FIX)
+        maps.render_map(s, GEO)
 
 
 def test_text_never_enters_the_mark_plate_zone():
     s = spec()
     s["labels"].append({"text": "In the mark zone", "style": "note", "lon": 9.6, "lat": 14.1})
     with pytest.raises(maps.MapRefused, match="mark zone"):
-        maps.render_map(s, FIX)
+        maps.render_map(s, GEO)
 
 
 def test_text_never_enters_the_watermark_zone():
     s = copy.deepcopy(spec())
-    for k in ("title", "legend", "notes"):
+    for k in ("legend", "notes"):
         s.pop(k)
+    s["show_title"] = False
     s["extent"] = [12.0, 12.0, 14.8, 14.2]
     s["frame"] = [0.5, 0.02, 0.98, 0.5]
     s["labels"].append({"text": "Under the watermark", "style": "note", "lon": 14.7, "lat": 14.15, "align": "r"})
     with pytest.raises(maps.MapRefused, match="watermark zone"):
-        maps.render_map(s, FIX)
+        maps.render_map(s, GEO)
 
 
 def test_a_layer_that_matches_nothing_is_refused():
     s = spec()
     s["layers"][2]["where"] = {"name": "No such river"}
     with pytest.raises(maps.MapRefused, match="matched nothing"):
-        maps.render_map(s, FIX)
+        maps.render_map(s, GEO)
 
 
 def test_a_clipped_line_keeps_only_the_part_inside_the_box():
@@ -178,8 +192,86 @@ def test_a_clipped_line_keeps_only_the_part_inside_the_box():
 def test_two_views_render_side_by_side():
     s = spec()
     view = {k: s.pop(k) for k in ("extent", "layers", "places", "labels")}
+    view["labels"] = []
     s["views"] = [{**view, "name": "a", "frame": [0.04, 0.25, 0.35, 0.9]},
                   {**view, "name": "b", "frame": [0.36, 0.25, 0.68, 0.9]}]
-    img, info = maps.render_map(s, FIX)
+    img, info = maps.render_map(s, GEO)
     assert img.size == (1920, 1080)
     assert sum(1 for b in info["boxes"] if b["text"] == "Alpha") == 2
+
+
+def test_the_ledger_fields_come_from_the_spec_alone():
+    led = maps.ledger_fields(spec())
+    assert led["title"] == "A fixture map"
+    assert led["data_source"] == "Natural Earth; fixture-src:p1"
+    assert led["credit"] == "void document studio, drawn from Natural Earth; fixture-src:p1"
+    assert led["source_short"] == "Fixture source, page 1" and led["licence"] == "CC0"
+
+
+def test_geonames_places_need_geonames_credited_and_make_the_frame_cc_by():
+    s = spec()
+    s["places"][0]["geonameid"] = 1
+    with pytest.raises(maps.MapRefused, match="GeoNames"):
+        maps.render_map(s, GEO)
+    s["sources"].append({"id": maps.GEONAMES, "licence": "CC BY 4.0"})
+    _, info = maps.render_map(s, GEO)
+    assert info["source_line"].endswith("GeoNames (CC BY 4.0)")
+    assert maps.ledger_fields(s)["licence"] == "CC BY 4.0 (contains GeoNames data)"
+
+
+@pytest.mark.parametrize("short,ok", [("x" * 40, True), ("x" * 41, False)])
+def test_source_short_fits_the_plate(short, ok):
+    s = spec()
+    s["source_short"] = short
+    if ok:
+        maps.check_spec(s)
+    else:
+        with pytest.raises(maps.MapRefused, match="source_short"):
+            maps.check_spec(s)
+
+
+def test_overlapping_labels_are_refused():
+    s = spec()
+    s["labels"].append({"text": "Fixture river", "style": "river", "lon": 12.62, "lat": 11.01})
+    s["labels"][-1]["text"] = "Another label"
+    with pytest.raises(maps.MapRefused, match="overlap"):
+        maps.render_map(s, GEO)
+
+
+def test_an_arrow_whose_last_points_coincide_is_refused():
+    s = spec()
+    s["paths"] = [{"points": [[11.0, 11.0], [12.0, 12.0], [12.0, 12.0]], "style": "line_dashed", "arrow": True}]
+    with pytest.raises(maps.MapRefused, match="same place"):
+        maps.render_map(s, GEO)
+
+
+def test_text_clipped_by_a_view_frame_is_refused():
+    s = spec()
+    view = {k: s.pop(k) for k in ("extent", "layers", "places", "labels")}
+    view["labels"].append({"text": "Off the edge of this view", "style": "region", "lon": 14.6, "lat": 12.0})
+    s["views"] = [{**view, "name": "a", "frame": [0.04, 0.25, 0.35, 0.9]}]
+    with pytest.raises(maps.MapRefused, match="clipped"):
+        maps.render_map(s, GEO)
+
+
+def test_two_sides_share_one_weight_and_differ_by_hatch(tmp_path):
+    a, b = maps.POLY["side_a"], maps.POLY["side_b"]
+    assert a[:4] == b[:4] and a[4] == -b[4] != 0
+    s = spec()
+    s["layers"].insert(1, {"file": "land.geojson", "style": "side_a", "where": {"ADM0_A3": "FIX"}})
+    s["layers"].insert(2, {"file": "land.geojson", "style": "side_b", "where": {"ADM0_A3": "FXE"}})
+    img, _ = maps.render_map(s, GEO)
+    arr = np.asarray(img).astype(float)
+    proj = maps.Projection(s["extent"], maps.DEFAULT_FRAME, (1920, 1080))
+
+    def patch(lon, lat):
+        x, y = (int(v) for v in proj(lon, lat))
+        return arr[y - 30:y + 30, x - 30:x + 30].mean()
+    assert abs(patch(10.6, 10.9) - patch(13.3, 11.0)) < 6, "equal weight on both sides"
+
+
+def test_the_plate_prints_the_short_source():
+    from studio.engine.render import mark_detail
+    item = {"data_source": "Natural Earth; a very long list of cited sources, items and pages", "source_short": "Short"}
+    assert mark_detail({"mark": "DRAWN"}, item) == "from Short"
+    assert mark_detail({"mark": "DRAWN"}, {"data_source": "Long"}) == "from Long"

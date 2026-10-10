@@ -391,7 +391,10 @@ def mark_detail(shot: dict, item: dict | None) -> str:
     if cls == "AI-GENERATED":
         return "context"
     if cls == "DRAWN":
-        src = shot.get("data_source") or (item or {}).get("data_source") or (item or {}).get("mark_detail_source") or ""
+        # the plate prints the ledger's short form (at most 40 characters, so it fits the frame);
+        # the full data source goes to the credits and the Sources page
+        src = (shot.get("data_source") or (item or {}).get("source_short") or (item or {}).get("data_source")
+               or (item or {}).get("mark_detail_source") or "")
         return f"from {src}".strip()
     archive = (item or {}).get("archive_short") or (item or {}).get("archive") or ""
     detail = f"{archive} {year_of(item or {}) or ''}".strip()

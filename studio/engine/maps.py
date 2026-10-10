@@ -37,7 +37,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 from . import motion as M
 
@@ -164,14 +164,17 @@ def _with_alpha(c, a: float):
 # Styles: the closed vocabulary a spec may name.
 # --------------------------------------------------------------------------
 
-# polygons: (fill role, fill alpha, outline role or None, outline px)
+# polygons: (fill role, fill alpha, outline role or None, outline px, hatch angle in degrees or None)
 POLY = {
-    "land": ("land", 1.0, None, 0),
-    "focus": ("focus", 1.0, None, 0),
-    "water": ("sea", 1.0, None, 0),
-    "shade": ("cold", 0.62, "cold_text", 2),
-    "shade_alt": ("cold_text", 0.30, "cold_text", 2),
+    "land": ("land", 1.0, None, 0, None),
+    "focus": ("focus", 1.0, None, 0, None),
+    "water": ("sea", 1.0, None, 0, None),
+    "shade": ("cold", 0.62, "cold_text", 2, None),
+    # two sides of one division at equal weight: the same fill, told apart by the hatch's direction
+    "side_a": ("cold", 0.42, "cold_text", 2, 45),
+    "side_b": ("cold", 0.42, "cold_text", 2, -45),
 }
+HATCH = dict(role="cold_text", alpha=0.5, px=1.6, gap=14)
 # lines: (role, alpha, px, dash px or None)
 LINE = {
     "coast": ("faint", 0.6, 1.4, None),
@@ -216,6 +219,8 @@ FULL_FRAME = (0.04, 0.08, 0.96, 0.92)     # when there is no panel
 # Spec checks
 # --------------------------------------------------------------------------
 
+GEONAMES = "GeoNames (CC BY 4.0)"
+SOURCE_SHORT_MAX = 40
 _COLOUR_VALUE = re.compile(r"#[0-9a-fA-F]{3,8}\b|\b(?:rgb|rgba|hsl|hsla|oklch)\(")
 _COLOUR_KEYS = {"color", "colour", "fill", "stroke", "rgb", "hex"}
 
@@ -242,9 +247,12 @@ def _keys(o):
 
 
 def check_spec(spec: dict) -> None:
-    for k in ("id", "sources"):
+    for k in ("id", "title", "source_short", "sources"):
         if k not in spec:
             raise MapRefused(f"spec lacks {k}")
+    if len(spec["source_short"]) > SOURCE_SHORT_MAX:
+        raise MapRefused(f"{spec['id']}: source_short is {len(spec['source_short'])} characters; "
+                         f"the plate holds {SOURCE_SHORT_MAX}")
     bad = sorted(set(k.lower() for k in _keys(spec)) & _COLOUR_KEYS)
     if bad:
         raise MapRefused(f"{spec['id']}: a spec never carries a colour ({bad[0]}); name a style")
@@ -259,6 +267,8 @@ def check_spec(spec: dict) -> None:
     if src[0]["id"] != "Natural Earth" or len(src) < 2:
         raise MapRefused(f"{spec['id']}: sources are Natural Earth first, then at least one cited source")
     views = spec.get("views") or [spec]
+    if any("geonameid" in p for v in views for p in v.get("places", [])) and GEONAMES not in [x["id"] for x in src]:
+        raise MapRefused(f"{spec['id']}: places from GeoNames need the source {GEONAMES!r} on the frame")
     for v in views:
         if "extent" not in v:
             raise MapRefused(f"{spec['id']}: every view needs an extent")
@@ -282,8 +292,23 @@ def check_spec(spec: dict) -> None:
             raise MapRefused(f"{spec['id']}: unknown legend style {e.get('style')}")
 
 
+def data_source(spec: dict) -> str:
+    return "; ".join(s["id"] for s in spec["sources"])
+
+
 def source_line(spec: dict) -> str:
-    return "Data: " + "; ".join(s["id"] for s in spec["sources"])
+    return "Data: " + data_source(spec)
+
+
+def ledger_fields(spec: dict) -> dict:
+    """What the drawn ledger says about a map, from the spec alone, so the mark
+    plate, the ledger and the frame's source line always agree."""
+    ds = data_source(spec)
+    geo = GEONAMES in [s["id"] for s in spec["sources"]]
+    return {"title": spec["title"], "data_source": ds, "source_short": spec["source_short"],
+            "credit": "void document studio, drawn from " + ds,
+            "licence": "CC BY 4.0 (contains GeoNames data)" if geo else "CC0",
+            "data_sources": spec["sources"], "source_line": source_line(spec)}
 
 
 # --------------------------------------------------------------------------
@@ -475,7 +500,7 @@ class Canvas:
         return M._measure(text, f, None if which == "data" else self.data_font(pct_h))
 
     def text(self, xy, text: str, which: str, pct_h: float, role: str, *, anchor="ls", halo=True,
-             kind="label", alpha=1.0) -> tuple:
+             kind="label", alpha=1.0, group=None) -> tuple:
         """Draw at a baseline-left (ls) or other anchor; numerals ride the data face."""
         f = self.font(which, pct_h)
         df = None if which == "data" else self.data_font(pct_h)
@@ -503,7 +528,8 @@ class Canvas:
             self.shape("halo", 1.0, lambda md: glyphs(md, stroke))
         self.shape(role, alpha, lambda md: glyphs(md, 0))
         box = ((x - stroke) / SS, (y - asc - stroke) / SS, (x + w + stroke) / SS, (y + desc + stroke) / SS)
-        self.boxes.append({"kind": kind, "text": text, "box": box})
+        self.boxes.append({"kind": kind, "text": text, "box": box,
+                           "group": group if group is not None else len(self.boxes)})
         return box
 
     def mask(self) -> tuple[Image.Image, ImageDraw.ImageDraw]:
@@ -581,7 +607,7 @@ def _draw_layers(cv: Canvas, spec: dict, proj: Projection, geodata: Path, used: 
                 continue
             n += 1
             if style in POLY:
-                role, a, orole, opx = POLY[style]
+                role, a, orole, opx, _ = POLY[style]
                 if orole and omask is None:
                     omask, omd = cv.mask()
                 if fmask is None:
@@ -608,12 +634,27 @@ def _draw_layers(cv: Canvas, spec: dict, proj: Projection, geodata: Path, used: 
                         _line_on(lmd, [(x * SS, y * SS) for x, y in pts], 255, px, dash)
         if fmask is not None:
             cv.composite(fmask, POLY[style][0], POLY[style][1])
+            if POLY[style][4] is not None:
+                cv.composite(ImageChops.multiply(fmask, _hatch(cv.img.size, POLY[style][4])), HATCH["role"], HATCH["alpha"])
         if omask is not None:
             cv.composite(omask, POLY[style][2], 0.9)
         if lmask is not None:
             cv.composite(lmask, LINE[style][0], LINE[style][1])
         if n == 0:
             raise MapRefused(f"{spec['id']}: layer {ly['file']} {ly.get('where') or ''} matched nothing in view")
+
+
+def _hatch(size, angle: float) -> Image.Image:
+    """Parallel lines at `angle` degrees across the whole canvas (a coverage mask)."""
+    m = Image.new("L", size, 0)
+    d = ImageDraw.Draw(m)
+    Wp, Hp = size
+    gap = HATCH["gap"] * SS
+    t = math.tan(math.radians(angle))
+    span = int(abs(t) * Hp) + Wp
+    for x0 in range(-span, span, gap):
+        d.line([(x0, 0), (x0 + t * Hp, Hp)], fill=255, width=max(1, round(HATCH["px"] * SS)))
+    return m
 
 
 _OFF = {"e": (1, 0), "w": (-1, 0), "n": (0, -1), "s": (0, 1),
@@ -667,7 +708,7 @@ def _draw_places(cv: Canvas, spec: dict, proj: Projection) -> None:
         for text, fw, sz, rl in lines:
             fa, fd = cv.font(fw, sz).getmetrics()
             base = top + fa
-            cv.text((lx, base), text, fw, sz, rl, anchor=ax + "s", kind="place")
+            cv.text((lx, base), text, fw, sz, rl, anchor=ax + "s", kind="place", group=("place", spec["id"], name))
             top = base + fd * 0.6
 
 
@@ -684,7 +725,8 @@ def _draw_labels(cv: Canvas, spec: dict, proj: Projection) -> None:
         lh = (asc + desc) * 1.08
         y0 = y * SS - lh * (len(lines) - 1) / 2
         for i, t in enumerate(lines):
-            cv.text((x * SS, y0 + i * lh), t, font, size, lb.get("role", role), anchor=anchor, kind="label")
+            cv.text((x * SS, y0 + i * lh), t, font, size, lb.get("role", role), anchor=anchor, kind="label",
+                    group=("label", spec["id"], lb["text"]))
 
 
 def _wrap(cv: Canvas, text: str, which: str, pct: float, max_w: float) -> list[str]:
@@ -705,11 +747,13 @@ def _swatch(cv: Canvas, style: str, x: float, y: float, w: float) -> None:
         role, a, px, dash = LINE[style]
         cv.shape(role, a, lambda md: _line_on(md, [(x, y), (x + w, y)], 255, px, dash))
     elif style in POLY:
-        role, a, orole, _ = POLY[style]
+        role, a, orole, _, hatch = POLY[style]
         h = 0.55 * w
         m, md = cv.mask()
         md.rectangle([x, y - h / 2, x + w, y + h / 2], fill=255)
         cv.composite(m, role, a)
+        if hatch is not None:
+            cv.composite(ImageChops.multiply(m, _hatch(cv.img.size, hatch)), HATCH["role"], HATCH["alpha"])
         m, md = cv.mask()
         md.rectangle([x, y - h / 2, x + w, y + h / 2], outline=255, width=SS)
         cv.composite(m, orole or "faint", 1.0)
@@ -733,7 +777,7 @@ def _draw_panel(cv: Canvas, spec: dict) -> None:
     cv.d = ImageDraw.Draw(cv.img, "RGBA")
     y = PANEL["top"] * H * SS
     maxw = x1 - x0
-    if spec.get("title"):
+    if spec.get("title") and spec.get("show_title", True):
         f = cv.font("display", SIZES["title"])
         asc, desc = f.getmetrics()
         for ln in _wrap(cv, spec["title"], "display", SIZES["title"], maxw):
@@ -785,6 +829,8 @@ def _draw_paths(cv: Canvas, spec: dict, proj: Projection) -> None:
         if pth.get("arrow"):  # stop short of the last town's marker
             (x0, y0), (x1, y1) = pts[-2], pts[-1]
             L = math.hypot(x1 - x0, y1 - y0)
+            if L < 1.0:
+                raise MapRefused(f"{spec['id']}: an arrow's last two points are the same place")
             back = min(14.0, L / 3)
             pts[-1] = (x1 - (x1 - x0) * back / L, y1 - (y1 - y0) * back / L)
         m, md = cv.mask()
@@ -810,6 +856,10 @@ def _intersects(a, b) -> bool:
     return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
 
+def _shrink(b, d: float) -> tuple:
+    return b[0] + d, b[1] + d, b[2] - d, b[3] - d
+
+
 def _zone(z) -> tuple:
     return z[0] * W, z[1] * H, z[2] * W, z[3] * H
 
@@ -822,7 +872,8 @@ def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
     fonts = fonts or M.Fonts()
     pal = palette(tokens)
     cv = Canvas(pal, fonts)
-    panel = bool(spec.get("title") or spec.get("legend") or spec.get("notes") or spec.get("figures"))
+    show_title = spec.get("show_title", True)
+    panel = bool((show_title and spec.get("title")) or spec.get("legend") or spec.get("notes") or spec.get("figures"))
     frame = tuple(spec.get("frame") or (DEFAULT_FRAME if panel else FULL_FRAME))
     used: dict[str, str] = {}
     views = spec.get("views")
@@ -834,8 +885,14 @@ def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
             vf = tuple(v["frame"])
             sub = Canvas(pal, fonts)
             sub.boxes = cv.boxes
+            before = len(cv.boxes)
             _draw_view(sub, {**v, "id": f"{spec['id']}/{v.get('name', '')}"}, Projection(v["extent"], vf, (W, H)),
                        Path(geodata), used)
+            fx0, fy0, fx1, fy1 = vf[0] * W, vf[1] * H, vf[2] * W, vf[3] * H
+            for b in cv.boxes[before:]:
+                bx = b["box"]
+                if bx[0] < fx0 or bx[1] < fy0 or bx[2] > fx1 or bx[3] > fy1:
+                    raise MapRefused(f"{spec['id']}: text {b['text']!r} is clipped by its view's frame")
             mask = Image.new("L", cv.img.size, 0)
             ImageDraw.Draw(mask).rectangle([vf[0] * W * SS, vf[1] * H * SS, vf[2] * W * SS, vf[3] * H * SS], fill=255)
             cv.img.paste(sub.img, (0, 0), mask)
@@ -861,6 +918,11 @@ def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
             for name, z in COVERED.items():
                 if _intersects(bx, _zone(z)):
                     warnings.append(f"{b['text']!r} sits in the {name} zone")
+    labels = [b for b in cv.boxes if b["kind"] in ("place", "label")]
+    for i, a in enumerate(labels):
+        for b in labels[i + 1:]:
+            if a["group"] != b["group"] and _intersects(_shrink(a["box"], 2), _shrink(b["box"], 2)):
+                raise MapRefused(f"{spec['id']}: labels {a['text']!r} and {b['text']!r} overlap")
     img = cv.img.resize((W, H), Image.LANCZOS).convert("RGB")
     info = {"id": spec["id"], "source_line": src, "boxes": cv.boxes, "geodata": used, "warnings": warnings,
             "size": [W, H]}
@@ -914,7 +976,7 @@ def main(argv=None) -> int:
         dst.write_bytes(data)
         written.append(dst)
         report.append({"id": spec["id"], "file": str(dst), "sha256": hashlib.sha256(data).hexdigest(),
-                       "geodata": info["geodata"], "warnings": info["warnings"]})
+                       "geodata": info["geodata"], "warnings": info["warnings"], "ledger": ledger_fields(spec)})
         print(f"{spec['id']}: {dst} sha256 {report[-1]['sha256'][:16]}"
               + (f"  warnings: {'; '.join(info['warnings'])}" if info["warnings"] else ""))
     (out / "maps-render.json").write_text(json.dumps(report, indent=1, ensure_ascii=False), encoding="utf-8")
