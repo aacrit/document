@@ -107,3 +107,6 @@ The episode screenplay's narration lines carry a `delivery` (mood, intensity, pa
 
 ## 2026-10-10: Draw less rather than draw falsely precise (Chief of Staff ruling, maps)
 After three review rounds on the Bengal award line (each anchor choice either included part of the 1947 Bengal-Bihar frontier, which became West Bengal only in 1956, or claimed junction points no open dataset places), the Bengal award line is not drawn as a solid line at all: today's border is shown dashed and labelled as today's, and the frame says the award's line cannot be drawn from open data. A drawn line is a claim; where the data cannot support the claim, the map shows less and says why.
+
+## 2026-10-10: The pilot goes live on document.voidvision.org (founder, in chat)
+The Partition pilot episode is published on document.voidvision.org, with the complete site UI from the G2 design (screening room, film page with marks and captions, sources, corrections), a link to void history's Partition page (news.voidvision.org/history/partition-of-india/) and a shout-out to the void family (void news, void history). It goes live through the G3 launch gate and /release.
