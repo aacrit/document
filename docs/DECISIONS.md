@@ -68,3 +68,6 @@ Narrator: Orpheus 3B "tara", the same voice as void history, for every void docu
 
 ## 2026-10-10: G2 approved (founder, in chat)
 Design sign-off for void document: films/GRAMMAR.md (with amendments A1 to A9), films/partition-of-india/TREATMENT.md (revision 2), design/ (spec, tokens, BRAND, mocks) and design/brand-kit/ (watermark, lower thirds, motion.py), narrator Tara, readers in their own world's English. Packet: https://claude.ai/artifact/5UH3a2BuTjcWmMVAiKVoCp. The product stays in Blueprint until the build slot is free (Ratio holds it, R-07).
+
+## 2026-10-10: void document takes the build slot (founder, in chat)
+The founder moved void document into build, overtaking Ratio, which is on hold in Blueprint with nothing torn down (production still serves release/2026.10.03-1). R-07 holds: one product in build.
