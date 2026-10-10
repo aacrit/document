@@ -33,12 +33,16 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont, features
 
 # --------------------------------------------------------------------------
-# Palette. Every tuple cites a custom property in design/tokens.css.
+# Palette. Every tuple cites a custom property in design/tokens.css, except
+# the film's black: on film, black is black with every pixel off (founder ruling
+# 2026-10-10 from the teaser), so card grounds, black under a voice, pillarbox
+# and letterbox fields and a dip's black hold are RGB 0,0,0. The site's theatre
+# black (--doc-black) stays as tokens.css has it.
 # --------------------------------------------------------------------------
 
 PALETTE = {
-    "black": (15, 12, 10),          # --doc-black  #0f0c0a  the theatre
-    "letterbox": (5, 4, 3),         # --color-letterbox (black, l - 0.05)
+    "black": (0, 0, 0),             # film black, all pixels off (founder ruling; the site uses --doc-black)
+    "letterbox": (0, 0, 0),         # pillarbox and letterbox fields: the same black
     "bone": (237, 226, 207),        # --doc-bone   #ede2cf  text and controls
     "safelight": (237, 162, 60),    # --doc-safelight #eda23c  "this is real"
     "cold": (47, 95, 168),          # --doc-cold   #2f5fa8  AI-GENERATED, DRAWN

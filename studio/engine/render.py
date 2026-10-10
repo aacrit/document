@@ -476,8 +476,97 @@ def credits_blocks(plan: dict) -> list:
     return [(h, [ln.replace(EM_DASH, ", ") for ln in lines]) for h, lines in blocks]
 
 
-def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Journal) -> dict:
-    play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
+VOICE_KINDS = ("narration", "testimony")
+VOICE_GAP_S = 0.8                   # founder ruling 2026-10-10: voices never overlap, 0.8 s between lines
+
+
+def voice_wav(film: Path, ln: dict) -> Path:
+    return film / (ln.get("wav") or f"audio/{ln['id']}.wav")
+
+
+def wav_seconds(path: Path) -> float:
+    import soundfile as sf
+    info = sf.info(str(path))
+    return info.frames / float(info.samplerate)
+
+
+def voice_lines(play: dict, film: Path) -> list[dict]:
+    """Every narration and testimony line whose WAV exists, with its measured
+    length, in time order. Lines without a WAV are left out (a missing WAV is
+    refused on its own unless --draft)."""
+    out = []
+    for part in play["parts"]:
+        for ln in part.get("lines", []):
+            if ln.get("kind") in VOICE_KINDS and voice_wav(film, ln).exists():
+                out.append({"id": ln["id"], "kind": ln["kind"], "start": float(ln["start_s"]),
+                            "dur": wav_seconds(voice_wav(film, ln)), "ref": ln})
+    return sorted(out, key=lambda v: (v["start"], v["id"]))
+
+
+def voice_collisions(lines: list[dict], gap: float = VOICE_GAP_S) -> list[dict]:
+    """Each place where a voice line starts before the previous voice has
+    ended plus ``gap``: the two ids, how many seconds they overlap (0 when they
+    only sit too close) and the gap they leave."""
+    out = []
+    prev = None
+    for v in lines:
+        if prev is not None:
+            prev_end = prev["start"] + prev["dur"]
+            g = v["start"] - prev_end
+            if g < gap - 1e-9:
+                out.append({"a": prev["id"], "b": v["id"], "overlap_s": round(max(0.0, -g), 3), "gap_s": round(g, 3),
+                            "short_by_s": round(gap - g, 3)})
+        if prev is None or v["start"] + v["dur"] > prev["start"] + prev["dur"]:
+            prev = v
+    return out
+
+
+def fit_voices(play: dict, film: Path, journal: Journal, gap: float = VOICE_GAP_S) -> dict:
+    """--fit-voices: move each voice line to max(its start, the previous
+    voice's end + gap). The shot the line sits in grows by the same amount and
+    everything after the line moves with it; a cue or text spanning the line
+    is lengthened. Audio is never shortened or sped up. Every change is
+    journaled as a decision."""
+    import copy
+    play = copy.deepcopy(play)
+    shots = [sh for part in play["parts"] for sh in part.get("shots", [])]
+    timed = ([x for part in play["parts"] for key in ("lines", "cues", "text") for x in part.get(key, [])]
+             + list(play.get("subtitle_source", [])))
+    prev_end = None
+    for v in voice_lines(play, film):
+        ln = v["ref"]
+        start = float(ln["start_s"])
+        if prev_end is not None and start < prev_end + gap - 1e-9:
+            delta = round(prev_end + gap - start, 4)
+            owner = max((sh for sh in shots if float(sh["start_s"]) <= start + 1e-9), key=lambda sh: float(sh["start_s"]))
+            k = shots.index(owner)
+            if owner["kind"] == "archive_video":
+                owner["out_s"] = round(float(owner["out_s"]) + delta, 4)
+            else:
+                owner["dur_s"] = round(float(owner["dur_s"]) + delta, 4)
+            for sh in shots[k + 1:]:
+                sh["start_s"] = round(float(sh["start_s"]) + delta, 4)
+            for x in timed:
+                if "start_s" not in x:
+                    continue
+                if float(x["start_s"]) >= start - 1e-9:
+                    x["start_s"] = round(float(x["start_s"]) + delta, 4)
+                    if "end_s" in x:
+                        x["end_s"] = round(float(x["end_s"]) + delta, 4)
+                elif "end_s" in x and float(x["end_s"]) > start:
+                    x["end_s"] = round(float(x["end_s"]) + delta, 4)
+            journal.decision("scout", f"moved {ln['id']} from {start:.3f} s to {start + delta:.3f} s and lengthened "
+                             f"{owner['id']} by {delta:.3f} s; everything after it moved {delta:.3f} s later",
+                             f"voice-overlap: {ln['id']} started {prev_end + gap - start:.3f} s before the previous voice's "
+                             f"end plus {gap:g} s (--fit-voices)", unit=ln["id"], moved_from=start, moved_to=start + delta,
+                             shot=owner["id"], lengthened_s=delta)
+            start += delta
+        prev_end = max(prev_end or 0.0, start + v["dur"])
+    return play
+
+
+def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Journal, play: dict | None = None) -> dict:
+    play = play if play is not None else json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
     if "parts" not in play:
         raise Refused("screenplay.json has no parts: it is not format v2 (GRAMMAR 12); studio/sketch.py renders v1")
     assets = load_ledgers(film, play)
@@ -727,6 +816,11 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     screen_text += [s["detail"] for s in shots] + [c["text"] for c in subs]
     dashes = [x for x in screen_text if EM_DASH in x]
     lint("no-em-dash", not dashes, evidence=dashes[:5], grammar="9")
+    vl = voice_lines(play, film)
+    collisions = voice_collisions(vl)
+    lint("voice-overlap", not collisions, stage="scout", grammar="founder ruling 2026-10-10",
+         evidence={"collisions": collisions, "gap_s": VOICE_GAP_S, "lines": len(vl),
+                   "fix": "move the lines, or render with --fit-voices" if collisions else None})
     if lint_fail:
         raise Refused("lint failed: " + "; ".join(lint_fail))
 
@@ -870,6 +964,27 @@ class Pictures:
         self.readers.clear()
 
 
+def picture_level(plan: dict, f: int, i: int) -> float:
+    """Picture level 0..1 at frame f (owned by shot i) through a dip to black:
+    the incoming shot's own dip, or the next shot's dip in this one's tail.
+    0 is the dip's black hold."""
+    shots = plan["shots"]
+    t = f / FPS
+    tl = t - shots[i]["f0"] / FPS
+    tr = shots[i]["transition_in"]
+    level = 1.0
+    if tr.get("type") == "dip" and tl < float(tr["s"]) / 2:
+        level = M.dip_level(tl + float(tr["s"]) / 2, float(tr["s"]))
+    if i + 1 < len(shots):
+        ntr = shots[i + 1]["transition_in"]
+        if ntr.get("type") == "dip":
+            ds = float(ntr["s"])
+            dt = shots[i + 1]["f0"] / FPS - t
+            if 0 < dt <= ds / 2:
+                level = min(level, M.dip_level(ds / 2 - dt, ds))
+    return level
+
+
 def compose(plan: dict, pics: Pictures, f: int, i: int) -> Image.Image:
     """Frame f (owned by shot i): picture with its transition, then the lower
     thirds, burned subtitles, watermark and mark plate."""
@@ -883,16 +998,10 @@ def compose(plan: dict, pics: Pictures, f: int, i: int) -> Image.Image:
         prev = shots[i - 1]
         a = pics.shot(i - 1, t - prev["f0"] / FPS)
         img = Image.blend(a, img, M.dissolve_weight(tl, float(tr["s"])))
-    level = 1.0
-    if tr.get("type") == "dip" and tl < float(tr["s"]) / 2:
-        level = M.dip_level(tl + float(tr["s"]) / 2, float(tr["s"]))
-    if i + 1 < len(shots):
-        ntr = shots[i + 1]["transition_in"]
-        if ntr.get("type") == "dip":
-            ds = float(ntr["s"])
-            dt = shots[i + 1]["f0"] / FPS - t
-            if 0 < dt <= ds / 2:
-                level = min(level, M.dip_level(ds / 2 - dt, ds))
+    level = picture_level(plan, f, i)
+    if level <= 0.0:
+        # a dip's black hold: every pixel off, overlays included (founder ruling 2026-10-10)
+        return Image.new("RGB", (plan["W"], plan["H"]), (0, 0, 0))
     if level < 1.0:
         arr = np.asarray(img, dtype=np.float32) * level
         img = Image.fromarray(arr.astype(np.uint8))
@@ -923,9 +1032,13 @@ def mark_probe(plan: dict) -> tuple[int, int]:
 
 def check_mark(plan: dict, arr: np.ndarray, f: int, i: int) -> str:
     """'ok' when the bar shows the owning shot's class hue, 'fade' inside the
-    4-frame class crossfade (the plate is there by construction), else 'fail'."""
+    4-frame class crossfade (the plate is there by construction), 'dip' on a
+    dip's black hold (every pixel off by founder ruling, checked as all zero),
+    else 'fail'."""
     x, y = mark_probe(plan)
     s = plan["shots"][i]
+    if picture_level(plan, f, i) <= 0.0:
+        return "dip" if not arr.any() else "fail"
     if i > 0 and plan["shots"][i - 1]["mark"] != s["mark"] and f - s["f0"] < round(M.MARK["fade"] * FPS):
         return "fade"
     px = arr[y, x, :3].astype(int)
@@ -976,7 +1089,7 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
     pics = Pictures(plan)
     err = tempfile.TemporaryFile()
     enc = subprocess.Popen(encoder_cmd(plan, part), stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=err)
-    stats = {"ok": 0, "fade": 0, "fail": 0, "fail_frames": []}
+    stats = {"ok": 0, "fade": 0, "dip": 0, "fail": 0, "fail_frames": []}
     first_whole = None
     ms = []
     try:
@@ -1274,7 +1387,8 @@ class _Direct:
 
 def render(film: Path | str, out: Path | str | None = None, *, height: int = 1080, from_shot: str | None = None,
            workers: int = DEFAULT_WORKERS, burn_subtitles: bool = False, min_free_gb: float = MIN_FREE_GB,
-           encode_preset: str = "slow", draft: bool = False, journal: Journal | None = None) -> dict:
+           encode_preset: str = "slow", draft: bool = False, fit_voices_opt: bool = False,
+           journal: Journal | None = None) -> dict:
     film = Path(film).resolve()
     out = Path(out).resolve() if out else film / "out"
     W, H = frame_size(height)
@@ -1282,7 +1396,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
     run_t0 = time.perf_counter()
     resume_cmd = f"python -m studio.engine.render {film} --out {out} --res {height}"
     settings = {"height": H, "width": W, "fps": FPS, "workers": workers, "from": from_shot, "burn_subtitles": burn_subtitles,
-                "min_free_gb": min_free_gb, "encode_preset": encode_preset, "draft": draft}
+                "min_free_gb": min_free_gb, "encode_preset": encode_preset, "draft": draft, "fit_voices": fit_voices_opt}
     current = {"stage": "scout", "unit": None}
     n_req = int(workers)
     n = max(1, min(n_req, MAX_WORKERS, os.cpu_count() or 1))
@@ -1302,8 +1416,16 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         missing = [p for p in (fonts.display, fonts.structure, fonts.data) if not Path(p).exists()]
         if missing:
             raise Refused(f"fonts not found ({missing[0]}); run npm ci in the repo")
+        play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
+        if fit_voices_opt:
+            journal.human("scout", "--fit-voices: voice lines may move later and their shots grow", override="--fit-voices")
+            play = fit_voices(play, film, journal)
+            out.mkdir(parents=True, exist_ok=True)
+            fitted = out / "screenplay.fitted.json"
+            fitted.write_text(json.dumps(play, indent=2, ensure_ascii=False), encoding="utf-8")
+            journal.artifact("scout", fitted, role="screenplay-fitted")
         with journal.unit("scout", "plan", size={"driver": "items", "value": 0}) as u:
-            plan = build_plan(film, W=W, H=H, burn_subtitles=burn_subtitles, journal=journal)
+            plan = build_plan(film, W=W, H=H, burn_subtitles=burn_subtitles, journal=journal, play=play)
             u.size = {"driver": "items", "value": len(plan["shots"])}
         journal.stage("scout", "done")
 
@@ -1473,10 +1595,11 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         current.update(stage="marks", unit=None)
         journal.stage("marks", "start")
         fails = {plan["shots"][i]["id"]: r["mark"]["fail_frames"] for i, r in results.items() if r["mark"]["fail"]}
-        checked = sum(r["mark"]["ok"] + r["mark"]["fade"] + r["mark"]["fail"] for r in results.values())
+        checked = sum(r["mark"]["ok"] + r["mark"]["fade"] + r["mark"].get("dip", 0) + r["mark"]["fail"] for r in results.values())
         journal.lint("mark-coverage", not fails and checked == plan["frames"], stage="marks", grammar="1.3, 4",
                      evidence={"frames": plan["frames"], "checked": checked, "ok": sum(r["mark"]["ok"] for r in results.values()),
-                               "crossfade": sum(r["mark"]["fade"] for r in results.values()), "failed": fails})
+                               "crossfade": sum(r["mark"]["fade"] for r in results.values()),
+                               "dip_black": sum(r["mark"].get("dip", 0) for r in results.values()), "failed": fails})
         stills_bad = [plan["shots"][i]["id"] for i, r in results.items() if r.get("first_frame_whole") is False]
         journal.lint("still-first-frame-whole-pixels", not stills_bad, stage="marks", grammar="A7",
                      evidence={"stills": [plan["shots"][i]["id"] for i, r in results.items() if r.get("first_frame_whole") is not None],
@@ -1571,10 +1694,12 @@ def main(argv=None) -> int:
     ap.add_argument("--workers", type=int, default=DEFAULT_WORKERS, help=f"CPU worker processes (default {DEFAULT_WORKERS}, max {MAX_WORKERS})")
     ap.add_argument("--burn-subtitles", action="store_true", help="burn the English subtitles into the picture (off by default)")
     ap.add_argument("--draft", action="store_true", help="place silence for missing voice WAVs instead of refusing (journaled)")
+    ap.add_argument("--fit-voices", action="store_true",
+                    help="move overlapping voice lines later (0.8 s apart) and lengthen their shots (journaled)")
     a = ap.parse_args(argv)
     try:
         s = render(a.film, a.out, height=a.res, from_shot=a.from_shot, workers=a.workers, burn_subtitles=a.burn_subtitles,
-                   draft=a.draft)
+                   draft=a.draft, fit_voices_opt=a.fit_voices)
     except Refused as e:
         print(f"render: refused: {e}", file=sys.stderr)
         return 2
