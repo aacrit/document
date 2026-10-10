@@ -88,3 +88,9 @@ A first public piece, "The Partition of India · Trailer", about 5 minutes: one 
 
 ## 2026-10-10: Full episode; male voice blends; newsreel colour cast (founder, in chat)
 Generate the whole Partition episode next, written by Fable from the treatment under the lessons of the teaser and trailer (C:/Users/aacri/document-work/partition/LESSONS-from-teaser-trailer.md). Extra South Asian men's voices are made as fixed blends of Kokoro voices and auditioned by the founder before casting. The 1946 United News reel's magenta transfer cast is neutralised to black and white, and those shots are marked RECONSTRUCTED "colour cast removed".
+
+## 2026-10-10: Male voice blends chosen by the Chief of Staff (founder delegated)
+Founder: "Dont audition, take your call." Five South Asian men's voices are fixed Kokoro blends (70% hm_omega or hm_psi), chosen by measured distance in pitch and spectral centroid and a speech-recognition word check; definitions in document-work/episode/blends.json. They join hm_omega and hm_psi, giving seven distinct South Asian men's voices.
+
+## 2026-10-10: Programme loudness -18 LUFS (Chief of Staff ruling, GRAMMAR A15)
+The master target moves from -16 to -18 LUFS integrated, -1.5 dBTP, matching GRAMMAR 8.5's dialogue level and the founder's "calm". At -16 the per-line voice ceiling (-7.8 dBTP) forced six natural-sounding reader takes to fail peak control; at -18 (ceiling about -4.8 dBTP) none fail. Evidence: test of all 29 episode reader takes against the engine's own voice_peak_control.
