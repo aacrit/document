@@ -1596,22 +1596,6 @@ def _narrator_lines():
             for k, f in enumerate((178.0, 181.0, 183.0, 185.0, 188.0, 182.0))}
 
 
-def test_narrator_consistency_refuses_a_higher_or_lower_line_but_lets_a_hushed_line_be_lower():
-    base = _narrator_lines()
-    hi, lo = (R.voice_profile(_levelled(_speech(f, seed=9)), 7) for f in (232.0, 160.0))   # 160 Hz: 2.3 semitones down
-    cases = {("hi", "measured"): "off", ("hi", "hushed"): "off", ("hi", "close"): "off",     # no mood may be higher
-             ("lo", "plain"): "off", ("lo", "measured"): "off",                                 # these may not be lower
-             ("lo", "hushed"): "consistent", ("lo", "grave"): "consistent", ("lo", "close"): "consistent"}
-    for (which, mood), want in cases.items():
-        res = R.narrator_consistency(dict(base, X=dict(hi if which == "hi" else lo, mood=mood)))
-        x = res["lines"]["X"]
-        assert x["verdict"] == want, (which, mood, x)
-        assert all(res["lines"][f"N{k}"]["verdict"] == "consistent" for k in range(6))
-        assert abs(x["z"]["f0_hz"]) > R.NARRATOR_Z_MAX
-        assert bool(x["exempt"]) == (want == "consistent")
-    assert res["baseline"]["f0_hz"] == pytest.approx(183.0, rel=0.03) and res["enough"]
-
-
 def test_narrator_consistency_needs_a_baseline():
     prof = {f"N{k}": dict(R.voice_profile(_levelled(_speech(f)), 7), mood="plain") for k, f in enumerate((180.0, 240.0))}
     res = R.narrator_consistency(prof)
@@ -1630,7 +1614,7 @@ def test_narrator_consistency_blocks_the_mix_and_warns_under_draft(plan, film, t
             p["lines"].append({"id": lid, "kind": "narration", "start_s": 9.0 + k, "text": "one two three four five six seven",
                                "wav": str(wav), "delivery": {"mood": "measured"}, "_part": "ch-1"})
     j = J.Journal(film="narrator")
-    with pytest.raises(R.Refused, match=r"narrator-consistency \(A14\).*NOFF \(f0_hz higher"):
+    with pytest.raises(R.Refused, match=r"narrator-consistency \(A14\).*NOFF \(f0 \+4"):
         R.build_mix(p, film, j)
     evs = J.read(j.path)
     per = {e["unit"]: e for e in lints(evs, "narrator-consistency") if e["unit"] != "narrator"}
@@ -1680,18 +1664,9 @@ def test_a_swapped_voice_labelled_hushed_is_refused():
     for mood in ("hushed", "grave", "close"):
         swapped = dict(R.voice_profile(_levelled(_speech(95.0, seed=4)), 7), mood=mood)
         x = R.narrator_consistency(dict(base, X=swapped))["lines"]["X"]
-        assert x["verdict"] == "off" and any("semitones" in o for o in x["off"]), (mood, x)
+        assert x["verdict"] == "off" and any("semitones" in o for o in x["off"]) and x["f0_st"] < -3, (mood, x)
     lower = dict(R.voice_profile(_levelled(_speech(140.0, seed=4)), 7), mood="hushed")   # 4.6 semitones down
     assert R.narrator_consistency(dict(base, X=lower))["lines"]["X"]["verdict"] == "off"
-
-
-def test_a_lower_mood_may_lower_the_centroid_only_so_far():
-    base = {f"N{k}": {"f0_hz": 183.0, "centroid_hz": c, "f0_range_hz": 60.0, "wps": 2.4, "mood": "measured"}
-            for k, c in enumerate((1080.0, 1100.0, 1120.0, 1140.0, 1160.0))}
-    scale = R.narrator_consistency(base)["scale"]["centroid_hz"]
-    for drop_z, want in ((4.0, "consistent"), (6.0, "off")):         # within 2 x 2.5 and past it
-        x = {"f0_hz": 183.0, "centroid_hz": 1120.0 - drop_z * scale, "f0_range_hz": 60.0, "wps": 2.4, "mood": "grave"}
-        assert R.narrator_consistency(dict(base, X=x))["lines"]["X"]["verdict"] == want
 
 
 def test_the_baseline_comes_from_plain_and_measured_lines():
@@ -1723,27 +1698,10 @@ def test_two_voices_sharing_the_narrator_are_refused(plan, film, tmp_path):
     assert whole["status"] == "fail" and whole["evidence"]["spread_st"] > R.NARRATOR_SPREAD_MAX_ST
 
 
-def test_a_stored_profile_anchors_the_narrator_only_for_its_own_voice(tmp_path):
-    stored = {"voice": {"engine": "orpheus", "voice": "tara"}, "baseline": {"f0_hz": 176.0, "centroid_hz": 1080.0},
-              "scale": {"f0_hz": 5.5, "centroid_hz": 105.0}}
-    f = tmp_path / "narrator-profile.json"
-    f.write_text(json.dumps(stored), encoding="utf-8")
-    got, why = R.load_narrator_profile({"engine": "orpheus", "voice": "tara"}, f)
-    assert got["baseline"]["f0_hz"] == 176.0 and "anchored" in why
-    assert R.load_narrator_profile({"engine": "kokoro", "voice": "bf_emma"}, f)[0] is None
-    assert R.load_narrator_profile({"engine": "orpheus", "voice": "tara"}, tmp_path / "none.json")[0] is None
-    lines = {f"N{k}": {"f0_hz": 200.0 + k, "centroid_hz": 1080.0, "f0_range_hz": 60.0, "wps": 2.4, "mood": "measured"}
-             for k in range(5)}                                       # self-consistent, but not the stored voice
-    assert {r["verdict"] for r in R.narrator_consistency(lines)["lines"].values()} == {"consistent"}
-    anchored = R.narrator_consistency(lines, got)
-    assert anchored["baseline"]["f0_hz"] == 176.0 and anchored["anchored"]
-    assert {r["verdict"] for r in anchored["lines"].values()} == {"off"}
-
-
 def test_the_committed_narrator_profile_is_tara():
     prof = json.loads(R.NARRATOR_PROFILE.read_text(encoding="utf-8"))
     assert prof["voice"] == {"engine": "orpheus", "voice": "tara"} and len(prof["takes"]) == 5
-    assert 150 < prof["baseline"]["f0_hz"] < 210 and prof["scale"]["f0_hz"] > 0 and prof["scale"]["centroid_hz"] > 0
+    assert 150 < prof["baseline"]["f0_hz"] < 210 and 500 < prof["baseline"]["centroid_hz"] < 3000
 
 
 def test_a_positive_mood_offset_is_refused(tmp_path, monkeypatch):
@@ -1753,3 +1711,70 @@ def test_a_positive_mood_offset_is_refused(tmp_path, monkeypatch):
     with pytest.raises(R.Refused, match=r"narrator-delivery \(L1\)"):
         _plan(film)
     assert all(v <= 0 for v in R.MOOD_OFFSET_DB.values() if v != 1.0)
+
+
+# --------------------------------------------------------------------------
+# A14 refined: perceptual narrator bounds (semitones and percent), the stored profile as a drift check
+# --------------------------------------------------------------------------
+
+
+def _p(f0, cen=1100.0, mood="measured"):
+    return {"f0_hz": f0, "centroid_hz": cen, "f0_range_hz": 60.0, "wps": 2.4, "mood": mood}
+
+
+def _with(x):
+    base = {f"N{k}": _p(180.0) for k in range(5)}                   # baseline 180 Hz, 1100 Hz
+    return R.narrator_consistency(dict(base, X=x))["lines"]["X"]
+
+
+def _up(st):
+    return 180.0 * 2 ** (st / 12)
+
+
+@pytest.mark.parametrize("st,mood,want", [
+    (1.49, "measured", "consistent"), (1.51, "measured", "off"), (1.51, "hushed", "off"),       # never higher, any mood
+    (-1.49, "plain", "consistent"), (-1.51, "plain", "off"), (-1.51, "measured", "off"), (-1.51, None, "off"),
+    (-2.99, "hushed", "consistent"), (-2.99, "grave", "consistent"), (-2.99, "close", "consistent"),
+    (-3.01, "hushed", "off"), (-3.01, "grave", "off"), (-3.01, "close", "off"),
+])
+def test_narrator_f0_bounds_sit_at_1_5_and_3_semitones(st, mood, want):
+    x = _with(_p(_up(st), mood=mood))
+    assert x["verdict"] == want, x
+    assert x["f0_st"] == pytest.approx(st, abs=0.01)
+
+
+@pytest.mark.parametrize("pct,mood,want", [
+    (24, "measured", "consistent"), (26, "measured", "off"), (26, "grave", "off"),               # never brighter
+    (-24, "plain", "consistent"), (-26, "plain", "off"),
+    (-39, "grave", "consistent"), (-39, "hushed", "consistent"), (-41, "close", "off"),
+])
+def test_narrator_centroid_bounds_sit_at_25_and_40_percent(pct, mood, want):
+    x = _with(_p(180.0, cen=1100.0 * (1 + pct / 100), mood=mood))
+    assert x["verdict"] == want, x
+    assert x["centroid_pct"] == pytest.approx(pct, abs=0.01)
+
+
+def test_the_stored_profile_is_only_a_drift_warning(tmp_path, monkeypatch, plan, film):
+    f = tmp_path / "narrator-profile.json"
+    f.write_text(json.dumps({"voice": {"engine": "test-tone", "voice": "none"}, "baseline": {"f0_hz": 150.0, "centroid_hz": 900.0}}),
+                 encoding="utf-8")
+    assert R.load_narrator_profile({"engine": "test-tone", "voice": "none"}, f)[0]["baseline"]["f0_hz"] == 150.0
+    assert R.load_narrator_profile({"engine": "orpheus", "voice": "tara"}, f)[0] is None
+    monkeypatch.setattr(R, "NARRATOR_PROFILE", f)
+    p = json.loads(json.dumps(plan))
+    (tmp_path / "audio").mkdir()
+    for k, (lid, f0) in enumerate({"L1": 183.0, "NB": 181.0, "NC": 185.0, "ND": 182.0}.items()):
+        wav = _wav(tmp_path / "audio" / f"{lid}.wav", _speech(f0, seed=k))
+        if lid == "L1":
+            _line(p, "L1").update(wav=str(wav), delivery={"mood": "plain"})
+        else:
+            p["lines"].append({"id": lid, "kind": "narration", "start_s": 9.0 + k, "text": "one two three four five six seven",
+                               "wav": str(wav), "delivery": {"mood": "measured"}, "_part": "ch-1"})
+    j = J.Journal(film="drift")
+    R.build_mix(p, film, j)                                           # 3.4 semitones from the profile: warned, never refused
+    evs = J.read(j.path)
+    drift = lints(evs, "narrator-drift")[0]
+    assert drift["status"] == "fail" and drift["severity"] == "warn" and drift["evidence"]["drift_st"] > R.NARRATOR_DRIFT_ST
+    assert all(e["status"] == "pass" for e in lints(evs, "narrator-consistency"))
+    base = [e for e in evs if e.get("lens") == "narrator-profile"][0]
+    assert base["baseline"]["f0_hz"] == pytest.approx(183.0, rel=0.02)      # the film's own lines, not the profile

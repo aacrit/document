@@ -1,5 +1,5 @@
 {
- "_note": "The narrator's stored profile (GRAMMAR A14 narrator-consistency anchor): Orpheus 3B tara, the five audition takes the founder approved by ear (DECISIONS 2026-10-10, Narrator Tara), document-work/audition/orpheus/tara-0..4.wav with the spoken lines of audition/script.json. Made by studio.engine.render.narrator_profile_from_takes; re-make it with the same function if the measure changes.",
+ "_note": "The narrator's stored profile (GRAMMAR A14 refined: the narrator-drift reference only; it never sets the baseline or the bounds): Orpheus 3B tara, the five audition takes the founder approved by ear (DECISIONS 2026-10-10, Narrator Tara), document-work/audition/orpheus/tara-0..4.wav with the spoken lines of audition/script.json. Made by studio.engine.render.narrator_profile_from_takes; re-make it with the same function if the measure changes.",
  "voice": {
   "engine": "orpheus",
   "voice": "tara"
@@ -7,10 +7,6 @@
  "baseline": {
   "f0_hz": 175.87,
   "centroid_hz": 1083.25
- },
- "scale": {
-  "f0_hz": 5.456,
-  "centroid_hz": 104.523
  },
  "takes": {
   "tara-0.wav": {
@@ -79,5 +75,5 @@
    "sha256": "a2277f12a4324659"
   }
  },
- "method": "studio.engine.render.voice_profile on each take levelled to -20 LUFS; median and 1.4826 x MAD, floored at 2% of the median"
+ "method": "studio.engine.render.voice_profile on each take levelled to -20 LUFS; median over the takes"
 }

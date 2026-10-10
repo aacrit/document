@@ -98,15 +98,19 @@ MOOD_OFFSET_MAX_DB = 2.0            # an offset under -2 dB is refused, and so i
 # frames (normalised autocorrelation), spectral centroid over active frames, words per second over the speech span.
 PROFILE_FRAME_S, PROFILE_HOP_S, PROFILE_MIN_RMS = 0.040, 0.010, 0.01
 F0_MIN_HZ, F0_MAX_HZ, VOICED_CORR = 60.0, 500.0, 0.5
-NARRATOR_Z_MAX = 2.5                # robust z (median and 1.4826 x MAD) past which a line is not the narrator's voice
-NARRATOR_SCALE_FLOOR = 0.02         # the robust scale is at least 2% of the baseline (identical lines have a MAD of 0)
+# narrator-consistency bounds are perceptual (CoS ruling, A14 refined): semitones and percent from the narrator's own
+# baseline, the median of the film's plain and measured lines. A z-score over a few dozen lines was unstable.
 NARRATOR_MIN_LINES = 4              # fewer narration lines make no baseline: journaled as inconclusive
-MOOD_MAY_BE_LOWER = {"grave", "hushed", "close"}   # lower f0 or centroid is expected of these moods; brighter or higher never
-MOOD_MAY_BE_SLOWER = {"grave", "hushed"}
-MOOD_LOWER_F0_MAX_ST = 3.0          # how far under the baseline a lower mood may take the pitch, in semitones
-MOOD_LOWER_CENTROID_Z = 2 * NARRATOR_Z_MAX   # and the centroid, in robust z: past either, a "lower" line is another voice
-NARRATOR_SPREAD_MAX_ST = 1.0        # the baseline lines' robust f0 scale past this is two voices sharing the part
 BASELINE_MOODS = {"plain", "measured"}       # the narrator's baseline comes from her unmarked register
+MOOD_MAY_BE_LOWER = {"grave", "hushed", "close"}   # these may sit lower; no mood may be higher or brighter
+NARRATOR_F0_UP_ST = 1.5             # f0 above the baseline by more than this: out of character, any mood
+NARRATOR_F0_DOWN_ST = 1.5           # below by more than this: out of character for plain and measured (and unmarked) lines
+NARRATOR_F0_DOWN_LOWER_ST = 3.0     # below by more than this: out of character for hushed, grave and close
+NARRATOR_CENTROID_UP = 0.25         # centroid above the baseline by more than 25%: out of character, any mood
+NARRATOR_CENTROID_DOWN = 0.25       # below by more than 25%: out of character for plain and measured lines
+NARRATOR_CENTROID_DOWN_LOWER = 0.40  # lower moods may go 40% below
+NARRATOR_SPREAD_MAX_ST = 1.0        # the baseline lines' robust f0 spread past this is two voices sharing the part
+NARRATOR_DRIFT_ST = 1.0             # the film's baseline f0 this far from the stored audition profile: a drift warning
 NARRATOR_PROFILE = Path(__file__).resolve().parents[1] / "narrator-profile.json"   # optional anchor: the approved audition
 NEUTRALISE = "colour cast removed"  # A14: the alteration a neutralised colour cast is marked with
 NEUTRALISE_FILTER = "hue=s=0"       # chroma to neutral, luma kept, before scaling and pillarboxing
@@ -1622,89 +1626,80 @@ def voice_profile(x: np.ndarray, words: int) -> dict:
             "voiced_frames": int(len(f0)), "active_frames": int(active.sum())}
 
 
-def _robust(values) -> tuple[float, float, float] | None:
-    """(median, raw robust scale 1.4826 x MAD, that scale floored at NARRATOR_SCALE_FLOOR of the median)."""
-    v = np.array([x for x in values if x is not None], dtype=float)
-    if not len(v):
-        return None
-    med = float(np.median(v))
-    raw = 1.4826 * float(np.median(np.abs(v - med)))
-    return med, raw, max(raw, NARRATOR_SCALE_FLOOR * abs(med))
+def _st(f: float, ref: float) -> float:
+    """Semitones from ref to f."""
+    return 12 * math.log2(f / ref)
 
 
-def narrator_consistency(profiles: dict[str, dict], stored: dict | None = None) -> dict:
-    """A14 narrator-consistency over every narration line's profile (with its
-    ``mood``).
+def narrator_consistency(profiles: dict[str, dict]) -> dict:
+    """A14 narrator-consistency (refined: perceptual bounds) over every
+    narration line's profile (with its ``mood``).
 
-    The baseline is the median of each measure over the plain and measured
-    lines (all lines when fewer than NARRATOR_MIN_LINES of those); a line's
-    robust z is its distance over 1.4826 x MAD, at least NARRATOR_SCALE_FLOOR
-    of the baseline. ``stored`` (the approved audition's profile) supplies
-    the f0 and centroid baseline and scale when given. A line is off when its
-    f0 or centroid z is past NARRATOR_Z_MAX, except lower for a mood that
-    expects it (hushed, grave, close), and then only within bounds: f0 at
-    most MOOD_LOWER_F0_MAX_ST semitones under the baseline, centroid z no
-    lower than -MOOD_LOWER_CENTROID_Z. No mood may be brighter or higher.
-    Words per second is profiled and scored, never refused. The baseline
-    lines' raw f0 scale past NARRATOR_SPREAD_MAX_ST semitones means two
+    The baseline is the median f0 and centroid of the plain and measured
+    lines (all lines when fewer than NARRATOR_MIN_LINES of those). A line is
+    out of character when its f0 is more than 1.5 semitones above the
+    baseline (any mood), or below it by more than 1.5 semitones (plain,
+    measured or no mood) or 3 semitones (hushed, grave, close); or when its
+    centroid is more than 25% above (any mood), or below by more than 25%
+    (plain, measured or no mood) or 40% (the lower moods). Words per second
+    is profiled, never refused. The baseline lines' robust f0 spread (1.4826
+    x the median absolute deviation, in semitones) past 1 semitone means two
     voices share the part (``spread_ok`` False). Fewer than
     NARRATOR_MIN_LINES measured lines make no baseline: all inconclusive."""
-    keys = ("f0_hz", "f0_range_hz", "centroid_hz", "wps")
-    measured = {k: p for k, p in profiles.items() if p.get("f0_hz") is not None}
+    measured = {k: p for k, p in profiles.items() if p.get("f0_hz") is not None and p.get("centroid_hz") is not None}
     unmarked = {k: p for k, p in measured.items() if p.get("mood") in BASELINE_MOODS}
     pool = unmarked if len(unmarked) >= NARRATOR_MIN_LINES else measured
-    base, scale = {}, {}
-    for k in keys:
-        r = _robust(p.get(k) for p in pool.values())
-        if r:
-            base[k], scale[k] = round(r[0], 2), round(r[2], 3)
-    f0r = _robust(p["f0_hz"] for p in pool.values())
-    spread_st = round(12 * math.log2((f0r[0] + f0r[1]) / f0r[0]), 3) if f0r and f0r[0] > 0 else None
-    anchored = None
-    if stored:
-        for k in ("f0_hz", "centroid_hz"):
-            base[k], scale[k] = float(stored["baseline"][k]), float(stored["scale"][k])
-        anchored = {"voice": stored.get("voice"), "baseline": stored["baseline"], "scale": stored["scale"]}
     enough = len(measured) >= NARRATOR_MIN_LINES
-    f0_floor = base["f0_hz"] * 2 ** (-MOOD_LOWER_F0_MAX_ST / 12) if "f0_hz" in base else None
+    base: dict = {}
+    spread_st = None
+    if pool:
+        for k in ("f0_hz", "f0_range_hz", "centroid_hz", "wps"):
+            v = [p[k] for p in pool.values() if p.get(k) is not None]
+            if v:
+                base[k] = round(float(np.median(v)), 2)
+        st = np.array([_st(p["f0_hz"], base["f0_hz"]) for p in pool.values()])
+        spread_st = round(1.4826 * float(np.median(np.abs(st - np.median(st)))), 3)
     lines = {}
     for lid, p in profiles.items():
-        z = {k: round((p[k] - base[k]) / scale[k], 2) if p.get(k) is not None and scale.get(k) else None for k in keys}
         mood = p.get("mood")
-        off, exempt = [], []
-        for k in ("f0_hz", "centroid_hz"):
-            if z[k] is None or abs(z[k]) <= NARRATOR_Z_MAX:
-                continue
-            if z[k] > 0:
-                off.append(f"{k} higher (z {z[k]:+.2f}, limit {NARRATOR_Z_MAX:g}; no mood may be higher or brighter)")
-            elif mood not in MOOD_MAY_BE_LOWER:
-                off.append(f"{k} lower (z {z[k]:+.2f}, limit {NARRATOR_Z_MAX:g}; a {mood or 'unmarked'} line may not be lower)")
-            elif k == "f0_hz" and p[k] < f0_floor:
-                st = 12 * math.log2(base[k] / p[k])
-                off.append(f"f0_hz lower by {st:.1f} semitones (z {z[k]:+.2f}); a {mood} line may drop at most "
-                           f"{MOOD_LOWER_F0_MAX_ST:g} (to {f0_floor:.1f} Hz)")
-            elif k == "centroid_hz" and z[k] < -MOOD_LOWER_CENTROID_Z:
-                off.append(f"centroid_hz lower (z {z[k]:+.2f}); a {mood} line may go down to z -{MOOD_LOWER_CENTROID_Z:g}")
-            else:
-                exempt.append(f"{k} lower (z {z[k]:+.2f}), within what {mood} allows")
-        if z["wps"] is not None and z["wps"] < -NARRATOR_Z_MAX and mood in MOOD_MAY_BE_SLOWER:
-            exempt.append(f"wps slower (z {z['wps']:+.2f}), as {mood} may be")
-        verdict = ("inconclusive" if not enough or p.get("f0_hz") is None or p.get("centroid_hz") is None
-                   else ("off" if off else "consistent"))
-        lines[lid] = {"profile": {k: v for k, v in p.items() if k != "mood"}, "mood": mood, "z": z, "off": off,
-                      "exempt": exempt, "verdict": verdict}
-    return {"baseline": base, "scale": scale, "lines": lines, "enough": enough, "z_max": NARRATOR_Z_MAX,
-            "min_lines": NARRATOR_MIN_LINES, "baseline_lines": sorted(pool),
+        lower = mood in MOOD_MAY_BE_LOWER
+        d_st = round(_st(p["f0_hz"], base["f0_hz"]), 2) if p.get("f0_hz") and base.get("f0_hz") else None
+        d_cen = round(p["centroid_hz"] / base["centroid_hz"] - 1, 4) if p.get("centroid_hz") and base.get("centroid_hz") else None
+        down_st = NARRATOR_F0_DOWN_LOWER_ST if lower else NARRATOR_F0_DOWN_ST
+        down_cen = NARRATOR_CENTROID_DOWN_LOWER if lower else NARRATOR_CENTROID_DOWN
+        off, allowed = [], []
+        if d_st is not None:
+            if d_st > NARRATOR_F0_UP_ST:
+                off.append(f"f0 {d_st:+.2f} semitones (more than {NARRATOR_F0_UP_ST:g} above; no mood may be higher)")
+            elif d_st < -down_st:
+                off.append(f"f0 {d_st:+.2f} semitones (more than {down_st:g} below for a {mood or 'unmarked'} line)")
+            elif d_st < -NARRATOR_F0_DOWN_ST:
+                allowed.append(f"f0 {d_st:+.2f} semitones, within the {down_st:g} a {mood} line may drop")
+        if d_cen is not None:
+            if d_cen > NARRATOR_CENTROID_UP:
+                off.append(f"centroid {d_cen:+.1%} (more than {NARRATOR_CENTROID_UP:.0%} above; no mood may be brighter)")
+            elif d_cen < -down_cen:
+                off.append(f"centroid {d_cen:+.1%} (more than {down_cen:.0%} below for a {mood or 'unmarked'} line)")
+            elif d_cen < -NARRATOR_CENTROID_DOWN:
+                allowed.append(f"centroid {d_cen:+.1%}, within the {down_cen:.0%} a {mood} line may drop")
+        verdict = "inconclusive" if not enough or d_st is None or d_cen is None else ("off" if off else "consistent")
+        lines[lid] = {"profile": {k: v for k, v in p.items() if k != "mood"}, "mood": mood, "f0_st": d_st,
+                      "centroid_pct": None if d_cen is None else round(100 * d_cen, 2), "off": off, "allowed": allowed,
+                      "verdict": verdict}
+    return {"baseline": base, "lines": lines, "enough": enough, "min_lines": NARRATOR_MIN_LINES,
+            "baseline_lines": sorted(pool),
             "baseline_from": ("plain and measured lines" if pool is unmarked
                               else f"all lines (fewer than {NARRATOR_MIN_LINES} plain or measured)"),
-            "anchored": anchored, "f0_floor_lower_moods_hz": round(f0_floor, 2) if f0_floor else None,
+            "bounds": {"f0_up_st": NARRATOR_F0_UP_ST, "f0_down_st": NARRATOR_F0_DOWN_ST,
+                       "f0_down_lower_moods_st": NARRATOR_F0_DOWN_LOWER_ST, "centroid_up": NARRATOR_CENTROID_UP,
+                       "centroid_down": NARRATOR_CENTROID_DOWN, "centroid_down_lower_moods": NARRATOR_CENTROID_DOWN_LOWER},
             "spread_st": spread_st, "spread_ok": spread_st is None or not enough or spread_st <= NARRATOR_SPREAD_MAX_ST}
 
 
 def load_narrator_profile(narrator_voice: dict | None, path: Path | None = None) -> tuple[dict | None, str]:
-    """The stored narrator profile (the approved audition's f0 and centroid,
-    baseline and scale) when it exists and is the film's narrator voice,
-    else None; and why."""
+    """The stored narrator profile (the approved audition's median f0 and
+    centroid) when it exists and is the film's narrator voice, else None;
+    and why. It is a drift reference only: it never sets the baseline."""
     path = NARRATOR_PROFILE if path is None else path
     if not path or not Path(path).exists():
         return None, f"no stored profile at {path}"
@@ -1713,48 +1708,51 @@ def load_narrator_profile(narrator_voice: dict | None, path: Path | None = None)
     have = {k: (prof.get("voice") or {}).get(k) for k in ("engine", "voice")}
     if want != have:
         return None, f"the stored profile is {have['engine']}:{have['voice']}, the film's narrator is {want['engine']}:{want['voice']}"
-    return prof, f"anchored on {Path(path).name} ({have['engine']}:{have['voice']})"
+    return prof, f"drift reference {Path(path).name} ({have['engine']}:{have['voice']})"
 
 
 def narrator_profile_from_takes(takes: list[tuple[Path, str]], voice: dict) -> dict:
     """A stored narrator profile from approved takes (WAV, spoken text): each
     take levelled to DIALOGUE_LUFS and profiled as narration lines are, then
-    the median and robust scale (floored) of f0 and centroid."""
+    the median f0 and centroid (the drift check's reference)."""
     per = {}
     for path, text in takes:
         x = _read_wav(Path(path))
         g, _ = level_gain(x, DIALOGUE_LUFS)
         per[Path(path).name] = dict(voice_profile(x * 10 ** (g / 20), len(WORD_RE.findall(text))),
                                     sha256=sha256_file(path)[:16])
-    base, scale = {}, {}
-    for k in ("f0_hz", "centroid_hz"):
-        med, _, sc = _robust(p[k] for p in per.values())
-        base[k], scale[k] = round(med, 2), round(sc, 3)
-    return {"voice": voice, "baseline": base, "scale": scale, "takes": per,
-            "method": "studio.engine.render.voice_profile on each take levelled to -20 LUFS; median and 1.4826 x MAD, "
-                      f"floored at {NARRATOR_SCALE_FLOOR:.0%} of the median"}
+    base = {k: round(float(np.median([p[k] for p in per.values()])), 2) for k in ("f0_hz", "centroid_hz")}
+    return {"voice": voice, "baseline": base, "takes": per,
+            "method": "studio.engine.render.voice_profile on each take levelled to -20 LUFS; median over the takes"}
 
 
 def narrator_consistency_lints(journal: Journal, profiles: dict[str, dict], draft: bool,
                                narrator_voice: dict | None = None) -> list[str]:
     """Journal the narrator's baseline and every line's profile; one
     narrator-consistency lint per line and one for the part as a whole (the
-    baseline lines' pitch spread), blocking, a warning under --draft.
-    Returns what is off, with why."""
+    baseline lines' pitch spread), blocking, a warning under --draft; and the
+    drift check against the stored audition profile (narrator-drift, always a
+    warning). Returns what is out of character, with why."""
+    res = narrator_consistency(profiles)
     stored, why = load_narrator_profile(narrator_voice)
-    res = narrator_consistency(profiles, stored)
+    drift = None
+    if stored and res["baseline"].get("f0_hz"):
+        drift = round(_st(res["baseline"]["f0_hz"], float(stored["baseline"]["f0_hz"])), 2)
     journal.event("unit", "assembly", "narrator", lens="narrator-profile", status="info", grammar="A14",
-                  baseline=res["baseline"], scale=res["scale"], baseline_from=res["baseline_from"],
-                  baseline_lines=res["baseline_lines"], anchored=res["anchored"], anchor=why, spread_st=res["spread_st"],
-                  lines={k: v["profile"] | {"mood": v["mood"]} for k, v in res["lines"].items()},
-                  enough=res["enough"], z_max=res["z_max"])
+                  baseline=res["baseline"], baseline_from=res["baseline_from"], baseline_lines=res["baseline_lines"],
+                  bounds=res["bounds"], spread_st=res["spread_st"], drift_st=drift, reference=why,
+                  lines={k: v["profile"] | {"mood": v["mood"]} for k, v in res["lines"].items()}, enough=res["enough"])
+    journal.lint("narrator-drift", drift is None or abs(drift) <= NARRATOR_DRIFT_ST, stage="assembly", phase="preflight",
+                 unit="narrator", severity="warn", grammar="A14",
+                 status="inconclusive" if drift is None else None,
+                 evidence={"drift_st": drift, "limit_st": NARRATOR_DRIFT_ST, "film_baseline": res["baseline"],
+                           "reference": (stored or {}).get("baseline"), "why": why})
     sev = "warn" if draft else "block"
     off = []
     journal.lint("narrator-consistency", res["spread_ok"], stage="assembly", phase="preflight", unit="narrator",
                  severity=sev, grammar="A14", status=None if res["enough"] else "inconclusive",
                  evidence={"spread_st": res["spread_st"], "limit_st": NARRATOR_SPREAD_MAX_ST, "baseline": res["baseline"],
-                           "scale": res["scale"], "baseline_from": res["baseline_from"], "anchored": res["anchored"],
-                           "anchor": why, "result": None if res["spread_ok"] else
+                           "baseline_from": res["baseline_from"], "result": None if res["spread_ok"] else
                            ("kept (draft)" if draft else "refused: two voices share the narrator")})
     if not res["spread_ok"]:
         off.append(f"narrator (the baseline lines' pitch spreads {res['spread_st']:.2f} semitones, "
@@ -1764,9 +1762,9 @@ def narrator_consistency_lints(journal: Journal, profiles: dict[str, dict], draf
         journal.lint("narrator-consistency", not bad, stage="assembly", phase="preflight", unit=lid,
                      severity=sev, grammar="A14",
                      status="inconclusive" if r["verdict"] == "inconclusive" else None,
-                     evidence={"profile": r["profile"], "mood": r["mood"], "z": r["z"], "off": r["off"], "exempt": r["exempt"],
-                               "baseline": res["baseline"], "scale": res["scale"], "z_max": res["z_max"], "verdict": r["verdict"],
-                               "anchored": bool(res["anchored"]), "lines": len(res["lines"]),
+                     evidence={"profile": r["profile"], "mood": r["mood"], "f0_st": r["f0_st"], "centroid_pct": r["centroid_pct"],
+                               "off": r["off"], "allowed": r["allowed"], "baseline": res["baseline"], "bounds": res["bounds"],
+                               "verdict": r["verdict"], "lines": len(res["lines"]),
                                "result": None if not bad else ("kept (draft)" if draft else "refused: re-render the line")})
         if bad:
             off.append(f"{lid} ({'; '.join(r['off'])})")
