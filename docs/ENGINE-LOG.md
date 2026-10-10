@@ -1,0 +1,140 @@
+# Engine log
+
+Append-only issue log for the studio engine (decision "Capture every log", 2026-10-10): every defect, surprise or workaround found while building and piloting, with the run id or test that shows it, so lessons can become doctrine. Newest entry at the bottom. Never edit or delete a past entry; add one that supersedes it. Run ids name journals in `~/document-work/journal/` (or the scratch journal folder named in the entry); they are never committed.
+
+<!-- Format:
+## YYYY-MM-DD <ticket>: <short title>
+Shown by: <run id or test>. What happened, why, and what fixed it or what is open.
+-->
+
+## 2026-10-10 T1: the A7 geometry lint refused a fill-mode still that was whole
+Shown by: run r-20261010-113452-b1d4 (refused, `still-first-frame-whole` on S3). The first version compared the camera window with the photograph's own box. In fill mode (`fill_ok: true`) the first frame's window is the whole 16:9 frame, which reaches past the photograph into the field, so a correct whole opening failed. Fixed: `still_is_whole` checks that the window contains the entire photograph at the fit scale with its aspect unchanged. Covered by `test_still_first_frame_is_the_whole_photograph`.
+
+## 2026-10-10 T1: a journal payload named `kind` crashed the run
+Shown by: run r-20261010-113523-bd07 (failed, `TypeError: Journal.event() got multiple values for argument 'kind'`). The Lens's `run.start` carries a `kind` (render or calibrate), which collided with the journal's own `kind` argument. Renamed to `run_kind` on that event. Payload keys must never be `kind`, `stage`, `unit` or `lens`.
+
+## 2026-10-10 T1: a failing blocking lint did not stop the run
+Shown by: run r-20261010-113529-4ebe (outcome ok while `still-first-frame-whole-pixels` failed with severity block). The pixel check measured the fill-mode frame against the full frame instead of the photograph's fitted box (false failure), and the render never acted on the result. Fixed both: the check now measures against the fitted box with a 1 px edge margin, and a failure refuses the run before the master is encoded.
+
+## 2026-10-10 T1: fieldmatch's automatic field order leaves combed frames
+Shown by: `test_inverse_telecine_restores_the_film_frames` (prototype in the builder's scratch run: 15 of 48 frames far from any film frame with plain `fieldmatch,decimate`; 0 of 48 with `order=tff:combmatch=full`). On a 3:2 pulldown source decoded from H.264, `fieldmatch` with defaults mis-paired fields. The conform now names the order from the ledger's `field_order` or the file's probed `field_order` (tt or tb is tff, bb or bt is bff) with `combmatch=full`; if neither states it, the engine journals a decision and a warning lint `field-order-known`. A6 holds only with the order named.
+
+## 2026-10-10 T1: inverse telecine at a clip's end yields one frame short
+Shown by: `test_inverse_telecine_restores_the_film_frames` (47 frames for 2 s). `decimate` drops a frame of the last incomplete cycle at end of stream. The video reader holds the last decoded frame for the missing tail and journals `held_frames` on the shot's `unit.done`, so a held frame is visible in the log. Open: a hold longer than a frame or two should become a lint.
+
+## 2026-10-10 T1: Rec.709 tags missing from the master
+Shown by: run r-20261010-114047-5fc5 (master probed with `color_primaries=unknown`, `color_transfer=unknown`); fixed in run r-20261010-114119-257b. With ffmpeg 9 the frame properties coming out of the filter graph override the `-color_primaries` and `-color_trc` output options. The segment and master chains now end in `setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv`. ffmpeg's default RGB to YUV matrix is BT.601, so both chains also name `bt709` in `scale`.
+
+## 2026-10-10 T1: segment container chosen for exact frame counts
+Shown by: `test_master_is_24fps_h264_with_every_frame` and the `master-format` lint (594 of 594 frames). Matroska stores millisecond timestamps, and 24 fps frames (41.67 ms) can gain or lose a frame when segments are concatenated. Segments are MP4 with a 24000 timescale; each segment's packet count is checked against its frame range before it is cached, and the master's packet count against the film's.
+
+## 2026-10-10 T1: interpretations a director should confirm
+Shown by: the fixture render (any run above) and `test_fill_only_with_fill_ok`.
+- A7 without a fill: "the move stays within the native shape" is read as the camera moving inside the photograph's own pillarboxed rectangle; the field around it never changes. With `fill_ok: true` the camera may grow the picture to fill 16:9.
+- PULL after the whole opening: the path goes from the whole photograph to PULL's end framing (z 1.0), skipping its z 1.12 start, because opening whole and then pushing in only to pull out reads as a stutter.
+- Preset zoom with a fill is relative to the largest 16:9 window (GRAMMAR 7.2); without a fill it is relative to the whole photograph.
+- 23.976 fps after inverse telecine reaches 24 by repeating 1 frame in 1000, never by a 0.1% speed-up, which GRAMMAR 4.2 would call re-timed.
+- The opening is min(1.5 s, 40% of the shot), so a 3 s DETAIL still opens whole.
+
+## 2026-10-10 T1: the fixture's test clip cannot carry an ARCHIVE mark
+Shown by: `test_sources_timeline` (S6 is DRAWN and `test_fixture: true`). The ticket's synthetic testsrc clip must never read as archival, but GRAMMAR 12 lets `archive_video` carry only ARCHIVE or RECONSTRUCTED. The engine requires mark DRAWN for a ledger item with `synthetic: true` ("DRAWN from ffmpeg testsrc, test fixture") and refuses DRAWN on any real clip.
+
+## 2026-10-10 T1: lint-size forbade any image in git
+Shown by: `npm run gate` (lint-size) before the change. The ticket's fixture needs three small ledger stills, and lint-size banned every `.jpg`. lint-size now allows `studio/tests/fixture/stills/*.jpg` up to 200 KB each and caps the whole fixture folder at 1 MB; `.gitignore` un-ignores only that folder's JPEGs. The fixture clip and test tone are generated at test time, never committed.
+
+## 2026-10-10 T1: what T1 does not draw or measure yet
+Shown by: the fixture render's journal (`overlay-rendered`, `audio-present`, `clip-sound` warnings).
+- Text over footage (`overlay`) is journaled as a warning and not drawn.
+- `generated` shots are refused (the pilot's AI-GENERATED share is 0); `drawn` shots need a pre-rendered image cited as their asset.
+- WAVs are found at `audio/<line or cue id>.wav` in the film folder, or the element's `wav` field; a missing one is a warning and silence. Archival clip sound is mixed mono.
+- `fsutil dirty query D:` can need an elevated shell; when it cannot be read the engine warns and goes on, and refuses only when it reports dirty.
+- Frame progress goes to the journal once a second of film per shot (plus each shot's last frame), with no preview JPEG yet.
+
+## 2026-10-10 T1: the output drive is near the 10 GB floor
+Shown by: run r-20261010-113529-4ebe (`preflight-free-disk`: C: had 15.61 GB free). A render keeps one intermediate segment per shot (x264 CRF 12, 4:4:4) plus the master. The fixture's 1080p segments took 5.6 MB for 24.75 s (run r-20261010-114119-257b), but that film is mostly cards; archival frames will cost far more, and the first pilot render must measure it. With 15.6 GB free, C: has about 5.6 GB above the floor. The tests pass `min_free_gb=1` for their 640x360 renders; the CLI keeps the 10 GB floor.
+
+## 2026-10-10 T1: run.start was not the journal's first event
+Shown by: the verifier on run r-20261010-114432-e308 (`run.start` was seq 67, after 66 scout events). The engine waited for the plan so `run.start` could carry the units and the film's length, which hid the settings of every run refused during scout. Now `run.start` is seq 1 of every run, with its settings, workers (requested and used), engine model, ffmpeg version and machine. A `run.plan` event follows the scout stage with the units, the duration, and the shots to render or take from the cache. `run.end` stays last, on success, refusal or failure. Covered by `test_run_start_is_the_first_event_and_run_end_the_last` and `test_a_refused_run_also_starts_with_run_start`. The Lens reads its units from `run.plan`.
+
+## 2026-10-10 T1: non-square pixels, the ledger's display aspect, and low frame rates
+Shown by: the verifier's note on the teaser's 720x480 NTSC source (SAR 8:9, DAR 4:3, interlaced top field first), then `test_ntsc_sar_8_9_clip_is_pillarboxed_at_4_3_not_3_2`, `test_ledger_display_aspect_overrides_the_file` and `test_true_10fps_source_is_repeated_to_24_and_journaled`. The fit already used width x SAR / height from ffprobe. That source now has a test: a generated 720x480 SAR 8:9 telecined clip fits at 480x360 in a 640x360 frame, 4:3 and never 3:2, with inverse telecine top field first. A ledger `display_aspect` (`4:3`, `4/3` or a number) now overrides the file's SAR, with a journaled decision when the two differ. The `clip-aspect` lint records the storage size, SAR, where the aspect came from, and the fit. A true 10 fps source is conformed to 24 by frame repeat (`fps=24`, about 30 distinct frames in 3 s, no speed change). Every repeat conform now also journals a decision. Open: an interlaced source that is not telecined (true 59.94 fields) has no deinterlace path yet. Frame drop would weave its fields, so such a clip needs a ledger flag and a GRAMMAR ruling on whether deinterlacing is a material alteration.
+
+## 2026-10-10 T1 review: held frames were never counted, and a clip could freeze without limit
+Shown by: the Gatehouse review of `render_segment` (the held-frame sum ran after `pics.close()` had cleared the readers, so `held_frames` was always 0), then `test_a_short_clip_holds_under_2s_and_counts_its_held_frames` (36 held frames for a 1.5 s overrun) and `test_a_hold_over_2s_is_refused_unless_re_timed`. The sum now runs before close. The probe reads the video stream's own duration, not the container's, which an audio track can lengthen; `duration_from` says which it used. A clip whose out point runs past its stream holds its last frame. That is a warning up to 2 s, and refused beyond 2 s unless the shot is RECONSTRUCTED `re-timed` (GRAMMAR 7.1). The plan checks it (`clip-hold`), and the render checks it again on the frames actually held (`clip-hold-rendered`).
+
+## 2026-10-10 T1 review: the synthetic-to-DRAWN rule covered clips only
+Shown by: `test_a_synthetic_still_cannot_be_marked_archive`. A ledger item with `synthetic`, `test_fixture` or `generator` now allows only DRAWN on every shot kind, stills included (`is_synthetic`). Supersedes the scope of the earlier entry "the fixture's test clip cannot carry an ARCHIVE mark".
+
+## 2026-10-10 T1 review: Commons photographs were committed to the repo
+Shown by: the Gatehouse review (R-08) and `test_fixture_commits_no_media`. The three fixture stills were Commons downloads, tracked through a lint-size exception. Supersedes the entry "lint-size forbade any image in git": that exception and the `.gitignore` un-ignore are reverted, and the photographs are gone from the branch history. `studio/tests/fixture/make_media.py` now draws three test images with PIL at test time, at the same sizes (500x350, 395x316, 300x420), and the fixture tracks only JSON and Python. The test images are synthetic, so they are marked DRAWN; the fixture no longer exercises ARCHIVE pixels, while the lints keep their ARCHIVE cases.
+
+## 2026-10-10 T1 review: the D: check could never pass unelevated
+Shown by: the Gatehouse review (`fsutil dirty query` needs elevation, so it always returned unreadable and the engine only warned), then `test_preflight_refuses_a_full_disk_and_an_unhealthy_d` and `test_an_unreadable_d_refuses_unless_the_override_is_set`. The pre-flight reads `Get-Volume -DriveLetter D` (HealthStatus, OperationalStatus) through PowerShell, which needs no elevation; on this laptop it reads Healthy / OK. Anything other than Healthy and OK refuses. An unreadable volume refuses unless `DOCUMENT_ALLOW_UNVERIFIED_DISK=1`, which journals a `human` override. A known-unhealthy volume refuses even with the override. Lowering the free-disk floor below 10 GB is journaled as a `human` override too.
+
+## 2026-10-10 T1 review: the cache key and the master's bytes
+Shown by: `test_the_cache_key_holds_ffmpeg_and_the_fonts` and `test_the_master_does_not_depend_on_workers` (one worker and two workers give byte-identical masters). A segment's key now includes the ffmpeg version line and the sha256 of every font file, so an upgrade of either re-renders. The master encode uses a fixed `-threads 4` instead of following `--workers`, so the same inputs give the same bytes.
+
+## 2026-10-10 T1 review: decoders ran multi-threaded inside worker processes
+Shown by: `test_decoders_and_encoders_run_single_threaded`. Each worker's clip decoder, the clip-audio decoder and the segment encoder now run with `-threads 1 -filter_threads 1`. Otherwise 8 workers could start 8 ffmpeg processes with a thread per core each, which is the parallel load this laptop crashes under.
+
+## 2026-10-10 T1 review: a failed segment could leave its partial file
+Shown by: `test_a_failed_segment_leaves_no_partial_file` (an encoder with an unknown codec). After killing the encoder, the worker now waits up to 10 s for it to exit, then removes the `.part` file with retries, because Windows can hold the file a moment after its writer dies (WinError 32).
+
+## 2026-10-10 T1 review: text the engine does not draw is refused; overlays are drawn
+Shown by: `test_an_undrawn_text_kind_is_refused` and `test_overlay_is_drawn_bottom_right_and_never_over_a_card`. Supersedes the overlay line of "what T1 does not draw or measure yet". GRAMMAR 9's text over footage is now drawn by `motion.overlay_frame`: one line, bottom right, flush at 4% of width with its box bottom at 92%, numerals in the data face, held by a feathered wash from the right edge, arriving on `settle` and fading over 0.5 s. The `overlay-format` lint refuses more than one line, an overlay over a card, or one over a lower third. A text kind outside lower_third, overlay, chapter_card, title_card and silent_record is refused (`kind-supported`, blocking).
+
+## 2026-10-10 T1 review: a missing voice WAV now blocks
+Shown by: `test_a_missing_voice_wav_blocks_unless_draft` and `test_draft_is_journaled_as_a_human_override`. A narration or testimony line without its WAV refuses the run, because silence there would ship a film missing its words. `--draft` places silence instead and is journaled as a `human` override and in the run's settings. A missing music or ambience cue stays a warning.
+
+## 2026-10-10 T1 review: frame rate, telecine and field order
+Shown by: `test_telecine_must_be_declared_for_a_29_97_source` and `test_an_unknown_field_order_blocks_inverse_telecine`. The probe uses `avg_frame_rate`, falling back to `r_frame_rate`, which for field-coded streams can report the field rate. A 29.97 or 59.94 fps source must state `telecined: true|false` in its ledger, or the run is refused (previously a warning plus a guess). Inverse telecine with an unknown field order is refused (previously a warning).
+
+## 2026-10-10 T1 review: two GRAMMAR lints were missing
+Shown by: `test_a_cross_class_dip_under_12_frames_is_refused` and `test_a_still_zoom_past_its_preset_is_refused`. A dip between two mark classes shorter than 12 frames is refused (GRAMMAR 4.4). A still move whose zoom exceeds its preset's limit (HOLD 1.0, PUSH and PULL 1.12, DRIFT 1.15, TILT 1.2, DETAIL 1.3), or 1.3 in any case, is refused (7.2).
+
+## 2026-10-10 T1 review: ducking ran a full-film convolution
+Shown by: `test_ducking_average_matches_a_convolution`. The 250 ms smoothing of the voice envelope used `np.convolve` over the whole programme, which is O(n x 12000) at 48 kHz, about 10^12 multiply-adds for a 25-minute film. A cumulative-sum moving average gives the same curve in O(n).
+
+## 2026-10-10 T1 review: what the journal records, added
+Shown by: `test_segments_mix_and_master_are_artifacts_with_hashes`. Every shot segment, the mix, the normalised mix, the master and `sources.json` are journaled as `artifact` events with their sha256. A loudnorm fallback from linear to dynamic mode is flagged (`loudnorm-linear`, a warning with the reason). Overrides (`--draft`, `DOCUMENT_ALLOW_UNVERIFIED_DISK`, a lowered free-disk floor) are journaled as `human` events.
+
+## 2026-10-10 T1: black is black, all pixels off (founder ruling from the teaser)
+Shown by: the founder watching teaser run r-20261010-120804-005c, then `test_black_under_a_voice_is_all_zero_outside_the_mark`, `test_pillarbox_bars_are_exactly_zero`, `test_a_dips_middle_frame_is_all_zero` and `test_black_is_limited_range_y16_in_the_master`. The film's black was the site's theatre black (RGB 15,12,10) and the letterbox field was 5,4,3, so black frames glowed faintly. `motion.PALETTE` black and letterbox are now 0,0,0, which covers card grounds, black under a voice, pillarbox and letterbox fields and the dip's hold. The site keeps `--doc-black` from tokens.css. During a dip's black hold every overlay is off, so the frame is all zero; everywhere else the mark, watermark and lower thirds stay. The mark-coverage lint counts those frames as `dip_black` and requires them to be all zero; a dip at 24 fps holds black for one frame. The master is tagged and encoded limited-range BT.709, so RGB 0 decodes to Y=16 (measured 15 to 17 with mean 16.0) and U/V 128. Open: GRAMMAR non-negotiable 3 ("every frame ... carries exactly one mark class") needs an amendment naming the dip's black hold as the one unmarked frame.
+
+## 2026-10-10 T1: voices never overlap (founder ruling from the teaser)
+Shown by: teaser run r-20261010-120804-005c. Recomputed from its `narration` event, it has four voice overlaps of 2.16 to 3.37 s: N1 with R1 (2.16 s), R1 with N2 (3.37 s), N2 with R2 (2.57 s), N3 with R4 (3.22 s). Then `test_overlapping_voices_are_refused_with_every_collision`, `test_voices_closer_than_0_8_s_collide_without_overlapping`, `test_fit_voices_moves_lines_and_grows_their_shots` and `test_a_render_with_fit_voices_journals_and_saves_the_fitted_screenplay`. The blocking lint `voice-overlap` measures each narration and testimony WAV and refuses any two voice lines that overlap or sit less than 0.8 s apart, listing every collision with both ids, the overlap in seconds and how short the gap is. `--fit-voices` moves each line to max(its start, the previous voice's end + 0.8 s). The shot the line sits in grows by the same amount (a clip takes more of its source, which the hold lint still judges), and everything after the line moves with it; cues and text spanning the line are lengthened. Each move is a `decision` event, the option is a `human` override, and the fitted screenplay is saved as `screenplay.fitted.json` (an `artifact`). Audio is never shortened or sped up.
+
+## 2026-10-10 T1 re-review: --fit-voices stretched or stranded subtitle cues
+Shown by: the Gatehouse re-review. L1's cue went from 5.0-7.5 to 5.0-9.3 although L1 never moved; a cue starting 2 frames before its line stayed put while its voice moved; with `--burn-subtitles` two cues overlapped. Then `test_fit_voices_moves_lines_and_grows_their_shots` and `test_a_fit_voices_render_with_burned_subtitles`. The old code lengthened anything spanning a moved line and moved cues by their own start time. `fit_voices` now records each insertion of time on the original timeline:
+- voice lines, text and audio cues move by the time inserted at or before their start;
+- text keeps its length;
+- an audio cue spanning an insertion point plays on through it;
+- each `subtitle_source` cue moves by exactly its `ref`'s shift and is never stretched;
+- the shot holding an insertion point grows, and later shots move.
+
+A new `subtitle-overlap` lint blocks overlapping cues when they are burned in, and warns otherwise (a player stacks track cues). The test now runs a real `--fit-voices --burn-subtitles` render (668 frames), and asserts every cue's length is unchanged and every cue moved exactly with its line.
+
+## 2026-10-10 T1 re-review: smaller fixes
+Shown by: the tests named in each item.
+- `fit_voices` raised KeyError `out_s` on a video shot given `dur_s` and no `out_s`. It now derives the in and out points as `build_plan` does, from the shot and then its ledger item (`test_fit_voices_inside_a_clip_with_no_out_point`).
+- The four frames after a mark class change were counted as a crossfade without looking. The plate crossfade is now a true linear blend of the two plates, so the colour-bar pixel is exactly a mix of the two hues, and `check_mark` probes it: a pixel off the line between the hues fails (`test_a_crossfade_frame_off_the_hue_line_fails`; the every-frame test now asserts it too).
+- `sources.json`'s `test_fixture` uses `is_synthetic`, so an item with only a `generator` counts (`test_sources_marks_an_item_with_only_a_generator_as_a_test_fixture`).
+- loudnorm's fallback to dynamic mode is tested. A quiet tone with one near full-scale click cannot reach -16 LUFS by linear gain without passing -1.5 dBTP, so loudnorm compresses it; the engine journals a `loudnorm-linear` warning and a decision (`test_loudnorm_dynamic_fallback_is_flagged`).
+- A dip longer than GRAMMAR's 1.0 s now blocks, so a long black hold (unmarked under A11) cannot hide the marks; under 0.5 s stays a warning, and under 12 frames across classes still blocks (`test_a_dip_longer_than_a_second_is_refused`).
+- The branch is rebased onto 1464ce5, whose GRAMMAR A11 names the dip's black hold as the one unmarked frame (the open item in "black is black" above) and whose A12 makes voice-overlap law.
+
+## 2026-10-10 T1 trailer: a false A7 refusal after minutes of rendering
+Shown by: trailer run r-20261010-124325-b7b3 (5 min at 1080p, on f9f6a46). It refused "A7: the first frame of S21 is not the whole photograph" after 2 min 45 s of rendering. S21 is a 3551x2037 scan (S-028) that enters by a 1.0 s dissolve from S20. The plan's geometry lint had passed it (src = the whole image, dst 18.65 to 1901.35).
+- **Cause:** not the dissolve. The pixel check already read S21's own layer, before compositing. It compared that layer pixel by pixel (mean difference under 8) with a reference made a different way: a plain bicubic resize of the prescaled image, whose size was rounded independently of the renderer's placement. On a dense photograph, two resampling paths and a one-pixel offset differ by more than 8 on average even when the framing is right. A generated 3551x2037 high-detail image reproduces it at 1080p and passes at 360p.
+- **Fix:** the check now builds an independent reference (the original file Lanczos-resized to the whole-image fit and centred) and compares the two after an 8x box downsample at 1080p, which every crop or zoom still changes. The outside-the-photo field must still be exactly black. On S-028 itself, entering by dissolve, the new check reads a low-pass difference of 1.66 against a limit of 6. A still whose own first frame is zoomed (z 1.25) still fails.
+- Shown by `test_a_dense_still_entering_by_dissolve_passes_a7_on_its_own_layer` and `test_a_still_whose_own_first_frame_is_not_whole_still_refuses`.
+
+## 2026-10-10 T1 trailer: every check the plan can decide now runs before the first frame
+Shown by: trailer run r-20261010-124325-b7b3 (the refusal came after 2 min 45 s of rendering), then `test_a_plan_violation_refuses_before_any_frame`, `test_the_a7_pixel_check_refuses_in_preflight_with_zero_frames` and `test_both_phases_are_journaled`. The scout stage is now the pre-flight phase and opens right after `run.start`. It runs:
+- the drive checks;
+- licences, marks, transitions, dips and zoom limits;
+- A7 framing from the plan and the image sizes;
+- voice-overlap;
+- A7's pixel check on each still's own first frame (one frame per still, `preflight_stills`).
+
+Its `done` event records `frames_rendered: 0`. The missing-voice-WAV check and loudness also run before any frame. After the motion stage, the pixel checks (mark coverage, A7, held frames, the master's format) run again as a second confirmation. Every lint carries `phase: preflight` or `phase: post-render`. A plan-detectable violation now refuses with no frame event, no motion unit and no segment on disk.

@@ -3,6 +3,8 @@
 // only thing CI (`gate.yml`) and the /ship skill's verifier run.
 
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runBin } from "./lib/run-bin.mjs";
@@ -17,6 +19,16 @@ function runNode(relativeScript) {
   });
 }
 
+// The studio's Python: DOCUMENT_PYTHON, else the studio venv in ~/document-work,
+// else python3 / python on PATH (CI installs one with setup-python). A missing
+// interpreter or pytest fails the step; it is never skipped.
+function studioPython() {
+  if (process.env.DOCUMENT_PYTHON) return process.env.DOCUMENT_PYTHON;
+  const venv = path.join(os.homedir(), "document-work", ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
+  if (existsSync(venv)) return venv;
+  return process.platform === "win32" ? "python" : "python3";
+}
+
 const STEPS = [
   { label: "typecheck (web)", run: () => runBin("typescript", "tsc", ["-p", "web/tsconfig.json", "--noEmit"], { cwd: repoRoot }) },
   { label: "typecheck (worker)", run: () => runBin("typescript", "tsc", ["-p", "worker/tsconfig.json", "--noEmit"], { cwd: repoRoot }) },
@@ -28,6 +40,17 @@ const STEPS = [
     run: () =>
       runBin("vitest", "vitest", ["run", "--reporter=default", "--reporter=json", "--outputFile=.vitest-report.json"], {
         cwd: repoRoot,
+      }),
+  },
+  // The studio engine's tests render the fixture film (needs ffmpeg and the
+  // @fontsource fonts from npm install). pytest exits non-zero on 0 tests.
+  {
+    label: "studio-test",
+    run: () =>
+      spawnSync(studioPython(), ["-m", "pytest", "studio/tests", "-q", "-p", "no:cacheprovider"], {
+        cwd: repoRoot,
+        stdio: "inherit",
+        shell: false,
       }),
   },
   { label: "lint-size", run: () => runNode("scripts/lint-size.mjs") },

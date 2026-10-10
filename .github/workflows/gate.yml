@@ -13,5 +13,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      # The studio venv's versions (studio-test renders the fixture film).
+      - run: python -m pip install numpy==2.5.3 pillow==12.3.0 soundfile==0.14.0 pytest==9.1.1
       - run: npm install
       - run: npm run gate
+        env:
+          DOCUMENT_PYTHON: python
