@@ -425,3 +425,40 @@ def test_a_haloed_line_lies_on_a_dark_band():
     finally:
         maps.HALOED = old
     assert np.asarray(with_halo).astype(int).sum() < np.asarray(without).astype(int).sum()
+
+
+@pytest.mark.parametrize("style", ["border", "coast", "river", "working", "road", "line", "line_dashed"])
+def test_only_border_today_may_draw_on_an_unplaced_pair(style):
+    """Statically (both sides named) and at render (the feature's own pair)."""
+    s = spec()
+    s["layers"].append({"file": "river.geojson", "style": style, "where": {"ADM0_A3_L": "BGD", "ADM0_A3_R": "IND"}})
+    with pytest.raises(maps.MapRefused, match="Bengal award"):
+        maps.check_spec(s)
+    s["layers"][-1]["where"] = {"FEATURECLA": "International boundary (verify)"}
+    with pytest.raises(maps.MapRefused, match="Bengal award"):
+        maps.render_map(s, GEO)
+    s["layers"][-1]["style"] = "border_today"
+    maps.render_map(s, GEO)
+
+
+def test_a_mapping_in_where_is_refused():
+    s = spec()
+    s["layers"].append({"file": "river.geojson", "style": "border_today", "where": {"ADM0_A3_L": {"in": ["BGD"]}}})
+    with pytest.raises(maps.MapRefused, match="mapping"):
+        maps.check_spec(s)
+    with pytest.raises(maps.MapRefused, match="mapping"):
+        maps.render_map(s, GEO)
+    with pytest.raises(maps.MapRefused, match="mapping"):
+        maps._as_set({"in": ["BGD"]})
+
+
+def test_a_hand_drawn_path_along_an_unplaced_line_is_refused():
+    s = spec()
+    along = [[13.0, 10.3], [13.4, 12.0], [13.9, 12.9]]           # the fixture's BGD-IND feature, traced by hand
+    s["paths"] = [{"style": "line", "points": along}]
+    with pytest.raises(maps.MapRefused, match="hand-drawn 'line' path runs along the Bengal award"):
+        maps.render_map(s, GEO)
+    s["paths"] = [{"style": "border_today", "points": along}]
+    maps.render_map(s, GEO)
+    s["paths"] = [{"style": "line", "points": [[12.4, 11.6], [14.2, 11.0]], "arrow": True}]   # crossing it is a route
+    maps.render_map(s, GEO)

@@ -1786,7 +1786,7 @@ def test_narrator_drift_in_f0_warns_past_1_and_blocks_past_2_semitones(tmp_path,
         R.build_mix(p, film, j)
     d = [e for e in lints(J.read(j.path), "narrator-drift") if e["unit"] == "narrator-f0"][0]
     assert d["status"] == ("pass" if grade == "pass" else "fail")
-    assert d["severity"] == ("block" if grade == "block" else "warn")
+    assert d["severity"] == ("warn" if grade == "warn" else "block")     # the blocking bound applies, so a pass is a block lint
     jd = J.Journal(film=f"drift-{grade}-draft")
     R.build_mix(p, film, jd, draft=True)                              # a draft only ever warns
     assert all(e["severity"] == "warn" for e in lints(J.read(jd.path), "narrator-drift"))
@@ -1803,7 +1803,7 @@ def test_a_timbre_only_swap_is_caught_by_centroid_drift(tmp_path, monkeypatch, p
     else:
         R.build_mix(p, film, j)
     d = [e for e in lints(J.read(j.path), "narrator-drift") if e["unit"] == "narrator-centroid"][0]
-    assert d["status"] == ("pass" if grade == "pass" else "fail") and d["severity"] == ("block" if grade == "block" else "warn")
+    assert d["status"] == ("pass" if grade == "pass" else "fail") and d["severity"] == ("warn" if grade == "warn" else "block")
 
 
 def test_a_narrator_with_no_stored_profile_is_a_review_item(plan, film):
@@ -1844,3 +1844,169 @@ def test_the_mood_split_refuses_the_mix(plan, film, tmp_path):
         R.build_mix(p, film, j)
     grp = {e["unit"]: e["status"] for e in lints(J.read(j.path), "narrator-consistency") if e["unit"].startswith("narrator:")}
     assert grp == {"narrator:hushed": "fail", "narrator:grave": "fail", "narrator:lower moods pooled": "fail"}
+
+
+# --------------------------------------------------------------------------
+# T1d: a held clip in every segment that shows it; sources checked in pre-flight
+# --------------------------------------------------------------------------
+
+
+def _held_dissolve_film(tmp_path):
+    """S6 is a 4 s, 10 fps clip cut from 2.5 to 5.5 s (a 1.5 s hold), and S7 a still that
+    dissolves out of it over 1 s: S7's segment starts inside S6's hold, as O2 does in the
+    episode (O1, 5.0 s of 10 fps footage to 6.9 s)."""
+    film = _film_with_clip(tmp_path, "slow", telecined=False, fps="10")
+
+    def edit(p):
+        _shot(p, "S6").update(in_s=2.5, out_s=5.5)
+        s7 = _shot(p, "S7")
+        for k in ("silent_record", "text"):
+            s7.pop(k, None)
+        s7.update(kind="archive_still", asset="FX-STILL-A", preset="HOLD", start_s=16.75, dur_s=3.5, mark="DRAWN",
+                  transition_in={"type": "dissolve", "s": 1.0})
+    _edit_play(film, edit)
+    return film
+
+
+def test_a_dissolve_out_of_a_held_clip_renders_its_last_frame_in_the_next_segment(tmp_path):
+    film = _held_dissolve_film(tmp_path)
+    plan, _ = _plan(film, "held-dissolve")
+    i6 = next(i for i, s in enumerate(plan["shots"]) if s["id"] == "S6")
+    s6, s7 = plan["shots"][i6], plan["shots"][i6 + 1]
+    assert s6["_video"]["hold_s"] > 1.4 and (s7["f0"] - s6["f0"]) / R.FPS > 4.0 - 2.5   # S7 starts inside the hold
+    whole = R.VideoReader(s6, 0.0)                         # one reader from the in point, as a single pass would read it
+    try:
+        last = [whole.frame(k / R.FPS).tobytes() for k in range(int(round(s6["_dur"] * R.FPS)))][-1]
+    finally:
+        whole.close()
+    late = R.VideoReader(s6, (s7["f0"] - s6["f0"]) / R.FPS)   # a reader that seeks past the stream's last frame
+    try:
+        assert late.frame((s7["f0"] - s6["f0"]) / R.FPS).tobytes() == last
+        assert late.held == 1
+    finally:
+        late.close()
+    res = R.render_segment(plan, i6 + 1, str(tmp_path / "S7.mp4"))
+    assert res["held_frames"] == 0 and res["held_by_shot"] == {"S6": 24}      # S6 held through the whole 1 s dissolve
+
+
+def test_a_held_clip_renders_the_same_bytes_with_one_worker_or_several(tmp_path):
+    film = _held_dissolve_film(tmp_path)
+    one = R.render(film, tmp_path / "one", height=HEIGHT, workers=1, min_free_gb=1, encode_preset="veryfast")
+    many = R.render(film, tmp_path / "many", height=HEIGHT, workers=3, min_free_gb=1, encode_preset="veryfast")
+    assert J.sha256_file(one["master"]) == J.sha256_file(many["master"])
+    segs = lambda out: {p.name: J.sha256_file(p) for p in (out / "segments").glob("*.mp4")}
+    assert segs(tmp_path / "one") == segs(tmp_path / "many")
+    for s in (one, many):
+        lint = lints(events(s), "clip-hold-rendered")[0]
+        held = lint["evidence"]["held_frames"]
+        assert lint["status"] == "pass" and set(held) == {"S6"}     # S7 shows S6's hold; it is counted under S6
+        assert 34 <= held["S6"] <= 38                                # 1.5 s at 24, summed over S6's and S7's segments
+
+
+def test_held_frames_are_summed_per_clip_across_segments():
+    ids = ["A", "B", "C"]
+    results = {0: {"held_frames": 30, "held_by_shot": {"A": 30}}, 1: {"held_frames": 0, "held_by_shot": {"A": 24}},
+               2: {"held_frames": 5}}                                # a segment cached before held_by_shot
+    assert R.held_totals(results, ids) == {"A": 54, "C": 5}          # 54 frames is 2.25 s: over GRAMMAR 7.1's 2 s
+
+
+def test_missing_and_undecodable_sources_refuse_in_preflight_all_at_once(tmp_path):
+    film = make_film(tmp_path / "film")
+    (film / "footage" / "fx-testsrc.mp4").write_bytes(b"\x00" * 4096)     # present, but no frame decodes
+    (film / "stills" / "FX-STILL-B.png").unlink()
+    (film / "stills" / "FX-STILL-C.png").write_bytes(b"not a png")
+    (film / "audio" / "L2.wav").unlink()
+    j = J.Journal(film="sources")
+    with pytest.raises(R.Refused, match=r"source files missing or unreadable \(pre-flight\)") as e:
+        R.render(film, tmp_path / "out", height=HEIGHT, workers=1, min_free_gb=1, journal=j)
+    msg = str(e.value)
+    for unit, why in (("S6", "no frame decoded"), ("S4", "missing"), ("S5", "not a readable image"), ("L2", "voice WAV missing")):
+        assert f"{unit}: " in msg and why in msg
+    evs = J.read(j.path)
+    _no_frames_rendered(evs, tmp_path / "out")
+    lint = lints(evs, "sources-readable")[0]
+    assert lint["status"] == "fail" and {p["unit"] for p in lint["evidence"]["problems"]} == {"S4", "S5", "S6", "L2"}
+    jd = J.Journal(film="sources-draft")                              # a draft places silence for the WAV, never for a picture
+    with pytest.raises(R.Refused) as e:
+        R.render(film, tmp_path / "out2", height=HEIGHT, workers=1, min_free_gb=1, draft=True, journal=jd)
+    assert "L2" not in str(e.value) and "S6" in str(e.value)
+
+
+def test_every_source_of_the_fixture_is_checked_and_passes(rendered):
+    lint = lints(events(rendered), "sources-readable")[0]
+    assert lint["status"] == "pass" and lint["evidence"]["files_checked"] >= 6 and lint["phase"] == "preflight"
+
+
+def test_until_is_a_check_render_that_never_touches_the_full_master(film, rendered):
+    out = rendered["out"]
+    files = lambda: {str(p.relative_to(out)): J.sha256_file(p) for p in out.rglob("*") if p.is_file()
+                     and "check-" not in str(p.relative_to(out))}
+    before = files()
+    s = R.render(film, out, height=HEIGHT, workers=2, min_free_gb=1, encode_preset="veryfast", until_s=5.0)
+    assert files() == before                                   # master.mp4, sources.json, segments/ and work/ untouched
+    assert Path(s["master"]).name == "master.check-5s.mp4" and Path(s["sources"]).name == "sources.check-5s.json"
+    assert s["partial"] is True and s["until_s"] == 5.0 and s["rendered"] == ["S1", "S2", "S3"]
+    assert (out / "check-5s" / "segments").is_dir()
+    pr = R.probe_video(Path(s["master"]))
+    assert abs(pr["duration_s"] - s["duration_s"]) < 0.1
+    evs = events(s)
+    assert evs[-1]["lens"] == "run.end" and evs[-1]["partial"] is True and evs[-1]["until_s"] == 5.0
+    roles = {e.get("role") for e in evs if e["kind"] == "artifact"}
+    assert "check-master" in roles and "master" not in roles and "segment" not in roles
+    assert [e for e in evs if e["kind"] == "human" and e.get("override") == "--until"]
+    j = J.Journal(film="until-resume")
+    with pytest.raises(R.Refused):
+        R.render(film, out, height=HEIGHT, workers=1, min_free_gb=1, until_s=5.0, from_shot="S99", journal=j)
+    assert J.read(j.path)[-1]["resume"]["command"].endswith("--until 5")
+    doc = json.loads(Path(s["sources"]).read_text(encoding="utf-8"))
+    assert doc["partial"] is True and doc["master"] == "master.check-5s.mp4"
+    with pytest.raises(R.Refused, match="--until"):
+        R.trim_plan({"shots": [{"f0": 0}]}, 0)
+
+
+def test_a_truncated_jpeg_or_an_empty_wav_refuses_in_preflight(tmp_path):
+    from PIL import Image
+    film = make_film(tmp_path / "film")
+    jpg = film / "stills" / "FX-STILL-B.jpg"
+    Image.new("RGB", (395, 316), (120, 90, 60)).save(jpg, quality=95)
+    data = jpg.read_bytes()
+    jpg.write_bytes(data[: len(data) // 2])                   # the header and half the scan: verify() alone passes it
+    led = json.loads((film / "stills-ledger.json").read_text(encoding="utf-8"))
+    led["items"][1]["file"] = "FX-STILL-B.jpg"
+    (film / "stills-ledger.json").write_text(json.dumps(led), encoding="utf-8")
+    assert "truncated" in R.opens_as_image(jpg) and R.opens_as_image(film / "stills" / "FX-STILL-A.png") is None
+    (film / "audio" / "L2.wav").write_bytes(b"")
+    play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
+    j = J.Journal(film="truncated")
+    problems = R.preflight_sources(film, play, j, draft=True)    # a draft forgives a missing WAV, never an unreadable one
+    assert {(p["unit"], p["why"].split(":")[0]) for p in problems} == {("S4", "not a readable image"),
+                                                                       ("L2", "not a readable WAV")}
+
+
+def test_an_empty_decode_before_the_clips_end_raises_with_ffmpegs_message(plan, tmp_path, monkeypatch):
+    s6 = json.loads(json.dumps(next(s for s in plan["shots"] if s["id"] == "S6")))
+    bad = tmp_path / "bad.mp4"
+    bad.write_bytes(bytes(4096))
+    s6["_item"]["_path"] = str(bad)
+    monkeypatch.setattr(R.VideoReader, "tail_frame", lambda self: pytest.fail("a hold was assumed"))
+    r = R.VideoReader(s6, 0.5)
+    try:
+        assert not r.starts_in_hold()
+        with pytest.raises(R.EncodeError, match="no frames decoded for S6: .+"):
+            r.frame(0.5)
+    finally:
+        r.close()
+
+
+
+def test_narrator_drift_is_inconclusive_when_no_line_has_both_f0_and_centroid(tmp_path, monkeypatch):
+    f = tmp_path / "narrator-profile.json"
+    f.write_text(json.dumps({"voice": {"engine": "test-tone", "voice": "none"},
+                             "baseline": {"f0_hz": 183.0, "centroid_hz": 1100.0}}), encoding="utf-8")
+    monkeypatch.setattr(R, "NARRATOR_PROFILE", f)
+    j = J.Journal(film="drift-unmeasured")
+    profiles = {f"N{k}": {"f0_hz": None, "centroid_hz": 1100.0, "wps": 2.5, "mood": "plain"} for k in range(5)}
+    off = R.narrator_consistency_lints(j, profiles, False, {"engine": "test-tone", "voice": "none"})
+    d = lints(J.read(j.path), "narrator-drift")
+    assert off == [] and len(d) == 1 and d[0]["status"] == "inconclusive" and d[0]["severity"] == "block"
+    assert d[0]["evidence"]["check"] == "no line has both f0 and centroid"

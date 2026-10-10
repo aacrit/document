@@ -70,6 +70,7 @@ RESOLUTIONS = {1080: (1920, 1080), 720: (1280, 720)}
 DEFAULT_WORKERS, MAX_WORKERS = 8, 12
 MIN_FREE_GB = 10.0
 MAX_HOLD_S = 2.0                    # GRAMMAR 7.1: a longer freeze is RECONSTRUCTED re-timed
+TAIL_S = 1.0                        # a hold's frame is read from the clip's last second (VideoReader.tail_frame)
 OPEN_S = 1.5                        # A7: the whole photograph, before any move
 A7_FULL_LIMIT, A7_BAND_LIMIT = 6.0, 3.5   # A7 pixel check: low-pass mean difference, whole picture and outer band
 A7_BAND = 0.05                      # the outer band: 5% of the photograph's content on each side
@@ -334,6 +335,95 @@ def preflight(out: Path, journal: Journal, *, min_free_gb: float = MIN_FREE_GB, 
         if not healthy:
             raise Refused(f"D: is {v['health']} / {v['operational']}; run chkdsk D: /f before rendering to it")
     return result
+
+
+def decodes_a_frame(path: Path | str) -> str | None:
+    """None when ffmpeg decodes at least one video frame from the file, else why not."""
+    try:
+        r = subprocess.run([ffmpeg(), "-v", "error", "-threads", "1", "-i", str(path), "-map", "0:v:0", "-frames:v", "1",
+                            "-vf", "scale=16:16", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                           capture_output=True, timeout=120, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        return "ffmpeg timed out reading its first frame"
+    if len(r.stdout) >= 256:
+        return None
+    err = r.stderr.decode(errors="replace").strip()
+    return f"no frame decoded{': ' + err[-200:] if err else ''}"
+
+
+def reads_as_wav(path: Path | str) -> str | None:
+    """None when soundfile reads the WAV's header and it holds at least one frame, else why not."""
+    import soundfile as sf
+    try:
+        info = sf.info(str(path))
+    except Exception as e:
+        return f"not a readable WAV: {type(e).__name__}: {e}"
+    return None if info.frames > 0 else "an empty WAV (0 frames)"
+
+
+def opens_as_image(path: Path | str) -> str | None:
+    """None when PIL decodes every pixel of the image file, else why not. verify() alone
+    reads only the structure and passes a truncated JPEG, so the file is opened again and
+    loaded."""
+    try:
+        with Image.open(path) as im:
+            im.verify()
+        with Image.open(path) as im:
+            im.load()
+        return None
+    except Exception as e:
+        return f"not a readable image: {type(e).__name__}: {e}"
+
+
+def preflight_sources(film: Path, play: dict, journal: Journal, *, draft: bool = False) -> list[dict]:
+    """Every file the screenplay references, checked before any frame: each clip, still and drawn
+    frame exists and opens (a clip decodes at least one frame), and each voice WAV exists (a draft
+    places silence instead, and build_mix journals it). A missing music or ambience cue stays a
+    warning (silence). Journals one lint per file checked and returns every blocking problem, so
+    one refusal lists them all."""
+    assets = load_ledgers(film, play)
+    problems: list[dict] = []
+    seen: set[str] = set()
+    checked = 0
+    for part in play.get("parts", []):
+        for s in part.get("shots", []):
+            if s.get("kind") not in ("archive_video", "archive_still", "drawn") or not s.get("asset"):
+                continue
+            item = assets.get(s["asset"])
+            if item is None:                              # build_plan's ledger-cited lint names it
+                continue
+            path = item.get("_path")
+            if not path:
+                problems.append({"unit": s["id"], "file": None, "why": f"ledger item {s['asset']} names no file"})
+                continue
+            if path in seen:
+                continue
+            seen.add(path)
+            checked += 1
+            if not Path(path).exists():
+                why = "missing"
+            elif s["kind"] == "archive_video":
+                why = decodes_a_frame(path)
+            else:
+                why = opens_as_image(path)
+            if why:
+                problems.append({"unit": s["id"], "asset": s["asset"], "file": path, "why": why})
+        for ln in part.get("lines", []):
+            if ln.get("kind") not in VOICE_KINDS:
+                continue
+            wav = voice_wav(film, ln)
+            checked += 1
+            if not wav.exists():
+                if not draft:
+                    problems.append({"unit": ln["id"], "file": str(wav), "why": "voice WAV missing"})
+                continue
+            why = reads_as_wav(wav)
+            if why:                                       # present but unreadable: refused even in a draft
+                problems.append({"unit": ln["id"], "file": str(wav), "why": why})
+    journal.lint("sources-readable", not problems, stage="scout", unit="sources", phase="preflight",
+                 evidence={"files_checked": checked, "problems": problems, "draft": draft,
+                           "checks": "clips decode a frame, stills and drawn frames open, voice WAVs exist"})
+    return problems
 
 
 # --------------------------------------------------------------------------
@@ -1042,6 +1132,26 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     return plan
 
 
+def trim_plan(plan: dict, until_s: float) -> dict:
+    """The plan cut after the last shot that starts before ``until_s`` (a check render): that
+    shot ends where it ends, and what lies past it (shots, lines, cues, text) is dropped."""
+    if until_s <= 0:
+        raise Refused(f"--until {until_s:g}: must be after the film's start")
+    shots = [s for s in plan["shots"] if s["f0"] < until_s * FPS]
+    if len(shots) == len(plan["shots"]):
+        return plan
+    end = shots[-1]["f1"]
+    end_s = end / FPS
+    out = dict(plan, shots=shots, frames=end, duration_s=end_s, marks=plan["marks"][:len(shots)])
+    out["lines"] = [x for x in plan["lines"] if float(x["start_s"]) < end_s]
+    out["cues"] = [x for x in plan["cues"] if float(x["start_s"]) < end_s]
+    for k in ("lower_thirds", "overlays", "subtitles"):
+        out[k] = [x for x in plan[k] if x["start"] < end_s]
+    out["card_spans"] = [(a, b) for a, b in plan["card_spans"] if a < end_s]
+    out["until_s"] = until_s
+    return out
+
+
 # --------------------------------------------------------------------------
 # Pictures (worker side)
 # --------------------------------------------------------------------------
@@ -1063,18 +1173,55 @@ class VideoReader:
         ss = shot["in_s"] + start_local
         dur = shot["_dur"] - start_local + 2.0 / FPS
         self.err = tempfile.TemporaryFile()
+        self.src, self.vf, self.in_s = shot["_item"]["_path"], vf, float(shot["in_s"])
+        self.src_dur = float((v.get("probe") or {}).get("duration_s") or 0.0)
+        self.src_fps = float((v.get("probe") or {}).get("fps") or 0.0) or float(FPS)
         self.proc = subprocess.Popen([ffmpeg(), "-v", "error", "-filter_threads", "1", "-threads", "1",
-                                      "-ss", f"{ss:.4f}", "-t", f"{dur:.4f}", "-i", shot["_item"]["_path"],
+                                      "-ss", f"{ss:.4f}", "-t", f"{dur:.4f}", "-i", self.src,
                                       "-an", "-vf", vf, "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
                                      stdout=subprocess.PIPE, stderr=self.err, stdin=subprocess.DEVNULL)
         self.idx, self.last, self.held = -1, None, 0
+
+    def _decode_last(self, ss: float) -> bytes | None:
+        """The last whole frame decoded from ``ss`` to the end of the stream, or None."""
+        proc = subprocess.Popen([ffmpeg(), "-v", "error", "-filter_threads", "1", "-threads", "1",
+                                 "-ss", f"{max(0.0, ss):.4f}", "-i", self.src,
+                                 "-an", "-vf", self.vf, "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+        last = None
+        try:
+            while True:
+                buf = proc.stdout.read(self.nbytes)
+                if len(buf) < self.nbytes:
+                    break
+                last = buf
+        finally:
+            proc.stdout.close()
+            proc.wait()
+        return last
+
+    def starts_in_hold(self) -> bool:
+        """The reader's seek point is at or past the source's last frame (one output frame of slack
+        for the conform's rounding). An empty decode from anywhere earlier is a real decode error
+        and raises with ffmpeg's own message."""
+        return self.src_dur > 0 and self.in_s + self.t0 >= self.src_dur - 1.0 / self.src_fps - 1.0 / FPS
+
+    def tail_frame(self) -> bytes | None:
+        """The clip's last decodable frame, conformed and fitted as every other frame is: the
+        frame a hold shows. A reader that starts at or past it (the next shot dissolving out of a
+        held clip, in its own segment) decodes nothing from its seek point, so the frame is read
+        from the stream's last TAIL_S seconds, or failing that from the in point."""
+        last = self._decode_last(max(self.in_s, self.src_dur - TAIL_S)) if self.src_dur else None
+        return last if last is not None else self._decode_last(self.in_s)
 
     def frame(self, t_local: float) -> Image.Image:
         want = int(round((t_local - self.t0) * FPS))
         while self.idx < want:
             buf = self.proc.stdout.read(self.nbytes)
             if len(buf) < self.nbytes:
-                self.held += 1
+                self.held += 1          # an output frame past the stream's last: the hold (GRAMMAR 7.1)
+                if self.last is None and self.starts_in_hold():
+                    self.last = self.tail_frame()
                 break
             self.last, self.idx = buf, self.idx + 1
         if self.last is None:
@@ -1104,6 +1251,7 @@ class Pictures:
         self.fonts = M.Fonts()
         self.stills: dict[str, Image.Image] = {}
         self.readers: dict[str, VideoReader] = {}
+        self._held: dict[str, int] = {}          # held frames of readers already closed, by the clip's shot id
 
     def still(self, s: dict) -> Image.Image:
         key = s["id"]
@@ -1119,7 +1267,7 @@ class Pictures:
         r = self.readers.get(s["id"])
         if r is None or t_local < r.t0 - 1e-9:
             if r:
-                r.close()
+                self._retire(r)
             r = self.readers[s["id"]] = VideoReader(s, max(0.0, t_local))
         fr = r.frame(t_local)
         out = Image.new("RGB", (self.plan["W"], self.plan["H"]), M.PALETTE["letterbox"])
@@ -1161,9 +1309,21 @@ class Pictures:
         return M.rostrum_move(img, self.L, t_local - cam["open_s"], s["_dur"] - cam["open_s"], p[0], p[-1],
                               via=p[1:-1], clamp=cam["clamp"])
 
+    def _retire(self, r: VideoReader) -> None:
+        self._held[r.shot_id] = self._held.get(r.shot_id, 0) + r.held
+        r.close()
+
+    def held(self) -> dict[str, int]:
+        """Frames that showed a clip's held last frame, by the clip's shot id: a dissolve's
+        outgoing clip counts under its own id, not the segment's."""
+        out = dict(self._held)
+        for r in self.readers.values():
+            out[r.shot_id] = out.get(r.shot_id, 0) + r.held
+        return {k: v for k, v in out.items() if v}
+
     def close(self):
         for r in self.readers.values():
-            r.close()
+            self._retire(r)
         self.readers.clear()
 
 
@@ -1325,7 +1485,7 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
                 sink.put({"lens": "frame", "stage": "motion", "unit": s["id"], "frame": f, "frames": plan["frames"],
                           "tc_s": round(f / FPS, 3), "ms": round(ms[-1], 1),
                           "mark": {"class": s["mark"], "detail": s["detail"]}, "preview": None})
-        held = sum(r.held for r in pics.readers.values())     # before close() clears the readers
+        held_by = pics.held()                                  # before close() clears the readers
         enc.stdin.close()
         if enc.wait():
             err.seek(0)
@@ -1347,9 +1507,24 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
         err.close()
     result = {"shot": s["id"], "frames": frames, "wall_s": time.perf_counter() - t_start,
               "ms_mean": round(sum(ms) / len(ms), 2) if ms else None, "mark": stats, "first_frame_whole": first_whole,
-              "first_frame_detail": first_detail, "held_frames": held}
+              "first_frame_detail": first_detail, "held_frames": held_by.get(s["id"], 0), "held_by_shot": held_by}
     seg.with_name(seg.name + ".json").write_text(json.dumps(result), encoding="utf-8")
     return result
+
+
+def held_totals(results: dict[int, dict], ids: list[str]) -> dict[str, int]:
+    """Held frames per clip over the whole film, summed over every segment that shows it: the
+    clip's own and the next shot's, where a dissolve carries it out. GRAMMAR 7.1's 2 s is per clip,
+    never per segment. A segment cached before held_by_shot existed counts under its own shot."""
+    out: dict[str, int] = {}
+    for i, r in results.items():
+        by = r.get("held_by_shot")
+        if by is None:
+            by = {ids[i]: r.get("held_frames", 0)}
+        for sid, k in by.items():
+            if k:
+                out[sid] = out.get(sid, 0) + int(k)
+    return out
 
 
 def still_first_frame_whole(plan: dict, pics: Pictures, i: int, detail: dict | None = None) -> bool:
@@ -1789,11 +1964,18 @@ def narrator_consistency_lints(journal: Journal, profiles: dict[str, dict], draf
         journal.lint("narrator-drift", True, stage="assembly", phase="preflight", unit="narrator", severity="review",
                      grammar="A14", evidence={"check": "no reference profile", "why": why, "narrator_voice": narrator_voice,
                                               "film_baseline": res["baseline"]})
+    elif not drift:
+        # a stored profile, but no narration line measured both f0 and centroid: the drift could not be measured
+        journal.lint("narrator-drift", True, stage="assembly", phase="preflight", unit="narrator", severity=sev,
+                     grammar="A14", status="inconclusive",
+                     evidence={"check": "no line has both f0 and centroid", "why": why, "film_baseline": res["baseline"],
+                               "reference": stored.get("baseline"), "lines": len(profiles)})
     else:
         for k, d in drift.items():
             blocks = d["grade"] == "block"
+            # the blocking bound applies outside --draft, so the lint carries block severity unless only the warning bound failed
             journal.lint("narrator-drift", d["grade"] == "ok", stage="assembly", phase="preflight", unit=f"narrator-{k}",
-                         severity=sev if blocks else "warn", grammar="A14",
+                         severity="warn" if d["grade"] == "warn" else sev, grammar="A14",
                          evidence=dict(d, film_baseline=res["baseline"], reference=stored["baseline"], why=why,
                                        result=None if not blocks else ("kept (draft)" if draft else "refused: not the narrator's voice")))
             if blocks:
@@ -2308,16 +2490,20 @@ class _Direct:
 def render(film: Path | str, out: Path | str | None = None, *, height: int = 1080, from_shot: str | None = None,
            workers: int = DEFAULT_WORKERS, burn_subtitles: bool = False, min_free_gb: float = MIN_FREE_GB,
            encode_preset: str = "slow", draft: bool = False, fit_voices_opt: bool = False, audio_only: bool = False,
-           journal: Journal | None = None) -> dict:
+           until_s: float | None = None, journal: Journal | None = None) -> dict:
     film = Path(film).resolve()
     out = Path(out).resolve() if out else film / "out"
     W, H = frame_size(height)
     journal = journal or Journal(film=film.name, out_dir=out)
     run_t0 = time.perf_counter()
-    resume_cmd = f"python -m studio.engine.render {film} --out {out} --res {height}"
+    resume_cmd = f"python -m studio.engine.render {film} --out {out} --res {height}" + (
+        f" --until {until_s:g}" if until_s is not None else "")
+    # A check render (--until) keeps its segments, mix and outputs apart: it never touches, or passes as, the full render.
+    check = f"check-{until_s:g}s" if until_s is not None else None
+    run_dir = out / check if check else out
     settings = {"height": H, "width": W, "fps": FPS, "workers": workers, "from": from_shot, "burn_subtitles": burn_subtitles,
                 "min_free_gb": min_free_gb, "encode_preset": encode_preset, "draft": draft, "fit_voices": fit_voices_opt,
-                "audio_only": audio_only}
+                "audio_only": audio_only, "until_s": until_s}
     current = {"stage": "scout", "unit": None}
     n_req = int(workers)
     n = max(1, min(n_req, MAX_WORKERS, os.cpu_count() or 1))
@@ -2348,9 +2534,19 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
             fitted = out / "screenplay.fitted.json"
             fitted.write_text(json.dumps(play, indent=2, ensure_ascii=False), encoding="utf-8")
             journal.artifact("scout", fitted, role="screenplay-fitted")
+        with journal.unit("scout", "sources", size={"driver": "items", "value": 0}) as u:
+            bad_sources = preflight_sources(film, play, journal, draft=draft)
+            u.extra.update(problems=len(bad_sources))
+        if bad_sources:
+            raise Refused("source files missing or unreadable (pre-flight): " + "; ".join(
+                f"{b['unit']}: {b['file']} ({b['why']})" for b in bad_sources))
         with journal.unit("scout", "plan", size={"driver": "items", "value": 0}) as u:
             plan = build_plan(film, W=W, H=H, burn_subtitles=burn_subtitles, journal=journal, play=play)
             u.size = {"driver": "items", "value": len(plan["shots"])}
+        if until_s is not None:
+            journal.human("scout", f"--until {until_s:g}: only the shots that start before {until_s:g} s are rendered",
+                          override="--until")
+            plan = trim_plan(plan, until_s)
         stills = [s["id"] for s in plan["shots"] if s["kind"] == "archive_still" and s.get("_cam")]
         with journal.unit("scout", "preflight-stills", size={"driver": "items", "value": len(stills)}):
             not_whole = preflight_stills(plan, journal)
@@ -2368,7 +2564,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
                 raise Refused(f"--from {from_shot}: no such shot (shots: {', '.join(ids)})")
             from_idx = ids.index(from_shot)
 
-        seg_dir = out / "segments"
+        seg_dir = run_dir / "segments"
         seg_dir.mkdir(parents=True, exist_ok=True)
         asset_hash = {}
         for s in plan["shots"]:
@@ -2406,8 +2602,8 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         # Audio first (cheap), so the marks event can carry the voice shares.
         current.update(stage="assembly", unit="mix")
         journal.stage("assembly", "start")
-        work = out / "work"
-        work.mkdir(exist_ok=True)
+        work = run_dir / "work"
+        work.mkdir(parents=True, exist_ok=True)
         with journal.unit("assembly", "mix", size={"driver": "seconds", "value": round(plan["duration_s"], 3)}) as u:
             mix, placed = build_mix(plan, film, journal, draft=draft)
             import soundfile as sf
@@ -2430,6 +2626,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         if audio_only:                       # --audio-only: the pre-flight and the sound, no frames and no master
             journal.stage("assembly", "done", detail={"audio_only": True})
             summary = {"run": journal.run, "journal": str(journal.path), "mix": str(work / "mix-norm.wav"), "loudness": loud,
+                       "partial": bool(check), "until_s": until_s,
                        "frames": 0, "duration_s": plan["duration_s"], "wall_s": round(time.perf_counter() - run_t0, 2)}
             journal.event("stage", "run", None, lens="run.end", status="done", outcome="ok", audio_only=True,
                           **{k: v for k, v in summary.items() if k != "loudness"})
@@ -2462,7 +2659,8 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
                     raise exc
                 u.wall_s = res["wall_s"]
                 u.extra.update(ms_mean=res["ms_mean"], mark=res["mark"], first_frame_whole=res["first_frame_whole"],
-                               held_frames=res["held_frames"], segment=str(segs[i]))
+                               held_frames=res["held_frames"], held_by_shot=res.get("held_by_shot"),
+                               segment=str(segs[i]))
             results[i] = res
 
         attempts = {i: 0 for i in todo}
@@ -2554,7 +2752,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
                       violations=[{"shot": k, "frames": v} for k, v in fails.items()])
         if fails or checked != plan["frames"]:
             raise Refused(f"mark coverage failed on {fails or 'a frame count mismatch'}")
-        held = {plan["shots"][i]["id"]: r.get("held_frames", 0) for i, r in results.items() if r.get("held_frames")}
+        held = held_totals(results, ids)
         held_bad = [sid for sid, k in held.items() if k / FPS > MAX_HOLD_S and not (
             plan["shots"][ids.index(sid)]["mark"] == "RECONSTRUCTED" and "re-timed" in (plan["shots"][ids.index(sid)].get("alterations") or []))]
         journal.lint("clip-hold-rendered", not held_bad, stage="marks", grammar="7.1", phase="post-render",
@@ -2570,7 +2768,8 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         out.mkdir(parents=True, exist_ok=True)
         listing = work / "segments.txt"
         listing.write_text("".join(f"file '{segs[i].as_posix()}'\n" for i in range(len(plan["shots"]))), encoding="utf-8")
-        master = out / "master.mp4"
+        master = out / (f"master.{check}.mp4" if check else "master.mp4")
+        sources_path = out / (f"sources.{check}.json" if check else "sources.json")
         threads = MASTER_THREADS          # fixed, so the master's bytes never depend on --workers
         enc_settings = {"codec": "libx264", "preset": encode_preset, "crf": MASTER_CRF, "pix_fmt": "yuv420p", "fps": FPS,
                         "color": "bt709", "audio": "aac 192k 48 kHz", "threads": threads}
@@ -2598,19 +2797,22 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         if not ok_fmt:
             raise Refused(f"the master is {pr['width']}x{pr['height']} at {pr['fps']} fps with {pr['frames']} frames; "
                           f"expected {W}x{H} at 24 with {plan['frames']}")
-        doc = sources_doc(plan, journal, {"loudness": loud, "master": "master.mp4"})
-        (out / "sources.json").write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
+        extra = {"loudness": loud, "master": master.name}
+        if check:
+            extra.update(partial=True, until_s=until_s)
+        doc = sources_doc(plan, journal, extra)
+        sources_path.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
         for i in range(len(plan["shots"])):
-            journal.artifact("motion", segs[i], unit=ids[i], role="segment")
-        journal.artifact("assembly", master, role="master")
-        journal.artifact("assembly", out / "sources.json", role="sources")
+            journal.artifact("motion", segs[i], unit=ids[i], role="check-segment" if check else "segment")
+        journal.artifact("assembly", master, role="check-master" if check else "master")
+        journal.artifact("assembly", sources_path, role="check-sources" if check else "sources")
         journal.stage("assembly", "done")
         wall = time.perf_counter() - run_t0
         journal.timing("run", "total", wall, size={"driver": "seconds", "value": round(dur, 3), "frames": plan["frames"]},
                        model=ENGINE_MODEL, settings=dict(settings, workers=n))
-        summary = {"run": journal.run, "journal": str(journal.path), "master": str(master), "sources": str(out / "sources.json"),
+        summary = {"run": journal.run, "journal": str(journal.path), "master": str(master), "sources": str(sources_path),
                    "frames": plan["frames"], "duration_s": dur, "wall_s": round(wall, 2), "rendered": [ids[i] for i in todo],
-                   "cached": [ids[i] for i in cached], "workers": n}
+                   "cached": [ids[i] for i in cached], "workers": n, "partial": bool(check), "until_s": until_s}
         journal.event("stage", "run", None, lens="run.end", status="done", outcome="ok", **summary)
         return summary
     except BaseException as exc:
@@ -2636,12 +2838,14 @@ def main(argv=None) -> int:
                          "inconsistent narrator line instead of refusing (journaled)")
     ap.add_argument("--fit-voices", action="store_true",
                     help="move overlapping voice lines later (0.8 s apart) and lengthen their shots (journaled)")
+    ap.add_argument("--until", dest="until_s", type=float, default=None,
+                    help="a check render: only the shots that start before this many seconds (journaled)")
     ap.add_argument("--audio-only", action="store_true",
                     help="run the pre-flight and the sound (mix, levelling, loudness) only: no frames, no master")
     a = ap.parse_args(argv)
     try:
         s = render(a.film, a.out, height=a.res, from_shot=a.from_shot, workers=a.workers, burn_subtitles=a.burn_subtitles,
-                   draft=a.draft, fit_voices_opt=a.fit_voices, audio_only=a.audio_only)
+                   draft=a.draft, fit_voices_opt=a.fit_voices, audio_only=a.audio_only, until_s=a.until_s)
     except Refused as e:
         print(f"render: refused: {e}", file=sys.stderr)
         return 2

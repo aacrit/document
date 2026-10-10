@@ -227,13 +227,20 @@ GEONAMES = "GeoNames (CC BY 4.0)"
 # Lines no open dataset places, which no spec may draw solid: (pair of ADM0_A3 codes, why).
 UNPLACED = [({"BGD", "IND"}, "the Bengal award's line: no open dataset places it, so it is drawn only as "
                              "today's border, dashed")]
-SOLID = ("line", "line_dashed")
+# On an unplaced pair only today's border, dashed, may be drawn: every other line style reads as a placed line.
+ON_UNPLACED_OK = ("border_today",)
+
+
+def _refused_on_unplaced(style) -> bool:
+    return style in LINE and style not in ON_UNPLACED_OK
 
 
 def _as_set(v) -> set | None:
     """A `where` value as the set of values it accepts; None when the key is not filtered."""
     if v is None:
         return None
+    if isinstance(v, dict):
+        raise MapRefused(f"a where value is a value or a list of values, never a mapping ({v})")
     return set(v) if isinstance(v, (list, tuple, set)) else {v}
 
 
@@ -318,10 +325,15 @@ def check_spec(spec: dict) -> None:
             if pth.get("style") not in LINE or len(pth.get("points", [])) < 2:
                 raise MapRefused(f"{spec['id']}: a path needs a line style and two points")
     for ly in [ly for v in views for ly in v.get("layers", [])]:
-        if ly.get("style") in SOLID:
-            why = _unplaced_pair_possible(ly.get("where") or {})
+        where = ly.get("where") or {}
+        bad_where = [k for k, val in where.items() if isinstance(val, dict)]
+        if bad_where:
+            raise MapRefused(f"{spec['id']}: layer {ly.get('file')} where {bad_where[0]!r} is a mapping; "
+                             "a where value is a value or a list of values")
+        if _refused_on_unplaced(ly.get("style")):
+            why = _unplaced_pair_possible(where)
             if why:
-                raise MapRefused(f"{spec['id']}: a solid line {why}")
+                raise MapRefused(f"{spec['id']}: a {ly.get('style')!r} layer {why}")
         st = ly.get("style")
         if st not in POLY and st not in LINE:
             raise MapRefused(f"{spec['id']}: unknown layer style {st}")
@@ -441,6 +453,8 @@ def _matches(props: dict, where: dict | None) -> bool:
         return True
     for k, vals in where.items():
         v = props.get(k)
+        if isinstance(vals, dict):
+            raise MapRefused(f"where {k!r} is a mapping; a where value is a value or a list of values")
         if isinstance(vals, list):
             if v not in vals:
                 return False
@@ -738,7 +752,7 @@ def _draw_layers(cv: Canvas, spec: dict, proj: Projection, geodata: Path, used: 
             if ly.get("endpoints") and not _touches(_lines_of(g), ly["endpoints"], ly.get("tol", 0.03)):
                 continue
             n += 1
-            if style in SOLID:
+            if _refused_on_unplaced(style):
                 why = unplaced_feature(props)
                 if why:
                     raise MapRefused(f"{spec['id']}: layer {ly['file']} ({style}) matched a feature on "
@@ -993,8 +1007,63 @@ def _draw_paths(cv: Canvas, spec: dict, proj: Projection) -> None:
             cv.shape(role, a, lambda md: md.polygon([tip, wing[0], wing[1]], fill=255))
 
 
+# The boundary file every hand-drawn path is checked against, beside the spec's own layer files.
+BOUNDARY_FILE = "naturalearth/ne_10m_admin_0_boundary_lines_land.geojson"
+PATH_UNPLACED_TOL = 0.05      # degrees: a path sample this close to an unplaced feature lies on it
+PATH_UNPLACED_SHARE = 0.5     # a path with at least this share of its length on an unplaced feature runs along it
+PATH_SAMPLE_DEG = 0.02
+
+
+def _seg_dist(p, a, b) -> float:
+    ax, ay, bx, by = a[0], a[1], b[0], b[1]
+    dx, dy = bx - ax, by - ay
+    L2 = dx * dx + dy * dy
+    t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((p[0] - ax) * dx + (p[1] - ay) * dy) / L2))
+    return math.hypot(p[0] - (ax + t * dx), p[1] - (ay + t * dy))
+
+
+def _samples(points: list) -> list:
+    out = []
+    for a, b in zip(points, points[1:]):
+        n = max(1, int(math.ceil(math.hypot(b[0] - a[0], b[1] - a[1]) / PATH_SAMPLE_DEG)))
+        out += [(a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n) for k in range(n)]
+    return out + [tuple(points[-1])]
+
+
+def path_on_unplaced(points: list, feats) -> str | None:
+    """Why a hand-drawn path may not be drawn in its style: at least PATH_UNPLACED_SHARE of it
+    lies within PATH_UNPLACED_TOL of a feature whose ADM0_A3_L/R pair is unplaced. A path that
+    only crosses the line (a route over the border) is not on it."""
+    pts = _samples(points)
+    bb = _bbox(points)
+    pad = PATH_UNPLACED_TOL
+    near_any = None
+    for props, g, fbb in feats:
+        why = unplaced_feature(props)
+        if not why or not _overlaps((bb[0] - pad, bb[1] - pad, bb[2] + pad, bb[3] + pad), fbb):
+            continue
+        segs = [(a, b) for line in _lines_of(g) for a, b in zip(line, line[1:])]
+        on = sum(1 for q in pts if any(_seg_dist(q, a, b) <= pad for a, b in segs))
+        if on >= 2 and on / len(pts) >= PATH_UNPLACED_SHARE:
+            near_any = why
+            break
+    return near_any
+
+
+def _check_paths(view: dict, spec_id: str, geodata: Path) -> None:
+    files = {ly["file"] for ly in view.get("layers", [])} | {BOUNDARY_FILE}
+    feats = [f for name in sorted(files) if (geodata / name).exists() for f in _load(str(geodata / name))]
+    for pth in view.get("paths", []):
+        if pth.get("style") in ON_UNPLACED_OK:
+            continue
+        why = path_on_unplaced(pth["points"], feats)
+        if why:
+            raise MapRefused(f"{spec_id}: a hand-drawn {pth['style']!r} path runs along {why}")
+
+
 def _draw_view(cv: Canvas, view: dict, proj: Projection, geodata: Path, used: dict) -> None:
     _draw_layers(cv, view, proj, geodata, used)
+    _check_paths(view, view.get("id") or "", geodata)
     _draw_paths(cv, view, proj)
     _draw_labels(cv, view, proj)
     _draw_places(cv, view, proj)
