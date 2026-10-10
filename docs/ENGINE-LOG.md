@@ -138,3 +138,42 @@ Shown by: trailer run r-20261010-124325-b7b3 (the refusal came after 2 min 45 s 
 - A7's pixel check on each still's own first frame (one frame per still, `preflight_stills`).
 
 Its `done` event records `frames_rendered: 0`. The missing-voice-WAV check and loudness also run before any frame. After the motion stage, the pixel checks (mark coverage, A7, held frames, the master's format) run again as a second confirmation. Every lint carries `phase: preflight` or `phase: post-render`. A plan-detectable violation now refuses with no frame event, no motion unit and no segment on disk.
+
+## 2026-10-10 T1 teaser: first real render speed and loudness
+Shown by: teaser run r-20261010-120804-005c. 2136 frames at 1080p24, 89.0 s of film in 87.3 s with 6 workers (0.98x real time). Integrated loudness came out at -15.4 LUFS.
+
+## 2026-10-10 T1 teaser: the engine finds its fonts only in node_modules
+Shown by: run r-20261010-120754-2019 (refused, "fonts not found"). The engine reads the @fontsource files from the repo's `node_modules`, so a frozen copy of the engine (`git archive`) refuses until the fonts are copied in or `npm ci` runs. Open: vendor the fonts, or locate them without `node_modules`.
+
+## 2026-10-10 T1 teaser: the 1946 United News reel carries a magenta cast
+Shown by: the teaser's footage review (no run id was recorded). The ARC 39115 MPEG-2 transfer shows a magenta chroma cast on a black-and-white picture. Removing it by desaturating is not on GRAMMAR 4.2's non-material list. The founder later ruled (DECISIONS 2026-10-10, "Full episode; male voice blends; newsreel colour cast") that the cast is neutralised to black and white and those shots are marked RECONSTRUCTED "colour cast removed". Open: the engine has no colour-cast conform yet.
+
+## 2026-10-10 T1 teaser: a 320x240, 10 fps clip conforms by frame repeat
+Shown by: teaser run r-20261010-120804-005c. The Commons train-roof clip is 320x240 at 10 fps. Frame repeat to 24 worked on real footage as it does on the generated source in `test_true_10fps_source_is_repeated_to_24_and_journaled`.
+
+## 2026-10-10 T1 teaser: reported speech was given to the person reported
+Shown by: the teaser screenplay review before render (no run id). A testimony line voiced an officials' third-person report ("Darshan Singh stated that ...") as Darshan Singh. Caught before rendering. Ruling: reported speech belongs to its reporter (DECISIONS 2026-10-10). Open, a candidate lint: a testimony line whose text begins "<name> stated that" or "<name> said that" is reported speech and must not be voiced as that name.
+
+## 2026-10-10 T1 teaser: narration retakes
+Shown by: the Orpheus narration jobs for the teaser (`orpheus-jobs.json`, no engine run). Of 4 lines, 2 needed retakes to pass the word check: N2 took 3 takes, N3 took 2.
+
+## 2026-10-10 T1 teaser: the builder role could not open its worktree
+Shown by: the T1 Forge run (no engine run). The agentique `builder` role forces worktree isolation, which failed on a path case mismatch (Agentique and agentique). Worked around with a manual worktree and a general-purpose agent. This is Forge tooling, not the engine.
+
+## 2026-10-10 T1 trailer: voice-overlap caught a short gap before any frame
+Shown by: trailer run r-20261010-124317-4c2f (refused: N9 and R9 0.661 s apart, 0.139 s short of 0.8 s). The plan's `voice-overlap` lint stopped it before rendering. `--fit-voices` fixed it, with each move journaled as a decision, in the next run (r-20261010-124325-b7b3).
+
+## 2026-10-10 T1 trailer: the word gate split a possessive
+Shown by: the trailer's Orpheus word gate on N10 (the CoS override is in `journal/manual-overrides.jsonl`; no engine run). The ASR heard "Committee's" as "committee s", so the line failed the check although the reading was right. The Chief of Staff accepted it as a human override. Open, a candidate fix: normalise possessives in the gate before comparing.
+
+## 2026-10-10 T1b: a final master was normalised in loudnorm's dynamic mode
+Shown by: trailer run r-20261010-125208-acee (`loudnorm-linear` failed as a warning; `normalization_type: dynamic`), then the T1b audio-only re-run on the same mix (scratch journal r-20261010-132922-31bc). The mix measured -20.62 LUFS, -0.81 dBTP and an LRA of 16.2 LU. loudnorm stays linear only when the measured range fits its LRA target, and when the peak after gain stays under its TP target. Both failed: the fixed LRA target was 11, and the gain of 4.62 dB to -16 LUFS would have taken the peak to 3.81 dBTP. loudnorm then compressed the programme (LRA 16.2 to 13.2), against GRAMMAR 8.5, which keeps archival audio's own dynamics. The fix:
+- The LRA target is raised above the mix's measured range (GRAMMAR 8.5 sets no LRA limit; loudnorm allows at most 50).
+- When the gain would push the true peak past -1.5 dBTP, the gain goes through an `alimiter` true-peak limiter first. It runs at 4x oversampling with a ceiling of -2.0 dBTP, its delay is compensated, and the loudness it removes is made up before it. The limiter is journaled as a decision.
+- Then comes the linear pass, `linear=true` with the measured values.
+- `loudnorm-linear` now blocks a final master before any frame, and is a warning under `--draft`. Its evidence carries `input_lra`, the true peak, the gain, the predicted peak and the limiter.
+
+On the trailer mix the result is linear at -15.96 LUFS and -1.62 dBTP, with an LRA of 15.1. Shown by `test_a_high_lra_mix_comes_out_linear`, `test_a_peaky_mix_gets_the_limiter_and_comes_out_linear`, `test_a_dynamic_loudness_result_blocks_before_any_frame` and `test_a_dynamic_loudness_result_is_only_a_warning_under_draft`.
+
+## 2026-10-10 T1b: A7's pixel check passed a 1% crop
+Shown by: the T1b review, then the A7 sweep on the trailer's 10 real stills (scratch journal r-20261010-133138-2d14) and `test_a_one_percent_crop_of_a_detailed_still_fails_a7`. This supersedes a claim in "T1 trailer: a false A7 refusal after minutes of rendering": that entry said the 8x box downsample keeps a difference "which every crop or zoom still changes". That was false. A zoom about the centre moves content most at the edges, and the whole-picture mean dilutes it. At z 1.01 two of the 10 stills scored under the limit of 6: S19 (S-039) scored 3.82 and S14 (S-009) scored 4.97. The check now also scores the outer band, the outer 5% of the fitted rectangle on each side, against a limit of 3.5. At 1080p the band scores 0.47 to 1.56 with every still whole and 8.51 to 24.48 at z 1.01, so all 10 stills pass whole and all 10 fail at z 1.01. At 720p the figures are 0.42 to 2.26 and 8.5 to 24.3. The whole-picture limit of 6 stays. White noise on a gradient does not show the fault, because the box filter averages it away. The test image is 1/f noise, which has a photograph's statistics: at z 1.01 its whole-picture score is 3.54 (it would have passed) and its band score is 11.4.

@@ -887,7 +887,7 @@ def test_a_render_with_fit_voices_journals_and_saves_the_fitted_screenplay(tmp_p
 
 
 # --------------------------------------------------------------------------
-# Re-review: probe the crossfade, synthetic by generator, loudnorm fallback, long dips
+# Re-review: probe the crossfade, synthetic by generator, linear loudness, long dips
 # --------------------------------------------------------------------------
 
 
@@ -914,19 +914,86 @@ def test_sources_marks_an_item_with_only_a_generator_as_a_test_fixture(tmp_path)
     assert {s["id"]: s["test_fixture"] for s in doc["shots"] if s["id"] in ("S3", "S4", "S5")} == {"S3": True, "S4": True, "S5": True}
 
 
-def test_loudnorm_dynamic_fallback_is_flagged(tmp_path):
+def _wav(path, x):
     import soundfile as sf
-    t = np.arange(48000 * 6) / 48000
-    x = (0.01 * np.sin(2 * np.pi * 300 * t)).astype("float32")      # about -43 dBFS
-    x[48000 * 3] = 0.99                                             # one near full-scale click
-    sf.write(str(tmp_path / "mix.wav"), x, 48000, subtype="FLOAT")
-    loud = R.loudnorm(tmp_path / "mix.wav", tmp_path / "norm.wav")
-    assert loud["normalised"] and loud["normalization_type"] == "dynamic" and loud["linear"] is False
-    j = J.Journal(film="loud")
-    R.loudness_lints(j, loud)
+    sf.write(str(path), np.asarray(x, dtype="float32"), 48000, subtype="FLOAT")
+    return path
+
+
+def test_a_high_lra_mix_comes_out_linear(tmp_path):
+    t = np.arange(48000 * 20) / 48000
+    x = 0.04 * np.sin(2 * np.pi * 300 * t)                            # 10 s quiet, then 10 s about 17 dB louder
+    x[48000 * 10:] *= 7.0
+    loud = R.loudnorm(_wav(tmp_path / "mix.wav", x), tmp_path / "norm.wav")
+    assert loud["input_lra"] > R.TARGET_LRA                         # the old fixed LRA 11 made loudnorm go dynamic
+    assert loud["limiter"] is None and loud["lra_target"] > loud["input_lra"]
+    assert loud["normalization_type"] == "linear" and loud["linear"] and not loud["blockers"]
+    assert abs(loud["output_i"] - R.TARGET_LUFS) <= 0.5 and loud["output_tp"] <= R.TARGET_TP
+    j = J.Journal(film="lra")
+    assert R.loudness_lints(j, loud) is True
     evs = J.read(j.path)
     flag = lints(evs, "loudnorm-linear")[0]
-    assert flag["status"] == "fail" and flag["severity"] == "warn" and "dynamic" in flag["evidence"]["why"]
+    assert flag["status"] == "pass" and flag["severity"] == "block" and flag["phase"] == "preflight"
+    assert flag["evidence"]["input_lra"] == loud["input_lra"] and flag["evidence"]["lra_target"] == loud["lra_target"]
+    raised = [e for e in evs if e["kind"] == "decision" and "LRA target raised" in e["what"]]
+    assert raised and raised[0]["evidence"]["input_lra"] == loud["input_lra"]
+
+
+def test_a_peaky_mix_gets_the_limiter_and_comes_out_linear(tmp_path):
+    t = np.arange(48000 * 6) / 48000
+    x = 0.01 * np.sin(2 * np.pi * 300 * t)                            # about -43 dBFS
+    x[48000 * 3] = 0.99                                              # one near full-scale click
+    loud = R.loudnorm(_wav(tmp_path / "mix.wav", x), tmp_path / "norm.wav")
+    assert loud["predicted_tp"] > R.TARGET_TP                        # linear gain alone would push the click past -1.5 dBTP
+    lim = loud["limiter"]
+    assert lim and lim["oversample"] == 4 and lim["ceiling_dbtp"] < R.TARGET_TP and Path(lim["file"]).exists()
+    assert loud["normalization_type"] == "linear" and loud["linear"]
+    assert abs(loud["output_i"] - R.TARGET_LUFS) <= 0.5 and loud["output_tp"] <= R.TARGET_TP
+    import soundfile as sf
+    y, _ = sf.read(str(tmp_path / "norm.wav"))
+    assert len(y) == len(x)                                          # the limiter's look-ahead delay is compensated
+    j = J.Journal(film="peaky")
+    assert R.loudness_lints(j, loud) is True
+    evs = J.read(j.path)
+    dec = [e for e in evs if e["kind"] == "decision" and "true-peak limiter" in e["what"]]
+    assert dec and f"{loud['input_tp']:.2f} dBTP" in dec[0]["why"] and dec[0]["evidence"]["oversample"] == 4
+    ev = lints(evs, "loudnorm-linear")[0]["evidence"]
+    assert ev["input_tp"] == loud["input_tp"] and ev["predicted_tp"] == loud["predicted_tp"] and ev["limiter"]
+
+
+def _dynamic(real):
+    def fake(src, dst):
+        loud = real(src, dst)
+        return dict(loud, normalization_type="dynamic", linear=False, blockers=["forced by the test"])
+    return fake
+
+
+def test_a_dynamic_loudness_result_blocks_before_any_frame(tmp_path, monkeypatch):
+    film = make_film(tmp_path / "film")
+    monkeypatch.setattr(R, "loudnorm", _dynamic(R.loudnorm))
+    j = J.Journal(film="dynamic")
+    with pytest.raises(R.Refused, match=r"loudness \(pre-flight\).*forced by the test"):
+        R.render(film, tmp_path / "out", height=HEIGHT, workers=1, min_free_gb=1, journal=j)
+    evs = J.read(j.path)
+    assert not [e for e in evs if e.get("lens") == "frame"]
+    assert not [e for e in evs if e.get("lens") == "unit.start" and e["stage"] == "motion"]
+    assert evs[-1]["lens"] == "run.end" and evs[-1]["outcome"] == "refused"
+    flag = lints(evs, "loudnorm-linear")[0]
+    assert flag["status"] == "fail" and flag["severity"] == "block" and flag["phase"] == "preflight"
+    assert flag["evidence"]["result"] == "refused" and "input_lra" in flag["evidence"] and "input_tp" in flag["evidence"]
+
+
+def test_a_dynamic_loudness_result_is_only_a_warning_under_draft(tmp_path):
+    t = np.arange(48000 * 4) / 48000
+    loud = R.loudnorm(_wav(tmp_path / "mix.wav", 0.1 * np.sin(2 * np.pi * 300 * t)), tmp_path / "norm.wav")
+    loud = dict(loud, normalization_type="dynamic", linear=False, blockers=["forced by the test"])
+    j = J.Journal(film="dynamic-draft")
+    assert R.loudness_lints(j, loud, draft=True) is True
+    assert R.loudness_lints(J.Journal(film="dynamic-final"), loud) is False
+    evs = J.read(j.path)
+    flag = lints(evs, "loudnorm-linear")[0]
+    assert flag["status"] == "fail" and flag["severity"] == "warn" and flag["evidence"]["result"] == "dynamic (draft)"
+    assert "forced by the test" in flag["evidence"]["why"]
     assert [e for e in evs if e["kind"] == "decision" and "dynamic" in e["what"]]
 
 
@@ -996,6 +1063,45 @@ def test_a_still_whose_own_first_frame_is_not_whole_still_refuses(tmp_path, plan
     assert R.preflight_stills(zoomed, j) == ["S4"]
     ev = [e for e in lints(J.read(j.path), "still-first-frame-whole-pixels") if e["unit"] == "S4"][0]
     assert ev["status"] == "fail" and ev["phase"] == "preflight"
+
+
+def _photo_still(path, w=1500, h=2000, contrast=40.0, seed=11):
+    """A high-detail test image with a photograph's statistics: 1/f noise in
+    each channel, so it has edges and texture at every scale (white noise on a
+    gradient averages out under the check's box filter, a photograph does not)."""
+    from PIL import Image
+    rng = np.random.default_rng(seed)
+    fy, fx = np.fft.fftfreq(h)[:, None], np.fft.rfftfreq(w)[None, :]
+    amp = 1.0 / np.maximum(np.hypot(fx, fy), 1.0 / max(w, h))
+    chans = []
+    for _ in range(3):
+        x = np.fft.irfft2(amp * np.exp(2j * np.pi * rng.random(amp.shape)), s=(h, w))
+        chans.append(128 + contrast * (x - x.mean()) / x.std())
+    Image.fromarray(np.clip(np.stack(chans, axis=2), 0, 255).astype(np.uint8)).save(path)
+
+
+def test_a_one_percent_crop_of_a_detailed_still_fails_a7(tmp_path):
+    film = make_film(tmp_path / "film")
+    _photo_still(film / "stills" / "FX-STILL-B.png")                 # S4, portrait, pillarboxed
+    led = json.loads((film / "stills-ledger.json").read_text(encoding="utf-8"))
+    led["items"][1].update(width=1500, height=2000)
+    (film / "stills-ledger.json").write_text(json.dumps(led), encoding="utf-8")
+    plan = R.build_plan(film, W=1920, H=1080, burn_subtitles=False, journal=J.Journal(film="crop"))
+    i = [s["id"] for s in plan["shots"]].index("S4")
+    scores = {}
+    for z in (1.0, 1.01):
+        pl = json.loads(json.dumps(plan))
+        pl["shots"][i]["_cam"]["path"][0] = {"z": z, "x": 0.5, "y": 0.5}
+        pics = R.Pictures(pl)
+        try:
+            ev = {}
+            scores[z] = (R.still_first_frame_whole(pl, pics, i, ev), ev)
+        finally:
+            pics.close()
+    whole, crop = scores[1.0], scores[1.01]
+    assert whole[0] and whole[1]["band_mean_diff"] < R.A7_BAND_LIMIT, whole
+    assert not crop[0] and crop[1]["band_mean_diff"] >= R.A7_BAND_LIMIT, crop
+    assert crop[1]["low_pass_mean_diff"] < R.A7_FULL_LIMIT          # the whole-picture mean alone passed this 1% crop
 
 
 def _no_frames_rendered(evs, out):
