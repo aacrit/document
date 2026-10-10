@@ -183,12 +183,15 @@ class Journal:
         return self.event("stage", stage, None, lens=lens, status=status, machine=self.machine(), **payload)
 
     def lint(self, rule: str, passed: bool, *, stage: str = "marks", unit: str | None = None, severity: str = "block",
-             evidence=None, grammar: str | None = None) -> dict:
+             evidence=None, grammar: str | None = None, phase: str | None = None) -> dict:
         """severity: block (fails the render), warn (journaled, render goes on)
-        or review (a reviewer-check item: the engine cannot judge it)."""
+        or review (a reviewer-check item: the engine cannot judge it). phase:
+        preflight (decided from the plan before any frame is rendered) or
+        post-render (a second confirmation on the rendered pixels)."""
         status = "review" if severity == "review" else ("pass" if passed else "fail")
+        extra = {"phase": phase} if phase else {}
         return self.event("lint", stage, unit, rule=rule, status=status, severity=severity, grammar=grammar,
-                          evidence=evidence)
+                          evidence=evidence, **extra)
 
     def decision(self, stage: str, what: str, why: str, *, who: str = "engine", unit: str | None = None, **payload) -> dict:
         return self.event("decision", stage, unit, who=who, what=what, why=why, **payload)

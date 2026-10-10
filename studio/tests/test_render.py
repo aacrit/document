@@ -111,9 +111,8 @@ def test_mark_plate_on_every_frame_matches_the_shot(plan):
                 crossfades += 1
                 prev = np.array(M.MARK_HUE[plan["shots"][i - 1]["mark"]])
                 cur = np.array(M.MARK_HUE[s["mark"]])
-                # the bar is a mix of the two plates: never the bare picture
-                assert np.max(np.abs(px - prev)) <= 2 or np.max(np.abs(px - cur)) <= 2 or \
-                    np.max(np.abs(px - LETTERBOX)) > 10, f
+                # a true crossfade: the bar pixel lies between the two hues, never the picture showing through
+                assert R.between_hues(px, prev, cur), (f, px)
                 continue
             assert np.max(np.abs(px - np.array(M.MARK_HUE[s["mark"]]))) <= 2, (f, s["id"], px)
     finally:
@@ -773,6 +772,9 @@ def _with_voices(tmp_path):
     def add(p):
         p["parts"][1]["lines"] += [{"id": "L3", "kind": "narration", "start_s": 6.0, "text": "A second test tone.", "sources": []},
                                    {"id": "L4", "kind": "narration", "start_s": 21.0, "text": "A third test tone.", "sources": []}]
+        # each new line's caption starts 2 frames before its words, as captions often do
+        p["subtitle_source"] += [{"ref": "L3", "start_s": round(6.0 - 2 / 24, 4), "end_s": 7.9, "en": "A second test tone."},
+                                 {"ref": "L4", "start_s": round(21.0 - 2 / 24, 4), "end_s": 22.0, "en": "A third test tone."}]
     _edit_play(film, add)
     return film
 
@@ -802,6 +804,7 @@ def test_fit_voices_moves_lines_and_grows_their_shots(tmp_path):
     fitted = R.fit_voices(play, film, j)
     sh = {s["id"]: s for p in fitted["parts"] for s in p["shots"]}
     ln = {x["id"]: x for p in fitted["parts"] for x in p["lines"]}
+    assert ln["L1"]["start_s"] == 5.0                                # before the first insertion: untouched
     assert ln["L3"]["start_s"] == pytest.approx(7.8)                 # L1 ends at 7.0, plus 0.8
     assert sh["S3"]["dur_s"] == pytest.approx(5.8) and sh["S4"]["start_s"] == pytest.approx(9.55)
     assert ln["L2"]["start_s"] == pytest.approx(22.1)                # moved with the timeline
@@ -809,11 +812,66 @@ def test_fit_voices_moves_lines_and_grows_their_shots(tmp_path):
     assert sh["S8"]["dur_s"] == pytest.approx(1.5 + 1.3)
     assert R.voice_collisions(R.voice_lines(fitted, film)) == []
     decisions = [e for e in J.read(j.path) if e["kind"] == "decision"]
-    assert [d["unit"] for d in decisions] == ["L3", "L4"] and decisions[0]["shot"] == "S3"
+    assert [d["unit"] for d in decisions] == ["L3", "L4"] and [d["shot"] for d in decisions] == ["S3", "S8"]
     assert play["parts"][1]["lines"][2]["start_s"] == 6.0             # the original is untouched
-    plan = R.build_plan(film, W=640, H=360, burn_subtitles=False, journal=j, play=fitted)
+
+    # subtitle cues follow their own line by exactly its shift and never stretch
+    before = {c["ref"]: (c["start_s"], c["end_s"]) for c in play["subtitle_source"]}
+    after = {c["ref"]: (c["start_s"], c["end_s"]) for c in fitted["subtitle_source"]}
+    line_shift = {k: ln[k]["start_s"] - x["start_s"] for k, x in
+                  ((x["id"], x) for p in play["parts"] for x in p["lines"])}
+    assert after["L1"] == before["L1"] == (5.0, 7.5)                 # L1 never moved, so neither does its cue
+    for ref, (a0, a1) in after.items():
+        b0, b1 = before[ref]
+        assert a1 - a0 == pytest.approx(b1 - b0), ref                 # never stretched
+        if ref in line_shift:
+            assert a0 - b0 == pytest.approx(line_shift[ref]), ref     # moved exactly with its words
+    assert after["L3"][0] == pytest.approx(6.0 - 2 / 24 + 1.8, abs=1e-4)  # starts 2 frames before L3, still
+    assert after["L4"][0] == pytest.approx(21.0 - 2 / 24 + 3.1, abs=1e-4)
+    cues = sorted(after.values())
+    assert all(b[0] >= a[1] for a, b in zip(cues, cues[1:])), cues    # no two cues overlap
+    plan = R.build_plan(film, W=640, H=360, burn_subtitles=True, journal=j, play=fitted)
     assert plan["frames"] == round((24.75 + 1.8 + 1.3) * 24)
-    assert lints(J.read(j.path), "voice-overlap")[-1]["status"] == "pass"
+    evs = J.read(j.path)
+    assert lints(evs, "voice-overlap")[-1]["status"] == "pass"
+    assert lints(evs, "subtitle-overlap")[-1]["status"] == "pass" and lints(evs, "subtitle-overlap")[-1]["severity"] == "block"
+
+
+def test_a_fit_voices_render_with_burned_subtitles(tmp_path):
+    film = _with_voices(tmp_path)
+    s = R.render(film, tmp_path / "out", height=HEIGHT, workers=WORKERS, min_free_gb=1, encode_preset="veryfast",
+                 fit_voices_opt=True, burn_subtitles=True)
+    frames = round((24.75 + 1.8 + 1.3) * 24)
+    assert s["frames"] == frames and R.count_frames(Path(s["master"])) == frames
+    evs = events(s)
+    assert evs[-1]["outcome"] == "ok"
+    assert lints(evs, "voice-overlap")[0]["status"] == "pass" and lints(evs, "subtitle-overlap")[0]["status"] == "pass"
+    assert [e["unit"] for e in evs if e["kind"] == "decision" and "voice-overlap" in e["why"]] == ["L3", "L4"]
+    doc = json.loads(Path(s["sources"]).read_text(encoding="utf-8"))
+    assert doc["duration_s"] == pytest.approx(frames / 24, abs=1e-3)
+    fitted = json.loads((tmp_path / "out" / "screenplay.fitted.json").read_text(encoding="utf-8"))
+    assert {c["ref"]: c["start_s"] for c in fitted["subtitle_source"]}["L1"] == 5.0
+
+
+def test_fit_voices_inside_a_clip_with_no_out_point(tmp_path):
+    """A video shot given dur_s but no out_s: fit_voices derives the out point
+    the way build_plan does instead of failing on it."""
+    from conftest import tone
+    film = make_film(tmp_path / "film")
+    tone(film / "audio" / "L5.wav", 1.0, 500.0)
+    tone(film / "audio" / "L6.wav", 0.5, 600.0)
+
+    def edit(p):
+        s6 = _shot(p, "S6")
+        s6.pop("out_s")
+        s6["dur_s"] = 3.0
+        p["parts"][1]["lines"] += [{"id": "L5", "kind": "narration", "start_s": 15.0, "text": "x", "sources": []},
+                                   {"id": "L6", "kind": "narration", "start_s": 15.5, "text": "y", "sources": []}]
+    _edit_play(film, edit)
+    play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
+    fitted = R.fit_voices(play, film, J.Journal(film="noout"))
+    s6 = _shot(fitted, "S6")
+    assert s6["in_s"] == 0.5 and s6["out_s"] == pytest.approx(0.5 + 3.0 + 1.3)     # L5 ends 16.0, L6 to 16.8
 
 
 def test_a_render_with_fit_voices_journals_and_saves_the_fitted_screenplay(tmp_path):
@@ -826,3 +884,156 @@ def test_a_render_with_fit_voices_journals_and_saves_the_fitted_screenplay(tmp_p
     assert [e for e in evs if e["kind"] == "artifact" and e["role"] == "screenplay-fitted"]
     assert lints(evs, "voice-overlap")[0]["status"] == "pass"
     assert json.loads((tmp_path / "o" / "screenplay.fitted.json").read_text(encoding="utf-8"))["parts"][1]["lines"][2]["start_s"] == 7.8
+
+
+# --------------------------------------------------------------------------
+# Re-review: probe the crossfade, synthetic by generator, loudnorm fallback, long dips
+# --------------------------------------------------------------------------
+
+
+def test_a_crossfade_frame_off_the_hue_line_fails(plan):
+    i = next(k for k, s in enumerate(plan["shots"]) if s["id"] == "S3")      # CARD (S2) into DRAWN (S3)
+    f = plan["shots"][i]["f0"] + 1
+    arr = R.render_frame(plan, f)
+    assert R.check_mark(plan, arr, f, i) == "fade"
+    x, y = R.mark_probe(plan)
+    bad = arr.copy()
+    bad[y, x] = (200, 0, 0)
+    assert R.check_mark(plan, bad, f, i) == "fail"
+    assert R.between_hues((126, 129, 138), (0, 0, 0), (255, 255, 255), tol=3) is False
+
+
+def test_sources_marks_an_item_with_only_a_generator_as_a_test_fixture(tmp_path):
+    film = make_film(tmp_path / "film")
+    led = json.loads((film / "stills-ledger.json").read_text(encoding="utf-8"))
+    for it in led["items"]:
+        it.pop("synthetic"), it.pop("test_fixture")
+    (film / "stills-ledger.json").write_text(json.dumps(led), encoding="utf-8")
+    plan, j = _plan(film)
+    doc = R.sources_doc(plan, j, {})
+    assert {s["id"]: s["test_fixture"] for s in doc["shots"] if s["id"] in ("S3", "S4", "S5")} == {"S3": True, "S4": True, "S5": True}
+
+
+def test_loudnorm_dynamic_fallback_is_flagged(tmp_path):
+    import soundfile as sf
+    t = np.arange(48000 * 6) / 48000
+    x = (0.01 * np.sin(2 * np.pi * 300 * t)).astype("float32")      # about -43 dBFS
+    x[48000 * 3] = 0.99                                             # one near full-scale click
+    sf.write(str(tmp_path / "mix.wav"), x, 48000, subtype="FLOAT")
+    loud = R.loudnorm(tmp_path / "mix.wav", tmp_path / "norm.wav")
+    assert loud["normalised"] and loud["normalization_type"] == "dynamic" and loud["linear"] is False
+    j = J.Journal(film="loud")
+    R.loudness_lints(j, loud)
+    evs = J.read(j.path)
+    flag = lints(evs, "loudnorm-linear")[0]
+    assert flag["status"] == "fail" and flag["severity"] == "warn" and "dynamic" in flag["evidence"]["why"]
+    assert [e for e in evs if e["kind"] == "decision" and "dynamic" in e["what"]]
+
+
+def test_a_dip_longer_than_a_second_is_refused(tmp_path):
+    film = make_film(tmp_path / "film")
+    _edit_play(film, lambda p: _shot(p, "S3").update(transition_in={"type": "dip", "s": 1.2}))
+    with pytest.raises(R.Refused, match=r"dip-length \(S3\)"):
+        _plan(film)
+
+
+# --------------------------------------------------------------------------
+# Trailer: false A7 refusal on a dense still; plan checks before any frame
+# --------------------------------------------------------------------------
+
+
+def _dense_still(path, w=3551, h=2037):
+    """A photograph-like test image: low-frequency structure with dense
+    high-frequency detail on top, the size of the trailer's S21 scan."""
+    from PIL import Image
+    rng = np.random.default_rng(7)
+    yy, xx = np.mgrid[0:h, 0:w]
+    base = np.stack([60 + 120 * xx / w, 50 + 110 * yy / h, 90 + 60 * np.sin(xx / 300.0) * np.cos(yy / 200.0)], axis=2)
+    base[h // 4:h // 2, w // 5:w // 2] += 50
+    img = np.clip(base + rng.normal(0, 40, (h, w, 3)), 0, 255).astype(np.uint8)
+    Image.fromarray(img).save(path)
+
+
+def _dense_film(tmp_path):
+    film = make_film(tmp_path / "film")
+    _dense_still(film / "stills" / "FX-STILL-B.png")             # S4, which enters by a dissolve from S3
+    led = json.loads((film / "stills-ledger.json").read_text(encoding="utf-8"))
+    led["items"][1].update(width=3551, height=2037)
+    (film / "stills-ledger.json").write_text(json.dumps(led), encoding="utf-8")
+    return film
+
+
+def test_a_dense_still_entering_by_dissolve_passes_a7_on_its_own_layer(tmp_path):
+    film = _dense_film(tmp_path)
+    j = J.Journal(film="dense")
+    plan = R.build_plan(film, W=1920, H=1080, burn_subtitles=False, journal=j)
+    i = [s["id"] for s in plan["shots"]].index("S4")
+    s4 = plan["shots"][i]
+    assert s4["transition_in"]["type"] == "dissolve" and plan["shots"][i - 1]["mark"] == s4["mark"]
+    pics = R.Pictures(plan)
+    try:
+        ev = {}
+        assert R.still_first_frame_whole(plan, pics, i, ev), ev          # the old check failed this at 1080p
+        own = np.asarray(pics.shot(i, 0.0)).astype(int)
+        composed = np.asarray(R.compose(plan, pics, s4["f0"], i)).astype(int)
+    finally:
+        pics.close()
+    assert np.abs(own - composed).mean() > 5                          # the first composited frame is a blend
+    assert R.preflight_stills(plan, j) == []
+
+
+def test_a_still_whose_own_first_frame_is_not_whole_still_refuses(tmp_path, plan):
+    i = [s["id"] for s in plan["shots"]].index("S4")
+    zoomed = json.loads(json.dumps(plan))
+    zoomed["shots"][i]["_cam"]["path"][0] = {"z": 1.25, "x": 0.5, "y": 0.5}
+    zoomed["shots"][i]["_cam"]["open_s"] = 1.5
+    pics = R.Pictures(zoomed)
+    try:
+        assert not R.still_first_frame_whole(zoomed, pics, i)
+    finally:
+        pics.close()
+    j = J.Journal(film="zoomed")
+    assert R.preflight_stills(zoomed, j) == ["S4"]
+    ev = [e for e in lints(J.read(j.path), "still-first-frame-whole-pixels") if e["unit"] == "S4"][0]
+    assert ev["status"] == "fail" and ev["phase"] == "preflight"
+
+
+def _no_frames_rendered(evs, out):
+    assert not [e for e in evs if e.get("lens") == "frame"]
+    assert not [e for e in evs if e.get("lens") == "unit.start" and e["stage"] == "motion"]
+    assert not (out / "segments").exists() or not list((out / "segments").iterdir())
+    assert evs[-1]["lens"] == "run.end" and evs[-1]["outcome"] == "refused" and evs[-1]["stage_failed"] == "scout"
+
+
+def test_a_plan_violation_refuses_before_any_frame(tmp_path):
+    film = make_film(tmp_path / "film")
+    _edit_play(film, lambda p: _shot(p, "S5").update(preset="PUSH", to={"z": 1.3}))      # z past PUSH's 1.12
+    j = J.Journal(film="early")
+    with pytest.raises(R.Refused, match=r"still-zoom-limit \(S5\)"):
+        R.render(film, tmp_path / "out", height=HEIGHT, workers=1, min_free_gb=1, journal=j)
+    evs = J.read(j.path)
+    _no_frames_rendered(evs, tmp_path / "out")
+    assert all(e.get("phase") == "preflight" for e in evs if e["kind"] == "lint")
+
+
+def test_the_a7_pixel_check_refuses_in_preflight_with_zero_frames(tmp_path, monkeypatch):
+    film = make_film(tmp_path / "film")
+    real = R.still_first_frame_whole
+    monkeypatch.setattr(R, "still_first_frame_whole",
+                        lambda plan, pics, i, detail=None: False if plan["shots"][i]["id"] == "S5" else real(plan, pics, i, detail))
+    j = J.Journal(film="early-a7")
+    with pytest.raises(R.Refused, match=r"A7 \(pre-flight\): the first frame of S5"):
+        R.render(film, tmp_path / "out", height=HEIGHT, workers=1, min_free_gb=1, journal=j)
+    _no_frames_rendered(J.read(j.path), tmp_path / "out")
+
+
+def test_both_phases_are_journaled(rendered):
+    evs = events(rendered)
+    a7 = lints(evs, "still-first-frame-whole-pixels")
+    assert {e["phase"] for e in a7} == {"preflight", "post-render"}
+    assert {e["unit"] for e in a7 if e["phase"] == "preflight"} == {"S3", "S4", "S5"}
+    stages = [(e["status"], e.get("phase")) for e in evs if e["kind"] == "stage" and e["stage"] == "scout"]
+    assert stages[0] == ("start", "preflight") and ("done", "preflight") in stages
+    done = next(e for e in evs if e["kind"] == "stage" and e["stage"] == "scout" and e["status"] == "done")
+    first_frame = next(k for k, e in enumerate(evs) if e.get("lens") == "frame")
+    assert evs.index(done) < first_frame and done["frames_rendered"] == 0

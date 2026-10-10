@@ -103,3 +103,38 @@ Shown by: the founder watching teaser run r-20261010-120804-005c, then `test_bla
 
 ## 2026-10-10 T1: voices never overlap (founder ruling from the teaser)
 Shown by: teaser run r-20261010-120804-005c. Recomputed from its `narration` event, it has four voice overlaps of 2.16 to 3.37 s: N1 with R1 (2.16 s), R1 with N2 (3.37 s), N2 with R2 (2.57 s), N3 with R4 (3.22 s). Then `test_overlapping_voices_are_refused_with_every_collision`, `test_voices_closer_than_0_8_s_collide_without_overlapping`, `test_fit_voices_moves_lines_and_grows_their_shots` and `test_a_render_with_fit_voices_journals_and_saves_the_fitted_screenplay`. The blocking lint `voice-overlap` measures each narration and testimony WAV and refuses any two voice lines that overlap or sit less than 0.8 s apart, listing every collision with both ids, the overlap in seconds and how short the gap is. `--fit-voices` moves each line to max(its start, the previous voice's end + 0.8 s). The shot the line sits in grows by the same amount (a clip takes more of its source, which the hold lint still judges), and everything after the line moves with it; cues and text spanning the line are lengthened. Each move is a `decision` event, the option is a `human` override, and the fitted screenplay is saved as `screenplay.fitted.json` (an `artifact`). Audio is never shortened or sped up.
+
+## 2026-10-10 T1 re-review: --fit-voices stretched or stranded subtitle cues
+Shown by: the Gatehouse re-review. L1's cue went from 5.0-7.5 to 5.0-9.3 although L1 never moved; a cue starting 2 frames before its line stayed put while its voice moved; with `--burn-subtitles` two cues overlapped. Then `test_fit_voices_moves_lines_and_grows_their_shots` and `test_a_fit_voices_render_with_burned_subtitles`. The old code lengthened anything spanning a moved line and moved cues by their own start time. `fit_voices` now records each insertion of time on the original timeline:
+- voice lines, text and audio cues move by the time inserted at or before their start;
+- text keeps its length;
+- an audio cue spanning an insertion point plays on through it;
+- each `subtitle_source` cue moves by exactly its `ref`'s shift and is never stretched;
+- the shot holding an insertion point grows, and later shots move.
+
+A new `subtitle-overlap` lint blocks overlapping cues when they are burned in, and warns otherwise (a player stacks track cues). The test now runs a real `--fit-voices --burn-subtitles` render (668 frames), and asserts every cue's length is unchanged and every cue moved exactly with its line.
+
+## 2026-10-10 T1 re-review: smaller fixes
+Shown by: the tests named in each item.
+- `fit_voices` raised KeyError `out_s` on a video shot given `dur_s` and no `out_s`. It now derives the in and out points as `build_plan` does, from the shot and then its ledger item (`test_fit_voices_inside_a_clip_with_no_out_point`).
+- The four frames after a mark class change were counted as a crossfade without looking. The plate crossfade is now a true linear blend of the two plates, so the colour-bar pixel is exactly a mix of the two hues, and `check_mark` probes it: a pixel off the line between the hues fails (`test_a_crossfade_frame_off_the_hue_line_fails`; the every-frame test now asserts it too).
+- `sources.json`'s `test_fixture` uses `is_synthetic`, so an item with only a `generator` counts (`test_sources_marks_an_item_with_only_a_generator_as_a_test_fixture`).
+- loudnorm's fallback to dynamic mode is tested. A quiet tone with one near full-scale click cannot reach -16 LUFS by linear gain without passing -1.5 dBTP, so loudnorm compresses it; the engine journals a `loudnorm-linear` warning and a decision (`test_loudnorm_dynamic_fallback_is_flagged`).
+- A dip longer than GRAMMAR's 1.0 s now blocks, so a long black hold (unmarked under A11) cannot hide the marks; under 0.5 s stays a warning, and under 12 frames across classes still blocks (`test_a_dip_longer_than_a_second_is_refused`).
+- The branch is rebased onto 1464ce5, whose GRAMMAR A11 names the dip's black hold as the one unmarked frame (the open item in "black is black" above) and whose A12 makes voice-overlap law.
+
+## 2026-10-10 T1 trailer: a false A7 refusal after minutes of rendering
+Shown by: trailer run r-20261010-124325-b7b3 (5 min at 1080p, on f9f6a46). It refused "A7: the first frame of S21 is not the whole photograph" after 2 min 45 s of rendering. S21 is a 3551x2037 scan (S-028) that enters by a 1.0 s dissolve from S20. The plan's geometry lint had passed it (src = the whole image, dst 18.65 to 1901.35).
+- **Cause:** not the dissolve. The pixel check already read S21's own layer, before compositing. It compared that layer pixel by pixel (mean difference under 8) with a reference made a different way: a plain bicubic resize of the prescaled image, whose size was rounded independently of the renderer's placement. On a dense photograph, two resampling paths and a one-pixel offset differ by more than 8 on average even when the framing is right. A generated 3551x2037 high-detail image reproduces it at 1080p and passes at 360p.
+- **Fix:** the check now builds an independent reference (the original file Lanczos-resized to the whole-image fit and centred) and compares the two after an 8x box downsample at 1080p, which every crop or zoom still changes. The outside-the-photo field must still be exactly black. On S-028 itself, entering by dissolve, the new check reads a low-pass difference of 1.66 against a limit of 6. A still whose own first frame is zoomed (z 1.25) still fails.
+- Shown by `test_a_dense_still_entering_by_dissolve_passes_a7_on_its_own_layer` and `test_a_still_whose_own_first_frame_is_not_whole_still_refuses`.
+
+## 2026-10-10 T1 trailer: every check the plan can decide now runs before the first frame
+Shown by: trailer run r-20261010-124325-b7b3 (the refusal came after 2 min 45 s of rendering), then `test_a_plan_violation_refuses_before_any_frame`, `test_the_a7_pixel_check_refuses_in_preflight_with_zero_frames` and `test_both_phases_are_journaled`. The scout stage is now the pre-flight phase and opens right after `run.start`. It runs:
+- the drive checks;
+- licences, marks, transitions, dips and zoom limits;
+- A7 framing from the plan and the image sizes;
+- voice-overlap;
+- A7's pixel check on each still's own first frame (one frame per still, `preflight_stills`).
+
+Its `done` event records `frames_rendered: 0`. The missing-voice-WAV check and loudness also run before any frame. After the motion stage, the pixel checks (mark coverage, A7, held frames, the master's format) run again as a second confirmation. Every lint carries `phase: preflight` or `phase: post-render`. A plan-detectable violation now refuses with no frame event, no motion unit and no segment on disk.

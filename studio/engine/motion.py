@@ -541,10 +541,14 @@ def mark_plate_frame(img: Image.Image, t: float, shots, fonts: Fonts) -> Image.I
     layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
     u = (t - cur["start"]) / MARK["fade"]
     if prev is not None and prev["cls"] != cur["cls"] and u < 1.0:
-        out = _scale_alpha(_mark_plate(L, prev["cls"], prev.get("detail", ""), fonts), 1.0 - u)
-        layer.paste(out, (x, y))
-        inc = _scale_alpha(_mark_plate(L, cur["cls"], cur.get("detail", ""), fonts), u)
-        layer.alpha_composite(inc, (x, y))
+        # a true linear crossfade of the two plates: where both are opaque (the
+        # colour bar) the pixel is exactly the mix of the two hues, never the
+        # picture showing through
+        out = Image.new("RGBA", base.size, (0, 0, 0, 0))
+        out.paste(_mark_plate(L, prev["cls"], prev.get("detail", ""), fonts), (x, y))
+        inc = Image.new("RGBA", base.size, (0, 0, 0, 0))
+        inc.paste(_mark_plate(L, cur["cls"], cur.get("detail", ""), fonts), (x, y))
+        layer = Image.blend(out, inc, clamp01(u))
     else:
         layer.paste(_mark_plate(L, cur["cls"], cur.get("detail", ""), fonts), (x, y))
     return Image.alpha_composite(base, layer)

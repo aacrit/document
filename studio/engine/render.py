@@ -253,7 +253,7 @@ def preflight(out: Path, journal: Journal, *, min_free_gb: float = MIN_FREE_GB, 
     drive = drive or root.anchor
     free_gb = disk_usage(root).free / 1024 ** 3
     ok = free_gb >= min_free_gb
-    journal.lint("preflight-free-disk", ok, stage="scout", unit="preflight",
+    journal.lint("preflight-free-disk", ok, stage="scout", unit="preflight", phase="preflight",
                  evidence={"drive": drive, "free_gb": round(free_gb, 2), "min_free_gb": min_free_gb})
     if not ok:
         raise Refused(f"output drive {drive} has {free_gb:.1f} GB free, under the {min_free_gb:g} GB floor")
@@ -268,12 +268,12 @@ def preflight(out: Path, journal: Journal, *, min_free_gb: float = MIN_FREE_GB, 
         result["volume"] = v
         healthy = bool(v) and v["health"] == "Healthy" and v["operational"] == "OK"
         if v is None and allow_unverified:
-            journal.lint("preflight-d-health", False, stage="scout", unit="preflight", severity="warn",
+            journal.lint("preflight-d-health", False, stage="scout", unit="preflight", severity="warn", phase="preflight",
                          evidence={"volume": None, "override": "DOCUMENT_ALLOW_UNVERIFIED_DISK=1"})
             journal.human("scout", "rendered to D: with its volume health unverified", unit="preflight",
                           override="DOCUMENT_ALLOW_UNVERIFIED_DISK=1")
             return result
-        journal.lint("preflight-d-health", healthy, stage="scout", unit="preflight", evidence={"volume": v})
+        journal.lint("preflight-d-health", healthy, stage="scout", unit="preflight", evidence={"volume": v}, phase="preflight")
         if v is None:
             raise Refused("D: volume health could not be read (Get-Volume); set DOCUMENT_ALLOW_UNVERIFIED_DISK=1 to "
                           "render anyway, or run chkdsk D: first")
@@ -523,45 +523,86 @@ def voice_collisions(lines: list[dict], gap: float = VOICE_GAP_S) -> list[dict]:
 
 def fit_voices(play: dict, film: Path, journal: Journal, gap: float = VOICE_GAP_S) -> dict:
     """--fit-voices: move each voice line to max(its start, the previous
-    voice's end + gap). The shot the line sits in grows by the same amount and
-    everything after the line moves with it; a cue or text spanning the line
-    is lengthened. Audio is never shortened or sped up. Every change is
-    journaled as a decision."""
+    voice's end + gap). Time is inserted at the line's start: the shot the line
+    sits in grows by that much and everything that starts at or after that
+    point moves later by the same amount. Audio is never shortened or sped up.
+
+    What moves, and by how much (``shift(t)`` is the time inserted at or
+    before the original time t):
+    - voice lines, text elements and audio cues by ``shift(start)``. Text keeps
+      its length. An audio cue spanning an insertion point plays on through it
+      (its end moves by the time inserted before its end), since ambience
+      under a longer shot should keep playing;
+    - each ``subtitle_source`` cue by exactly the shift of the element its
+      ``ref`` names, never stretched, so a caption stays with its words even
+      when it starts a few frames before them;
+    - shots: the one holding an insertion point grows, later ones move.
+    Every move is journaled as a decision."""
     import copy
     play = copy.deepcopy(play)
     shots = [sh for part in play["parts"] for sh in part.get("shots", [])]
-    timed = ([x for part in play["parts"] for key in ("lines", "cues", "text") for x in part.get(key, [])]
-             + list(play.get("subtitle_source", [])))
-    prev_end = None
+    # 1. Where time is inserted, on the original timeline.
+    points: list[tuple[float, float, dict]] = []          # (original start, seconds inserted, line)
+    acc, prev_end = 0.0, None
     for v in voice_lines(play, film):
-        ln = v["ref"]
-        start = float(ln["start_s"])
+        start = v["start"] + acc
         if prev_end is not None and start < prev_end + gap - 1e-9:
             delta = round(prev_end + gap - start, 4)
-            owner = max((sh for sh in shots if float(sh["start_s"]) <= start + 1e-9), key=lambda sh: float(sh["start_s"]))
-            k = shots.index(owner)
-            if owner["kind"] == "archive_video":
-                owner["out_s"] = round(float(owner["out_s"]) + delta, 4)
-            else:
-                owner["dur_s"] = round(float(owner["dur_s"]) + delta, 4)
-            for sh in shots[k + 1:]:
-                sh["start_s"] = round(float(sh["start_s"]) + delta, 4)
-            for x in timed:
-                if "start_s" not in x:
-                    continue
-                if float(x["start_s"]) >= start - 1e-9:
-                    x["start_s"] = round(float(x["start_s"]) + delta, 4)
-                    if "end_s" in x:
-                        x["end_s"] = round(float(x["end_s"]) + delta, 4)
-                elif "end_s" in x and float(x["end_s"]) > start:
-                    x["end_s"] = round(float(x["end_s"]) + delta, 4)
-            journal.decision("scout", f"moved {ln['id']} from {start:.3f} s to {start + delta:.3f} s and lengthened "
-                             f"{owner['id']} by {delta:.3f} s; everything after it moved {delta:.3f} s later",
-                             f"voice-overlap: {ln['id']} started {prev_end + gap - start:.3f} s before the previous voice's "
-                             f"end plus {gap:g} s (--fit-voices)", unit=ln["id"], moved_from=start, moved_to=start + delta,
-                             shot=owner["id"], lengthened_s=delta)
+            points.append((v["start"], delta, v["ref"]))
+            acc += delta
             start += delta
         prev_end = max(prev_end or 0.0, start + v["dur"])
+    if not points:
+        return play
+
+    def shift(t: float, strict: bool = False) -> float:
+        return sum(d for p, d, _ in points if (p < t - 1e-9 if strict else p <= t + 1e-9))
+
+    # 2. Shots: the owner of each point grows; a shot starting after a point moves.
+    assets = None
+    for p, d, ln in points:
+        owner = max((sh for sh in shots if float(sh["start_s"]) <= p + 1e-9), key=lambda sh: float(sh["start_s"]))
+        if owner["kind"] == "archive_video":
+            if "out_s" not in owner:                  # derive the out point the way build_plan does
+                if assets is None:
+                    assets = load_ledgers(film, play)
+                item = assets.get(owner.get("asset"), {})
+                in_s = float(owner.get("in_s", item.get("in_s", 0.0)))
+                owner["in_s"] = in_s
+                owner["out_s"] = float(item.get("out_s", in_s + float(owner.get("dur_s", 0.0))))
+            owner["out_s"] = round(float(owner["out_s"]) + d, 4)
+        else:
+            owner["dur_s"] = round(float(owner["dur_s"]) + d, 4)
+    for sh in shots:
+        sh["start_s"] = round(float(sh["start_s"]) + shift(float(sh["start_s"]), strict=True), 4)
+    # 3. Lines, text and audio cues.
+    moved: dict[str, float] = {}
+    for part in play["parts"]:
+        for x in part.get("lines", []) + part.get("text", []):
+            if "start_s" not in x:
+                continue
+            k = shift(float(x["start_s"]))
+            moved[x["id"]] = k
+            if k:
+                x["start_s"] = round(float(x["start_s"]) + k, 4)
+                if "end_s" in x:
+                    x["end_s"] = round(float(x["end_s"]) + k, 4)
+        for c in part.get("cues", []):
+            k0, k1 = shift(float(c["start_s"])), shift(float(c["end_s"]), strict=True)
+            c["start_s"], c["end_s"] = round(float(c["start_s"]) + k0, 4), round(float(c["end_s"]) + k1, 4)
+    # 4. Subtitle cues follow their ref, exactly, and never stretch.
+    for c in play.get("subtitle_source", []):
+        k = moved[c["ref"]] if c.get("ref") in moved else shift(float(c["start_s"]))
+        if k:
+            c["start_s"], c["end_s"] = round(float(c["start_s"]) + k, 4), round(float(c["end_s"]) + k, 4)
+    for p, d, ln in points:
+        owner = max((sh for sh in shots if float(sh["start_s"]) <= p + shift(p, strict=True) + 1e-9),
+                    key=lambda sh: float(sh["start_s"]))
+        journal.decision("scout", f"moved {ln['id']} later by {d:.3f} s (from {p + shift(p, strict=True):.3f} s) and lengthened "
+                         f"{owner['id']} by {d:.3f} s; everything from that point on moved {d:.3f} s later",
+                         f"voice-overlap: {ln['id']} started {d:.3f} s before the previous voice's end plus {gap:g} s "
+                         f"(--fit-voices)", unit=ln["id"], moved_from=round(p + shift(p, strict=True), 4),
+                         moved_to=round(p + shift(p), 4), shot=owner["id"], lengthened_s=d)
     return play
 
 
@@ -573,7 +614,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     lint_fail: list[str] = []
 
     def lint(rule, ok, *, unit=None, severity="block", evidence=None, grammar=None, stage="scout"):
-        journal.lint(rule, ok, stage=stage, unit=unit, severity=severity, evidence=evidence, grammar=grammar)
+        journal.lint(rule, ok, stage=stage, unit=unit, severity=severity, evidence=evidence, grammar=grammar, phase="preflight")
         if severity == "block" and not ok:
             lint_fail.append(f"{rule}" + (f" ({unit})" if unit else "") + (f": {evidence}" if evidence else ""))
 
@@ -664,7 +705,9 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                  evidence={"s": ds}, grammar="7.3")
         elif tr.get("type") == "dip":
             ds = float(tr.get("s", 0))
-            lint("dip-length", 0.5 <= ds <= 1.0, unit=s["id"], severity="warn", evidence={"s": ds}, grammar="7.3")
+            # over GRAMMAR's 1.0 s a dip is a long black that hides the mark (A11): refused; short of 0.5 s, a warning
+            lint("dip-length", 0.5 <= ds <= 1.0, unit=s["id"], severity="block" if ds > 1.0 else "warn",
+                 evidence={"s": ds, "min_s": 0.5, "max_s": 1.0}, grammar="7.3, A11")
             if i and shots[i - 1]["mark"] != s["mark"]:
                 lint("cross-class-dip", round(ds * FPS) >= 12, unit=s["id"], grammar="4.4",
                      evidence={"from": shots[i - 1]["mark"], "to": s["mark"], "frames": round(ds * FPS), "min_frames": 12})
@@ -708,7 +751,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                                "scale_max": round(scale_max, 4), "image": list(size)}
             lint("resampler-plain", True, unit=s["id"], stage="motion", evidence=s["_resampler"], grammar="A5")
             if s["kind"] == "archive_still":
-                journal.lint("fill-ok", True, stage="motion", unit=s["id"], severity="review", grammar="A7",
+                journal.lint("fill-ok", True, stage="motion", unit=s["id"], severity="review", grammar="A7", phase="preflight",
                              evidence={"fill_ok": cam["fill_ok"], "preset": cam["preset"],
                                        "check": ("Every person in the photograph is inside the frame at some point in this shot."
                                                  if cam["fill_ok"] else "No fill: the move stays inside the photograph's own shape.")})
@@ -816,6 +859,11 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     screen_text += [s["detail"] for s in shots] + [c["text"] for c in subs]
     dashes = [x for x in screen_text if EM_DASH in x]
     lint("no-em-dash", not dashes, evidence=dashes[:5], grammar="9")
+    subcues = sorted(((float(c["start_s"]), float(c["end_s"]), c.get("ref")) for c in play.get("subtitle_source", [])))
+    clash = [{"a": a[2], "b": b[2], "overlap_s": round(a[1] - b[0], 3)} for a, b in zip(subcues, subcues[1:]) if b[0] < a[1] - 1e-9]
+    # burned in, two cues would draw over each other; as tracks, a player shows them stacked
+    lint("subtitle-overlap", not clash, severity="block" if burn_subtitles else "warn", grammar="10",
+         evidence={"overlaps": clash, "burned": burn_subtitles})
     vl = voice_lines(play, film)
     collisions = voice_collisions(vl)
     lint("voice-overlap", not collisions, stage="scout", grammar="founder ruling 2026-10-10",
@@ -1030,18 +1078,26 @@ def mark_probe(plan: dict) -> tuple[int, int]:
     return int(round(L.w(M.MARK["x"]))), int(round(L.h(M.MARK["y"]))) + 2
 
 
+def between_hues(px, a, b, tol: float = 3.0) -> bool:
+    """True when px lies on the segment from hue a to hue b (within tol)."""
+    p, a, b = (np.asarray(v, dtype=float) for v in (px, a, b))
+    d = b - a
+    u = float(np.clip(np.dot(p - a, d) / max(float(np.dot(d, d)), 1e-9), 0.0, 1.0))
+    return float(np.max(np.abs(p - (a + u * d)))) <= tol
+
+
 def check_mark(plan: dict, arr: np.ndarray, f: int, i: int) -> str:
-    """'ok' when the bar shows the owning shot's class hue, 'fade' inside the
-    4-frame class crossfade (the plate is there by construction), 'dip' on a
-    dip's black hold (every pixel off by founder ruling, checked as all zero),
-    else 'fail'."""
+    """'ok' when the bar shows the owning shot's class hue; 'fade' inside the
+    4-frame class crossfade when the bar shows a mix of the outgoing and
+    incoming hues; 'dip' on a dip's black hold (all pixels off, A11, checked as
+    all zero); else 'fail'."""
     x, y = mark_probe(plan)
     s = plan["shots"][i]
     if picture_level(plan, f, i) <= 0.0:
         return "dip" if not arr.any() else "fail"
-    if i > 0 and plan["shots"][i - 1]["mark"] != s["mark"] and f - s["f0"] < round(M.MARK["fade"] * FPS):
-        return "fade"
     px = arr[y, x, :3].astype(int)
+    if i > 0 and plan["shots"][i - 1]["mark"] != s["mark"] and f - s["f0"] < round(M.MARK["fade"] * FPS):
+        return "fade" if between_hues(px, M.MARK_HUE[plan["shots"][i - 1]["mark"]], M.MARK_HUE[s["mark"]]) else "fail"
     return "ok" if np.max(np.abs(px - np.array(M.MARK_HUE[s["mark"]]))) <= 2 else "fail"
 
 
@@ -1140,29 +1196,63 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
     return result
 
 
-def still_first_frame_whole(plan: dict, pics: Pictures, i: int) -> bool:
-    """Pixel evidence for A7: at the still's first frame, everything outside
-    the fitted rectangle is the near-black field and the inside is the
-    photograph (compared with a plain whole fit)."""
+def still_first_frame_whole(plan: dict, pics: Pictures, i: int, detail: dict | None = None) -> bool:
+    """Pixel evidence for A7, on the still's own layer at its first frame
+    (before any dissolve, dip or overlay is composited): outside the
+    photograph's fitted rectangle every pixel is the black field, and inside
+    it the picture matches the whole photograph.
+
+    The reference is independent of the camera: the original file, Lanczos-
+    resized to the whole-image fit and centred. The two are compared after a
+    box downsample (8x at 1080p), because a dense photograph resampled two
+    ways (the renderer's bicubic affine after a Lanczos prescale, and a plain
+    Lanczos resize) differs pixel by pixel while agreeing at every scale a
+    crop or zoom would change."""
     s = plan["shots"][i]
-    raw = np.asarray(pics.shot(i, 0.0)).astype(int)
-    img = pics.still(s)
+    raw = np.asarray(pics.shot(i, 0.0)).astype(np.float32)
     W, H = plan["W"], plan["H"]
-    k = min(W / img.width, H / img.height)
-    fx0, fy0 = (W - img.width * k) / 2.0, (H - img.height * k) / 2.0
+    with Image.open(s["_item"]["_path"]) as im:
+        orig = im.convert("RGB")
+    k = min(W / orig.width, H / orig.height)
+    fx0, fy0 = (W - orig.width * k) / 2.0, (H - orig.height * k) / 2.0
     fx1, fy1 = W - fx0, H - fy0
-    # the field, one pixel clear of the photograph's (sub-pixel) edge
     outside = np.ones(raw.shape[:2], bool)
     outside[max(0, math.floor(fy0) - 1):math.ceil(fy1) + 1, max(0, math.floor(fx0) - 1):math.ceil(fx1) + 1] = False
-    field = np.array(M.PALETTE["letterbox"])
-    if outside.any() and np.max(np.abs(raw[outside] - field)) > 2:
-        return False
-    x0, y0, x1, y1 = math.ceil(fx0), math.ceil(fy0), math.floor(fx1), math.floor(fy1)
-    ref = np.asarray(img.resize((round(img.width * k), round(img.height * k)), Image.Resampling.BICUBIC)).astype(int)
-    ox, oy = x0 - round(fx0), y0 - round(fy0)
-    ref = ref[oy:oy + (y1 - y0), ox:ox + (x1 - x0)]
-    inner = raw[y0:y0 + ref.shape[0], x0:x0 + ref.shape[1]]
-    return float(np.mean(np.abs(inner - ref))) < 8.0
+    field = np.array(M.PALETTE["letterbox"], dtype=np.float32)
+    outside_max = float(np.max(np.abs(raw[outside] - field))) if outside.any() else 0.0
+    ref = np.zeros_like(raw)
+    rw, rh = max(1, round(orig.width * k)), max(1, round(orig.height * k))
+    x0, y0 = round(fx0), round(fy0)
+    ref[y0:y0 + rh, x0:x0 + rw] = np.asarray(orig.resize((rw, rh), Image.Resampling.LANCZOS), dtype=np.float32)[: H - y0, : W - x0]
+    f = max(2, round(H / 135))
+    hh, ww = (H // f) * f, (W // f) * f
+
+    def low(a):
+        return a[:hh, :ww].reshape(hh // f, f, ww // f, f, 3).mean(axis=(1, 3))
+
+    diff = float(np.mean(np.abs(low(raw) - low(ref))))
+    if detail is not None:
+        detail.update(outside_max=round(outside_max, 2), low_pass_mean_diff=round(diff, 3), box=f)
+    return outside_max <= 2.0 and diff < 6.0
+
+
+def preflight_stills(plan: dict, journal: Journal) -> list[str]:
+    """A7's pixel check for every still, run before any frame is rendered: one
+    frame per still, its own layer. Returns the shots that are not whole."""
+    pics = Pictures(plan)
+    bad = []
+    try:
+        for i, s in enumerate(plan["shots"]):
+            if s["kind"] == "archive_still" and s.get("_cam"):
+                ev: dict = {}
+                ok = still_first_frame_whole(plan, pics, i, ev)
+                journal.lint("still-first-frame-whole-pixels", ok, stage="scout", unit=s["id"], grammar="A7",
+                             phase="preflight", evidence=dict(ev, enters_by=s["transition_in"].get("type")))
+                if not ok:
+                    bad.append(s["id"])
+    finally:
+        pics.close()
+    return bad
 
 
 # --------------------------------------------------------------------------
@@ -1221,7 +1311,7 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
         wav = film / (ln.get("wav") or f"audio/{ln['id']}.wav")
         if not wav.exists():
             # a narration or testimony line is the film's words: missing, it blocks unless this is a draft
-            journal.lint("audio-present", False, stage="assembly", unit=ln["id"], severity="warn" if draft else "block",
+            journal.lint("audio-present", False, stage="assembly", phase="preflight", unit=ln["id"], severity="warn" if draft else "block",
                          evidence={"wav": str(wav), "kind": ln.get("kind"), "result": "silence (draft)" if draft else "refused"})
             placed["missing"].append(ln["id"])
             missing_voice.append(ln["id"])
@@ -1235,7 +1325,7 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
     for c in plan["cues"]:
         wav = film / (c.get("wav") or f"audio/{c['id']}.wav")
         if not wav.exists():
-            journal.lint("audio-present", False, stage="assembly", unit=c["id"], severity="warn",
+            journal.lint("audio-present", False, stage="assembly", phase="preflight", unit=c["id"], severity="warn",
                          evidence={"wav": str(wav), "kind": c.get("kind"), "result": "silence"})
             placed["missing"].append(c["id"])
             continue
@@ -1246,7 +1336,7 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
         if s["kind"] == "archive_video" and (s.get("sound") or {}).get("mode", "own") == "own" and s["_video"]["probe"]["has_audio"]:
             x = clip_audio(s)
             if x is None:
-                journal.lint("audio-present", False, stage="assembly", unit=s["id"], severity="warn", evidence="clip audio unreadable")
+                journal.lint("audio-present", False, stage="assembly", phase="preflight", unit=s["id"], severity="warn", evidence="clip audio unreadable")
                 continue
             _place(clips, x, s["f0"] / FPS, end_s=s["f1"] / FPS)
             placed["clips"].append(s["id"])
@@ -1257,6 +1347,27 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
     duck = 1 - env * (1 - 10 ** (-DUCK_DB / 20))
     mix = voice + clips + music * duck + amb
     return mix.astype(np.float32), placed
+
+
+def loudness_lints(journal: Journal, loud: dict) -> None:
+    """Journal what the loudness pass did: the measured result against -16
+    LUFS, and a flag when loudnorm fell back from linear gain to its dynamic
+    mode (which compresses the programme, usually because linear gain would
+    push a peak past -1.5 dBTP)."""
+    if not loud["normalised"]:
+        journal.decision("assembly", "loudness not normalised", "the programme is silent (no voice, music or clip sound placed)")
+        return
+    journal.lint("loudness", phase="preflight", passed=abs(loud["output_i"] - TARGET_LUFS) <= 1.0 and loud["output_tp"] <= TARGET_TP + 0.5,
+                 stage="assembly", severity="warn", evidence=loud, grammar="8.5")
+    journal.lint("loudnorm-linear", loud["linear"], stage="assembly", phase="preflight", severity="warn", grammar="8.5",
+                 evidence={"normalization_type": loud["normalization_type"], "input_i": loud.get("input_i"),
+                           "input_tp": loud.get("input_tp"),
+                           "why": None if loud["linear"] else
+                           "loudnorm fell back to dynamic mode, which compresses the programme: linear gain to -16 LUFS "
+                           "would push a peak past -1.5 dBTP"})
+    if not loud["linear"]:
+        journal.decision("assembly", "the mix was normalised in loudnorm's dynamic mode",
+                         "linear gain would have clipped a peak; check the loudest cue or reading", unit="loudness")
 
 
 def _loudnorm_json(stderr: str) -> dict:
@@ -1308,7 +1419,7 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             "preset": (s.get("_cam") or {}).get("preset"), "fill_ok": (s.get("_cam") or {}).get("fill_ok"),
             "in_s": s.get("in_s"), "out_s": s.get("out_s"),
             "resampler": s.get("_resampler"), "conform": (s.get("_video") or {}).get("conform"),
-            "test_fixture": bool(it.get("synthetic") or it.get("test_fixture")),
+            "test_fixture": is_synthetic(it),
             "text": s.get("text"),
         })
     track = []
@@ -1406,7 +1517,10 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
                       stages=["scout", "conform", "assembly", "motion", "marks"], resumed_from=from_shot,
                       settings=dict(settings, workers=n, workers_requested=n_req), model=ENGINE_MODEL,
                       ffmpeg=ffmpeg_version(), out=str(out), predict={}, baselines_at=None, machine=journal.machine())
-        journal.stage("scout", "start")
+        # Pre-flight: every check the plan can decide runs here, before any frame is rendered: the drive,
+        # licences, marks, transitions, dips, zoom limits, A7 framing, voice-overlap, then A7 on each
+        # still's own first frame. The rendered pixels are checked again after motion (phase post-render).
+        journal.stage("scout", "start", phase="preflight")
         if draft:
             journal.human("scout", "draft render: missing voice WAVs become silence instead of refusing the run",
                           override="--draft")
@@ -1427,7 +1541,12 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         with journal.unit("scout", "plan", size={"driver": "items", "value": 0}) as u:
             plan = build_plan(film, W=W, H=H, burn_subtitles=burn_subtitles, journal=journal, play=play)
             u.size = {"driver": "items", "value": len(plan["shots"])}
-        journal.stage("scout", "done")
+        stills = [s["id"] for s in plan["shots"] if s["kind"] == "archive_still" and s.get("_cam")]
+        with journal.unit("scout", "preflight-stills", size={"driver": "items", "value": len(stills)}):
+            not_whole = preflight_stills(plan, journal)
+            if not_whole:
+                raise Refused(f"A7 (pre-flight): the first frame of {', '.join(not_whole)} is not the whole photograph")
+        journal.stage("scout", "done", phase="preflight", frames_rendered=0)
 
         if n != n_req:
             journal.decision("motion", f"workers clamped from {n_req} to {n}",
@@ -1491,14 +1610,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
             loud = loudnorm(work / "mix.wav", work / "mix-norm.wav")
             u.extra.update(loudness=loud)
         journal.artifact("assembly", work / "mix-norm.wav", unit="loudness", role="mix-normalised")
-        if loud["normalised"]:
-            journal.lint("loudness", abs(loud["output_i"] - TARGET_LUFS) <= 1.0 and loud["output_tp"] <= TARGET_TP + 0.5,
-                         stage="assembly", severity="warn", evidence=loud, grammar="8.5")
-            journal.lint("loudnorm-linear", loud["linear"], stage="assembly", severity="warn", grammar="8.5",
-                         evidence={"normalization_type": loud["normalization_type"],
-                                   "why": "loudnorm fell back to dynamic mode, which compresses the programme" if not loud["linear"] else None})
-        else:
-            journal.decision("assembly", "loudness not normalised", "the programme is silent (no voice, music or clip sound placed)")
+        loudness_lints(journal, loud)
 
         # Frames.
         current.update(stage="motion", unit=None)
@@ -1596,12 +1708,12 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         journal.stage("marks", "start")
         fails = {plan["shots"][i]["id"]: r["mark"]["fail_frames"] for i, r in results.items() if r["mark"]["fail"]}
         checked = sum(r["mark"]["ok"] + r["mark"]["fade"] + r["mark"].get("dip", 0) + r["mark"]["fail"] for r in results.values())
-        journal.lint("mark-coverage", not fails and checked == plan["frames"], stage="marks", grammar="1.3, 4",
+        journal.lint("mark-coverage", not fails and checked == plan["frames"], stage="marks", grammar="1.3, 4, A11", phase="post-render",
                      evidence={"frames": plan["frames"], "checked": checked, "ok": sum(r["mark"]["ok"] for r in results.values()),
                                "crossfade": sum(r["mark"]["fade"] for r in results.values()),
                                "dip_black": sum(r["mark"].get("dip", 0) for r in results.values()), "failed": fails})
         stills_bad = [plan["shots"][i]["id"] for i, r in results.items() if r.get("first_frame_whole") is False]
-        journal.lint("still-first-frame-whole-pixels", not stills_bad, stage="marks", grammar="A7",
+        journal.lint("still-first-frame-whole-pixels", not stills_bad, stage="marks", grammar="A7", phase="post-render",
                      evidence={"stills": [plan["shots"][i]["id"] for i, r in results.items() if r.get("first_frame_whole") is not None],
                                "not_whole": stills_bad})
         doc = sources_doc(plan, journal, {})
@@ -1618,7 +1730,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         held = {plan["shots"][i]["id"]: r.get("held_frames", 0) for i, r in results.items() if r.get("held_frames")}
         held_bad = [sid for sid, k in held.items() if k / FPS > MAX_HOLD_S and not (
             plan["shots"][ids.index(sid)]["mark"] == "RECONSTRUCTED" and "re-timed" in (plan["shots"][ids.index(sid)].get("alterations") or []))]
-        journal.lint("clip-hold-rendered", not held_bad, stage="marks", grammar="7.1",
+        journal.lint("clip-hold-rendered", not held_bad, stage="marks", grammar="7.1", phase="post-render",
                      evidence={"held_frames": held, "max_s": MAX_HOLD_S, "over": held_bad})
         if held_bad:
             raise Refused(f"clips held their last frame over {MAX_HOLD_S:g} s: {', '.join(held_bad)} (GRAMMAR 7.1)")
@@ -1653,7 +1765,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
             u.extra.update(master={"width": pr["width"], "height": pr["height"], "fps": pr["fps"], "duration_s": pr["duration_s"],
                                    "frames": pr["frames"]})
         ok_fmt = pr["width"] == W and pr["height"] == H and abs(pr["fps"] - FPS) < 0.01 and pr["frames"] == plan["frames"]
-        journal.lint("master-format", ok_fmt, stage="assembly", grammar="7.5",
+        journal.lint("master-format", ok_fmt, stage="assembly", grammar="7.5", phase="post-render",
                      evidence={"width": pr["width"], "height": pr["height"], "fps": pr["fps"], "frames": pr["frames"],
                                "expected_frames": plan["frames"], "duration_s": pr["duration_s"]})
         if not ok_fmt:
