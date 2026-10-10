@@ -79,3 +79,9 @@ The studio engine is built while the pilot is made, so every run and every build
 - Build log: every ticket's builder, verifier and reviewer runs, review rounds, blocking findings, time from start to merge, and the agent model used, written to the Board's `metrics/document` and the ticket's PR.
 - Issue log (`docs/ENGINE-LOG.md`, committed, append-only): every defect, surprise or workaround found while piloting, with the run id that shows it, so lessons can become doctrine.
 The Director's Lens and the weekly report read from these; nothing is reported that the logs cannot show.
+
+## 2026-10-10: Reported speech is attributed to its reporter (Chief of Staff ruling)
+A text that reports what someone said in the third person ("X stated that ...") is the reporter's words, not X's. Its speaker, voice and lower third name the reporting body (here the Government of West Punjab, Note on the Sikh Plan, 1948), its side is the reporter's, and the named person is never voiced. Found in the teaser screenplay before render; the treatment's use of the same text follows the same rule.
+
+## 2026-10-10: The Trailer, and two picture and sound rules (founder, in chat)
+A first public piece, "The Partition of India · Trailer", about 5 minutes: one calm, continuous film (not a collage) that breathes between scenes and lingers where needed, made by the same engine under the same rules; it is hosted on document.voidvision.org after the founder has watched it. Black is black: every black field (cards, black under a voice, pillarbox and letterbox, the hold of a dip) is RGB 0,0,0, and a dip's black hold carries no overlay. Voices never overlap: timing comes from measured audio durations, consecutive voice lines are at least 0.8 s apart, and the engine refuses an overlap.
