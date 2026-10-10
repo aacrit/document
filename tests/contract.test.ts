@@ -134,3 +134,14 @@ describe("contract runner: deployed-only burst checks", () => {
     expect(burst.count).toBeGreaterThan(20);
   });
 });
+
+describe("bursts on the production zone (transplanted from Dial)", () => {
+  it("sends bursts to the workers.dev burst_host when the URL is under the zone, and nowhere else", async () => {
+    const { burstBase, loadContract } = await import("../scripts/contract.mjs");
+    const c = loadContract(path.resolve(fileURLToPath(new URL("../contract.yaml", import.meta.url))));
+    expect(c.burst_host).toBe("https://document.aacrit.workers.dev");
+    expect(burstBase(c, "https://document.voidvision.org")).toBe("https://document.aacrit.workers.dev");
+    expect(burstBase(c, "https://document.aacrit.workers.dev")).toBe("https://document.aacrit.workers.dev");
+    expect(burstBase({ checks: [] }, "https://document.voidvision.org")).toBe("https://document.voidvision.org");
+  });
+});

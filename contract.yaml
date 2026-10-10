@@ -6,6 +6,14 @@
 # worker/src/config.ts mirrors; tests/contract-events.test.ts keeps them in
 # sync.
 url: https://document.voidvision.org
+# Bursts measure the Worker's own limit. On the production domain the zone's
+# WAF rule (30 per 10 s per IP) blocks a burst first with its own 1015 page, so
+# a burst aimed at a host under `burst_zone` goes to `burst_host` instead: the
+# same deployment's workers.dev address, which the zone's rules do not cover.
+# The runner first requires burst_host's /healthz build to equal production's.
+# workers_dev must stay on (wrangler.jsonc) for that.
+burst_zone: voidvision.org
+burst_host: https://document.aacrit.workers.dev
 
 checks:
   - name: homepage status 200

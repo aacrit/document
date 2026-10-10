@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Transplanted from aacrit/dial scripts/contract.mjs (2026-10-03): adds burst_host for hosts under the zone WAF, host_suffix checks, a named User-Agent and fetch retries. Agentique template follow-up.
 // Runs the served-page contract (contract.yaml) against a live URL. Used by
 // `npm run contract`, by CI's verify-production.yml, and by the /release and
 // /launch skills. No dependencies beyond Node and the `yaml` package.
@@ -44,13 +45,69 @@ export function isLocalUrl(baseUrl) {
   return host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1" || host.endsWith(".localhost");
 }
 
+/** The runner's words for a check that does not apply to this host. The /release skill matches them exactly. */
+export const NOT_APPLICABLE = "n/a (production host only)";
+
+/** Whether `baseUrl`'s host is `suffix` or one of its subdomains. */
+export function onHost(baseUrl, suffix) {
+  const host = new URL(baseUrl).hostname.toLowerCase();
+  const s = String(suffix).toLowerCase().replace(/^\./, "");
+  return host === s || host.endsWith(`.${s}`);
+}
+
 function joinUrl(base, checkPath) {
   return new URL(checkPath, base).toString();
 }
 
-async function runCheck(check, baseUrl) {
+/**
+ * Every request names itself. Node's fetch sends no browser headers at all,
+ * and a scripted client with a bare "node" User-Agent is exactly what a
+ * zone's bot rules are written to challenge; a named one can be told apart
+ * in Security Events and allowed on purpose.
+ */
+export const USER_AGENT = "document-contract/1 (+https://document.voidvision.org/privacy)";
+
+/**
+ * Why a fetch failed below HTTP, in words: undici's "fetch failed" hides
+ * the reason (DNS, refused, reset, TLS) in `cause`, and without it a red
+ * production check cannot be told apart from a missing DNS record.
+ */
+export function describeFetchError(err) {
+  const msg = err?.message ?? String(err);
+  const cause = err?.cause;
+  if (!cause) return msg;
+  const code = cause.code ?? cause.errno;
+  const detail = cause.message && cause.message !== msg ? cause.message : "";
+  return [msg, code, detail].filter(Boolean).join(": ");
+}
+
+/**
+ * fetch, with this runner's User-Agent, retried once after `retryMs` when
+ * the request fails below HTTP (a DNS or connection blip on a shared CI
+ * runner). An HTTP answer, whatever its status, is never retried.
+ */
+export async function contractFetch(url, init = {}, retryMs = 2000) {
+  const headers = { "user-agent": USER_AGENT, ...(init.headers ?? {}) };
+  try {
+    return await fetch(url, { ...init, headers });
+  } catch (err) {
+    if (!retryMs) throw err;
+    await new Promise((resolve) => setTimeout(resolve, retryMs));
+    return fetch(url, { ...init, headers });
+  }
+}
+
+async function runCheck(check, baseUrl, originalBase = baseUrl) {
   const target = joinUrl(baseUrl, check.path ?? "/");
   const label = check.name ?? `${check.type} ${check.path ?? "/"}`;
+
+  // A check about the production zone (host_suffix: voidvision.org) does not
+  // apply to any other host, a workers.dev preview included: reported as not
+  // applicable, never as a skip or a pass (the /release skill matches NOT_APPLICABLE).
+  // Judged on the URL the contract was run against, never on a rerouted burst host.
+  if (check.host_suffix && !onHost(originalBase, check.host_suffix)) {
+    return { label, pass: true, notApplicable: true, detail: NOT_APPLICABLE };
+  }
 
   if (check.requires === "deployed" && isLocalUrl(baseUrl)) {
     return { label, pass: true, skipped: true, detail: "skipped: needs deployed runtime" };
@@ -76,10 +133,16 @@ async function runCheck(check, baseUrl) {
       // Workers rate-limit binding counts permissively and is eventually
       // consistent, so a sequential probe at a few requests a second may
       // never trip it even though a real burst does.
+      // With `method` and `body`, each request is that POST (a JSON body):
+      // an invalid body is refused by validation until the limit bites, so
+      // a burst on a write path writes nothing.
       const statuses = [];
       let matched = false;
+      const init = check.method
+        ? { method: check.method, headers: { "content-type": "application/json" }, body: JSON.stringify(check.body ?? {}) }
+        : { cache: "no-store" };
       const one = async () => {
-        const r = await fetch(target, { cache: "no-store" });
+        const r = await contractFetch(target, init, 0);
         const text = await r.text();
         statuses.push(r.status);
         if (r.status !== check.expect_status) return;
@@ -93,15 +156,40 @@ async function runCheck(check, baseUrl) {
           // Not the Worker's JSON (a WAF or proxy page): does not count.
         }
       };
+      // With `wave_gap_ms`, a pause between waves: the binding's count settles
+      // a moment after the requests that raised it, so back-to-back waves
+      // can all pass before it bites; a short gap lets it catch up.
       const wave = Math.max(1, check.concurrency ?? 1);
       for (let sent = 0; sent < check.count; sent += wave) {
+        if (sent && check.wave_gap_ms) await new Promise((resolve) => setTimeout(resolve, check.wave_gap_ms));
         await Promise.all(Array.from({ length: Math.min(wave, check.count - sent) }, one));
+        if (matched) break;
       }
       const want = check.expect_error === undefined ? `${check.expect_status}` : `${check.expect_status} with {"error":"${check.expect_error}"}`;
       return { label, pass: matched, detail: matched ? undefined : `no ${want} in ${check.count} requests (got ${[...new Set(statuses)].join(", ")})` };
     }
 
-    const response = await fetch(target);
+    if (check.type === "redirect") {
+      // The same host and path over `scheme` (http), not followed: it must
+      // answer `expect` (301) with a Location starting `location_starts_with`.
+      const from = new URL(target);
+      if (check.scheme) from.protocol = `${check.scheme}:`;
+      const r = await contractFetch(from, { redirect: "manual" });
+      await r.arrayBuffer();
+      const location = r.headers.get("location") ?? "";
+      // With `same_url_on_https`, the Location must be exactly the requested URL on https://.
+      const sameUrl = new URL(from);
+      sameUrl.protocol = "https:";
+      sameUrl.port = "";
+      const wantLocation = check.same_url_on_https ? sameUrl.toString() : check.location_starts_with;
+      const pass =
+        r.status === check.expect &&
+        (check.location_starts_with === undefined || location.startsWith(check.location_starts_with)) &&
+        (!check.same_url_on_https || location === sameUrl.toString());
+      return { label, pass, detail: pass ? undefined : `${from} answered ${r.status}${location ? ` to ${location}` : ""}, expected ${check.expect} to ${wantLocation ?? "anywhere"}` };
+    }
+
+    const response = await contractFetch(target);
 
     switch (check.type) {
       case "status": {
@@ -132,6 +220,19 @@ async function runCheck(check, baseUrl) {
         const pass = found.length === 0;
         return { label, pass, detail: pass ? undefined : `found forbidden string(s): ${found.join(", ")}` };
       }
+      case "each_status": {
+        // `path` answers a JSON list of this site's paths; each must answer `expect`.
+        const list = await response.json();
+        if (!Array.isArray(list) || list.length === 0) return { label, pass: false, detail: `no list of paths at ${target}` };
+        const bad = [];
+        for (const p of list) {
+          const r = await contractFetch(new URL(p, baseUrl));
+          await r.arrayBuffer();
+          if (r.status !== check.expect) bad.push(`${p} ${r.status}`);
+        }
+        const pass = bad.length === 0;
+        return { label, pass, detail: pass ? undefined : `not ${check.expect}: ${bad.join(", ")}` };
+      }
       case "header": {
         // A response header, matched exactly (`expect`) or by
         // substring (`contains`). Header names are case-insensitive.
@@ -147,14 +248,73 @@ async function runCheck(check, baseUrl) {
         return { label, pass: false, detail: `unknown check type "${check.type}"` };
     }
   } catch (err) {
-    return { label, pass: false, detail: `request to ${target} failed: ${err.message ?? err}` };
+    return { label, pass: false, detail: `request to ${target} failed: ${describeFetchError(err)}` };
   }
+}
+
+/**
+ * Where a burst goes. On a host under the contract's `burst_zone` (the
+ * production domain), the zone's WAF blocks a burst before the Worker's own
+ * limit can answer, so it goes to `burst_host`, the same deployment's
+ * workers.dev address. Any other base (a preview, localhost) is used as is.
+ */
+export function burstBase(contract, baseUrl) {
+  if (contract.burst_zone && contract.burst_host && onHost(baseUrl, contract.burst_zone)) return contract.burst_host;
+  return baseUrl;
+}
+
+/** The build a deployment serves, from its /healthz, or "" when it does not say. */
+async function servedBuild(base) {
+  try {
+    const r = await contractFetch(joinUrl(base, "/healthz"), { cache: "no-store" });
+    const data = await r.json();
+    return typeof data?.build === "string" ? data.build : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Whether `burstHost` serves the same build as `baseUrl`: a burst sent there
+ * proves the production Worker's limit only if it is the production Worker.
+ * A mistyped or stale burst_host fails; a gradual deployment mid-split may.
+ */
+export async function burstHostProblem(baseUrl, burstHost) {
+  const [prod, other] = await Promise.all([servedBuild(baseUrl), servedBuild(burstHost)]);
+  if (prod && prod === other) return undefined;
+  return `burst_host ${burstHost} serves ${other || "no build"}, ${baseUrl} serves ${prod || "no build"}`;
 }
 
 export async function runContract(contract, baseUrl) {
   const results = [];
-  for (const check of contract.checks) {
-    results.push(await runCheck(check, baseUrl));
+  let hostProblem;
+  let hostChecked = false;
+  for (let check of contract.checks) {
+    const base = check.type === "burst" ? burstBase(contract, baseUrl) : baseUrl;
+    let r;
+    const notHere = (check.host_suffix && !onHost(baseUrl, check.host_suffix)) || (check.requires === "deployed" && isLocalUrl(baseUrl));
+    if (base !== baseUrl && !notHere) {
+      if (!hostChecked) {
+        // The build check's request to production counts toward the zone's WAF window too:
+        // wait out this burst's pause first, so it never reads a 1015 page as "no build".
+        if (check.pause_before_seconds) {
+          await new Promise((resolve) => setTimeout(resolve, check.pause_before_seconds * 1000));
+          check = { ...check, pause_before_seconds: 0 };
+        }
+        hostProblem = await burstHostProblem(baseUrl, base);
+        hostChecked = true;
+      }
+      const label = check.name ?? `${check.type} ${check.path ?? "/"}`;
+      r = hostProblem ? { label, pass: false, detail: hostProblem, buildMismatch: true } : await runCheck(check, base, baseUrl);
+      r.rerouted = true;
+      // Say where it ran: the summary names the base URL, and this burst did not run there.
+      r.detail = `${r.detail ? `${r.detail}; ` : ""}via ${base}`;
+    } else {
+      r = await runCheck(check, base, baseUrl);
+    }
+    // A check that waits on someone (a zone setting, a Board ask) says who, in its failure.
+    if (!r.pass && check.failure_note) r.detail = `${r.detail ?? "failed"}. ${check.failure_note}`;
+    results.push(r);
   }
   return results;
 }
@@ -169,14 +329,19 @@ async function main() {
   }
 
   const results = await runContract(contract, baseUrl);
-  const passed = results.filter((r) => r.pass && !r.skipped).length;
+  const passed = results.filter((r) => r.pass && !r.skipped && !r.notApplicable).length;
   const skipped = results.filter((r) => r.skipped).length;
-  const ran = results.length - skipped;
+  const notApplicable = results.filter((r) => r.notApplicable).length;
+  const ran = results.length - skipped - notApplicable;
+  const rerouted = results.filter((r) => r.rerouted).length;
+  const buildMatched = !results.some((r) => r.buildMismatch);
 
   for (const r of results) {
-    console.log(`${r.skipped ? "SKIP" : r.pass ? "PASS" : "FAIL"}  ${r.label}${r.detail ? ` - ${r.detail}` : ""}`);
+    console.log(`${r.notApplicable ? "N/A " : r.skipped ? "SKIP" : r.pass ? "PASS" : "FAIL"}  ${r.label}${r.detail ? ` - ${r.detail}` : ""}`);
   }
-  console.log(`\n${passed}/${ran} checks passed against ${baseUrl}${skipped ? `; ${skipped} skipped: needs deployed runtime` : ""}`);
+  console.log(
+    `\n${passed}/${ran} checks passed against ${baseUrl}${skipped ? `; ${skipped} skipped: needs deployed runtime` : ""}${notApplicable ? `; ${notApplicable} ${NOT_APPLICABLE}` : ""}${rerouted ? `; ${rerouted} burst${rerouted === 1 ? "" : "s"} ran via ${contract.burst_host}${buildMatched ? " (same build)" : " (build did not match)"}` : ""}`,
+  );
 
   if (passed !== ran) {
     process.exit(1);
