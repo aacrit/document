@@ -1,0 +1,80 @@
+{
+  "title": "Fixture film",
+  "slug": "fixture",
+  "_note": "Engine test fixture (GRAMMAR 12 format v2). Every voice, speaker and source here is a test stand-in; no words are attributed to a real person. Durations are shortened for speed and do not meet GRAMMAR's part lengths.",
+  "languages": {"spoken": "en", "subtitles": ["en"]},
+  "runtime_target_s": 25,
+  "ledgers": {
+    "stills": {"path": "stills-ledger.json", "media": "stills"},
+    "footage": {"path": "footage-ledger.json", "media": "footage"}
+  },
+  "cast": {
+    "speakers": [
+      {"id": "sp-fixture", "name": "Fixture speaker", "side": "britain", "gender": "f", "role": "test stand-in"}
+    ],
+    "voices": [
+      {"id": "v-narrator", "engine": "test-tone", "voice": "none", "credit": "Test tone in place of a narrator"},
+      {"id": "v-01", "engine": "test-tone", "voice": "none", "for": "sp-fixture"}
+    ]
+  },
+  "parts": [
+    {
+      "id": "p-title", "kind": "title", "title": "Fixture film",
+      "shots": [
+        {"id": "S1", "kind": "card", "start_s": 0.0, "dur_s": 2.5, "transition_in": {"type": "cut"},
+         "text": ["Fixture film"], "mark": "CARD", "why": "Title card."}
+      ],
+      "lines": [], "cues": [], "text": []
+    },
+    {
+      "id": "ch-1", "kind": "chapter", "number": 1, "title": "The fixture", "dates": "1946 to 1950",
+      "shots": [
+        {"id": "S2", "kind": "card", "start_s": 2.5, "dur_s": 2.0, "transition_in": {"type": "dip", "s": 0.5},
+         "text": ["1  The fixture", "1946 to 1950"], "mark": "CARD", "why": "Chapter card."},
+        {"id": "S3", "kind": "archive_still", "start_s": 4.5, "asset": "FX-STILL-A", "preset": "PUSH", "dur_s": 4.0, "fill_ok": true,
+         "transition_in": {"type": "dip", "s": 0.5}, "mark": "DRAWN",
+         "why": "Landscape still that opens whole, then pushes in to fill 16:9 (fill_ok)."},
+        {"id": "S4", "kind": "archive_still", "start_s": 7.75, "asset": "FX-STILL-B", "preset": "DRIFT", "dur_s": 4.0, "fill_ok": false,
+         "transition_in": {"type": "dissolve", "s": 0.75}, "mark": "DRAWN",
+         "why": "Dissolve within one class (DRAWN); drift inside the photograph's own shape (no fill)."},
+        {"id": "S5", "kind": "archive_still", "start_s": 11.75, "asset": "FX-STILL-C", "preset": "HOLD", "dur_s": 3.0,
+         "transition_in": {"type": "cut"}, "mark": "DRAWN", "why": "Portrait still held whole, pillarboxed."},
+        {"id": "S6", "kind": "archive_video", "start_s": 14.75, "asset": "FX-TESTSRC", "in_s": 0.5, "out_s": 3.5,
+         "native_fps": 29.97, "sound": {"mode": "own"}, "transition_in": {"type": "dip", "s": 0.5}, "mark": "DRAWN",
+         "why": "Synthetic 4:3 test clip at 29.97 fps: pillarbox geometry and the frame-drop conform."},
+        {"id": "S7", "kind": "card", "silent_record": true, "start_s": 17.75, "dur_s": 2.5, "transition_in": {"type": "dip", "s": 0.5},
+         "text": ["The record holds no open-licence film of this fixture.", "Searched: the test fixture folder."],
+         "mark": "CARD", "why": "Record-is-silent card."},
+        {"id": "S8", "kind": "black", "start_s": 20.25, "dur_s": 1.5, "transition_in": {"type": "cut"}, "mark": "CARD",
+         "why": "Black under a voice."}
+      ],
+      "lines": [
+        {"id": "L1", "kind": "narration", "start_s": 5.0, "text": "A test tone stands in for the narrator.", "sources": []},
+        {"id": "L2", "kind": "testimony", "speaker": "sp-fixture", "year": 1947, "source": "src-fixture", "locator": "p1",
+         "start_s": 20.3, "text": "A test reading with no recording.", "read_by": "v-01"}
+      ],
+      "cues": [
+        {"id": "C1", "kind": "ambience", "source": "amb-fixture", "licence": "CC0", "start_s": 14.75, "end_s": 17.75, "gain_db": -20}
+      ],
+      "text": [
+        {"id": "T1", "kind": "lower_third", "start_s": 8.0, "end_s": 13.0,
+         "lines": ["Fixture speaker", "Test stand-in, 1947", "Fixture source, studio test folder  ·  read by a computer voice"]},
+        {"id": "T2", "kind": "overlay", "start_s": 15.5, "end_s": 17.25, "lines": ["29.97 fps, 4 s"]}
+      ]
+    },
+    {
+      "id": "p-credits", "kind": "credits", "title": "Credits",
+      "shots": [
+        {"id": "S9", "kind": "card", "start_s": 21.75, "dur_s": 3.0, "transition_in": {"type": "cut"}, "mark": "CARD",
+         "why": "Credits, generated from the timeline."}
+      ],
+      "lines": [], "cues": [], "text": []
+    }
+  ],
+  "subtitle_source": [
+    {"ref": "L1", "start_s": 5.0, "end_s": 7.5, "en": "A test tone stands in for the narrator."},
+    {"ref": "T1", "start_s": 8.0, "end_s": 13.0, "en": "[Fixture speaker, test stand-in, 1947. Read by a computer voice.]"},
+    {"ref": "T2", "start_s": 15.5, "end_s": 17.25, "en": "29.97 fps, 4 s"},
+    {"ref": "L2", "start_s": 20.3, "end_s": 21.7, "en": "A test reading with no recording."}
+  ]
+}

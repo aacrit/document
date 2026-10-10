@@ -33,3 +33,14 @@ design/mocks/_media/
 
 # Brand-kit preview media: copies of ledger stills, never committed (R-08)
 design/brand-kit/_media/
+
+# Python caches
+__pycache__/
+.pytest_cache/
+
+# Studio test fixture: its stills, clip and audio are generated at test time
+# by studio/tests/fixture/make_media.py and never committed (R-08).
+studio/tests/fixture/stills/
+studio/tests/fixture/footage/
+studio/tests/fixture/audio/
+studio/tests/fixture/out/

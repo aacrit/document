@@ -1,0 +1,1587 @@
+"""Render a screenplay v2 into a 1080p24 master film.
+
+    python -m studio.engine.render <film dir> [--out <dir>] [--res 1080|720]
+                                   [--from SHOT] [--workers N] [--burn-subtitles]
+
+Reads ``<film dir>/screenplay.json`` (films/GRAMMAR.md section 12) and the
+ledgers it cites (top-level ``ledgers``: name -> path, or {"path", "media"};
+``dossier.json`` when it names none). Writes ``<out>/master.mp4`` (H.264,
+1920x1080 or 1280x720, 24 fps, Rec.709, AAC at -16 LUFS) and
+``<out>/sources.json`` (the timeline: every shot's start and end, mark,
+ledger id, credit and licence). Default ``<out>`` is ``<film dir>/out``.
+
+What it draws (binding specs: films/GRAMMAR.md 4, 7, 9 and amendments A5 to
+A9; design/brand-kit/BRAND-KIT.md; every graphic comes from motion.py):
+
+- archive video at native aspect, pillarboxed on the near-black field, plain
+  Lanczos resampling (A5); telecined sources restored by fieldmatch and
+  decimate, true 25 or 30 fps sources conformed by frame drop or repeat (A6);
+- stills that open whole at native aspect for about 1.5 s (A7), then make
+  their named move on the rostrum curve; a still fills 16:9 only when the shot
+  says ``fill_ok: true``, otherwise the camera moves inside the photograph's
+  own shape;
+- cards: title, chapter, record-is-silent, perspective, credits (generated
+  from the timeline), and black under a voice;
+- on every frame the mark plate, the watermark (off on cards) and the lower
+  thirds; English subtitles burned in only with ``--burn-subtitles``;
+- cut, dissolve (same mark class only; any other dissolve is refused) and dip
+  to black on the kit's curves.
+
+Frames render in N worker processes (default 8, at most 12: this laptop
+crashes under parallel load), one shot per unit, each to a cached segment
+keyed by a content hash; the master is encoded last. ``--from SHOT``
+re-renders from that shot and takes every earlier shot from the cache.
+
+Every unit of work is journaled (studio/engine/journal.py). Media never
+enters the repo (R-08); outputs land outside it unless ``--out`` says so.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+import os
+import queue as queue_mod
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import traceback
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+
+from studio.engine import motion as M
+from studio.engine.journal import Journal, sha256_file
+
+ENGINE_VERSION = "0.1.0"
+FPS = 24
+AUDIO_RATE = 48000
+RESOLUTIONS = {1080: (1920, 1080), 720: (1280, 720)}
+DEFAULT_WORKERS, MAX_WORKERS = 8, 12
+MIN_FREE_GB = 10.0
+MAX_HOLD_S = 2.0                    # GRAMMAR 7.1: a longer freeze is RECONSTRUCTED re-timed
+OPEN_S = 1.5                        # A7: the whole photograph, before any move
+TARGET_LUFS, TARGET_TP, TARGET_LRA = -16.0, -1.5, 11.0
+DUCK_DB = 9.0                       # GRAMMAR 8.5: music under voice
+MASTER_CRF = 18
+MASTER_THREADS = 4
+
+CLASSES = ("ARCHIVE", "RECONSTRUCTED", "AI-GENERATED", "DRAWN", "CARD")
+KIND_CLASSES = {
+    "archive_video": {"ARCHIVE", "RECONSTRUCTED"},
+    "archive_still": {"ARCHIVE", "RECONSTRUCTED"},
+    "drawn": {"DRAWN"},
+    "generated": {"AI-GENERATED"},
+    "card": {"CARD"},
+    "black": {"CARD"},
+}
+ALTERATIONS = {"colourised", "upscaled", "stabilised", "interpolated", "re-timed", "inpainted", "motion added", "tinted",
+               "audio synthesised"}
+LICENCE_OK = re.compile(r"^(public domain|cc0( 1\.0)?|cc[- ]?by([- ][1-4]\.0)?)$", re.I)
+PRESETS = {                         # GRAMMAR 7.2, zoom relative to the largest 16:9 window
+    "HOLD": ({"z": 1.0}, {"z": 1.0}),
+    "PUSH": ({"z": 1.0}, {"z": 1.12}),
+    "PULL": ({"z": 1.12}, {"z": 1.0}),
+    "DRIFT": ({"z": 1.15, "x": 1 / 3}, {"z": 1.15, "x": 2 / 3}),
+    "TILT": ({"z": 1.2, "y": 0.0}, {"z": 1.2, "y": 1.0}),
+    "DETAIL": ({"z": 1.3}, {"z": 1.3}),
+}
+PRESET_ZMAX = {"HOLD": 1.0, "PUSH": 1.12, "PULL": 1.12, "DRIFT": 1.15, "TILT": 1.2, "DETAIL": 1.3}   # 7.2, max 1.3
+SILENT_RE = re.compile(r"^The record holds no .+\.$")
+FLAG_RE = re.compile(r"^Account of .+, \d{4}$")
+CARD_TEXT_KINDS = {"chapter_card", "title_card", "silent_record"}
+CHAPTER_RE = re.compile(r"^(\d+)\s+(.+)$")
+LT_SUFFIXES = ("  ·  read by a computer voice", "  ·  original recording")
+EM_DASH = "—"
+
+_HERE = Path(__file__).resolve().parent
+ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py"))).hexdigest()[:12]
+ENGINE_MODEL = {"name": "studio.engine.render", "version": f"{ENGINE_VERSION}+{ENGINE_HASH}"}
+
+
+class Refused(Exception):
+    """The render will not start or go on: a lint failed or a pre-flight check did."""
+
+
+class EncodeError(Exception):
+    """ffmpeg failed while encoding or decoding a unit (retryable once)."""
+
+
+# --------------------------------------------------------------------------
+# Tools
+# --------------------------------------------------------------------------
+
+
+def ffmpeg() -> str:
+    exe = os.environ.get("DOCUMENT_FFMPEG") or shutil.which("ffmpeg")
+    if not exe:
+        base = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft/WinGet/Packages"
+        hits = sorted(base.glob("Gyan.FFmpeg*/**/bin/ffmpeg.exe"))
+        exe = str(hits[-1]) if hits else None
+    if not exe:
+        raise Refused("ffmpeg not found (set DOCUMENT_FFMPEG)")
+    return exe
+
+
+def ffprobe() -> str:
+    ff = Path(ffmpeg())
+    sib = ff.with_name(ff.name.replace("ffmpeg", "ffprobe"))
+    if sib.exists():
+        return str(sib)
+    exe = shutil.which("ffprobe")
+    if not exe:
+        raise Refused("ffprobe not found beside ffmpeg or on PATH")
+    return exe
+
+
+def count_frames(path: Path) -> int:
+    """Video packets in a file (one per frame for our H.264 encodes)."""
+    r = subprocess.run([ffprobe(), "-v", "error", "-select_streams", "v:0", "-count_packets", "-show_entries",
+                        "stream=nb_read_packets", "-of", "csv=p=0", str(path)], capture_output=True, text=True, timeout=600)
+    try:
+        return int(r.stdout.strip().split(",")[0])
+    except ValueError:
+        return -1
+
+
+def ffmpeg_version() -> str:
+    try:
+        return subprocess.run([ffmpeg(), "-version"], capture_output=True, text=True, timeout=10).stdout.splitlines()[0]
+    except Exception:
+        return "unknown"
+
+
+def probe_video(path: Path) -> dict:
+    r = subprocess.run([ffprobe(), "-v", "error", "-show_entries",
+                        "stream=codec_type,width,height,sample_aspect_ratio,r_frame_rate,avg_frame_rate,field_order,duration"
+                        ":format=duration",
+                        "-of", "json", str(path)], capture_output=True, text=True, timeout=60)
+    if r.returncode:
+        raise Refused(f"ffprobe could not read {path}: {r.stderr.strip()[-300:]}")
+    data = json.loads(r.stdout)
+    v = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), None)
+    if v is None:
+        raise Refused(f"{path} has no video stream")
+
+    def ratio(x, default=1.0):
+        try:
+            a, b = str(x).split(":") if ":" in str(x) else str(x).split("/")
+            return float(a) / float(b) if float(b) else default
+        except Exception:
+            return default
+
+    sar = ratio(v.get("sample_aspect_ratio", "1:1")) or 1.0
+    if sar <= 0:
+        sar = 1.0
+    w, h = int(v["width"]), int(v["height"])
+    # avg_frame_rate is the rate frames actually arrive at; r_frame_rate is a timebase guess (doubles for
+    # field-coded streams). The video stream's own duration, not the container's (audio can run longer).
+    fps = ratio(v.get("avg_frame_rate"), 0.0) or ratio(v.get("r_frame_rate"), 0.0)
+    try:
+        vdur = float(v.get("duration"))
+        dur_from = "video stream"
+    except (TypeError, ValueError):
+        vdur = float(data.get("format", {}).get("duration") or 0.0)
+        dur_from = "container (the stream states none)"
+    return {"width": w, "height": h, "sar": sar, "dar": w * sar / h, "fps": fps, "r_frame_rate": v.get("r_frame_rate"),
+            "field_order": v.get("field_order"), "duration_s": vdur, "duration_from": dur_from,
+            "container_duration_s": float(data.get("format", {}).get("duration") or 0.0),
+            "has_audio": any(s.get("codec_type") == "audio" for s in data.get("streams", []))}
+
+
+def even(x: float) -> int:
+    return max(2, int(round(x / 2.0)) * 2)
+
+
+def frame_size(height: int) -> tuple[int, int]:
+    if height in RESOLUTIONS:
+        return RESOLUTIONS[height]
+    return even(height * 16 / 9), even(height)
+
+
+# --------------------------------------------------------------------------
+# Pre-flight
+# --------------------------------------------------------------------------
+
+
+def _existing(p: Path) -> Path:
+    p = Path(p).resolve()
+    while not p.exists() and p != p.parent:
+        p = p.parent
+    return p
+
+
+_HEALTH = {0: "Healthy", 1: "Warning", 2: "Unhealthy", 5: "Unknown"}
+_OPSTATUS = {2: "OK", 0: "Unknown", 53264: "Online"}
+
+
+def volume_health(letter: str) -> dict | None:
+    """``Get-Volume`` health of a drive letter, read without elevation (fsutil's
+    dirty query needs an elevated shell). None when it cannot be read."""
+    cmd = f"Get-Volume -DriveLetter {letter} | Select-Object HealthStatus,OperationalStatus | ConvertTo-Json -Compress"
+    for exe in ("powershell.exe", "pwsh"):
+        if not shutil.which(exe):
+            continue
+        try:
+            r = subprocess.run([exe, "-NoProfile", "-NonInteractive", "-Command", cmd], capture_output=True, text=True, timeout=30)
+            data = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else None
+        except Exception:
+            data = None
+        if isinstance(data, dict):
+            hs, op = data.get("HealthStatus"), data.get("OperationalStatus")
+            hs = _HEALTH.get(hs, hs) if isinstance(hs, int) else hs
+            if isinstance(op, list):
+                op = op[0] if op else None
+            op = _OPSTATUS.get(op, op) if isinstance(op, int) else op
+            return {"health": str(hs), "operational": str(op), "via": exe}
+    return None
+
+
+def preflight(out: Path, journal: Journal, *, min_free_gb: float = MIN_FREE_GB, disk_usage=shutil.disk_usage,
+              health=volume_health, drive: str | None = None, allow_unverified: bool | None = None) -> dict:
+    """Refuse a render that would fill the output drive, or that writes to a D:
+    whose volume is not Healthy and OK. An unreadable D: is refused too unless
+    DOCUMENT_ALLOW_UNVERIFIED_DISK=1 (journaled as a human override)."""
+    root = _existing(out)
+    drive = drive or root.anchor
+    free_gb = disk_usage(root).free / 1024 ** 3
+    ok = free_gb >= min_free_gb
+    journal.lint("preflight-free-disk", ok, stage="scout", unit="preflight",
+                 evidence={"drive": drive, "free_gb": round(free_gb, 2), "min_free_gb": min_free_gb})
+    if not ok:
+        raise Refused(f"output drive {drive} has {free_gb:.1f} GB free, under the {min_free_gb:g} GB floor")
+    if min_free_gb < MIN_FREE_GB:
+        journal.human("scout", f"free-disk floor lowered to {min_free_gb:g} GB from {MIN_FREE_GB:g} GB", unit="preflight",
+                      override="min_free_gb")
+    result = {"drive": drive, "free_gb": round(free_gb, 2), "volume": None}
+    if drive.upper().startswith("D:"):
+        if allow_unverified is None:
+            allow_unverified = os.environ.get("DOCUMENT_ALLOW_UNVERIFIED_DISK") == "1"
+        v = health("D")
+        result["volume"] = v
+        healthy = bool(v) and v["health"] == "Healthy" and v["operational"] == "OK"
+        if v is None and allow_unverified:
+            journal.lint("preflight-d-health", False, stage="scout", unit="preflight", severity="warn",
+                         evidence={"volume": None, "override": "DOCUMENT_ALLOW_UNVERIFIED_DISK=1"})
+            journal.human("scout", "rendered to D: with its volume health unverified", unit="preflight",
+                          override="DOCUMENT_ALLOW_UNVERIFIED_DISK=1")
+            return result
+        journal.lint("preflight-d-health", healthy, stage="scout", unit="preflight", evidence={"volume": v})
+        if v is None:
+            raise Refused("D: volume health could not be read (Get-Volume); set DOCUMENT_ALLOW_UNVERIFIED_DISK=1 to "
+                          "render anyway, or run chkdsk D: first")
+        if not healthy:
+            raise Refused(f"D: is {v['health']} / {v['operational']}; run chkdsk D: /f before rendering to it")
+    return result
+
+
+# --------------------------------------------------------------------------
+# Plan: screenplay + ledgers -> a picklable dict every worker renders from
+# --------------------------------------------------------------------------
+
+
+def load_ledgers(film: Path, play: dict) -> dict:
+    refs = play.get("ledgers") or ({"dossier": "dossier.json"} if (film / "dossier.json").exists() else {})
+    assets: dict[str, dict] = {}
+    for name, ref in refs.items():
+        path = film / (ref if isinstance(ref, str) else ref["path"])
+        media = (film / ref["media"]) if isinstance(ref, dict) and ref.get("media") else path.parent
+        if not path.exists():
+            raise Refused(f"ledger {name!r} not found at {path}")
+        data = json.loads(path.read_text(encoding="utf-8"))
+        items = data if isinstance(data, list) else (data.get("items") or data.get("assets") or [])
+        for it in items:
+            it = dict(it)
+            it["_ledger"] = name
+            it["_path"] = str((media / it["file"]).resolve()) if it.get("file") else None
+            assets[it["id"]] = it
+    return assets
+
+
+def year_of(item: dict) -> str | None:
+    if item.get("year"):
+        return str(item["year"])
+    m = re.match(r"^(\d{4})", str(item.get("date") or ""))
+    return m.group(1) if m else None
+
+
+def mark_detail(shot: dict, item: dict | None) -> str:
+    cls = shot["mark"]
+    if cls == "CARD":
+        return ""
+    if cls == "AI-GENERATED":
+        return "context"
+    if cls == "DRAWN":
+        src = shot.get("data_source") or (item or {}).get("data_source") or (item or {}).get("mark_detail_source") or ""
+        return f"from {src}".strip()
+    archive = (item or {}).get("archive_short") or (item or {}).get("archive") or ""
+    detail = f"{archive} {year_of(item or {}) or ''}".strip()
+    if cls == "RECONSTRUCTED":
+        detail += "  " + ", ".join(shot.get("alterations") or [])
+    return detail
+
+
+def is_synthetic(item: dict | None) -> bool:
+    """A ledger item a program made (a test pattern or fixture image) rather
+    than an archive: it may only ever be marked DRAWN."""
+    return bool(item) and bool(item.get("synthetic") or item.get("test_fixture") or item.get("generator"))
+
+
+def card_kind(shot: dict) -> str:
+    if shot["kind"] == "black":
+        return "black"
+    explicit = shot.get("card")
+    if explicit:
+        return explicit
+    if shot.get("silent_record"):
+        return "silent"
+    if shot["_part_kind"] in ("title", "credits"):
+        return shot["_part_kind"]
+    if shot["_part_kind"] == "chapter" and shot["_first_in_part"]:
+        return "chapter"
+    return "statement"
+
+
+def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int) -> dict:
+    """The still's camera: a path of framings in frame space (z = 1 is the
+    whole photograph at native aspect) and the clamp mode. The path always
+    starts whole (A7); a fill needs ``fill_ok: true``."""
+    iw, ih = img_size
+    s = min(W / iw, H / ih)
+    fw, fh = iw * s, ih * s
+    ox, oy = (W - fw) / 2.0, (H - fh) / 2.0
+    fill = shot.get("fill_ok") is True
+    base = max(W / fw, H / fh) if fill else 1.0
+    preset = str(shot.get("preset", "HOLD")).upper()
+    if preset not in PRESETS:
+        raise Refused(f"shot {shot['id']}: unknown preset {preset!r} (GRAMMAR 7.2)")
+    frm, to = (dict(k) for k in PRESETS[preset])
+    if preset == "DETAIL":
+        region = shot.get("region") or {}
+        for k in (frm, to):
+            k["x"], k["y"] = float(region.get("x", 0.5)), float(region.get("y", 0.5))
+    direction = str(shot.get("direction", "")).lower()
+    if preset == "DRIFT" and direction in ("rl", "right-to-left", "left"):
+        frm["x"], to["x"] = to["x"], frm["x"]
+    if preset == "TILT" and direction in ("up", "bottom-to-top"):
+        frm["y"], to["y"] = to["y"], frm["y"]
+    frm.update(shot.get("from") or {})
+    to.update(shot.get("to") or {})
+
+    def F(k):
+        return {"z": base * float(k["z"]), "x": (ox + float(k.get("x", 0.5)) * fw) / W, "y": (oy + float(k.get("y", 0.5)) * fh) / H}
+
+    whole = {"z": 1.0, "x": 0.5, "y": 0.5}
+    pts = [whole] + ([F(to)] if preset == "PULL" else [F(frm), F(to)])
+    path = [pts[0]]
+    for p in pts[1:]:
+        if any(abs(p[k] - path[-1][k]) > 1e-9 for k in ("z", "x", "y")):
+            path.append(p)
+    dur = float(shot["_dur"])
+    return {"path": path, "clamp": "image" if fill else "native", "fill_ok": fill, "preset": preset,
+            "open_s": min(OPEN_S, 0.4 * dur), "z_max": max(p["z"] for p in path), "fit_scale": s,
+            "z_rel_max": max(float(frm["z"]), float(to["z"]))}
+
+
+def still_is_whole(size, src, dst, W: int, H: int) -> bool:
+    """A7 geometry: the window holds the entire photograph, drawn at the
+    scale that fits it in the frame, with its aspect unchanged."""
+    iw, ih = size
+    sw, sh = src[2] - src[0], src[3] - src[1]
+    dw, dh = dst[2] - dst[0], dst[3] - dst[1]
+    contains = src[0] <= 0.5 and src[1] <= 0.5 and src[2] >= iw - 0.5 and src[3] >= ih - 0.5
+    sx, sy = dw / sw, dh / sh
+    fit = min(W / iw, H / ih)
+    return contains and abs(sx - sy) <= 1e-3 * fit and abs(sx - fit) <= 1e-3 * fit
+
+
+def conform_plan(item: dict, probe: dict) -> dict:
+    """A6: how a clip reaches 24 fps with no speed change."""
+    fps = probe["fps"]
+    telecined = item.get("telecined")
+    if telecined is True:
+        # fieldmatch's automatic field order mis-matches decoded H.264 (ENGINE-LOG 2026-10-10): name it.
+        fo = str(item.get("field_order") or probe.get("field_order") or "").lower()
+        order = {"tt": "tff", "tb": "tff", "tff": "tff", "bb": "bff", "bt": "bff", "bff": "bff"}.get(fo, "auto")
+        return {"method": "ivtc", "filter": f"fieldmatch=order={order}:combmatch=full,decimate,fps=24",
+                "field_order": order, "in_fps": round(fps, 3), "out_fps": FPS,
+                "note": "inverse telecine restores the film frames (23.976), then fps=24 repeats 1 frame in 1000 to keep time"}
+    if abs(fps - FPS) < 0.01:
+        return {"method": "none", "filter": "", "in_fps": round(fps, 3), "out_fps": FPS}
+    method = "drop" if fps > FPS else "repeat"
+    return {"method": method, "filter": "fps=24", "in_fps": round(fps, 3), "out_fps": FPS,
+            "note": f"frame {method} to 24 with no speed change",
+            "telecine_declared": telecined is not None}
+
+
+def parse_aspect(x) -> float:
+    """``4:3``, ``4/3``, ``1.3333`` or a number."""
+    t = str(x).strip()
+    for sep in (":", "/"):
+        if sep in t:
+            a, b = t.split(sep, 1)
+            return float(a) / float(b)
+    return float(t)
+
+
+def fit_video(dar: float, W: int, H: int) -> tuple[int, int]:
+    if dar >= W / H:
+        return W, min(H, even(W / dar))
+    return min(W, even(H * dar)), H
+
+
+def _wrap_chars(text: str, n: int = 90) -> list[str]:
+    words, lines, cur = text.split(), [], ""
+    for w in words:
+        if cur and len(cur) + 1 + len(w) > n:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = (cur + " " + w).strip()
+    return lines + ([cur] if cur else [])
+
+
+def credits_blocks(plan: dict) -> list:
+    shots, readings, sound = [], [], []
+    for s in plan["shots"]:
+        if s["mark"] == "CARD":
+            continue
+        it = plan["assets"].get(s.get("asset") or "", {})
+        alt = ", ".join(s.get("alterations") or [])
+        parts = [s["id"], it.get("archive_short") or it.get("archive") or "", (it.get("title") or "").strip(),
+                 year_of(it) or "", it.get("licence") or ""] + ([alt] if alt else [])
+        shots += _wrap_chars("  ".join(p for p in parts[:1]) + "  " + ", ".join(p for p in parts[1:] if p))
+    seen = set()
+    for ln in plan["lines"]:
+        if ln.get("kind") == "testimony" and ln.get("read_by") and ln.get("speaker") not in seen:
+            seen.add(ln.get("speaker"))
+            name = plan["speakers"].get(ln.get("speaker"), {}).get("name", ln.get("speaker"))
+            readings.append(f"Read by a computer voice. No recording of {name} was used.")
+    for c in plan["cues"]:
+        bits = [c.get("source", ""), c.get("tradition", ""), c.get("performer", ""), c.get("licence", "")]
+        sound += _wrap_chars(", ".join(b for b in bits if b))
+    blocks = [("Shots", shots)]
+    if readings:
+        blocks.append(("Readings", readings))
+    if sound:
+        blocks.append(("Sound", sound))
+    blocks.append(("Studio", [f"void document studio engine {ENGINE_VERSION} ({ENGINE_HASH})"]))
+    return [(h, [ln.replace(EM_DASH, ", ") for ln in lines]) for h, lines in blocks]
+
+
+def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Journal) -> dict:
+    play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
+    if "parts" not in play:
+        raise Refused("screenplay.json has no parts: it is not format v2 (GRAMMAR 12); studio/sketch.py renders v1")
+    assets = load_ledgers(film, play)
+    lint_fail: list[str] = []
+
+    def lint(rule, ok, *, unit=None, severity="block", evidence=None, grammar=None, stage="scout"):
+        journal.lint(rule, ok, stage=stage, unit=unit, severity=severity, evidence=evidence, grammar=grammar)
+        if severity == "block" and not ok:
+            lint_fail.append(f"{rule}" + (f" ({unit})" if unit else "") + (f": {evidence}" if evidence else ""))
+
+    shots, lines, cues, texts = [], [], [], []
+    for part in play["parts"]:
+        for k, s in enumerate(part.get("shots", [])):
+            s = dict(s)
+            s["_part"], s["_part_kind"], s["_first_in_part"] = part["id"], part.get("kind", ""), k == 0
+            shots.append(s)
+        lines += [dict(x, _part=part["id"]) for x in part.get("lines", [])]
+        cues += [dict(x, _part=part["id"]) for x in part.get("cues", [])]
+        texts += [dict(x, _part=part["id"]) for x in part.get("text", [])]
+    if not shots:
+        raise Refused("the screenplay has no shots")
+    ids = [s["id"] for s in shots]
+    if len(set(ids)) != len(ids):
+        raise Refused("shot ids are not unique")
+
+    # Durations, ledger checks, marks.
+    for s in shots:
+        item = assets.get(s.get("asset")) if s.get("asset") else None
+        kind = s["kind"]
+        if kind in ("generated",):
+            lint("kind-supported", False, unit=s["id"], evidence="generated shots are not rendered by T1 (AI-GENERATED share is 0)")
+            continue
+        if kind == "drawn" and not s.get("asset"):
+            lint("kind-supported", False, unit=s["id"], evidence="a drawn shot needs a pre-rendered image cited as its asset in T1")
+            continue
+        if kind in ("archive_video", "archive_still", "drawn"):
+            ok = item is not None
+            lint("ledger-cited", ok, unit=s["id"], evidence={"asset": s.get("asset")}, grammar="11.1")
+            if not ok:
+                continue
+            lic = str(item.get("licence") or "")
+            lint("licence-allowlist", bool(LICENCE_OK.match(lic.strip())), unit=s["id"], evidence={"licence": lic}, grammar="1.2")
+            bodies = item.get("shows_bodies", item.get("shows_violence_or_bodies"))
+            lint("no-bodies", bodies is False, unit=s["id"], evidence={"shows_bodies": bodies}, grammar="1.6")
+            if not item.get("_path") or not Path(item["_path"]).exists():
+                lint("asset-file", False, unit=s["id"], evidence={"file": item.get("_path")})
+                continue
+        allowed = set(KIND_CLASSES.get(kind, set()))
+        if is_synthetic(item):
+            allowed = {"DRAWN"}            # made by a program (a test pattern, a fixture image): never ARCHIVE
+        lint("mark-class-valid", s.get("mark") in allowed, unit=s["id"], evidence={"kind": kind, "mark": s.get("mark"),
+             "allowed": sorted(allowed)}, grammar="4")
+        if s.get("mark") == "RECONSTRUCTED":
+            alts = s.get("alterations") or []
+            lint("alterations-closed", bool(alts) and set(alts) <= ALTERATIONS, unit=s["id"], evidence=alts, grammar="4.2")
+        if kind == "archive_video":
+            in_s = float(s.get("in_s", (item or {}).get("in_s", 0.0)))
+            out_s = float(s.get("out_s", (item or {}).get("out_s", in_s + float(s.get("dur_s", 0)))))
+            s["in_s"], s["out_s"] = in_s, out_s
+            s["_dur"] = out_s - in_s
+        else:
+            s["_dur"] = float(s.get("dur_s", 0.0))
+        if s["_dur"] <= 0:
+            lint("duration", False, unit=s["id"], evidence={"dur_s": s["_dur"]})
+        s["_item"] = {k: v for k, v in (item or {}).items()}
+        s["detail"] = mark_detail(s, item)
+        if s["mark"] in ("ARCHIVE", "RECONSTRUCTED") and item and not year_of(item):
+            lint("mark-year", False, unit=s["id"], severity="warn", evidence={"date": item.get("date")}, grammar="4")
+        if kind in ("card", "black"):
+            s["_card"] = card_kind(s)
+    if lint_fail:
+        raise Refused("lint failed: " + "; ".join(lint_fail))
+
+    # Timeline: start, end, tiling; frame ranges by owner (the latest shot started).
+    for i, s in enumerate(shots):
+        s["start_s"] = float(s["start_s"])
+        s["end_s"] = s["start_s"] + s["_dur"]
+        tr = s.get("transition_in") or {"type": "cut"}
+        s["transition_in"] = tr
+        if i:
+            prev = shots[i - 1]
+            overlap = float(tr.get("s", 0)) if tr.get("type") == "dissolve" else 0.0
+            expect = prev["end_s"] - overlap
+            lint("tiling", abs(s["start_s"] - expect) <= 0.5 / FPS, unit=s["id"],
+                 evidence={"start_s": s["start_s"], "expected": round(expect, 4)}, grammar="12")
+        if tr.get("type") == "dissolve":
+            prev_cls = shots[i - 1]["mark"] if i else None
+            ok = i > 0 and prev_cls == s["mark"]
+            lint("dissolve-same-class", ok, unit=s["id"], evidence={"from": prev_cls, "to": s["mark"]}, grammar="4.4")
+            if not ok:
+                journal.decision("scout", f"refused a dissolve from {prev_cls} into {s['mark']} at {s['id']}",
+                                 "GRAMMAR 4.4 and 7.3: a dissolve is allowed only within one mark class", unit=s["id"])
+            ds = float(tr.get("s", 0))
+            lint("dissolve-length", 0.5 <= ds <= 1.5 and ds < s["_dur"], unit=s["id"], severity="warn",
+                 evidence={"s": ds}, grammar="7.3")
+        elif tr.get("type") == "dip":
+            ds = float(tr.get("s", 0))
+            lint("dip-length", 0.5 <= ds <= 1.0, unit=s["id"], severity="warn", evidence={"s": ds}, grammar="7.3")
+            if i and shots[i - 1]["mark"] != s["mark"]:
+                lint("cross-class-dip", round(ds * FPS) >= 12, unit=s["id"], grammar="4.4",
+                     evidence={"from": shots[i - 1]["mark"], "to": s["mark"], "frames": round(ds * FPS), "min_frames": 12})
+        elif tr.get("type") != "cut":
+            lint("transition-known", False, unit=s["id"], evidence=tr, grammar="7.3")
+    if lint_fail:
+        raise Refused("lint failed: " + "; ".join(lint_fail))
+    for i, s in enumerate(shots):
+        s["f0"] = int(round(s["start_s"] * FPS))
+    total_frames = int(round(shots[-1]["end_s"] * FPS))
+    for i, s in enumerate(shots):
+        s["f1"] = shots[i + 1]["f0"] if i + 1 < len(shots) else total_frames
+        if s["f1"] <= s["f0"]:
+            raise Refused(f"shot {s['id']} owns no frames")
+
+    # AI-GENERATED share (decision "No AI-generated imagery in the Partition pilot").
+    gen = sum(s["f1"] - s["f0"] for s in shots if s["mark"] == "AI-GENERATED")
+    lint("ai-generated-share-zero", gen == 0, evidence={"generated_frames": gen, "frames": total_frames},
+         grammar="decision 2026-10-10", stage="marks")
+
+    # Stills: the camera, the whole first frame (A7), the resampler (A5), fill_ok for the reviewer.
+    for s in shots:
+        if s["kind"] in ("archive_still", "drawn") and s.get("_item", {}).get("_path"):
+            if s["kind"] == "drawn":
+                s.setdefault("preset", "HOLD")
+            with Image.open(s["_item"]["_path"]) as im:
+                size = im.size
+            cam = still_camera(s, size, W, H)
+            s["_cam"] = cam
+            limit = PRESET_ZMAX[cam["preset"]]
+            lint("still-zoom-limit", cam["z_rel_max"] <= limit + 1e-9 and cam["z_rel_max"] <= 1.3 + 1e-9, unit=s["id"],
+                 stage="motion", grammar="7.2", evidence={"preset": cam["preset"], "z_max": round(cam["z_rel_max"], 4),
+                                                          "limit": limit, "face": bool(s.get("face"))})
+            src, dst = M.still_view(size, M.Layout(W, H), z=cam["path"][0]["z"], cx=cam["path"][0]["x"],
+                                    cy=cam["path"][0]["y"], clamp=cam["clamp"])
+            whole = still_is_whole(size, src, dst, W, H)
+            lint("still-first-frame-whole", whole, unit=s["id"], stage="motion",
+                 evidence={"src": [round(v, 2) for v in src], "dst": [round(v, 2) for v in dst], "image": list(size)}, grammar="A7")
+            scale_max = cam["fit_scale"] * cam["z_max"]
+            s["_resampler"] = {"method": "lanczos prescale + bicubic affine (PIL)", "ml_upscaler": False,
+                               "scale_max": round(scale_max, 4), "image": list(size)}
+            lint("resampler-plain", True, unit=s["id"], stage="motion", evidence=s["_resampler"], grammar="A5")
+            if s["kind"] == "archive_still":
+                journal.lint("fill-ok", True, stage="motion", unit=s["id"], severity="review", grammar="A7",
+                             evidence={"fill_ok": cam["fill_ok"], "preset": cam["preset"],
+                                       "check": ("Every person in the photograph is inside the frame at some point in this shot."
+                                                 if cam["fill_ok"] else "No fill: the move stays inside the photograph's own shape.")})
+    if lint_fail:
+        raise Refused("lint failed: " + "; ".join(lint_fail))
+
+    # Clips: probe, conform (A6), fit at native aspect (A5, 7.5).
+    for s in shots:
+        if s["kind"] != "archive_video":
+            continue
+        item = s["_item"]
+        with journal.unit("conform", s["id"], size={"driver": "seconds", "value": round(s["_dur"], 3)}, model=ENGINE_MODEL,
+                          unit_kind="clip") as u:
+            pr = probe_video(Path(item["_path"]))
+            conf = conform_plan(item, pr)
+            ntsc = any(abs(pr["fps"] - r) < 0.02 for r in (29.97, 59.94))
+            if ntsc:
+                lint("telecine-declared", item.get("telecined") in (True, False), unit=s["id"], stage="conform", grammar="A6",
+                     evidence={"fps": round(pr["fps"], 3), "telecined": item.get("telecined"),
+                               "fix": "state telecined: true|false in the ledger"})
+            if conf["method"] == "ivtc":
+                lint("field-order-known", conf.get("field_order") in ("tff", "bff"), unit=s["id"], stage="conform", grammar="A6",
+                     evidence={"probe": pr.get("field_order"), "ledger": item.get("field_order"),
+                               "fix": "state field_order: tff|bff in the ledger"})
+            dar, dar_from = pr["dar"], "probe (width x SAR / height)"
+            if item.get("display_aspect"):
+                dar, dar_from = parse_aspect(item["display_aspect"]), "ledger display_aspect"
+                if abs(dar - pr["dar"]) > 0.01 * dar:
+                    journal.decision("conform", f"display aspect {dar:.4f} from the ledger, not {pr['dar']:.4f} from the file",
+                                     "the ledger's display_aspect overrides the file's SAR", unit=s["id"])
+            pr["dar_used"], pr["dar_from"] = dar, dar_from
+            if conf["method"] == "repeat":
+                journal.decision("conform", f"{pr['fps']:.3f} fps conformed to 24 by frame repeat",
+                                 "A6 and GRAMMAR 7.5: no speed change; each source frame is shown 2 or 3 times", unit=s["id"])
+            vw, vh = fit_video(dar, W, H)
+            s["_video"] = {"probe": pr, "conform": conf, "fit": [vw, vh],
+                           "resampler": {"method": "lanczos (ffmpeg scale)", "ml_upscaler": False,
+                                         "scale": round(vh / pr["height"], 4)}}
+            s["_resampler"] = s["_video"]["resampler"]
+            u.settings = {"conform": conf, "resampler": s["_resampler"]}
+            u.extra.update(conform=conf, resampler=s["_resampler"], fit=[vw, vh])
+            ok_aspect = abs(vw / vh - dar) <= dar * (2.0 / vw + 2.0 / vh)
+            lint("clip-aspect", ok_aspect, unit=s["id"], stage="conform",
+                 evidence={"source_dar": round(dar, 4), "dar_from": dar_from, "sar": round(pr["sar"], 4),
+                           "storage": [pr["width"], pr["height"]], "fit": [vw, vh], "fit_ar": round(vw / vh, 4)}, grammar="7.5")
+            lint("conform-logged", True, unit=s["id"], stage="conform", evidence=conf, grammar="A6")
+            lint("resampler-plain", True, unit=s["id"], stage="conform", evidence=s["_resampler"], grammar="A5")
+            in_range = 0 <= s["in_s"] < pr["duration_s"]
+            lint("clip-in-out", in_range, unit=s["id"], stage="conform",
+                 evidence={"in_s": s["in_s"], "out_s": s["out_s"], "duration_s": pr["duration_s"],
+                           "duration_from": pr["duration_from"]}, grammar="7.1")
+            hold = max(0.0, s["out_s"] - pr["duration_s"])
+            s["_video"]["hold_s"] = round(hold, 4)
+            if hold > 1.0 / FPS:
+                retimed = s["mark"] == "RECONSTRUCTED" and "re-timed" in (s.get("alterations") or [])
+                lint("clip-hold", hold <= MAX_HOLD_S or retimed, unit=s["id"], stage="conform", grammar="7.1",
+                     severity="block" if hold > MAX_HOLD_S else "warn",
+                     evidence={"hold_s": round(hold, 3), "max_s": MAX_HOLD_S, "retimed": retimed,
+                               "why": "the out point is past the end of the video stream; its last frame would be held"})
+            if s.get("sound", {}).get("mode", "own") == "own" and not pr["has_audio"]:
+                lint("clip-sound", False, unit=s["id"], stage="conform", severity="warn",
+                     evidence="sound is own but the file has no audio stream: silence")
+    if lint_fail:
+        raise Refused("lint failed: " + "; ".join(lint_fail))
+
+    # On-screen text: cards, lower thirds, subtitles.
+    for s in shots:
+        if s.get("_card") in ("silent",):
+            first = (s.get("text") or [""])[0]
+            lint("silent-card-form", bool(SILENT_RE.match(first)), unit=s["id"], evidence=first, grammar="9")
+        if s.get("_card") == "chapter":
+            first = (s.get("text") or [""])[0]
+            lint("chapter-card-form", bool(CHAPTER_RE.match(first)), unit=s["id"], evidence=first, grammar="9")
+    lower_thirds, subs, overlays = [], [], []
+    for t in texts:
+        if t["kind"] == "lower_third":
+            ln = list(t.get("lines") or [])
+            kind = "place" if len(ln) == 2 else "speaker"
+            ok = (kind == "place") or (len(ln) == 3 and ln[2].endswith(LT_SUFFIXES))
+            if t.get("flag"):
+                ok = ok and bool(FLAG_RE.match(t["flag"]))
+            lint("lower-third-format", ok, unit=t["id"], evidence={"lines": ln, "flag": t.get("flag")}, grammar="9")
+            lower_thirds.append({"id": t["id"], "start": float(t["start_s"]), "end": float(t["end_s"]), "lines": ln,
+                                 "kind": kind, "flag": t.get("flag")})
+        elif t["kind"] == "overlay":
+            ln = list(t.get("lines") or [])
+            start, end = float(t["start_s"]), float(t["end_s"])
+            over_card = any(a < end and b > start for a, b in
+                            ((x["start_s"], x["start_s"] + x["_dur"]) for x in shots if x["mark"] == "CARD"))
+            over_lt = any(float(o["start_s"]) < end and float(o["end_s"]) > start for o in texts if o["kind"] == "lower_third")
+            lint("overlay-format", len(ln) == 1 and bool(ln[0].strip()) and not over_card and not over_lt, unit=t["id"],
+                 grammar="9", evidence={"lines": ln, "over_card": over_card, "over_lower_third": over_lt})
+            overlays.append({"id": t["id"], "start": start, "end": end, "text": ln[0] if ln else ""})
+        elif t["kind"] in CARD_TEXT_KINDS:
+            pass                    # the card shot draws these words; the element feeds the subtitles
+        else:
+            lint("kind-supported", False, unit=t["id"], grammar="12",
+                 evidence={"kind": t["kind"], "drawn": ["lower_third", "overlay", *sorted(CARD_TEXT_KINDS)]})
+    if burn_subtitles:
+        for c in play.get("subtitle_source", []):
+            if c.get("en"):
+                subs.append({"ref": c.get("ref"), "start": float(c["start_s"]), "end": float(c["end_s"]), "text": c["en"]})
+    screen_text = [x for s in shots for x in (s.get("text") or [])] + [x for lt in lower_thirds for x in lt["lines"] + [lt["flag"] or ""]]
+    screen_text += [o["text"] for o in overlays]
+    screen_text += [s["detail"] for s in shots] + [c["text"] for c in subs]
+    dashes = [x for x in screen_text if EM_DASH in x]
+    lint("no-em-dash", not dashes, evidence=dashes[:5], grammar="9")
+    if lint_fail:
+        raise Refused("lint failed: " + "; ".join(lint_fail))
+
+    speakers = {sp["id"]: sp for sp in (play.get("cast") or {}).get("speakers", [])}
+    card_spans = [(s["f0"] / FPS, s["f1"] / FPS) for s in shots if s["mark"] == "CARD"]
+    imagery = [s for s in shots if s["mark"] != "CARD"]
+    plan = {
+        "film": str(film), "title": play.get("title", film.name), "slug": play.get("slug", film.name),
+        "W": W, "H": H, "fps": FPS, "frames": total_frames, "duration_s": total_frames / FPS,
+        "shots": shots, "assets": {k: {kk: vv for kk, vv in v.items()} for k, v in assets.items()},
+        "lines": lines, "cues": cues, "speakers": speakers,
+        "lower_thirds": lower_thirds, "overlays": overlays, "subtitles": subs, "burn_subtitles": burn_subtitles,
+        "marks": [{"start": s["f0"] / FPS, "cls": s["mark"], "detail": s["detail"]} for s in shots],
+        "card_spans": card_spans, "wm_start": (imagery[0]["f0"] / FPS) if imagery else None,
+    }
+    plan["credits"] = credits_blocks(plan)
+    return plan
+
+
+# --------------------------------------------------------------------------
+# Pictures (worker side)
+# --------------------------------------------------------------------------
+
+
+class VideoReader:
+    """Decodes one clip, conformed and fitted, from a local start time onward;
+    frames are asked for in increasing time."""
+
+    def __init__(self, shot: dict, start_local: float):
+        self.shot_id = shot["id"]
+        v = shot["_video"]
+        self.vw, self.vh = v["fit"]
+        self.nbytes = self.vw * self.vh * 3
+        self.t0 = start_local
+        conform = v["conform"]["filter"]
+        vf = (conform + "," if conform else "") + f"scale={self.vw}:{self.vh}:flags=lanczos,setsar=1,format=rgb24"
+        ss = shot["in_s"] + start_local
+        dur = shot["_dur"] - start_local + 2.0 / FPS
+        self.err = tempfile.TemporaryFile()
+        self.proc = subprocess.Popen([ffmpeg(), "-v", "error", "-filter_threads", "1", "-threads", "1",
+                                      "-ss", f"{ss:.4f}", "-t", f"{dur:.4f}", "-i", shot["_item"]["_path"],
+                                      "-an", "-vf", vf, "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                                     stdout=subprocess.PIPE, stderr=self.err, stdin=subprocess.DEVNULL)
+        self.idx, self.last, self.held = -1, None, 0
+
+    def frame(self, t_local: float) -> Image.Image:
+        want = int(round((t_local - self.t0) * FPS))
+        while self.idx < want:
+            buf = self.proc.stdout.read(self.nbytes)
+            if len(buf) < self.nbytes:
+                self.held += 1
+                break
+            self.last, self.idx = buf, self.idx + 1
+        if self.last is None:
+            self.err.seek(0)
+            raise EncodeError(f"no frames decoded for {self.shot_id}: {self.err.read().decode(errors='replace')[-500:]}")
+        return Image.frombytes("RGB", (self.vw, self.vh), self.last)
+
+    def close(self):
+        try:
+            self.proc.stdout.close()
+        except Exception:
+            pass
+        try:
+            self.proc.kill()
+            self.proc.wait(timeout=5)
+        except Exception:
+            pass
+        self.err.close()
+
+
+class Pictures:
+    """Each shot's own picture at a local time, before transitions and overlays."""
+
+    def __init__(self, plan: dict):
+        self.plan = plan
+        self.L = M.Layout(plan["W"], plan["H"])
+        self.fonts = M.Fonts()
+        self.stills: dict[str, Image.Image] = {}
+        self.readers: dict[str, VideoReader] = {}
+
+    def still(self, s: dict) -> Image.Image:
+        key = s["id"]
+        if key not in self.stills:
+            img = Image.open(s["_item"]["_path"]).convert("RGB")
+            need = s["_cam"]["fit_scale"] * s["_cam"]["z_max"]
+            if need < 1.0:                       # pre-scale big scans with Lanczos (A5)
+                img = img.resize((max(2, math.ceil(img.width * need)), max(2, math.ceil(img.height * need))), Image.Resampling.LANCZOS)
+            self.stills[key] = img
+        return self.stills[key]
+
+    def video(self, s: dict, t_local: float) -> Image.Image:
+        r = self.readers.get(s["id"])
+        if r is None or t_local < r.t0 - 1e-9:
+            if r:
+                r.close()
+            r = self.readers[s["id"]] = VideoReader(s, max(0.0, t_local))
+        fr = r.frame(t_local)
+        out = Image.new("RGB", (self.plan["W"], self.plan["H"]), M.PALETTE["letterbox"])
+        out.paste(fr, ((self.plan["W"] - r.vw) // 2, (self.plan["H"] - r.vh) // 2))
+        return out
+
+    def card(self, s: dict, t: float) -> Image.Image:
+        L, f, dur = self.L, self.fonts, s["_dur"]
+        blank = Image.new("RGB", (L.W, L.H), M.PALETTE["black"])
+        text = list(s.get("text") or [])
+        ck = s["_card"]
+        if ck == "black":
+            return blank
+        if ck == "title":
+            img = M.title_card_frame(blank, t, start=0.0, end=dur, title=text[0] if text else "", fonts=f)
+        elif ck == "chapter":
+            m = CHAPTER_RE.match(text[0]) if text else None
+            img = M.chapter_card_frame(blank, t, start=0.0, end=dur, number=int(m.group(1)) if m else 0,
+                                       title=m.group(2) if m else (text[0] if text else ""),
+                                       dates=text[1] if len(text) > 1 else "", fonts=f)
+        elif ck == "credits":
+            img = M.credits_frame(blank, t, start=0.0, blocks=self.plan["credits"], fonts=f)
+        else:                                    # silent, perspective, statement
+            img = M.silent_card_frame(blank, t, start=0.0, end=dur, statement=text[0] if text else "",
+                                      searched=text[1] if len(text) > 1 else None, fonts=f)
+        return img.convert("RGB")
+
+    def shot(self, i: int, t_local: float) -> Image.Image:
+        s = self.plan["shots"][i]
+        if s["kind"] in ("card", "black"):
+            return self.card(s, t_local)
+        if s["kind"] == "archive_video":
+            return self.video(s, t_local)
+        cam = s["_cam"]
+        img = self.still(s)
+        p = cam["path"]
+        if len(p) == 1 or t_local < cam["open_s"]:
+            return M.fit_still(img, self.L, z=p[0]["z"], cx=p[0]["x"], cy=p[0]["y"], clamp=cam["clamp"])
+        return M.rostrum_move(img, self.L, t_local - cam["open_s"], s["_dur"] - cam["open_s"], p[0], p[-1],
+                              via=p[1:-1], clamp=cam["clamp"])
+
+    def close(self):
+        for r in self.readers.values():
+            r.close()
+        self.readers.clear()
+
+
+def compose(plan: dict, pics: Pictures, f: int, i: int) -> Image.Image:
+    """Frame f (owned by shot i): picture with its transition, then the lower
+    thirds, burned subtitles, watermark and mark plate."""
+    shots = plan["shots"]
+    t = f / FPS
+    s = shots[i]
+    tl = t - s["f0"] / FPS
+    img = pics.shot(i, tl)
+    tr = s["transition_in"]
+    if tr.get("type") == "dissolve" and i > 0 and tl < float(tr["s"]):
+        prev = shots[i - 1]
+        a = pics.shot(i - 1, t - prev["f0"] / FPS)
+        img = Image.blend(a, img, M.dissolve_weight(tl, float(tr["s"])))
+    level = 1.0
+    if tr.get("type") == "dip" and tl < float(tr["s"]) / 2:
+        level = M.dip_level(tl + float(tr["s"]) / 2, float(tr["s"]))
+    if i + 1 < len(shots):
+        ntr = shots[i + 1]["transition_in"]
+        if ntr.get("type") == "dip":
+            ds = float(ntr["s"])
+            dt = shots[i + 1]["f0"] / FPS - t
+            if 0 < dt <= ds / 2:
+                level = min(level, M.dip_level(ds / 2 - dt, ds))
+    if level < 1.0:
+        arr = np.asarray(img, dtype=np.float32) * level
+        img = Image.fromarray(arr.astype(np.uint8))
+    rgba = img.convert("RGBA")
+    lt_top = None
+    for lt in plan["lower_thirds"]:
+        if lt["start"] <= t < lt["end"]:
+            rgba = M.lower_third_frame(rgba, t, start=lt["start"], end=lt["end"], lines=lt["lines"], fonts=pics.fonts,
+                                       kind=lt["kind"], flag=lt["flag"])
+            lt_top = M.lower_third_top(pics.L, lt["lines"], pics.fonts, kind=lt["kind"], flag=lt["flag"])
+    for o in plan["overlays"]:
+        if o["start"] <= t < o["end"]:
+            rgba = M.overlay_frame(rgba, t, start=o["start"], end=o["end"], text=o["text"], fonts=pics.fonts)
+    for c in plan["subtitles"]:
+        if c["start"] <= t < c["end"]:
+            rgba = M.subtitle_frame(rgba, c["text"], pics.fonts.structure_medium, raise_above=lt_top)
+    if plan["wm_start"] is not None:
+        rgba = M.watermark(rgba, t, start=plan["wm_start"], card_spans=plan["card_spans"])
+    rgba = M.mark_plate_frame(rgba, t, plan["marks"], pics.fonts)
+    return rgba.convert("RGB")
+
+
+def mark_probe(plan: dict) -> tuple[int, int]:
+    """The pixel on the mark plate's colour bar (BRAND-KIT 5)."""
+    L = M.Layout(plan["W"], plan["H"])
+    return int(round(L.w(M.MARK["x"]))), int(round(L.h(M.MARK["y"]))) + 2
+
+
+def check_mark(plan: dict, arr: np.ndarray, f: int, i: int) -> str:
+    """'ok' when the bar shows the owning shot's class hue, 'fade' inside the
+    4-frame class crossfade (the plate is there by construction), else 'fail'."""
+    x, y = mark_probe(plan)
+    s = plan["shots"][i]
+    if i > 0 and plan["shots"][i - 1]["mark"] != s["mark"] and f - s["f0"] < round(M.MARK["fade"] * FPS):
+        return "fade"
+    px = arr[y, x, :3].astype(int)
+    return "ok" if np.max(np.abs(px - np.array(M.MARK_HUE[s["mark"]]))) <= 2 else "fail"
+
+
+def render_frame(plan: dict, f: int, pics: Pictures | None = None) -> np.ndarray:
+    """One finished frame as an HxWx3 uint8 array (for tests and previews)."""
+    own = pics is None
+    pics = pics or Pictures(plan)
+    try:
+        i = max(k for k, s in enumerate(plan["shots"]) if s["f0"] <= f)
+        return np.asarray(compose(plan, pics, f, i))
+    finally:
+        if own:
+            pics.close()
+
+
+def encoder_cmd(plan: dict, out: Path) -> list[str]:
+    return [ffmpeg(), "-v", "error", "-y", "-filter_threads", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{plan['W']}x{plan['H']}",
+            "-r", str(FPS), "-i", "-", "-vf", "scale=out_color_matrix=bt709:out_range=tv,format=yuv444p,"
+            "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "12", "-threads", "1",
+            "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
+            "-video_track_timescale", str(FPS * 1000), "-f", "mp4", str(out)]
+
+
+def _unlink_quietly(path: Path, tries: int = 5) -> None:
+    """Remove a partial file; Windows may hold it a moment after its writer dies
+    (WinError 32). A leftover .part is overwritten by the next attempt."""
+    for k in range(tries):
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except OSError:
+            time.sleep(0.2 * (k + 1))
+
+
+def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
+    """Worker: render shot i's frames to a cached segment. Returns stats."""
+    t_start = time.perf_counter()
+    s = plan["shots"][i]
+    seg = Path(seg)
+    part = seg.with_name(seg.name + ".part")
+    frames = s["f1"] - s["f0"]
+    if sink is not None:
+        sink.put({"lens": "unit.start", "stage": "motion", "unit": s["id"], "size": {"driver": "frames", "value": frames}})
+    pics = Pictures(plan)
+    err = tempfile.TemporaryFile()
+    enc = subprocess.Popen(encoder_cmd(plan, part), stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=err)
+    stats = {"ok": 0, "fade": 0, "fail": 0, "fail_frames": []}
+    first_whole = None
+    ms = []
+    try:
+        for f in range(s["f0"], s["f1"]):
+            ft = time.perf_counter()
+            arr = np.asarray(compose(plan, pics, f, i))
+            res = check_mark(plan, arr, f, i)
+            stats[res] += 1
+            if res == "fail" and len(stats["fail_frames"]) < 10:
+                stats["fail_frames"].append(f)
+            if f == s["f0"] and s["kind"] == "archive_still":
+                first_whole = still_first_frame_whole(plan, pics, i)
+            try:
+                enc.stdin.write(arr.tobytes())
+            except (BrokenPipeError, OSError) as exc:
+                err.seek(0)
+                raise EncodeError(f"segment encoder for {s['id']} stopped: {err.read().decode(errors='replace')[-500:]}") from exc
+            ms.append((time.perf_counter() - ft) * 1000)
+            k = f - s["f0"]
+            if sink is not None and (k % FPS == 0 or f == s["f1"] - 1):
+                sink.put({"lens": "frame", "stage": "motion", "unit": s["id"], "frame": f, "frames": plan["frames"],
+                          "tc_s": round(f / FPS, 3), "ms": round(ms[-1], 1),
+                          "mark": {"class": s["mark"], "detail": s["detail"]}, "preview": None})
+        held = sum(r.held for r in pics.readers.values())     # before close() clears the readers
+        enc.stdin.close()
+        if enc.wait():
+            err.seek(0)
+            raise EncodeError(f"segment encoder for {s['id']} exited {enc.returncode}: {err.read().decode(errors='replace')[-500:]}")
+        got = count_frames(part)
+        if got != frames:
+            raise EncodeError(f"segment {s['id']} holds {got} frames, expected {frames}")
+        os.replace(part, seg)
+    except BaseException:
+        try:
+            enc.kill()
+            enc.wait(timeout=10)
+        except Exception:
+            pass
+        _unlink_quietly(part)
+        raise
+    finally:
+        pics.close()
+        err.close()
+    result = {"shot": s["id"], "frames": frames, "wall_s": time.perf_counter() - t_start,
+              "ms_mean": round(sum(ms) / len(ms), 2) if ms else None, "mark": stats, "first_frame_whole": first_whole,
+              "held_frames": held}
+    seg.with_name(seg.name + ".json").write_text(json.dumps(result), encoding="utf-8")
+    return result
+
+
+def still_first_frame_whole(plan: dict, pics: Pictures, i: int) -> bool:
+    """Pixel evidence for A7: at the still's first frame, everything outside
+    the fitted rectangle is the near-black field and the inside is the
+    photograph (compared with a plain whole fit)."""
+    s = plan["shots"][i]
+    raw = np.asarray(pics.shot(i, 0.0)).astype(int)
+    img = pics.still(s)
+    W, H = plan["W"], plan["H"]
+    k = min(W / img.width, H / img.height)
+    fx0, fy0 = (W - img.width * k) / 2.0, (H - img.height * k) / 2.0
+    fx1, fy1 = W - fx0, H - fy0
+    # the field, one pixel clear of the photograph's (sub-pixel) edge
+    outside = np.ones(raw.shape[:2], bool)
+    outside[max(0, math.floor(fy0) - 1):math.ceil(fy1) + 1, max(0, math.floor(fx0) - 1):math.ceil(fx1) + 1] = False
+    field = np.array(M.PALETTE["letterbox"])
+    if outside.any() and np.max(np.abs(raw[outside] - field)) > 2:
+        return False
+    x0, y0, x1, y1 = math.ceil(fx0), math.ceil(fy0), math.floor(fx1), math.floor(fy1)
+    ref = np.asarray(img.resize((round(img.width * k), round(img.height * k)), Image.Resampling.BICUBIC)).astype(int)
+    ox, oy = x0 - round(fx0), y0 - round(fy0)
+    ref = ref[oy:oy + (y1 - y0), ox:ox + (x1 - x0)]
+    inner = raw[y0:y0 + ref.shape[0], x0:x0 + ref.shape[1]]
+    return float(np.mean(np.abs(inner - ref))) < 8.0
+
+
+# --------------------------------------------------------------------------
+# Audio
+# --------------------------------------------------------------------------
+
+
+def _read_wav(path: Path) -> np.ndarray:
+    import soundfile as sf
+    x, rate = sf.read(str(path), dtype="float32", always_2d=True)
+    x = x.mean(axis=1)
+    if rate != AUDIO_RATE:
+        n = int(round(len(x) * AUDIO_RATE / rate))
+        x = np.interp(np.linspace(0, len(x) - 1, n), np.arange(len(x)), x).astype(np.float32)
+    return x
+
+
+def _place(buf: np.ndarray, x: np.ndarray, at_s: float, gain_db: float = 0.0, end_s: float | None = None):
+    i = int(round(at_s * AUDIO_RATE))
+    if i >= len(buf):
+        return 0
+    if end_s is not None:
+        x = x[: max(0, int(round((end_s - at_s) * AUDIO_RATE)))]
+    x = x[: len(buf) - i] * (10 ** (gain_db / 20))
+    buf[i: i + len(x)] += x
+    return len(x)
+
+
+def clip_audio(s: dict) -> np.ndarray | None:
+    r = subprocess.run([ffmpeg(), "-v", "error", "-filter_threads", "1", "-threads", "1",
+                        "-ss", f"{s['in_s']:.4f}", "-t", f"{s['_dur']:.4f}", "-i", s["_item"]["_path"],
+                        "-vn", "-ac", "1", "-ar", str(AUDIO_RATE), "-f", "f32le", "-"], capture_output=True)
+    if r.returncode or not r.stdout:
+        return None
+    return np.frombuffer(r.stdout, dtype=np.float32).copy()
+
+
+def moving_average(x: np.ndarray, k: int) -> np.ndarray:
+    """Centred moving average of window k, same length as x, by cumulative
+    sum (O(n); a full-film np.convolve is O(n k))."""
+    if k <= 1 or len(x) == 0:
+        return x.astype(np.float32)
+    c = np.concatenate(([0.0], np.cumsum(x, dtype=np.float64)))
+    i = np.arange(len(x))
+    lo = np.clip(i - k // 2, 0, len(x))
+    hi = np.clip(i - k // 2 + k, 0, len(x))
+    return ((c[hi] - c[lo]) / k).astype(np.float32)
+
+
+def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) -> tuple[np.ndarray, dict]:
+    n = int(round(plan["frames"] / FPS * AUDIO_RATE))
+    voice, music, amb, clips = (np.zeros(n, np.float32) for _ in range(4))
+    placed = {"lines": [], "cues": [], "clips": [], "missing": []}
+    missing_voice = []
+    for ln in plan["lines"]:
+        wav = film / (ln.get("wav") or f"audio/{ln['id']}.wav")
+        if not wav.exists():
+            # a narration or testimony line is the film's words: missing, it blocks unless this is a draft
+            journal.lint("audio-present", False, stage="assembly", unit=ln["id"], severity="warn" if draft else "block",
+                         evidence={"wav": str(wav), "kind": ln.get("kind"), "result": "silence (draft)" if draft else "refused"})
+            placed["missing"].append(ln["id"])
+            missing_voice.append(ln["id"])
+            continue
+        x = _read_wav(wav)
+        k = _place(voice, x, float(ln["start_s"]), float(ln.get("gain_db", 0.0)))
+        sp = plan["speakers"].get(ln.get("speaker"), {})
+        placed["lines"].append({"id": ln["id"], "speaker": ln.get("speaker"), "side": sp.get("side"),
+                                "kind": "narration" if ln.get("kind") == "narration" else ("archival" if ln.get("archival_audio") else "reading"),
+                                "at_s": float(ln["start_s"]), "dur_s": round(k / AUDIO_RATE, 3)})
+    for c in plan["cues"]:
+        wav = film / (c.get("wav") or f"audio/{c['id']}.wav")
+        if not wav.exists():
+            journal.lint("audio-present", False, stage="assembly", unit=c["id"], severity="warn",
+                         evidence={"wav": str(wav), "kind": c.get("kind"), "result": "silence"})
+            placed["missing"].append(c["id"])
+            continue
+        target = music if c.get("kind") == "music" else amb
+        k = _place(target, _read_wav(wav), float(c["start_s"]), float(c.get("gain_db", 0.0)), float(c["end_s"]))
+        placed["cues"].append({"id": c["id"], "kind": c.get("kind"), "at_s": float(c["start_s"]), "dur_s": round(k / AUDIO_RATE, 3)})
+    for s in plan["shots"]:
+        if s["kind"] == "archive_video" and (s.get("sound") or {}).get("mode", "own") == "own" and s["_video"]["probe"]["has_audio"]:
+            x = clip_audio(s)
+            if x is None:
+                journal.lint("audio-present", False, stage="assembly", unit=s["id"], severity="warn", evidence="clip audio unreadable")
+                continue
+            _place(clips, x, s["f0"] / FPS, end_s=s["f1"] / FPS)
+            placed["clips"].append(s["id"])
+    if missing_voice and not draft:
+        raise Refused(f"voice WAVs missing for {', '.join(missing_voice)} (render with --draft to place silence)")
+    env = (np.abs(voice) > 1e-3).astype(np.float32)
+    env = np.clip(moving_average(env, int(0.25 * AUDIO_RATE)) * 4, 0, 1)
+    duck = 1 - env * (1 - 10 ** (-DUCK_DB / 20))
+    mix = voice + clips + music * duck + amb
+    return mix.astype(np.float32), placed
+
+
+def _loudnorm_json(stderr: str) -> dict:
+    j = stderr[stderr.rfind("{"): stderr.rfind("}") + 1]
+    return json.loads(j) if j else {}
+
+
+def loudnorm(src: Path, dst: Path) -> dict:
+    """Two-pass EBU R128 to -16 LUFS integrated, -1.5 dBTP."""
+    ff = ffmpeg()
+    base = f"loudnorm=I={TARGET_LUFS}:TP={TARGET_TP}:LRA={TARGET_LRA}"
+    r = subprocess.run([ff, "-hide_banner", "-nostats", "-i", str(src), "-af", base + ":print_format=json", "-f", "null", "-"],
+                       capture_output=True, text=True)
+    m = _loudnorm_json(r.stderr)
+    if r.returncode or not m or m.get("input_i") in ("-inf", None) or float(m["input_i"]) < -70:
+        shutil.copyfile(src, dst)
+        return {"normalised": False, "input_i": m.get("input_i"), "reason": "silent programme"}
+    af = (base + f":measured_I={m['input_i']}:measured_TP={m['input_tp']}:measured_LRA={m['input_lra']}"
+          f":measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true:print_format=json")
+    r2 = subprocess.run([ff, "-hide_banner", "-nostats", "-y", "-i", str(src), "-af", af, "-ar", str(AUDIO_RATE), "-c:a", "pcm_s24le", str(dst)],
+                        capture_output=True, text=True)
+    if r2.returncode:
+        raise EncodeError(f"loudnorm pass 2 failed: {r2.stderr[-500:]}")
+    m2 = _loudnorm_json(r2.stderr)
+    return {"normalised": True, "input_i": float(m["input_i"]), "input_tp": float(m["input_tp"]),
+            "output_i": float(m2.get("output_i", "nan")), "output_tp": float(m2.get("output_tp", "nan")),
+            "normalization_type": m2.get("normalization_type"),
+            "linear": m2.get("normalization_type") == "linear"}
+
+
+# --------------------------------------------------------------------------
+# Sources timeline
+# --------------------------------------------------------------------------
+
+
+def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
+    shots = []
+    for s in plan["shots"]:
+        it = s.get("_item") or {}
+        shots.append({
+            "id": s["id"], "part": s["_part"], "kind": s["kind"],
+            "start_s": round(s["f0"] / FPS, 4), "end_s": round(s["f1"] / FPS, 4),
+            "start_frame": s["f0"], "end_frame": s["f1"],
+            "mark": {"class": s["mark"], "detail": s["detail"]},
+            "ledger": it.get("_ledger"), "ledger_id": s.get("asset"),
+            "title": it.get("title"), "archive": it.get("archive"), "item_url": it.get("item_url"), "date": it.get("date"),
+            "creator": it.get("creator"), "credit": it.get("credit"), "licence": it.get("licence"), "basis": it.get("basis"),
+            "alterations": s.get("alterations") or [], "transition_in": s["transition_in"],
+            "preset": (s.get("_cam") or {}).get("preset"), "fill_ok": (s.get("_cam") or {}).get("fill_ok"),
+            "in_s": s.get("in_s"), "out_s": s.get("out_s"),
+            "resampler": s.get("_resampler"), "conform": (s.get("_video") or {}).get("conform"),
+            "test_fixture": bool(it.get("synthetic") or it.get("test_fixture")),
+            "text": s.get("text"),
+        })
+    track = []
+    for s in shots:
+        if track and track[-1]["class"] == s["mark"]["class"] and track[-1]["detail"] == s["mark"]["detail"]:
+            track[-1]["to_s"] = s["end_s"]
+        else:
+            track.append({"from_s": s["start_s"], "to_s": s["end_s"], "class": s["mark"]["class"], "detail": s["mark"]["detail"]})
+    total = plan["frames"]
+    share = {c: round(sum(s["end_frame"] - s["start_frame"] for s in shots if s["mark"]["class"] == c) / total, 4) for c in CLASSES}
+    readings = []
+    for ln in plan["lines"]:
+        if ln.get("kind") == "testimony":
+            sp = plan["speakers"].get(ln.get("speaker"), {})
+            readings.append({"id": ln["id"], "speaker": ln.get("speaker"), "name": sp.get("name"), "side": sp.get("side"),
+                             "year": ln.get("year"), "source": ln.get("source"), "locator": ln.get("locator"),
+                             "start_s": ln.get("start_s"), "text": ln.get("text"),
+                             "credit": (f"Read by a computer voice. No recording of {sp.get('name', ln.get('speaker'))} was used."
+                                        if ln.get("read_by") else "original recording")})
+    return {"v": 2, "title": plan["title"], "slug": plan["slug"], "run": journal.run,
+            "engine": {"version": ENGINE_VERSION, "hash": ENGINE_HASH},
+            "width": plan["W"], "height": plan["H"], "fps": FPS, "frames": total, "duration_s": round(total / FPS, 4),
+            "shots": shots, "marks": track, "share": share,
+            "lower_thirds": [{"id": lt["id"], "start_s": lt["start"], "end_s": lt["end"], "lines": lt["lines"], "flag": lt["flag"]}
+                             for lt in plan["lower_thirds"]],
+            "readings": readings,
+            "cues": [{k: c.get(k) for k in ("id", "kind", "role", "source", "licence", "tradition", "performer", "start_s", "end_s")}
+                     for c in plan["cues"]],
+            "credits": [{"heading": h, "lines": ln} for h, ln in plan["credits"]], **extra}
+
+
+# --------------------------------------------------------------------------
+# The run
+# --------------------------------------------------------------------------
+
+
+def _clean(d: dict) -> dict:
+    return {k: v for k, v in d.items() if k not in ("_item",)}
+
+
+def tools_key() -> dict:
+    """What else changes a segment's pixels: the ffmpeg build and the font files."""
+    f = M.Fonts()
+    fonts = {}
+    for name in ("display", "display_italic", "display_regular", "structure", "structure_medium", "data", "data_semibold"):
+        path = Path(getattr(f, name))
+        fonts[name] = sha256_file(path)[:16] if path.exists() else None
+    return {"ffmpeg": ffmpeg_version(), "fonts": fonts}
+
+
+def shot_key(plan: dict, i: int, asset_hash: dict, env_key: dict | None = None) -> str:
+    s = plan["shots"][i]
+    t0, t1 = s["f0"] / FPS, s["f1"] / FPS
+    prev = plan["shots"][i - 1] if i else None
+    nxt = plan["shots"][i + 1] if i + 1 < len(plan["shots"]) else None
+    rec = {
+        "engine": ENGINE_HASH, "W": plan["W"], "H": plan["H"], "fps": FPS, "shot": _clean(s),
+        "asset": asset_hash.get(s.get("asset")), "prev": _clean(prev) if prev else None,
+        "prev_asset": asset_hash.get(prev.get("asset")) if prev else None,
+        "next_transition": nxt["transition_in"] if nxt else None, "next_f0": nxt["f0"] if nxt else None,
+        "marks": plan["marks"][max(0, i - 1): i + 1],
+        "lower_thirds": [lt for lt in plan["lower_thirds"] if lt["start"] < t1 and lt["end"] > t0],
+        "overlays": [o for o in plan["overlays"] if o["start"] < t1 and o["end"] > t0],
+        "tools": env_key,
+        "subtitles": [c for c in plan["subtitles"] if c["start"] < t1 and c["end"] > t0],
+        "wm": [plan["wm_start"], plan["card_spans"]],
+        "credits": plan["credits"] if s.get("_card") == "credits" else None,
+    }
+    return hashlib.sha256(json.dumps(rec, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
+class _Direct:
+    def __init__(self, fn):
+        self.put = fn
+
+
+def render(film: Path | str, out: Path | str | None = None, *, height: int = 1080, from_shot: str | None = None,
+           workers: int = DEFAULT_WORKERS, burn_subtitles: bool = False, min_free_gb: float = MIN_FREE_GB,
+           encode_preset: str = "slow", draft: bool = False, journal: Journal | None = None) -> dict:
+    film = Path(film).resolve()
+    out = Path(out).resolve() if out else film / "out"
+    W, H = frame_size(height)
+    journal = journal or Journal(film=film.name, out_dir=out)
+    run_t0 = time.perf_counter()
+    resume_cmd = f"python -m studio.engine.render {film} --out {out} --res {height}"
+    settings = {"height": H, "width": W, "fps": FPS, "workers": workers, "from": from_shot, "burn_subtitles": burn_subtitles,
+                "min_free_gb": min_free_gb, "encode_preset": encode_preset, "draft": draft}
+    current = {"stage": "scout", "unit": None}
+    n_req = int(workers)
+    n = max(1, min(n_req, MAX_WORKERS, os.cpu_count() or 1))
+    try:
+        # run.start is always the journal's first event and run.end its last (design/spec.md 5a).
+        journal.event("stage", "run", None, lens="run.start", status="start", film=film.name, run_kind=journal.kind,
+                      stages=["scout", "conform", "assembly", "motion", "marks"], resumed_from=from_shot,
+                      settings=dict(settings, workers=n, workers_requested=n_req), model=ENGINE_MODEL,
+                      ffmpeg=ffmpeg_version(), out=str(out), predict={}, baselines_at=None, machine=journal.machine())
+        journal.stage("scout", "start")
+        if draft:
+            journal.human("scout", "draft render: missing voice WAVs become silence instead of refusing the run",
+                          override="--draft")
+        with journal.unit("scout", "preflight", size={"driver": "items", "value": 1}):
+            pf = preflight(out, journal, min_free_gb=min_free_gb)
+        fonts = M.Fonts()
+        missing = [p for p in (fonts.display, fonts.structure, fonts.data) if not Path(p).exists()]
+        if missing:
+            raise Refused(f"fonts not found ({missing[0]}); run npm ci in the repo")
+        with journal.unit("scout", "plan", size={"driver": "items", "value": 0}) as u:
+            plan = build_plan(film, W=W, H=H, burn_subtitles=burn_subtitles, journal=journal)
+            u.size = {"driver": "items", "value": len(plan["shots"])}
+        journal.stage("scout", "done")
+
+        if n != n_req:
+            journal.decision("motion", f"workers clamped from {n_req} to {n}",
+                             f"hard maximum {MAX_WORKERS} (this laptop crashes under parallel load) and {os.cpu_count()} CPUs")
+        ids = [s["id"] for s in plan["shots"]]
+        from_idx = None
+        if from_shot is not None:
+            if from_shot not in ids:
+                raise Refused(f"--from {from_shot}: no such shot (shots: {', '.join(ids)})")
+            from_idx = ids.index(from_shot)
+
+        seg_dir = out / "segments"
+        seg_dir.mkdir(parents=True, exist_ok=True)
+        asset_hash = {}
+        for s in plan["shots"]:
+            p = (s.get("_item") or {}).get("_path")
+            if p and s.get("asset") not in asset_hash:
+                asset_hash[s["asset"]] = sha256_file(p)
+        env_key = tools_key()
+        segs, todo, cached = {}, [], []
+        for i, s in enumerate(plan["shots"]):
+            key = shot_key(plan, i, asset_hash, env_key)
+            seg = seg_dir / f"{s['id']}.{key}.mp4"
+            segs[i] = seg
+            for old in seg_dir.glob(f"{s['id']}.*.mp4"):
+                if old != seg:
+                    old.unlink(missing_ok=True)
+                    Path(str(old) + ".json").unlink(missing_ok=True)
+            have = seg.exists() and Path(str(seg) + ".json").exists()
+            if from_idx is not None and i < from_idx:
+                if not have:
+                    raise Refused(f"--from {from_shot}: shot {s['id']} has no cached segment matching the screenplay; "
+                                  "render without --from first")
+                cached.append(i)
+            elif from_idx is None and have:
+                cached.append(i)
+            else:
+                todo.append(i)
+
+        # What run.start cannot know until the screenplay is read: the units and the film's length.
+        journal.event("stage", "run", None, lens="run.plan", status="planned", film=plan["slug"], title=plan["title"],
+                      units=[{"id": s["id"], "stage": "motion", "size": {"driver": "frames", "value": s["f1"] - s["f0"]}}
+                             for s in plan["shots"]],
+                      duration_s=plan["duration_s"], frames=plan["frames"], todo=[ids[i] for i in todo],
+                      cached=[ids[i] for i in cached], preflight=pf)
+
+        # Audio first (cheap), so the marks event can carry the voice shares.
+        current.update(stage="assembly", unit="mix")
+        journal.stage("assembly", "start")
+        work = out / "work"
+        work.mkdir(exist_ok=True)
+        with journal.unit("assembly", "mix", size={"driver": "seconds", "value": round(plan["duration_s"], 3)}) as u:
+            mix, placed = build_mix(plan, film, journal, draft=draft)
+            import soundfile as sf
+            sf.write(str(work / "mix.wav"), mix, AUDIO_RATE, subtype="FLOAT")
+            u.extra.update(placed=placed)
+        journal.artifact("assembly", work / "mix.wav", unit="mix", role="mix")
+        journal.event("unit", "assembly", "mix", lens="narration", status="info", lines=placed["lines"], peaks=None)
+        with journal.unit("assembly", "loudness", size={"driver": "seconds", "value": round(plan["duration_s"], 3)},
+                          settings={"I": TARGET_LUFS, "TP": TARGET_TP, "LRA": TARGET_LRA, "passes": 2}) as u:
+            loud = loudnorm(work / "mix.wav", work / "mix-norm.wav")
+            u.extra.update(loudness=loud)
+        journal.artifact("assembly", work / "mix-norm.wav", unit="loudness", role="mix-normalised")
+        if loud["normalised"]:
+            journal.lint("loudness", abs(loud["output_i"] - TARGET_LUFS) <= 1.0 and loud["output_tp"] <= TARGET_TP + 0.5,
+                         stage="assembly", severity="warn", evidence=loud, grammar="8.5")
+            journal.lint("loudnorm-linear", loud["linear"], stage="assembly", severity="warn", grammar="8.5",
+                         evidence={"normalization_type": loud["normalization_type"],
+                                   "why": "loudnorm fell back to dynamic mode, which compresses the programme" if not loud["linear"] else None})
+        else:
+            journal.decision("assembly", "loudness not normalised", "the programme is silent (no voice, music or clip sound placed)")
+
+        # Frames.
+        current.update(stage="motion", unit=None)
+        journal.stage("motion", "start", detail={"todo": [ids[i] for i in todo], "cached": [ids[i] for i in cached], "workers": n})
+        for i in cached:
+            journal.event("unit", "motion", ids[i], lens="unit.done", status="skip", outcome="cached",
+                          segment=str(segs[i]), size={"driver": "frames", "value": plan["shots"][i]["f1"] - plan["shots"][i]["f0"]})
+        results: dict[int, dict] = {i: json.loads(Path(str(segs[i]) + ".json").read_text(encoding="utf-8")) for i in cached}
+
+        def on_msg(msg):
+            lens = msg.pop("lens")
+            stage, unit = msg.pop("stage"), msg.pop("unit")
+            if lens == "unit.start":
+                journal.event("unit", stage, unit, lens=lens, status="start", model=ENGINE_MODEL, **msg)
+            else:
+                journal.event("timing", stage, unit, lens=lens, **msg)
+
+        def finish(i, res=None, exc=None):
+            s = plan["shots"][i]
+            set_ = {"segment_codec": "x264 crf 12 yuv444p veryfast mp4 (intermediate)", "resampler": s.get("_resampler"),
+                    "conform": (s.get("_video") or {}).get("conform")}
+            with journal.unit("motion", s["id"], size={"driver": "frames", "value": s["f1"] - s["f0"], "width": W, "height": H},
+                              model=ENGINE_MODEL, settings=set_, start_event=False, unit_kind="shot",
+                              resume=f"{resume_cmd} --from {s['id']}") as u:
+                if exc is not None:
+                    raise exc
+                u.wall_s = res["wall_s"]
+                u.extra.update(ms_mean=res["ms_mean"], mark=res["mark"], first_frame_whole=res["first_frame_whole"],
+                               held_frames=res["held_frames"], segment=str(segs[i]))
+            results[i] = res
+
+        attempts = {i: 0 for i in todo}
+        if todo and n == 1:
+            sink = _Direct(on_msg)
+            for i in todo:
+                current["unit"] = ids[i]
+                while True:
+                    try:
+                        res = render_segment(plan, i, str(segs[i]), sink)
+                    except EncodeError as e:
+                        if attempts[i] < 1:
+                            attempts[i] += 1
+                            journal.retry("motion", ids[i], attempts[i], str(e), fix="re-render the segment once")
+                            continue
+                        finish(i, exc=e)
+                    except BaseException as e:
+                        finish(i, exc=e)
+                    break
+                finish(i, res)
+        elif todo:
+            import multiprocessing as mp
+            ctx = mp.get_context("spawn")
+            with ctx.Manager() as manager:
+                q = manager.Queue()
+
+                def drain():
+                    while True:
+                        try:
+                            on_msg(q.get_nowait())
+                        except queue_mod.Empty:
+                            return
+
+                with ProcessPoolExecutor(max_workers=min(n, len(todo)), mp_context=ctx) as ex:
+                    futs = {ex.submit(render_segment, plan, i, str(segs[i]), q): i for i in todo}
+                    pending = set(futs)
+                    try:
+                        while pending:
+                            done, pending = wait(pending, timeout=0.25, return_when=FIRST_COMPLETED)
+                            drain()
+                            for fut in done:
+                                i = futs[fut]
+                                current["unit"] = ids[i]
+                                try:
+                                    res = fut.result()
+                                except EncodeError as e:
+                                    if attempts[i] < 1:
+                                        attempts[i] += 1
+                                        journal.retry("motion", ids[i], attempts[i], str(e), fix="re-render the segment once")
+                                        nf = ex.submit(render_segment, plan, i, str(segs[i]), q)
+                                        futs[nf] = i
+                                        pending.add(nf)
+                                        continue
+                                    finish(i, exc=e)
+                                except BaseException as e:
+                                    finish(i, exc=e)
+                                finish(i, res)
+                        drain()
+                    except BaseException:
+                        ex.shutdown(wait=True, cancel_futures=True)
+                        raise
+        journal.stage("motion", "done")
+
+        # Marks lint on what was rendered.
+        current.update(stage="marks", unit=None)
+        journal.stage("marks", "start")
+        fails = {plan["shots"][i]["id"]: r["mark"]["fail_frames"] for i, r in results.items() if r["mark"]["fail"]}
+        checked = sum(r["mark"]["ok"] + r["mark"]["fade"] + r["mark"]["fail"] for r in results.values())
+        journal.lint("mark-coverage", not fails and checked == plan["frames"], stage="marks", grammar="1.3, 4",
+                     evidence={"frames": plan["frames"], "checked": checked, "ok": sum(r["mark"]["ok"] for r in results.values()),
+                               "crossfade": sum(r["mark"]["fade"] for r in results.values()), "failed": fails})
+        stills_bad = [plan["shots"][i]["id"] for i, r in results.items() if r.get("first_frame_whole") is False]
+        journal.lint("still-first-frame-whole-pixels", not stills_bad, stage="marks", grammar="A7",
+                     evidence={"stills": [plan["shots"][i]["id"] for i, r in results.items() if r.get("first_frame_whole") is not None],
+                               "not_whole": stills_bad})
+        doc = sources_doc(plan, journal, {})
+        voiced = {"narration": 0.0, "reading": 0.0, "archival": 0.0}
+        for ln in placed["lines"]:
+            voiced[ln["kind"]] = voiced.get(ln["kind"], 0.0) + ln["dur_s"]
+        dur = plan["duration_s"]
+        journal.event("lint", "marks", None, lens="marks", rule="marks-track", status="pass" if not fails else "fail",
+                      severity="block", track=doc["marks"], share=doc["share"], generated_share=doc["share"]["AI-GENERATED"],
+                      narration_share=round(voiced["narration"] / dur, 4), readings_share=round((voiced["reading"] + voiced["archival"]) / dur, 4),
+                      violations=[{"shot": k, "frames": v} for k, v in fails.items()])
+        if fails or checked != plan["frames"]:
+            raise Refused(f"mark coverage failed on {fails or 'a frame count mismatch'}")
+        held = {plan["shots"][i]["id"]: r.get("held_frames", 0) for i, r in results.items() if r.get("held_frames")}
+        held_bad = [sid for sid, k in held.items() if k / FPS > MAX_HOLD_S and not (
+            plan["shots"][ids.index(sid)]["mark"] == "RECONSTRUCTED" and "re-timed" in (plan["shots"][ids.index(sid)].get("alterations") or []))]
+        journal.lint("clip-hold-rendered", not held_bad, stage="marks", grammar="7.1",
+                     evidence={"held_frames": held, "max_s": MAX_HOLD_S, "over": held_bad})
+        if held_bad:
+            raise Refused(f"clips held their last frame over {MAX_HOLD_S:g} s: {', '.join(held_bad)} (GRAMMAR 7.1)")
+        if stills_bad:
+            raise Refused(f"A7: the first frame of {', '.join(stills_bad)} is not the whole photograph")
+        journal.stage("marks", "done")
+
+        # Encode last.
+        current.update(stage="assembly", unit="encode")
+        out.mkdir(parents=True, exist_ok=True)
+        listing = work / "segments.txt"
+        listing.write_text("".join(f"file '{segs[i].as_posix()}'\n" for i in range(len(plan["shots"]))), encoding="utf-8")
+        master = out / "master.mp4"
+        threads = MASTER_THREADS          # fixed, so the master's bytes never depend on --workers
+        enc_settings = {"codec": "libx264", "preset": encode_preset, "crf": MASTER_CRF, "pix_fmt": "yuv420p", "fps": FPS,
+                        "color": "bt709", "audio": "aac 192k 48 kHz", "threads": threads}
+        with journal.unit("assembly", "encode", size={"driver": "seconds", "value": round(dur, 3)},
+                          model={"name": "ffmpeg", "version": ffmpeg_version()}, settings=enc_settings,
+                          resume=resume_cmd) as u:
+            cmd = [ffmpeg(), "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(listing), "-i", str(work / "mix-norm.wav"),
+                   "-map", "0:v:0", "-map", "1:a:0",
+                   "-vf", "scale=in_color_matrix=bt709:out_color_matrix=bt709:in_range=tv:out_range=tv,format=yuv420p,"
+                          "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv",
+                   "-c:v", "libx264", "-preset", encode_preset, "-crf", str(MASTER_CRF), "-r", str(FPS), "-threads", str(threads),
+                   "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
+                   "-c:a", "aac", "-b:a", "192k", "-ar", str(AUDIO_RATE), "-t", f"{dur:.6f}", "-movflags", "+faststart", str(master)]
+            r = subprocess.run(cmd, capture_output=True, text=True)
+            if r.returncode:
+                raise EncodeError(f"master encode failed: {r.stderr[-800:]}")
+            pr = probe_video(master)
+            pr["frames"] = count_frames(master)
+            u.extra.update(master={"width": pr["width"], "height": pr["height"], "fps": pr["fps"], "duration_s": pr["duration_s"],
+                                   "frames": pr["frames"]})
+        ok_fmt = pr["width"] == W and pr["height"] == H and abs(pr["fps"] - FPS) < 0.01 and pr["frames"] == plan["frames"]
+        journal.lint("master-format", ok_fmt, stage="assembly", grammar="7.5",
+                     evidence={"width": pr["width"], "height": pr["height"], "fps": pr["fps"], "frames": pr["frames"],
+                               "expected_frames": plan["frames"], "duration_s": pr["duration_s"]})
+        if not ok_fmt:
+            raise Refused(f"the master is {pr['width']}x{pr['height']} at {pr['fps']} fps with {pr['frames']} frames; "
+                          f"expected {W}x{H} at 24 with {plan['frames']}")
+        doc = sources_doc(plan, journal, {"loudness": loud, "master": "master.mp4"})
+        (out / "sources.json").write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
+        for i in range(len(plan["shots"])):
+            journal.artifact("motion", segs[i], unit=ids[i], role="segment")
+        journal.artifact("assembly", master, role="master")
+        journal.artifact("assembly", out / "sources.json", role="sources")
+        journal.stage("assembly", "done")
+        wall = time.perf_counter() - run_t0
+        journal.timing("run", "total", wall, size={"driver": "seconds", "value": round(dur, 3), "frames": plan["frames"]},
+                       model=ENGINE_MODEL, settings=dict(settings, workers=n))
+        summary = {"run": journal.run, "journal": str(journal.path), "master": str(master), "sources": str(out / "sources.json"),
+                   "frames": plan["frames"], "duration_s": dur, "wall_s": round(wall, 2), "rendered": [ids[i] for i in todo],
+                   "cached": [ids[i] for i in cached], "workers": n}
+        journal.event("stage", "run", None, lens="run.end", status="done", outcome="ok", **summary)
+        return summary
+    except BaseException as exc:
+        unit = current.get("unit")
+        resume = f"{resume_cmd} --from {unit}" if current["stage"] == "motion" and unit else resume_cmd
+        if not getattr(exc, "_journaled", False):
+            journal.error(current["stage"], unit, exc, resume=resume,
+                          fix="fix the lint or pre-flight finding above" if isinstance(exc, Refused) else None)
+        journal.event("stage", "run", None, lens="run.end", status="fail", outcome="refused" if isinstance(exc, Refused) else "failed",
+                      stage_failed=current["stage"], message=f"{type(exc).__name__}: {exc}", resume={"command": resume})
+        raise
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(prog="python -m studio.engine.render", description=__doc__.split("\n\n")[0])
+    ap.add_argument("film", type=Path, help="film folder with screenplay.json and its ledgers")
+    ap.add_argument("--out", type=Path, default=None, help="output folder (default <film>/out)")
+    ap.add_argument("--res", type=int, choices=sorted(RESOLUTIONS), default=1080)
+    ap.add_argument("--from", dest="from_shot", default=None, help="re-render from this shot; earlier shots come from the cache")
+    ap.add_argument("--workers", type=int, default=DEFAULT_WORKERS, help=f"CPU worker processes (default {DEFAULT_WORKERS}, max {MAX_WORKERS})")
+    ap.add_argument("--burn-subtitles", action="store_true", help="burn the English subtitles into the picture (off by default)")
+    ap.add_argument("--draft", action="store_true", help="place silence for missing voice WAVs instead of refusing (journaled)")
+    a = ap.parse_args(argv)
+    try:
+        s = render(a.film, a.out, height=a.res, from_shot=a.from_shot, workers=a.workers, burn_subtitles=a.burn_subtitles,
+                   draft=a.draft)
+    except Refused as e:
+        print(f"render: refused: {e}", file=sys.stderr)
+        return 2
+    print(f"render: {s['frames']} frames, {s['duration_s']:.2f} s of film in {s['wall_s']} s -> {s['master']}")
+    print(f"render: journal {s['journal']}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

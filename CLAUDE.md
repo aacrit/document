@@ -63,8 +63,12 @@ See `CHARTER.md` for its surfaces and kill dates, and `contract.yaml` for what
 
 - `npm run dev`: Vite dev server plus `wrangler dev`.
 - `npm run build`: production build to dist/, build tag injected.
-- `npm run gate`: the full gate (typecheck, build, tests, lint-size, lint-workflows,
-  lint-design, lint-docs, lint-events, gate-selftest). Must pass before any merge.
+- `npm run gate`: the full gate (typecheck, build, tests, studio-test, lint-size,
+  lint-workflows, lint-design, lint-docs, lint-events, gate-selftest). Must pass before
+  any merge. studio-test runs pytest on `studio/tests` and needs Python 3.12 with
+  numpy, pillow, soundfile and pytest, plus ffmpeg (`DOCUMENT_PYTHON` picks the interpreter).
+- `python -m studio.engine.render <film dir>`: render a screenplay v2 to a 1080p24 master;
+  every run is journaled (`studio/engine/journal.py`), issues go to `docs/ENGINE-LOG.md`.
 - `npm run contract -- --url <url>`: run `contract.yaml` against a live URL.
   Checks marked `requires: deployed` show SKIP on localhost and must PASS
   on the preview.
