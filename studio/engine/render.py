@@ -6,7 +6,7 @@
 Reads ``<film dir>/screenplay.json`` (films/GRAMMAR.md section 12) and the
 ledgers it cites (top-level ``ledgers``: name -> path, or {"path", "media"};
 ``dossier.json`` when it names none). Writes ``<out>/master.mp4`` (H.264,
-1920x1080 or 1280x720, 24 fps, Rec.709, AAC at -16 LUFS) and
+1920x1080 or 1280x720, 24 fps, Rec.709, AAC at -18 LUFS (A15)) and
 ``<out>/sources.json`` (the timeline: every shot's start and end, mark,
 ledger id, credit and licence). Default ``<out>`` is ``<film dir>/out``.
 
@@ -16,6 +16,9 @@ A9; design/brand-kit/BRAND-KIT.md; every graphic comes from motion.py):
 - archive video at native aspect, pillarboxed on the near-black field, plain
   Lanczos resampling (A5); telecined sources restored by fieldmatch and
   decimate, true 25 or 30 fps sources conformed by frame drop or repeat (A6);
+  a clip flagged ``neutralise_cast`` (ledger item or shot) loses its colour
+  cast to neutral grey with its luma kept, and must be marked RECONSTRUCTED
+  ``colour cast removed`` (A14);
 - stills that open whole at native aspect for about 1.5 s (A7), then make
   their named move on the rostrum curve; a still fills 16:9 only when the shot
   says ``fill_ok: true``, otherwise the camera moves inside the photograph's
@@ -72,7 +75,7 @@ A7_FULL_LIMIT, A7_BAND_LIMIT = 6.0, 3.5   # A7 pixel check: low-pass mean differ
 A7_BAND = 0.05                      # the outer band: 5% of the photograph's content on each side
 A7_MOUNT_STD = 6.0                  # a border row or column whose luminance varies less than this is a mount, trimmed
 A7_DETAIL_FLOOR = 5.0               # band detail under this cannot show a 1% crop (band score >= 0.76 x detail at z 1.01): inconclusive
-TARGET_LUFS, TARGET_TP = -16.0, -1.5           # GRAMMAR 8.5
+TARGET_LUFS, TARGET_TP = -18.0, -1.5           # GRAMMAR 8.5 and A15 (the programme at -18 LUFS, not -16)
 TARGET_LRA, LRA_MAX = 11.0, 50.0    # loudnorm's LRA target: at least 11, raised above the mix's own range (8.5 sets no limit)
 LIMIT_MARGIN_DB = 0.5               # the true-peak limiter's ceiling sits this far under TARGET_TP
 LIMIT_OVERSAMPLE = 4                # alimiter runs at 4x 48 kHz, so it holds inter-sample peaks
@@ -80,8 +83,41 @@ LIMITER_ATTACK_MS, LIMITER_RELEASE_MS = 5, 50
 LIMIT_ATTEMPTS = 3
 LIMIT_MAX_DB, LIMIT_OVER_1DB_S, LIMIT_LRA_DROP = 3.0, 0.050, 0.3   # past these the limiter compresses: refused
 LIMIT_ACTED_LOGGED = 200            # the limiter's largest actions journaled with their timestamps
-DIALOGUE_LUFS = -20.0               # GRAMMAR 8.5: each synthetic voice line levelled to this before mixing
-VOICE_TP = DIALOGUE_LUFS + 12.5     # GRAMMAR A13: a synthetic voice line's true peak after levelling, at most -7.5 dBTP
+# GRAMMAR A13 (within 8.5's -18 to -20 LUFS dialogue range): each synthetic voice line is levelled to this integrated
+# loudness by a measured linear gain before mixing; narration's mood offset (A14) is applied after it.
+DIALOGUE_LUFS = -20.0
+VOICE_TP_MARGIN = 1.3               # A15: room for the mix-to-master gain
+# A13 and A15: a synthetic voice line's true peak after levelling is at most the dialogue level plus the programme's
+# headroom (TARGET_TP - TARGET_LUFS, 16.5 dB) less the margin: -4.8 dBTP
+VOICE_TP = DIALOGUE_LUFS + (TARGET_TP - TARGET_LUFS) - VOICE_TP_MARGIN
+LEVEL_MIN_S = 0.4                   # loudnorm's gating block: a shorter line is measured looped to this length
+# A14: narration delivery moves only the level, after the -20 LUFS levelling (voices are rendered upstream)
+MOOD_OFFSET_DB = {"plain": 0.0, "measured": 0.0, "grave": -0.5, "hushed": -2.0, "close": -1.0}
+MOOD_OFFSET_MAX_DB = 2.0            # an offset under -2 dB is refused, and so is any positive one (a mood never lifts)
+# narrator-consistency (A14): one narrator, one voice. Per line: median f0 and its p10-p90 range over voiced 40 ms
+# frames (normalised autocorrelation), spectral centroid over active frames, words per second over the speech span.
+PROFILE_FRAME_S, PROFILE_HOP_S, PROFILE_MIN_RMS = 0.040, 0.010, 0.01
+F0_MIN_HZ, F0_MAX_HZ, VOICED_CORR = 60.0, 500.0, 0.5
+# narrator-consistency bounds are perceptual (CoS ruling, A14 refined): semitones and percent from the narrator's own
+# baseline, the median of the film's plain and measured lines. A z-score over a few dozen lines was unstable.
+NARRATOR_MIN_LINES = 4              # fewer narration lines make no baseline: journaled as inconclusive
+BASELINE_MOODS = {"plain", "measured"}       # the narrator's baseline comes from her unmarked register
+MOOD_MAY_BE_LOWER = {"grave", "hushed", "close"}   # these may sit lower; no mood may be higher or brighter
+NARRATOR_F0_UP_ST = 1.5             # f0 above the baseline by more than this: out of character, any mood
+NARRATOR_F0_DOWN_ST = 1.5           # below by more than this: out of character for plain and measured (and unmarked) lines
+NARRATOR_F0_DOWN_LOWER_ST = 3.0     # below by more than this: out of character for hushed, grave and close
+NARRATOR_CENTROID_UP = 0.25         # centroid above the baseline by more than 25%: out of character, any mood
+NARRATOR_CENTROID_DOWN = 0.25       # below by more than 25%: out of character for plain and measured lines
+NARRATOR_CENTROID_DOWN_LOWER = 0.40  # lower moods may go 40% below
+NARRATOR_SPREAD_MAX_ST = 1.0        # the baseline lines' robust f0 spread past this is two voices sharing the part
+NARRATOR_GROUP_DOWN_ST = 1.5        # a lower-mood group's median f0 may sit at most this far under the baseline
+NARRATOR_GROUP_MIN = 2              # a group of one is a single line, which may drop NARRATOR_F0_DOWN_LOWER_ST
+# narrator-drift, the film's baseline against the stored audition profile: warn past the first, block past the second
+NARRATOR_DRIFT_WARN_ST, NARRATOR_DRIFT_BLOCK_ST = 1.0, 2.0
+NARRATOR_DRIFT_WARN_CENTROID, NARRATOR_DRIFT_BLOCK_CENTROID = 0.15, 0.25
+NARRATOR_PROFILE = Path(__file__).resolve().parents[1] / "narrator-profile.json"   # optional anchor: the approved audition
+NEUTRALISE = "colour cast removed"  # A14: the alteration a neutralised colour cast is marked with
+NEUTRALISE_FILTER = "hue=s=0"       # chroma to neutral, luma kept, before scaling and pillarboxing
 VOICE_LIMIT_MARGIN_DB = 0.3         # the per-line limiter's ceiling sits this far under VOICE_TP
 # A13 bad take (refused, re-render it): over 8 dB for more than 20 ms in total, over 1 dB for more than 20% of the
 # line, or over 3 dB for more than 5% of it. A click cut deep for a few ms is peak control; sustained cuts are compression.
@@ -101,7 +137,7 @@ KIND_CLASSES = {
     "black": {"CARD"},
 }
 ALTERATIONS = {"colourised", "upscaled", "stabilised", "interpolated", "re-timed", "inpainted", "motion added", "tinted",
-               "audio synthesised"}
+               "audio synthesised", "colour cast removed"}   # the last by GRAMMAR A14
 LICENCE_OK = re.compile(r"^(public domain|cc0( 1\.0)?|cc[- ]?by([- ][1-4]\.0)?)$", re.I)
 PRESETS = {                         # GRAMMAR 7.2, zoom relative to the largest 16:9 window
     "HOLD": ({"z": 1.0}, {"z": 1.0}),
@@ -317,10 +353,28 @@ def load_ledgers(film: Path, play: dict) -> dict:
         items = data if isinstance(data, list) else (data.get("items") or data.get("assets") or [])
         for it in items:
             it = dict(it)
+            it["_private_keys"] = private_keys(it)       # refused in build_plan: "_" keys belong to the engine
             it["_ledger"] = name
             it["_path"] = str((media / it["file"]).resolve()) if it.get("file") else None
             assets[it["id"]] = it
     return assets
+
+
+def private_keys(x, path: str = "") -> list[str]:
+    """Every key starting with ``_`` anywhere inside a screenplay element or
+    ledger item. Those names are the engine's own working state (``_item``,
+    ``_neutralise``, ``_video``...): set by hand they could switch on a
+    behaviour the mark does not declare, so they are refused."""
+    out = []
+    if isinstance(x, dict):
+        for k, v in x.items():
+            if str(k).startswith("_"):
+                out.append(f"{path}{k}")
+            out += private_keys(v, f"{path}{k}.")
+    elif isinstance(x, list):
+        for k, v in enumerate(x):
+            out += private_keys(v, f"{path}{k}.")
+    return out
 
 
 def year_of(item: dict) -> str | None:
@@ -350,6 +404,14 @@ def is_synthetic(item: dict | None) -> bool:
     """A ledger item a program made (a test pattern or fixture image) rather
     than an archive: it may only ever be marked DRAWN."""
     return bool(item) and bool(item.get("synthetic") or item.get("test_fixture") or item.get("generator"))
+
+
+def neutralise_cast(shot: dict, item: dict | None) -> bool:
+    """A14: the shot's ``neutralise_cast`` when it states one, else its
+    ledger item's (a whole derivative carries a transfer cast)."""
+    if "neutralise_cast" in shot:
+        return shot["neutralise_cast"] is True
+    return bool(item) and item.get("neutralise_cast") is True
 
 
 def card_kind(shot: dict) -> str:
@@ -464,6 +526,17 @@ def _wrap_chars(text: str, n: int = 90) -> list[str]:
         else:
             cur = (cur + " " + w).strip()
     return lines + ([cur] if cur else [])
+
+
+def narrator_voice(play: dict) -> dict | None:
+    """The cast voice the narration is read by (a narration line's
+    ``read_by``, else the voice ``v-narrator``)."""
+    voices = {v.get("id"): v for v in (play.get("cast") or {}).get("voices", [])}
+    for part in play.get("parts", []):
+        for ln in part.get("lines", []):
+            if ln.get("kind") == "narration" and ln.get("read_by") in voices:
+                return voices[ln["read_by"]]
+    return voices.get("v-narrator")
 
 
 def credits_blocks(plan: dict) -> list:
@@ -636,6 +709,28 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         if severity == "block" and not ok:
             lint_fail.append(f"{rule}" + (f" ({unit})" if unit else "") + (f": {evidence}" if evidence else ""))
 
+    # Engine-private keys: nothing in a screenplay part (or what it holds), its cast, its subtitles or a ledger item
+    # may start with "_". The documents' own top-level "_note" comments are not read into any element.
+    private = {}
+    for part in play["parts"]:
+        for coll in ("shots", "lines", "cues", "text"):
+            for x in part.get(coll, []):
+                if private_keys(x):
+                    private[f"{part.get('id')}/{x.get('id')}"] = private_keys(x)
+        own = private_keys({k: v for k, v in part.items() if k not in ("shots", "lines", "cues", "text")})
+        if own:
+            private[f"part {part.get('id')}"] = own
+    for where, x in (("cast", play.get("cast")), ("subtitle_source", play.get("subtitle_source"))):
+        if private_keys(x):
+            private[where] = private_keys(x)
+    for aid, it in assets.items():
+        if it.get("_private_keys"):
+            private[f"ledger {it['_ledger']}/{aid}"] = it["_private_keys"]
+    for where, keys in private.items():
+        lint("private-key", False, unit=where, evidence={"keys": keys, "fix": "remove them: keys starting with _ are the engine's"})
+    if lint_fail:
+        raise Refused("lint failed: " + "; ".join(lint_fail))
+
     shots, lines, cues, texts = [], [], [], []
     for part in play["parts"]:
         for k, s in enumerate(part.get("shots", [])):
@@ -680,7 +775,21 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
              "allowed": sorted(allowed)}, grammar="4")
         if s.get("mark") == "RECONSTRUCTED":
             alts = s.get("alterations") or []
-            lint("alterations-closed", bool(alts) and set(alts) <= ALTERATIONS, unit=s["id"], evidence=alts, grammar="4.2")
+            lint("alterations-closed", bool(alts) and set(alts) <= ALTERATIONS, unit=s["id"], evidence=alts, grammar="4.2, A14")
+        s["_neutralise"] = False                 # only the A14 check below may turn it on
+        neutral = neutralise_cast(s, item)
+        named = NEUTRALISE in (s.get("alterations") or [])
+        if neutral or named:
+            # A14: the flag and the mark go together. A neutralised shot is RECONSTRUCTED "colour cast removed", never
+            # ARCHIVE; a mark that names the alteration with nothing performing it is a false mark.
+            ok = kind == "archive_video" and neutral and named and s.get("mark") == "RECONSTRUCTED"
+            lint("colour-cast-marked", ok, unit=s["id"], grammar="A14",
+                 evidence={"kind": kind, "neutralise_cast": neutral, "mark": s.get("mark"), "alterations": s.get("alterations") or [],
+                           "fix": None if ok else (
+                               "neutralise_cast applies to archive_video only" if kind != "archive_video" else
+                               f"mark the shot RECONSTRUCTED with the alteration '{NEUTRALISE}'" if neutral else
+                               f"set neutralise_cast: true on the ledger item or the shot, or drop '{NEUTRALISE}'")})
+            s["_neutralise"] = bool(ok)
         if kind == "archive_video":
             in_s = float(s.get("in_s", (item or {}).get("in_s", 0.0)))
             out_s = float(s.get("out_s", (item or {}).get("out_s", in_s + float(s.get("dur_s", 0)))))
@@ -805,12 +914,18 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                 journal.decision("conform", f"{pr['fps']:.3f} fps conformed to 24 by frame repeat",
                                  "A6 and GRAMMAR 7.5: no speed change; each source frame is shown 2 or 3 times", unit=s["id"])
             vw, vh = fit_video(dar, W, H)
-            s["_video"] = {"probe": pr, "conform": conf, "fit": [vw, vh],
+            neutral = {"filter": NEUTRALISE_FILTER, "alteration": NEUTRALISE} if s.get("_neutralise") else None
+            s["_video"] = {"probe": pr, "conform": conf, "fit": [vw, vh], "neutralise_cast": neutral,
                            "resampler": {"method": "lanczos (ffmpeg scale)", "ml_upscaler": False,
                                          "scale": round(vh / pr["height"], 4)}}
             s["_resampler"] = s["_video"]["resampler"]
-            u.settings = {"conform": conf, "resampler": s["_resampler"]}
-            u.extra.update(conform=conf, resampler=s["_resampler"], fit=[vw, vh])
+            u.settings = {"conform": conf, "resampler": s["_resampler"], "neutralise_cast": neutral}
+            u.extra.update(conform=conf, resampler=s["_resampler"], fit=[vw, vh], neutralise_cast=neutral)
+            if neutral:
+                journal.decision("conform", f"colour cast neutralised to grey ({NEUTRALISE_FILTER}, luma kept) before pillarboxing",
+                                 f"neutralise_cast is set; GRAMMAR A14 marks it RECONSTRUCTED '{NEUTRALISE}'", unit=s["id"],
+                                 evidence={"asset": s.get("asset"), "filter": NEUTRALISE_FILTER, "mark": s["mark"],
+                                           "alterations": s.get("alterations")})
             ok_aspect = abs(vw / vh - dar) <= dar * (2.0 / vw + 2.0 / vh)
             lint("clip-aspect", ok_aspect, unit=s["id"], stage="conform",
                  evidence={"source_dar": round(dar, 4), "dar_from": dar_from, "sar": round(pr["sar"], 4),
@@ -887,6 +1002,24 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     lint("voice-overlap", not collisions, stage="scout", grammar="founder ruling 2026-10-10",
          evidence={"collisions": collisions, "gap_s": VOICE_GAP_S, "lines": len(vl),
                    "fix": "move the lines, or render with --fit-voices" if collisions else None})
+    for ln in lines:
+        if ln.get("kind") not in VOICE_KINDS or ln.get("archival_audio"):
+            continue
+        if "gain_db" in ln:
+            # A13 levels every synthetic line to the dialogue target; the mood offset (A14) is the only level change after it
+            lint("voice-gain-db", False, unit=ln["id"], grammar="A13, A14",
+                 evidence={"gain_db": ln["gain_db"], "fix": "drop gain_db; a narration line's level moves only by its delivery mood"})
+        if "delivery" in ln:
+            d = ln["delivery"] if isinstance(ln["delivery"], dict) else {}
+            mood = d.get("mood")
+            off = MOOD_OFFSET_DB.get(mood)
+            ok = ln.get("kind") == "narration" and off is not None and -MOOD_OFFSET_MAX_DB - 1e-9 <= off <= 0.0
+            lint("narrator-delivery", ok, unit=ln["id"], grammar="A14",
+                 evidence={"kind": ln.get("kind"), "mood": mood, "offset_db": off, "max_abs_db": MOOD_OFFSET_MAX_DB,
+                           "moods": MOOD_OFFSET_DB,
+                           "fix": None if ok else ("delivery is for narration lines only" if ln.get("kind") != "narration" else
+                                                   f"mood must be one of {sorted(MOOD_OFFSET_DB)}" if off is None else
+                                                   f"offset {off:+g} dB is outside -{MOOD_OFFSET_MAX_DB:g} to 0 dB")})
     if lint_fail:
         raise Refused("lint failed: " + "; ".join(lint_fail))
 
@@ -897,7 +1030,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         "film": str(film), "title": play.get("title", film.name), "slug": play.get("slug", film.name),
         "W": W, "H": H, "fps": FPS, "frames": total_frames, "duration_s": total_frames / FPS,
         "shots": shots, "assets": {k: {kk: vv for kk, vv in v.items()} for k, v in assets.items()},
-        "lines": lines, "cues": cues, "speakers": speakers,
+        "lines": lines, "cues": cues, "speakers": speakers, "narrator_voice": narrator_voice(play),
         "lower_thirds": lower_thirds, "overlays": overlays, "subtitles": subs, "burn_subtitles": burn_subtitles,
         "marks": [{"start": s["f0"] / FPS, "cls": s["mark"], "detail": s["detail"]} for s in shots],
         "card_spans": card_spans, "wm_start": (imagery[0]["f0"] / FPS) if imagery else None,
@@ -922,7 +1055,8 @@ class VideoReader:
         self.nbytes = self.vw * self.vh * 3
         self.t0 = start_local
         conform = v["conform"]["filter"]
-        vf = (conform + "," if conform else "") + f"scale={self.vw}:{self.vh}:flags=lanczos,setsar=1,format=rgb24"
+        neutral = (v.get("neutralise_cast") or {}).get("filter")
+        vf = "".join(f + "," for f in (conform, neutral) if f) + f"scale={self.vw}:{self.vh}:flags=lanczos,setsar=1,format=rgb24"
         ss = shot["in_s"] + start_local
         dur = shot["_dur"] - start_local + 2.0 / FPS
         self.err = tempfile.TemporaryFile()
@@ -1164,7 +1298,7 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
     err = tempfile.TemporaryFile()
     enc = subprocess.Popen(encoder_cmd(plan, part), stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=err)
     stats = {"ok": 0, "fade": 0, "dip": 0, "fail": 0, "fail_frames": []}
-    first_whole = None
+    first_whole, first_detail = None, None
     ms = []
     try:
         for f in range(s["f0"], s["f1"]):
@@ -1175,7 +1309,8 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
             if res == "fail" and len(stats["fail_frames"]) < 10:
                 stats["fail_frames"].append(f)
             if f == s["f0"] and s["kind"] == "archive_still":
-                first_whole = still_first_frame_whole(plan, pics, i)
+                first_detail = {}
+                first_whole = still_first_frame_whole(plan, pics, i, first_detail)
             try:
                 enc.stdin.write(arr.tobytes())
             except (BrokenPipeError, OSError) as exc:
@@ -1209,7 +1344,7 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
         err.close()
     result = {"shot": s["id"], "frames": frames, "wall_s": time.perf_counter() - t_start,
               "ms_mean": round(sum(ms) / len(ms), 2) if ms else None, "mark": stats, "first_frame_whole": first_whole,
-              "held_frames": held}
+              "first_frame_detail": first_detail, "held_frames": held}
     seg.with_name(seg.name + ".json").write_text(json.dumps(result), encoding="utf-8")
     return result
 
@@ -1371,12 +1506,20 @@ def _level(journal: Journal, unit: str, x: np.ndarray, target: float, what: str)
     dynamics), and journal the gain as a decision."""
     g, m = level_gain(x, target)
     if g is None:
-        journal.decision("assembly", f"{unit} not levelled", "too short or too quiet to measure (gated out)", unit=unit,
-                         evidence={"measured_i": m.get("input_i")})
+        journal.decision("assembly", f"{unit} not levelled", "empty or too quiet to measure (gated out)", unit=unit,
+                         evidence={"measured_i": m.get("input_i"), "dur_s": round(len(x) / AUDIO_RATE, 3)})
+        # a line or cue that cannot be levelled (and so is not peak-controlled) is said, not silently passed
+        journal.lint("level-measured", False, stage="assembly", phase="preflight", unit=unit, severity="warn", grammar="A13",
+                     evidence={"what": what, "dur_s": round(len(x) / AUDIO_RATE, 3), "measured_i": m.get("input_i"),
+                               "result": "placed at its own level, with no peak control"})
         return None
+    looped = m.get("looped", 1)
     journal.decision("assembly", f"{unit} levelled to {target:g} LUFS ({what}) by {g:+.2f} dB",
-                     f"measured {m['input_i']:.2f} LUFS integrated, true peak {m['input_tp']:.2f} dBTP; linear gain only",
-                     unit=unit, evidence={"measured_i": m["input_i"], "measured_tp": m["input_tp"], "target": target, "gain_db": round(g, 2)})
+                     f"measured {m['input_i']:.2f} LUFS integrated, true peak {m['input_tp']:.2f} dBTP; linear gain only"
+                     + (f"; the line is {len(x) / AUDIO_RATE:.3f} s, under one {LEVEL_MIN_S:g} s gating block, so it was "
+                        f"measured looped {looped} times" if looped > 1 else ""),
+                     unit=unit, evidence={"measured_i": m["input_i"], "measured_tp": m["input_tp"], "target": target, "gain_db": round(g, 2),
+                                          "measured_looped": looped})
     return g
 
 
@@ -1386,7 +1529,7 @@ def _journal_peak(journal: Journal, unit: str, peak: dict, draft: bool) -> None:
                      f"over 8 dB {peak['over_8db_s']:.3f} s, over 3 dB {peak['over_3db_s']:.3f} s, over 1 dB {peak['over_1db_s']:.3f} s "
                      f"of {peak['dur_s']:.3f} s",
                      f"its true peak after levelling was {peak['tp_before']:.2f} dBTP, past the voice ceiling {VOICE_TP:g} dBTP "
-                     f"(GRAMMAR A13: {DIALOGUE_LUFS:g} LUFS + 12.5 dB)", unit=unit,
+                     f"(GRAMMAR A13, A15: {DIALOGUE_LUFS:g} LUFS + {TARGET_TP - TARGET_LUFS:g} dB headroom - {VOICE_TP_MARGIN:g} dB)", unit=unit,
                      evidence=dict({k: v for k, v in peak.items() if k != "acted"}, acted=peak["acted"][:20]))
     journal.lint("voice-peak-control", not peak["bad_take"], stage="assembly", phase="preflight", unit=unit,
                  severity="warn" if draft else "block", grammar="A13",
@@ -1398,11 +1541,295 @@ def _journal_peak(journal: Journal, unit: str, peak: dict, draft: bool) -> None:
                            "result": None if not peak["bad_take"] else ("kept (draft)" if draft else "refused: re-render the take")})
 
 
+WORD_RE = re.compile(r"[A-Za-z0-9]+(?:['’\-][A-Za-z0-9]+)*")
+
+
+def mood_offset(journal: Journal, ln: dict) -> float:
+    """A14: a narration line's level offset for its delivery mood, applied
+    after the -20 LUFS levelling and peak control, journaled as a decision.
+    Delivery moves only the level; pace and pauses were rendered upstream.
+    An offset past MOOD_OFFSET_MAX_DB is refused (build_plan's
+    narrator-delivery lint refuses it first)."""
+    d = ln.get("delivery")
+    if not isinstance(d, dict) or ln.get("kind") != "narration":
+        return 0.0
+    mood = d.get("mood")
+    off = MOOD_OFFSET_DB.get(mood)
+    if off is None or not -MOOD_OFFSET_MAX_DB - 1e-9 <= off <= 0.0:
+        raise Refused(f"narrator-delivery (A14): {ln['id']} mood {mood!r} gives offset {off}; moods {MOOD_OFFSET_DB}, "
+                      f"each from -{MOOD_OFFSET_MAX_DB:g} to 0 dB")
+    journal.decision("assembly", f"{ln['id']} delivery {mood}: {off:+.1f} dB after levelling to {DIALOGUE_LUFS:g} LUFS",
+                     "GRAMMAR A14: a narration line's mood sets a small level offset (plain 0, measured 0, grave -0.5, "
+                     "hushed -2.0, close -1.0 dB); the voice itself was rendered upstream", unit=ln["id"],
+                     evidence={"mood": mood, "offset_db": off, "intensity": d.get("intensity"), "pace": d.get("pace"),
+                               "pause_after_s": d.get("pause_after_s"), "applies_to": "level only"})
+    return off
+
+
+def _frames(x: np.ndarray, n: int, hop: int) -> np.ndarray:
+    if len(x) < n:
+        return np.zeros((0, n), dtype=x.dtype)
+    k = 1 + (len(x) - n) // hop
+    return x[np.arange(n)[None, :] + hop * np.arange(k)[:, None]]
+
+
+def voice_profile(x: np.ndarray, words: int) -> dict:
+    """A levelled voice line's profile for narrator-consistency, over 40 ms
+    frames every 10 ms. Active frames have an RMS of at least 0.01. On each
+    active frame, pitch comes from the normalised autocorrelation of the
+    line box-filtered to 16 kHz: a frame is voiced when its best lag in 60 to
+    500 Hz correlates at least 0.5, and the pitch is the first lag within 90%
+    of that best (so a subharmonic never wins), refined parabolically.
+    Returns the median f0 and its p10 to p90 range over voiced frames, the
+    median spectral centroid over active frames (Hann window, full band),
+    and words per second over the speech span (first to last active frame)."""
+    x = np.asarray(x, dtype=np.float64)
+    n, hop = int(PROFILE_FRAME_S * AUDIO_RATE), int(PROFILE_HOP_S * AUDIO_RATE)
+    fr = _frames(x, n, hop)
+    active = np.sqrt((fr ** 2).mean(axis=1)) >= PROFILE_MIN_RMS if len(fr) else np.zeros(0, bool)
+    ds = 3
+    rd, nd, hd = AUDIO_RATE // ds, n // ds, hop // ds
+    xd = x[: len(x) // ds * ds].reshape(-1, ds).mean(axis=1)
+    fd = _frames(xd, nd, hd)[: len(fr)]
+    lo, hi = int(rd / F0_MAX_HZ), int(math.ceil(rd / F0_MIN_HZ))
+    tau = np.arange(nd)
+    f0s = []
+    for f in fd[active[: len(fd)]]:
+        f = f - f.mean()
+        ac = np.fft.irfft(np.abs(np.fft.rfft(f, 2 * nd)) ** 2)[:nd]
+        c = np.concatenate(([0.0], np.cumsum(f ** 2)))
+        r = ac / np.sqrt(np.maximum(c[nd - tau] * (c[nd] - c[tau]), 1e-12))
+        seg = r[lo:hi + 1]
+        best = float(seg.max())
+        if best < VOICED_CORR:
+            continue
+        j = int(np.flatnonzero(seg >= 0.9 * best)[0])
+        while j + 1 < len(seg) and seg[j + 1] > seg[j]:
+            j += 1
+        t = float(lo + j)
+        if 0 < lo + j < nd - 1:
+            a, b, cc = r[lo + j - 1], r[lo + j], r[lo + j + 1]
+            den = a - 2 * b + cc
+            t += 0.5 * (a - cc) / den if den else 0.0
+        f0s.append(rd / t)
+    cen = np.zeros(0)
+    if active.any():
+        mag = np.abs(np.fft.rfft(fr[active] * np.hanning(n), axis=1))
+        freqs = np.fft.rfftfreq(n, 1.0 / AUDIO_RATE)
+        cen = (mag * freqs).sum(axis=1) / np.maximum(mag.sum(axis=1), 1e-12)
+    idx = np.flatnonzero(active)
+    span = ((idx[-1] - idx[0]) * hop + n) / AUDIO_RATE if len(idx) else 0.0
+    f0 = np.asarray(f0s)
+    r2 = (lambda v: None if v is None else round(float(v), 2))
+    return {"f0_hz": r2(np.median(f0)) if len(f0) else None,
+            "f0_p10_hz": r2(np.percentile(f0, 10)) if len(f0) else None,
+            "f0_p90_hz": r2(np.percentile(f0, 90)) if len(f0) else None,
+            "f0_range_hz": r2(np.percentile(f0, 90) - np.percentile(f0, 10)) if len(f0) else None,
+            "centroid_hz": r2(np.median(cen)) if len(cen) else None,
+            "words": int(words), "speech_s": round(span, 3), "wps": r2(words / span) if span else None,
+            "voiced_frames": int(len(f0)), "active_frames": int(active.sum())}
+
+
+def _st(f: float, ref: float) -> float:
+    """Semitones from ref to f."""
+    return 12 * math.log2(f / ref)
+
+
+def narrator_consistency(profiles: dict[str, dict]) -> dict:
+    """A14 narrator-consistency (refined: perceptual bounds) over every
+    narration line's profile (with its ``mood``).
+
+    The baseline is the median f0 and centroid of the plain and measured
+    lines (all lines when fewer than NARRATOR_MIN_LINES of those). A line is
+    out of character when its f0 is more than 1.5 semitones above the
+    baseline (any mood), or below it by more than 1.5 semitones (plain,
+    measured or no mood) or 3 semitones (hushed, grave, close); or when its
+    centroid is more than 25% above (any mood), or below by more than 25%
+    (plain, measured or no mood) or 40% (the lower moods). Words per second
+    is profiled, never refused. The baseline lines' robust f0 spread (1.4826
+    x the median absolute deviation, in semitones) past 1 semitone means two
+    voices share the part (``spread_ok`` False). Fewer than
+    NARRATOR_MIN_LINES measured lines make no baseline: all inconclusive."""
+    measured = {k: p for k, p in profiles.items() if p.get("f0_hz") is not None and p.get("centroid_hz") is not None}
+    unmarked = {k: p for k, p in measured.items() if p.get("mood") in BASELINE_MOODS}
+    pool = unmarked if len(unmarked) >= NARRATOR_MIN_LINES else measured
+    enough = len(measured) >= NARRATOR_MIN_LINES
+    base: dict = {}
+    spread_st = None
+    if pool:
+        for k in ("f0_hz", "f0_range_hz", "centroid_hz", "wps"):
+            v = [p[k] for p in pool.values() if p.get(k) is not None]
+            if v:
+                base[k] = round(float(np.median(v)), 2)
+        st = np.array([_st(p["f0_hz"], base["f0_hz"]) for p in pool.values()])
+        spread_st = round(1.4826 * float(np.median(np.abs(st - np.median(st)))), 3)
+    lines = {}
+    for lid, p in profiles.items():
+        mood = p.get("mood")
+        lower = mood in MOOD_MAY_BE_LOWER
+        d_st = round(_st(p["f0_hz"], base["f0_hz"]), 2) if p.get("f0_hz") and base.get("f0_hz") else None
+        d_cen = round(p["centroid_hz"] / base["centroid_hz"] - 1, 4) if p.get("centroid_hz") and base.get("centroid_hz") else None
+        down_st = NARRATOR_F0_DOWN_LOWER_ST if lower else NARRATOR_F0_DOWN_ST
+        down_cen = NARRATOR_CENTROID_DOWN_LOWER if lower else NARRATOR_CENTROID_DOWN
+        off, allowed = [], []
+        if d_st is not None:
+            if d_st > NARRATOR_F0_UP_ST:
+                off.append(f"f0 {d_st:+.2f} semitones (more than {NARRATOR_F0_UP_ST:g} above; no mood may be higher)")
+            elif d_st < -down_st:
+                off.append(f"f0 {d_st:+.2f} semitones (more than {down_st:g} below for a {mood or 'unmarked'} line)")
+            elif d_st < -NARRATOR_F0_DOWN_ST:
+                allowed.append(f"f0 {d_st:+.2f} semitones, within the {down_st:g} a {mood} line may drop")
+        if d_cen is not None:
+            if d_cen > NARRATOR_CENTROID_UP:
+                off.append(f"centroid {d_cen:+.1%} (more than {NARRATOR_CENTROID_UP:.0%} above; no mood may be brighter)")
+            elif d_cen < -down_cen:
+                off.append(f"centroid {d_cen:+.1%} (more than {down_cen:.0%} below for a {mood or 'unmarked'} line)")
+            elif d_cen < -NARRATOR_CENTROID_DOWN:
+                allowed.append(f"centroid {d_cen:+.1%}, within the {down_cen:.0%} a {mood} line may drop")
+        verdict = "inconclusive" if not enough or d_st is None or d_cen is None else ("off" if off else "consistent")
+        lines[lid] = {"profile": {k: v for k, v in p.items() if k != "mood"}, "mood": mood, "f0_st": d_st,
+                      "centroid_pct": None if d_cen is None else round(100 * d_cen, 2), "off": off, "allowed": allowed,
+                      "verdict": verdict}
+    # A single lower-mood line may drop 3 semitones, but a whole mood may not: otherwise a second voice could take
+    # the plain lines and leave the narrator only the lower ones. Each lower mood with at least NARRATOR_GROUP_MIN lines,
+    # and the lower moods pooled, keep their median f0 within NARRATOR_GROUP_DOWN_ST of the baseline.
+    groups = {}
+    if base.get("f0_hz") and enough:
+        sets = {m: [p["f0_hz"] for p in measured.values() if p.get("mood") == m] for m in sorted(MOOD_MAY_BE_LOWER)}
+        sets["lower moods pooled"] = [p["f0_hz"] for p in measured.values() if p.get("mood") in MOOD_MAY_BE_LOWER]
+        for m, v in sets.items():
+            if len(v) < NARRATOR_GROUP_MIN:
+                continue
+            d = round(_st(float(np.median(v)), base["f0_hz"]), 2)
+            groups[m] = {"lines": len(v), "median_f0_hz": round(float(np.median(v)), 2), "f0_st": d,
+                         "ok": d >= -NARRATOR_GROUP_DOWN_ST}
+    group_off = [f"{m}: median f0 {g['f0_st']:+.2f} semitones over {g['lines']} lines (a mood may sit at most "
+                 f"{NARRATOR_GROUP_DOWN_ST:g} below the baseline)" for m, g in groups.items() if not g["ok"]]
+    return {"baseline": base, "lines": lines, "enough": enough, "min_lines": NARRATOR_MIN_LINES,
+            "groups": groups, "group_off": group_off, "baseline_lines": sorted(pool),
+            "baseline_from": ("plain and measured lines" if pool is unmarked
+                              else f"all lines (fewer than {NARRATOR_MIN_LINES} plain or measured)"),
+            "bounds": {"f0_up_st": NARRATOR_F0_UP_ST, "f0_down_st": NARRATOR_F0_DOWN_ST,
+                       "f0_down_lower_moods_st": NARRATOR_F0_DOWN_LOWER_ST, "centroid_up": NARRATOR_CENTROID_UP,
+                       "centroid_down": NARRATOR_CENTROID_DOWN, "centroid_down_lower_moods": NARRATOR_CENTROID_DOWN_LOWER},
+            "spread_st": spread_st, "spread_ok": spread_st is None or not enough or spread_st <= NARRATOR_SPREAD_MAX_ST}
+
+
+def load_narrator_profile(narrator_voice: dict | None, path: Path | None = None) -> tuple[dict | None, str]:
+    """The stored narrator profile (the approved audition's median f0 and
+    centroid) when it exists and is the film's narrator voice, else None;
+    and why. It is a drift reference only: it never sets the baseline."""
+    path = NARRATOR_PROFILE if path is None else path
+    if not path or not Path(path).exists():
+        return None, f"no stored profile at {path}"
+    prof = json.loads(Path(path).read_text(encoding="utf-8"))
+    want = {k: (narrator_voice or {}).get(k) for k in ("engine", "voice")}
+    have = {k: (prof.get("voice") or {}).get(k) for k in ("engine", "voice")}
+    if want != have:
+        return None, f"the stored profile is {have['engine']}:{have['voice']}, the film's narrator is {want['engine']}:{want['voice']}"
+    return prof, f"drift reference {Path(path).name} ({have['engine']}:{have['voice']})"
+
+
+def narrator_profile_from_takes(takes: list[tuple[Path, str]], voice: dict) -> dict:
+    """A stored narrator profile from approved takes (WAV, spoken text): each
+    take levelled to DIALOGUE_LUFS and profiled as narration lines are, then
+    the median f0 and centroid (the drift check's reference)."""
+    per = {}
+    for path, text in takes:
+        x = _read_wav(Path(path))
+        g, _ = level_gain(x, DIALOGUE_LUFS)
+        per[Path(path).name] = dict(voice_profile(x * 10 ** (g / 20), len(WORD_RE.findall(text))),
+                                    sha256=sha256_file(path)[:16])
+    base = {k: round(float(np.median([p[k] for p in per.values()])), 2) for k in ("f0_hz", "centroid_hz")}
+    return {"voice": voice, "baseline": base, "takes": per,
+            "method": "studio.engine.render.voice_profile on each take levelled to -20 LUFS; median over the takes"}
+
+
+def narrator_drift(baseline: dict, stored: dict | None) -> dict:
+    """The film's narrator baseline against the stored audition profile:
+    f0 in semitones, centroid as a fraction. Each is ``ok``, ``warn``
+    (past NARRATOR_DRIFT_WARN_*) or ``block`` (past NARRATOR_DRIFT_BLOCK_*)."""
+    if not stored or not baseline.get("f0_hz") or not baseline.get("centroid_hz"):
+        return {}
+    f0 = round(_st(baseline["f0_hz"], float(stored["baseline"]["f0_hz"])), 2)
+    cen = round(baseline["centroid_hz"] / float(stored["baseline"]["centroid_hz"]) - 1, 4)
+
+    def grade(v, warn, block):
+        return "block" if abs(v) > block else ("warn" if abs(v) > warn else "ok")
+
+    return {"f0": {"value": f0, "unit": "semitones", "warn": NARRATOR_DRIFT_WARN_ST, "block": NARRATOR_DRIFT_BLOCK_ST,
+                   "grade": grade(f0, NARRATOR_DRIFT_WARN_ST, NARRATOR_DRIFT_BLOCK_ST)},
+            "centroid": {"value": cen, "unit": "fraction", "warn": NARRATOR_DRIFT_WARN_CENTROID,
+                         "block": NARRATOR_DRIFT_BLOCK_CENTROID,
+                         "grade": grade(cen, NARRATOR_DRIFT_WARN_CENTROID, NARRATOR_DRIFT_BLOCK_CENTROID)}}
+
+
+def narrator_consistency_lints(journal: Journal, profiles: dict[str, dict], draft: bool,
+                               narrator_voice: dict | None = None) -> list[str]:
+    """Journal the narrator's baseline and every line's profile, and lint:
+    narrator-consistency per line, for the part's spread and for each
+    lower-mood group (blocking, a warning under --draft); narrator-drift
+    against the stored audition profile for f0 and centroid (a warning past
+    the first bound, blocking past the second, a warning under --draft), or
+    a review item "no reference profile" when the narrator voice has none.
+    Returns what is refused, with why."""
+    res = narrator_consistency(profiles)
+    stored, why = load_narrator_profile(narrator_voice)
+    drift = narrator_drift(res["baseline"], stored)
+    journal.event("unit", "assembly", "narrator", lens="narrator-profile", status="info", grammar="A14",
+                  baseline=res["baseline"], baseline_from=res["baseline_from"], baseline_lines=res["baseline_lines"],
+                  bounds=res["bounds"], spread_st=res["spread_st"], groups=res["groups"], drift=drift, reference=why,
+                  lines={k: v["profile"] | {"mood": v["mood"]} for k, v in res["lines"].items()}, enough=res["enough"])
+    sev = "warn" if draft else "block"
+    off = []
+    if not stored:
+        journal.lint("narrator-drift", True, stage="assembly", phase="preflight", unit="narrator", severity="review",
+                     grammar="A14", evidence={"check": "no reference profile", "why": why, "narrator_voice": narrator_voice,
+                                              "film_baseline": res["baseline"]})
+    else:
+        for k, d in drift.items():
+            blocks = d["grade"] == "block"
+            journal.lint("narrator-drift", d["grade"] == "ok", stage="assembly", phase="preflight", unit=f"narrator-{k}",
+                         severity=sev if blocks else "warn", grammar="A14",
+                         evidence=dict(d, film_baseline=res["baseline"], reference=stored["baseline"], why=why,
+                                       result=None if not blocks else ("kept (draft)" if draft else "refused: not the narrator's voice")))
+            if blocks:
+                v = f"{d['value']:+.2f} semitones" if k == "f0" else f"{d['value']:+.1%}"
+                off.append(f"narrator-drift {k} {v} from the stored profile (block past {d['block']:g}"
+                           + (" semitones)" if k == "f0" else ")"))
+    journal.lint("narrator-consistency", res["spread_ok"], stage="assembly", phase="preflight", unit="narrator",
+                 severity=sev, grammar="A14", status=None if res["enough"] else "inconclusive",
+                 evidence={"spread_st": res["spread_st"], "limit_st": NARRATOR_SPREAD_MAX_ST, "baseline": res["baseline"],
+                           "baseline_from": res["baseline_from"], "result": None if res["spread_ok"] else
+                           ("kept (draft)" if draft else "refused: two voices share the narrator")})
+    if not res["spread_ok"]:
+        off.append(f"narrator (the baseline lines' pitch spreads {res['spread_st']:.2f} semitones, "
+                   f"limit {NARRATOR_SPREAD_MAX_ST:g}: two voices share the part)")
+    for m, g in res["groups"].items():
+        journal.lint("narrator-consistency", g["ok"], stage="assembly", phase="preflight", unit=f"narrator:{m}", severity=sev,
+                     grammar="A14", evidence=dict(g, baseline=res["baseline"], limit_st=NARRATOR_GROUP_DOWN_ST,
+                                                  result=None if g["ok"] else ("kept (draft)" if draft else "refused")))
+    off += res["group_off"]
+    for lid, r in res["lines"].items():
+        bad = r["verdict"] == "off"
+        journal.lint("narrator-consistency", not bad, stage="assembly", phase="preflight", unit=lid,
+                     severity=sev, grammar="A14",
+                     status="inconclusive" if r["verdict"] == "inconclusive" else None,
+                     evidence={"profile": r["profile"], "mood": r["mood"], "f0_st": r["f0_st"], "centroid_pct": r["centroid_pct"],
+                               "off": r["off"], "allowed": r["allowed"], "baseline": res["baseline"], "bounds": res["bounds"],
+                               "verdict": r["verdict"], "lines": len(res["lines"]),
+                               "result": None if not bad else ("kept (draft)" if draft else "refused: re-render the line")})
+        if bad:
+            off.append(f"{lid} ({'; '.join(r['off'])})")
+    return off
+
+
 def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) -> tuple[np.ndarray, dict]:
     n = int(round(plan["frames"] / FPS * AUDIO_RATE))
     voice, music, amb, clips = (np.zeros(n, np.float32) for _ in range(4))
     placed = {"lines": [], "cues": [], "clips": [], "missing": []}
     missing_voice, bad_takes = [], []
+    narr: dict[str, dict] = {}                   # narration line id -> its voice profile, for narrator-consistency
     for ln in plan["lines"]:
         wav = film / (ln.get("wav") or f"audio/{ln['id']}.wav")
         if not wav.exists():
@@ -1413,21 +1840,31 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
             missing_voice.append(ln["id"])
             continue
         x = _read_wav(wav)
-        level = None if ln.get("archival_audio") else _level(journal, ln["id"], x, DIALOGUE_LUFS, "dialogue")
+        synthetic = not ln.get("archival_audio")
+        if synthetic and "gain_db" in ln:        # build_plan refuses it (voice-gain-db); a hand-made plan is refused here too
+            raise Refused(f"voice-gain-db (A13, A14): {ln['id']} carries gain_db; a synthetic line's level is set by the engine")
+        level = _level(journal, ln["id"], x, DIALOGUE_LUFS, "dialogue") if synthetic else None
         peak = None
         if level is not None:                    # A13: peak control on a synthetic line, after its levelling
-            x, peak = voice_peak_control(x * np.float32(10 ** (level / 20)))
+            x = x * np.float32(10 ** (level / 20))
+            if ln.get("kind") == "narration":
+                words = len(WORD_RE.findall(str(ln.get("text") or "")))
+                narr[ln["id"]] = dict(voice_profile(x, words), mood=(ln.get("delivery") or {}).get("mood"))
+            x, peak = voice_peak_control(x)
             if peak:
                 _journal_peak(journal, ln["id"], peak, draft)
                 if peak["bad_take"]:
                     bad_takes.append(f"{ln['id']} ({'; '.join(peak['bad_take'])})")
-        k = _place(voice, x, float(ln["start_s"]), float(ln.get("gain_db", 0.0)))   # the levelling is already in x
+        offset = mood_offset(journal, ln) if synthetic else 0.0
+        k = _place(voice, x, float(ln["start_s"]), offset if synthetic else float(ln.get("gain_db", 0.0)))   # levelling is in x
         sp = plan["speakers"].get(ln.get("speaker"), {})
         placed["lines"].append({"id": ln["id"], "speaker": ln.get("speaker"), "side": sp.get("side"),
                                 "kind": "narration" if ln.get("kind") == "narration" else ("archival" if ln.get("archival_audio") else "reading"),
                                 "at_s": float(ln["start_s"]), "dur_s": round(k / AUDIO_RATE, 3),
                                 "level_db": None if level is None else round(level, 2),
+                                "mood_offset_db": offset if synthetic else None,
                                 "peak_reduction_db": peak["max_reduction_db"] if peak else None})
+    narrator_off = narrator_consistency_lints(journal, narr, draft, plan.get("narrator_voice")) if narr else []
     for c in plan["cues"]:
         wav = film / (c.get("wav") or f"audio/{c['id']}.wav")
         if not wav.exists():
@@ -1456,6 +1893,8 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
         raise Refused(f"voice WAVs missing for {', '.join(missing_voice)} (render with --draft to place silence)")
     if bad_takes and not draft:
         raise Refused(f"voice-peak-control (A13): bad takes, re-render them instead of crushing them: {'; '.join(bad_takes)}")
+    if narrator_off and not draft:
+        raise Refused(f"narrator-consistency and narrator-drift (A14): not the narrator's voice: {'; '.join(narrator_off)}")
     env = (np.abs(voice) > 1e-3).astype(np.float32)
     env = np.clip(moving_average(env, int(0.25 * AUDIO_RATE)) * 4, 0, 1)
     duck = 1 - env * (1 - 10 ** (-DUCK_DB / 20))
@@ -1467,7 +1906,7 @@ def loudness_lints(journal: Journal, loud: dict, *, draft: bool = False) -> list
     """Journal what the loudness pass did and why: every step it took (the
     LRA target raised above the programme's own range, the true-peak limiter
     with the values each attempt used) as a decision, the measured result
-    against -16 LUFS, whether the gain was linear, and whether the limiter
+    against the -18 LUFS target, whether the gain was linear, and whether the limiter
     stayed peak control (GRAMMAR 8.5 keeps archival audio's own dynamics).
     A dynamic result or a limiter that compressed blocks a final master, and
     is only a warning under --draft. Returns the reasons the run must be
@@ -1555,12 +1994,24 @@ def _measure(src: Path | np.ndarray) -> dict:
     return out
 
 
+def _measure_line(x: np.ndarray) -> dict:
+    """_measure on a line, looped end to end to LEVEL_MIN_S when it is
+    shorter (loudnorm needs one 400 ms gating block): a loop has the line's
+    own mean-square loudness and true peak. ``looped`` says how often."""
+    n = int(LEVEL_MIN_S * AUDIO_RATE)
+    reps = 1 if len(x) >= n or len(x) == 0 else math.ceil(n / len(x))
+    m = _measure(np.tile(x, reps) if reps > 1 else x)
+    m["looped"] = reps
+    return m
+
+
 def level_gain(x: np.ndarray, target: float) -> tuple[float | None, dict]:
     """The linear gain that brings x's integrated loudness to target, and the
-    measurement. None when x is too short or quiet to measure (gated out)."""
-    if len(x) < int(0.4 * AUDIO_RATE):
+    measurement. A line under 0.4 s is measured looped (``looped`` > 1).
+    None when x is empty or too quiet to measure (gated out)."""
+    if len(x) == 0:
         return None, {}
-    m = _measure(x)
+    m = _measure_line(x)
     if not math.isfinite(m["input_i"]) or m["input_i"] < -70:
         return None, m
     return target - m["input_i"], m
@@ -1598,13 +2049,13 @@ def _limit_array(x: np.ndarray, ceiling_db: float) -> np.ndarray:
 def voice_peak_control(x: np.ndarray, ceiling_db: float | None = None) -> tuple[np.ndarray, dict | None]:
     """GRAMMAR A13: a levelled synthetic voice line whose true peak passes
     the voice ceiling goes through the oversampled true-peak limiter, so its
-    crest fits the master's 14.5 dB between -16 LUFS and -1.5 dBTP. Returns
+    crest fits the master's 16.5 dB between -18 LUFS and -1.5 dBTP (A15). Returns
     the line and what the limiter did (None when it was not needed), with
     ``bad_take`` listing why when its cuts were compression, not peak
     control: over 8 dB for more than 20 ms in total, over 1 dB for more than
     20% of the line, or over 3 dB for more than 5% of it."""
     ceiling_db = VOICE_TP if ceiling_db is None else ceiling_db
-    m = _measure(x)
+    m = _measure_line(x)                         # a line under 0.4 s is measured looped, so it is peak-controlled too
     if not math.isfinite(m["input_tp"]) or m["input_tp"] <= ceiling_db:
         return x, None
     y = _limit_array(x, ceiling_db - VOICE_LIMIT_MARGIN_DB)
@@ -1620,10 +2071,10 @@ def voice_peak_control(x: np.ndarray, ceiling_db: float | None = None) -> tuple[
         bad.append(f"over 1 dB for {gr['over_1db_s']:.3f} s, {share1:.1%} of the line (limit {VOICE_OVER_1DB_MAX_SHARE:.0%})")
     if share3 > VOICE_OVER_3DB_MAX_SHARE:
         bad.append(f"over 3 dB for {gr['over_3db_s']:.3f} s, {share3:.1%} of the line (limit {VOICE_OVER_3DB_MAX_SHARE:.0%})")
-    after = _measure(y)
+    after = _measure_line(y)
     return y, dict(gr, ceiling_dbtp=round(ceiling_db - VOICE_LIMIT_MARGIN_DB, 2), tp_before=m["input_tp"], tp_after=after["input_tp"],
                    i_after=after["input_i"], dur_s=round(dur, 3), over_1db_share=round(share1, 4), over_3db_share=round(share3, 4),
-                   bad_take=bad)
+                   measured_looped=m["looped"], bad_take=bad)
 
 
 def gain_reduction(src: Path, limited: Path, gain_db: float, block_ms: float = 1.0) -> dict:
@@ -1672,13 +2123,13 @@ def _gr_stats(a: np.ndarray, b: np.ndarray, block_ms: float = 1.0) -> dict:
 
 
 def loudnorm(src: Path, dst: Path) -> dict:
-    """EBU R128 to -16 LUFS integrated, -1.5 dBTP, by linear gain only
+    """EBU R128 to -18 LUFS (A15) integrated, -1.5 dBTP, by linear gain only
     (GRAMMAR 8.5: archival audio keeps its own dynamics). The voices and
     music were already levelled line by line (build_mix), so the gain here
     is small.
 
     1. Measure the mix (loudnorm's first pass).
-    2. If the gain to -16 LUFS would push the true peak past -1.5 dBTP, apply
+    2. If the gain to -18 LUFS would push the true peak past -1.5 dBTP, apply
        that gain and an oversampled true-peak limiter just under the ceiling
        (``<dst stem>-limited.wav``), measure again, and measure what the
        limiter did (``gain_reduction``). It may only catch peaks; how much it
@@ -1773,6 +2224,7 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             "preset": (s.get("_cam") or {}).get("preset"), "fill_ok": (s.get("_cam") or {}).get("fill_ok"),
             "in_s": s.get("in_s"), "out_s": s.get("out_s"),
             "resampler": s.get("_resampler"), "conform": (s.get("_video") or {}).get("conform"),
+            "neutralise_cast": (s.get("_video") or {}).get("neutralise_cast"),
             "test_fixture": is_synthetic(it),
             "text": s.get("text"),
         })
@@ -1877,7 +2329,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         # still's own first frame. The rendered pixels are checked again after motion (phase post-render).
         journal.stage("scout", "start", phase="preflight")
         if draft:
-            journal.human("scout", "draft render: missing voice WAVs become silence; dynamic loudness, a compressing master limiter and A13 bad takes are warnings instead of refusing the run",
+            journal.human("scout", "draft render: missing voice WAVs become silence; dynamic loudness, a compressing master limiter, A13 bad takes and narrator-consistency are warnings instead of refusing the run",
                           override="--draft")
         with journal.unit("scout", "preflight", size={"driver": "items", "value": 1}):
             pf = preflight(out, journal, min_free_gb=min_free_gb)
@@ -2081,9 +2533,13 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
                                "crossfade": sum(r["mark"]["fade"] for r in results.values()),
                                "dip_black": sum(r["mark"].get("dip", 0) for r in results.values()), "failed": fails})
         stills_bad = [plan["shots"][i]["id"] for i, r in results.items() if r.get("first_frame_whole") is False]
-        journal.lint("still-first-frame-whole-pixels", not stills_bad, stage="marks", grammar="A7", phase="post-render",
-                     evidence={"stills": [plan["shots"][i]["id"] for i, r in results.items() if r.get("first_frame_whole") is not None],
-                               "not_whole": stills_bad})
+        for i in sorted(results):                # one lint per still, with its scores and verdict, as in pre-flight
+            r = results[i]
+            if r.get("first_frame_whole") is None:
+                continue
+            ev = dict(r.get("first_frame_detail") or {}, enters_by=plan["shots"][i]["transition_in"].get("type"))
+            journal.lint("still-first-frame-whole-pixels", bool(r["first_frame_whole"]), stage="marks", unit=ids[i], grammar="A7",
+                         phase="post-render", evidence=ev, status="inconclusive" if ev.get("verdict") == "inconclusive" else None)
         doc = sources_doc(plan, journal, {})
         voiced = {"narration": 0.0, "reading": 0.0, "archival": 0.0}
         for ln in placed["lines"]:
@@ -2173,7 +2629,8 @@ def main(argv=None) -> int:
     ap.add_argument("--from", dest="from_shot", default=None, help="re-render from this shot; earlier shots come from the cache")
     ap.add_argument("--workers", type=int, default=DEFAULT_WORKERS, help=f"CPU worker processes (default {DEFAULT_WORKERS}, max {MAX_WORKERS})")
     ap.add_argument("--burn-subtitles", action="store_true", help="burn the English subtitles into the picture (off by default)")
-    ap.add_argument("--draft", action="store_true", help="place silence for missing voice WAVs and accept dynamic loudness, a compressing limiter or a bad take instead of refusing (journaled)")
+    ap.add_argument("--draft", action="store_true", help="place silence for missing voice WAVs and accept dynamic loudness, a compressing limiter, a bad take or an "
+                         "inconsistent narrator line instead of refusing (journaled)")
     ap.add_argument("--fit-voices", action="store_true",
                     help="move overlapping voice lines later (0.8 s apart) and lengthen their shots (journaled)")
     ap.add_argument("--audio-only", action="store_true",

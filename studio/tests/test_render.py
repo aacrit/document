@@ -947,11 +947,11 @@ def test_a_high_lra_mix_comes_out_linear(tmp_path):
 
 
 def test_a_peaky_well_levelled_mix_passes_with_only_peak_limiting(tmp_path):
-    x = _tone(12, 0.216)                                              # about -17 LUFS, so the gain to -16 is about 1 dB
+    x = _tone(12, 0.172)                                              # about -19 LUFS, so the gain to -18 (A15) is about 1 dB
     x += np.random.default_rng(3).normal(0, 0.01, len(x))            # a little noise, so only lag 0 lines up (the tone repeats every 160)
-    for at in (4.0, 8.0):                                             # two 3 ms peaks 1.5 dB over the ceiling after the gain
+    for at in (4.0, 8.0):                                             # two 3 ms peaks just over the ceiling after the gain
         i = int(at * 48000)
-        x[i:i + 144] += 0.6 * np.sin(np.linspace(0, np.pi, 144))
+        x[i:i + 144] += 0.64 * np.sin(np.linspace(0, np.pi, 144))
     loud = R.loudnorm(_wav(tmp_path / "mix.wav", x), tmp_path / "norm.wav")
     assert loud["predicted_tp"] > R.TARGET_TP
     lim = loud["limiter"]
@@ -982,7 +982,10 @@ def test_a_peaky_well_levelled_mix_passes_with_only_peak_limiting(tmp_path):
 
 
 def test_a_sustained_loud_passage_refuses(tmp_path):
-    x = np.concatenate([_tone(29, 0.068), _tone(1, 0.5)])             # 29 s at -27 LUFS, then 1 s 17 dB louder
+    x = _tone(30, 0.068)                                              # 30 s at -27 LUFS, the last second under dense peaks:
+    for at in np.arange(29.0, 30.0, 0.005):                           # at -18 LUFS (A15) a steady louder tone no longer
+        i = int(at * 48000)                                           # reaches the ceiling, so the passage is a pulse train
+        x[i:i + 48] += 0.6 * np.sin(np.linspace(0, np.pi, 48))
     loud = R.loudnorm(_wav(tmp_path / "mix.wav", x), tmp_path / "norm.wav")
     lim = loud["limiter"]
     assert lim and lim["over_1db_s"] > 0.5 and lim["max_at_s"] >= 29.0
@@ -1050,9 +1053,9 @@ def _voice(seconds=3.0, amp=0.05):
 
 def test_a13_a_peaky_voice_line_is_peak_controlled(tmp_path):
     x = _voice()
-    for at in (0.8, 2.1):                                             # two plosive-like peaks over the -7.5 dBTP voice ceiling
+    for at in (0.8, 2.1):                                             # two plosive-like peaks over the -4.8 dBTP voice ceiling (A15)
         i = int(at * 48000)
-        x[i:i + 96] += 0.12 * np.sin(np.linspace(0, np.pi, 96))
+        x[i:i + 96] += 0.25 * np.sin(np.linspace(0, np.pi, 96))
     y, peak = R.voice_peak_control(_levelled(x))
     assert peak and not peak["bad_take"] and peak["tp_before"] > R.VOICE_TP
     assert peak["tp_after"] <= R.VOICE_TP + 0.2 and 0.1 < peak["max_reduction_db"] <= 8.0 and not peak["bad_take"]
@@ -1085,7 +1088,7 @@ def test_a13_a_sustained_10_db_cut_is_a_bad_take(tmp_path):
     x = _voice(3.0)
     for s in np.arange(1.0, 1.3, 0.005):                              # 300 ms of peaks every 5 ms: the limiter holds over 10 dB
         i = int(s * 48000)
-        x[i:i + 24] += 1.0 * np.sin(np.linspace(0, np.pi, 24))
+        x[i:i + 4] += 1.0 * np.sin(np.linspace(0, np.pi, 4))
     _, peak = R.voice_peak_control(_levelled(x))
     assert peak["over_8db_s"] > R.VOICE_OVER_8DB_MAX_S and peak["max_reduction_db"] >= 10.0
     assert any("over 8 dB for" in b for b in peak["bad_take"])
@@ -1107,7 +1110,7 @@ def test_a13_a_line_over_1_db_for_a_quarter_of_it_is_a_bad_take(tmp_path):
     x = _voice(4.0, 0.02)
     for s in np.arange(0, 1.5, 0.02):                                 # mild peaks every 20 ms through the first 1.5 s
         i = int(s * 48000)
-        x[i:i + 48] += 0.06 * np.sin(np.linspace(0, np.pi, 48))
+        x[i:i + 48] += 0.1 * np.sin(np.linspace(0, np.pi, 48))
     _, peak = R.voice_peak_control(_levelled(x))
     assert peak["over_1db_share"] >= 0.25 and peak["over_8db_s"] == 0
     assert peak["over_3db_share"] <= R.VOICE_OVER_3DB_MAX_SHARE and len(peak["bad_take"]) == 1    # only the 1 dB bound fails
@@ -1379,3 +1382,465 @@ def test_both_phases_are_journaled(rendered):
     done = next(e for e in evs if e["kind"] == "stage" and e["stage"] == "scout" and e["status"] == "done")
     first_frame = next(k for k, e in enumerate(evs) if e.get("lens") == "frame")
     assert evs.index(done) < first_frame and done["frames_rendered"] == 0
+
+
+# --------------------------------------------------------------------------
+# T1c: colour cast removed (A14), narrator delivery and consistency, A13 follow-ups, A15
+# --------------------------------------------------------------------------
+
+
+def _magenta_film(tmp_path, *, flag=True, mark="RECONSTRUCTED", alterations=(R.NEUTRALISE,)):
+    """The fixture film with S6 on a magenta-cast 24 fps clip from a ledger
+    item that is not a test pattern (so ARCHIVE and RECONSTRUCTED are open)."""
+    film = _film_with_clip(tmp_path, "magenta", telecined=False, fps="24", synthetic=False, test_fixture=False, generator=None,
+                           **({"neutralise_cast": True} if flag else {}))
+    _edit_play(film, lambda p: _shot(p, "S6").update(mark=mark, alterations=list(alterations), in_s=0.5, out_s=3.5))
+    return film
+
+
+def test_a14_a_magenta_clip_is_neutralised_to_grey_with_its_luma_kept(tmp_path):
+    film = _magenta_film(tmp_path)
+    plan, j = _plan(film, "magenta")
+    i, s = next((k, x) for k, x in enumerate(plan["shots"]) if x["id"] == "S6")
+    assert s["_video"]["neutralise_cast"] == {"filter": R.NEUTRALISE_FILTER, "alteration": R.NEUTRALISE}
+    assert s["detail"].endswith(R.NEUTRALISE)                         # the mark plate names the alteration
+    evs = J.read(j.path)
+    assert [e for e in lints(evs, "colour-cast-marked") if e["unit"] == "S6"][0]["status"] == "pass"
+    assert [e for e in lints(evs, "alterations-closed") if e["unit"] == "S6"][0]["status"] == "pass"
+    assert [e for e in evs if e["kind"] == "decision" and e["unit"] == "S6" and "colour cast neutralised" in e["what"]]
+    raw = json.loads(json.dumps(plan))                                # the same clip, not neutralised, for comparison
+    raw["shots"][i]["_video"]["neutralise_cast"] = None
+    assert R.shot_key(plan, i, {}) != R.shot_key(raw, i, {})          # a cached segment never stands in for the other
+    vw, vh = s["_video"]["fit"]
+    x0, y0 = (640 - vw) // 2, (360 - vh) // 2
+    ys, xs = slice(y0 + 2, y0 + vh - 2), slice(x0 + 2, x0 + vw - 2)
+    pics, pics_raw = R.Pictures(plan), R.Pictures(raw)
+    try:
+        a = np.asarray(pics.shot(i, 1.0)).astype(int)
+        b = np.asarray(pics_raw.shot(i, 1.0)).astype(int)
+    finally:
+        pics.close()
+        pics_raw.close()
+    before = b[ys, xs]
+    assert (before[..., 0] - before[..., 1]).mean() > 15                # the source carries the magenta cast
+    grey = a[ys, xs]
+    assert np.abs(grey[..., 0] - grey[..., 1]).max() <= 2 and np.abs(grey[..., 1] - grey[..., 2]).max() <= 2
+    luma = before @ np.array([0.299, 0.587, 0.114])                   # BT.601 Y, the luma hue=s=0 keeps
+    assert np.abs(grey[..., 1] - luma).mean() < 3.0
+    assert not a[:, :x0].any() and not a[:, x0 + vw:].any()           # the pillarbox stays RGB 0,0,0 (A11)
+    sdoc = R.sources_doc(plan, j, {})
+    assert next(x for x in sdoc["shots"] if x["id"] == "S6")["neutralise_cast"]["filter"] == R.NEUTRALISE_FILTER
+
+
+@pytest.mark.parametrize("flag,mark,alterations", [
+    (True, "ARCHIVE", ()),                                            # a neutralised shot is never ARCHIVE
+    (True, "RECONSTRUCTED", ("tinted",)),                             # the alteration must be named
+    (False, "RECONSTRUCTED", (R.NEUTRALISE,)),                        # a named alteration nothing performs is a false mark
+])
+def test_a14_the_neutralise_flag_and_the_mark_go_together(tmp_path, flag, mark, alterations):
+    film = _magenta_film(tmp_path, flag=flag, mark=mark, alterations=alterations)
+    with pytest.raises(R.Refused, match=r"colour-cast-marked \(S6\)"):
+        _plan(film)
+
+
+def test_a14_a_shot_flag_overrides_its_ledger_item():
+    item = {"neutralise_cast": True}
+    assert R.neutralise_cast({}, item) and not R.neutralise_cast({"neutralise_cast": False}, item)
+    assert R.neutralise_cast({"neutralise_cast": True}, {}) and not R.neutralise_cast({}, None)
+
+
+def _rms_db(x):
+    return 20 * np.log10(np.sqrt(np.mean(np.square(x))))
+
+
+def _line(play_or_plan, lid):
+    if "parts" in play_or_plan:
+        return next(ln for pt in play_or_plan["parts"] for ln in pt.get("lines", []) if ln["id"] == lid)
+    return next(ln for ln in play_or_plan["lines"] if ln["id"] == lid)
+
+
+def test_a14_a_mood_offset_moves_only_the_level_after_levelling(plan, film):
+    span = slice(int(5.2 * 48000), int(6.8 * 48000))                 # inside L1 (5.0 to 7.0 s), where nothing else plays
+    mixes = {}
+    for mood in ("plain", "measured", "grave", "hushed", "close"):
+        p = json.loads(json.dumps(plan))
+        _line(p, "L1")["delivery"] = {"mood": mood, "intensity": 2, "pace": "slower", "pause_after_s": 1.5}
+        j = J.Journal(film=f"mood-{mood}")
+        mix, placed = R.build_mix(p, film, j)
+        assert next(ln for ln in placed["lines"] if ln["id"] == "L1")["mood_offset_db"] == R.MOOD_OFFSET_DB[mood]
+        dec = [e for e in J.read(j.path) if e["kind"] == "decision" and e["unit"] == "L1" and "delivery" in e["what"]][0]
+        assert dec["evidence"]["offset_db"] == R.MOOD_OFFSET_DB[mood] and dec["evidence"]["applies_to"] == "level only"
+        mixes[mood] = mix
+    for mood, off in R.MOOD_OFFSET_DB.items():
+        assert _rms_db(mixes[mood][span]) - _rms_db(mixes["plain"][span]) == pytest.approx(off, abs=0.05)
+    assert R.MOOD_OFFSET_DB == {"plain": 0.0, "measured": 0.0, "grave": -0.5, "hushed": -2.0, "close": -1.0}
+
+
+@pytest.mark.parametrize("lid,delivery", [("L1", {"mood": "angry"}), ("L2", {"mood": "grave"})])   # L2 is a reading
+def test_a14_an_unknown_mood_or_a_reading_with_a_delivery_is_refused(tmp_path, lid, delivery):
+    film = make_film(tmp_path / "film")
+    _edit_play(film, lambda p: _line(p, lid).update(delivery=delivery))
+    with pytest.raises(R.Refused, match=rf"narrator-delivery \({lid}\)"):
+        _plan(film)
+
+
+def test_a14_a_mood_offset_beyond_2_db_is_refused(tmp_path, monkeypatch, plan, film):
+    monkeypatch.setitem(R.MOOD_OFFSET_DB, "hushed", -3.0)
+    f2 = make_film(tmp_path / "film")
+    _edit_play(f2, lambda p: _line(p, "L1").update(delivery={"mood": "hushed"}))
+    with pytest.raises(R.Refused, match=r"narrator-delivery \(L1\)"):
+        _plan(f2)
+    p = json.loads(json.dumps(plan))                                  # and build_mix refuses it on its own
+    _line(p, "L1")["delivery"] = {"mood": "hushed"}
+    with pytest.raises(R.Refused, match="narrator-delivery"):
+        R.build_mix(p, film, J.Journal(film="mood-3db"))
+
+
+def test_a13_gain_db_on_a_synthetic_voice_line_is_refused(tmp_path, plan, film):
+    f2 = make_film(tmp_path / "film")
+    _edit_play(f2, lambda p: _line(p, "L2").update(gain_db=-3))
+    with pytest.raises(R.Refused, match=r"voice-gain-db \(L2\)"):
+        _plan(f2)
+    p = json.loads(json.dumps(plan))
+    _line(p, "L1")["gain_db"] = 2.0
+    with pytest.raises(R.Refused, match="voice-gain-db"):
+        R.build_mix(p, film, J.Journal(film="gain-db"))
+
+
+def test_a13_only_the_3_db_bound_fails(tmp_path):
+    x = _voice(4.0, 0.05)
+    for s in np.arange(1.0, 1.36, 0.005):                             # 360 ms of peaks every 5 ms, held 4 to 6 dB down
+        i = int(s * 48000)
+        x[i:i + 24] += 0.4 * np.sin(np.linspace(0, np.pi, 24))
+    _, peak = R.voice_peak_control(_levelled(x))
+    assert peak["over_8db_s"] <= R.VOICE_OVER_8DB_MAX_S and peak["over_1db_share"] <= R.VOICE_OVER_1DB_MAX_SHARE
+    assert peak["over_3db_share"] > R.VOICE_OVER_3DB_MAX_SHARE
+    assert len(peak["bad_take"]) == 1 and "over 3 dB for" in peak["bad_take"][0] and "limit 5%" in peak["bad_take"][0]
+    film = make_film(tmp_path / "film")
+    _wav(film / "audio" / "L1.wav", x)
+    plan, _ = _plan(film)
+    with pytest.raises(R.Refused, match=r"voice-peak-control \(A13\).*L1 \(over 3 dB for"):
+        R.build_mix(plan, film, J.Journal(film="three-db"))
+
+
+def test_a13_a_short_line_is_levelled_and_peak_controlled(tmp_path):
+    x = _voice(0.25, 0.05)                                            # under one 400 ms gating block
+    i = int(0.1 * 48000)
+    x[i:i + 96] += 0.25 * np.sin(np.linspace(0, np.pi, 96))
+    g, m = R.level_gain(x, R.DIALOGUE_LUFS)
+    assert g is not None and m["looped"] == 2                         # measured on the line looped to 0.4 s
+    _, peak = R.voice_peak_control(x * 10 ** (g / 20))
+    assert peak and peak["measured_looped"] == 2 and peak["tp_after"] <= R.VOICE_TP + 0.2
+    film = make_film(tmp_path / "film")
+    _wav(film / "audio" / "L2.wav", x)
+    plan, _ = _plan(film)
+    j = J.Journal(film="short")
+    _, placed = R.build_mix(plan, film, j)
+    line = next(ln for ln in placed["lines"] if ln["id"] == "L2")
+    assert line["level_db"] is not None and line["peak_reduction_db"] > 0
+    evs = J.read(j.path)
+    dec = [e for e in evs if e["kind"] == "decision" and e["unit"] == "L2" and "levelled" in e["what"]][0]
+    assert dec["evidence"]["measured_looped"] == 2 and "measured looped" in dec["why"]
+    assert [e for e in lints(evs, "voice-peak-control") if e["unit"] == "L2"]
+
+
+def test_a13_a_silent_line_warns_that_it_was_not_levelled(tmp_path):
+    film = make_film(tmp_path / "film")
+    _wav(film / "audio" / "L2.wav", np.zeros(48000))
+    plan, _ = _plan(film)
+    j = J.Journal(film="silent-line")
+    R.build_mix(plan, film, j)
+    warn = [e for e in lints(J.read(j.path), "level-measured") if e["unit"] == "L2"][0]
+    assert warn["status"] == "fail" and warn["severity"] == "warn"
+
+
+def test_a15_the_programme_is_minus_18_lufs_and_the_voice_ceiling_follows():
+    assert R.TARGET_LUFS == -18.0 and R.TARGET_TP == -1.5
+    assert R.VOICE_TP == pytest.approx(R.DIALOGUE_LUFS + (R.TARGET_TP - R.TARGET_LUFS) - R.VOICE_TP_MARGIN)
+    assert R.VOICE_TP == pytest.approx(-4.8)
+
+
+def test_the_post_render_a7_check_journals_each_still_with_its_verdict(rendered):
+    post = [e for e in lints(events(rendered), "still-first-frame-whole-pixels") if e["phase"] == "post-render"]
+    assert {e["unit"] for e in post} == {"S3", "S4", "S5"}
+    for e in post:
+        assert e["evidence"]["verdict"] in ("whole", "inconclusive") and "band_detail" in e["evidence"]
+        assert e["status"] == ("inconclusive" if e["evidence"]["verdict"] == "inconclusive" else "pass")
+
+
+def _speech(f0, seconds=3.0, amp=0.1, seed=0):
+    """A voiced test line: harmonics to 4 kHz with a slow pitch wobble, cut
+    into syllables by short gaps, so it has a pitch, a centroid and a pace."""
+    rng = np.random.default_rng(seed)
+    t = np.arange(int(48000 * seconds)) / 48000
+    inst = f0 * (1 + 0.03 * np.sin(2 * np.pi * 1.3 * t + rng.uniform(0, 6)))
+    ph = 2 * np.pi * np.cumsum(inst) / 48000
+    x = sum((1.0 / k) * np.sin(k * ph) for k in range(1, int(4000 // f0) + 1))
+    gate = (np.sin(2 * np.pi * 2.0 * t) > -0.7).astype(float)
+    return amp * x * gate / np.max(np.abs(x))
+
+
+def test_voice_profile_measures_pitch_centroid_and_pace():
+    for f0 in (110.0, 183.0, 240.0):
+        p = R.voice_profile(_levelled(_speech(f0)), 7)
+        assert p["f0_hz"] == pytest.approx(f0, rel=0.02)
+        assert p["f0_p10_hz"] < p["f0_hz"] < p["f0_p90_hz"] and p["f0_range_hz"] > 0
+        assert p["voiced_frames"] > 100 and p["speech_s"] == pytest.approx(3.0, abs=0.3)
+        assert p["wps"] == pytest.approx(7 / p["speech_s"], rel=0.01)
+    lo, hi = (R.voice_profile(_levelled(_speech(f)), 7)["centroid_hz"] for f in (150.0, 250.0))
+    assert hi > lo
+
+
+def _narrator_lines():
+    return {f"N{k}": dict(R.voice_profile(_levelled(_speech(f, seed=k)), 7), mood="measured")
+            for k, f in enumerate((178.0, 181.0, 183.0, 185.0, 188.0, 182.0))}
+
+
+def test_narrator_consistency_needs_a_baseline():
+    prof = {f"N{k}": dict(R.voice_profile(_levelled(_speech(f)), 7), mood="plain") for k, f in enumerate((180.0, 240.0))}
+    res = R.narrator_consistency(prof)
+    assert not res["enough"] and {r["verdict"] for r in res["lines"].values()} == {"inconclusive"}
+
+
+def test_narrator_consistency_blocks_the_mix_and_warns_under_draft(plan, film, tmp_path):
+    p = json.loads(json.dumps(plan))
+    voices = {"L1": 183.0, "NB": 179.0, "NC": 186.0, "ND": 181.0, "NE": 184.0, "NOFF": 235.0}
+    for k, (lid, f0) in enumerate(voices.items()):
+        (tmp_path / "audio").mkdir(exist_ok=True)
+        wav = _wav(tmp_path / "audio" / f"{lid}.wav", _speech(f0, seed=k))
+        if lid == "L1":
+            _line(p, "L1")["wav"] = str(wav)
+        else:
+            p["lines"].append({"id": lid, "kind": "narration", "start_s": 9.0 + k, "text": "one two three four five six seven",
+                               "wav": str(wav), "delivery": {"mood": "measured"}, "_part": "ch-1"})
+    j = J.Journal(film="narrator")
+    with pytest.raises(R.Refused, match=r"narrator-consistency and narrator-drift \(A14\).*NOFF \(f0 \+4"):
+        R.build_mix(p, film, j)
+    evs = J.read(j.path)
+    per = {e["unit"]: e for e in lints(evs, "narrator-consistency") if e["unit"] != "narrator"}
+    assert set(per) == set(voices) and per["NOFF"]["status"] == "fail" and per["NOFF"]["severity"] == "block"
+    assert all(per[k]["status"] == "pass" for k in voices if k != "NOFF")
+    assert {"f0_hz", "f0_range_hz", "centroid_hz", "wps"} <= set(per["L1"]["evidence"]["profile"])
+    base = [e for e in evs if e.get("lens") == "narrator-profile"][0]
+    assert set(base["lines"]) == set(voices) and base["baseline"]["f0_hz"] > 0
+    jd = J.Journal(film="narrator-draft")
+    R.build_mix(p, film, jd, draft=True)
+    assert [e for e in lints(J.read(jd.path), "narrator-consistency") if e["unit"] == "NOFF"][0]["severity"] == "warn"
+
+
+# --------------------------------------------------------------------------
+# T1c review: private keys, bounded mood exemptions, the narrator's anchor and spread, offsets never positive
+# --------------------------------------------------------------------------
+
+
+def test_a_screenplay_key_starting_with_underscore_is_refused(tmp_path):
+    film = _magenta_film(tmp_path, flag=False, mark="ARCHIVE", alterations=())
+    _edit_play(film, lambda p: _shot(p, "S6").update(_neutralise=True))          # would grey an ARCHIVE shot
+    with pytest.raises(R.Refused, match=r"private-key \(ch-1/S6\)"):
+        _plan(film)
+
+
+def test_a_ledger_key_starting_with_underscore_is_refused(tmp_path):
+    film = _magenta_film(tmp_path, flag=False, mark="ARCHIVE", alterations=())
+    led = json.loads((film / "footage-ledger.json").read_text(encoding="utf-8"))
+    led["items"][-1]["_video"] = {"neutralise_cast": {"filter": "hue=s=0"}}
+    (film / "footage-ledger.json").write_text(json.dumps(led), encoding="utf-8")
+    with pytest.raises(R.Refused, match=r"private-key \(ledger footage/FX-CLIP\)"):
+        _plan(film)
+    assert R.private_keys({"a": [{"b": {"_c": 1}}], "_d": 2}) == ["a.0.b._c", "_d"]
+
+
+def test_neutralise_is_reset_before_it_is_decided(tmp_path, monkeypatch):
+    film = _magenta_film(tmp_path, flag=False, mark="ARCHIVE", alterations=())
+    _edit_play(film, lambda p: _shot(p, "S6").update(_neutralise=True))
+    monkeypatch.setattr(R, "private_keys", lambda x, path="": [])                # even with the key check gone
+    plan, _ = _plan(film)
+    s6 = next(x for x in plan["shots"] if x["id"] == "S6")
+    assert s6["mark"] == "ARCHIVE" and s6["_neutralise"] is False and s6["_video"]["neutralise_cast"] is None
+
+
+def test_a_swapped_voice_labelled_hushed_is_refused():
+    base = _narrator_lines()                                          # a 183 Hz narrator
+    for mood in ("hushed", "grave", "close"):
+        swapped = dict(R.voice_profile(_levelled(_speech(95.0, seed=4)), 7), mood=mood)
+        x = R.narrator_consistency(dict(base, X=swapped))["lines"]["X"]
+        assert x["verdict"] == "off" and any("semitones" in o for o in x["off"]) and x["f0_st"] < -3, (mood, x)
+    lower = dict(R.voice_profile(_levelled(_speech(140.0, seed=4)), 7), mood="hushed")   # 4.6 semitones down
+    assert R.narrator_consistency(dict(base, X=lower))["lines"]["X"]["verdict"] == "off"
+
+
+def test_the_baseline_comes_from_plain_and_measured_lines():
+    prof = {f"M{k}": {"f0_hz": 183.0 + k, "centroid_hz": 1100.0, "f0_range_hz": 60.0, "wps": 2.4, "mood": "measured"}
+            for k in range(4)}
+    prof |= {f"G{k}": {"f0_hz": 165.0 + k, "centroid_hz": 1000.0, "f0_range_hz": 60.0, "wps": 2.0, "mood": "grave"}
+             for k in range(6)}
+    res = R.narrator_consistency(prof)
+    assert res["baseline"]["f0_hz"] == pytest.approx(184.5) and res["baseline_from"] == "plain and measured lines"
+    few = {k: v for k, v in prof.items() if k != "M0"}                # 3 unmarked lines: the baseline is every line
+    assert R.narrator_consistency(few)["baseline_from"].startswith("all lines")
+
+
+def test_two_voices_sharing_the_narrator_are_refused(plan, film, tmp_path):
+    p = json.loads(json.dumps(plan))
+    (tmp_path / "audio").mkdir()
+    voices = {"L1": 160.0, "NB": 161.0, "NC": 162.0, "ND": 200.0, "NE": 201.0, "NF": 202.0}   # half and half
+    for k, (lid, f0) in enumerate(voices.items()):
+        wav = _wav(tmp_path / "audio" / f"{lid}.wav", _speech(f0, seed=k))
+        if lid == "L1":
+            _line(p, "L1").update(wav=str(wav), delivery={"mood": "measured"})
+        else:
+            p["lines"].append({"id": lid, "kind": "narration", "start_s": 9.0 + k, "text": "one two three four five six seven",
+                               "wav": str(wav), "delivery": {"mood": "measured"}, "_part": "ch-1"})
+    j = J.Journal(film="two-narrators")
+    with pytest.raises(R.Refused, match=r"narrator-consistency and narrator-drift \(A14\).*narrator \(the baseline lines' pitch spreads"):
+        R.build_mix(p, film, j)
+    whole = [e for e in lints(J.read(j.path), "narrator-consistency") if e["unit"] == "narrator"][0]
+    assert whole["status"] == "fail" and whole["evidence"]["spread_st"] > R.NARRATOR_SPREAD_MAX_ST
+
+
+def test_the_committed_narrator_profile_is_tara():
+    prof = json.loads(R.NARRATOR_PROFILE.read_text(encoding="utf-8"))
+    assert prof["voice"] == {"engine": "orpheus", "voice": "tara"} and len(prof["takes"]) == 5
+    assert 150 < prof["baseline"]["f0_hz"] < 210 and 500 < prof["baseline"]["centroid_hz"] < 3000
+
+
+def test_a_positive_mood_offset_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setitem(R.MOOD_OFFSET_DB, "plain", 1.0)
+    film = make_film(tmp_path / "film")
+    _edit_play(film, lambda p: _line(p, "L1").update(delivery={"mood": "plain"}))
+    with pytest.raises(R.Refused, match=r"narrator-delivery \(L1\)"):
+        _plan(film)
+    assert all(v <= 0 for v in R.MOOD_OFFSET_DB.values() if v != 1.0)
+
+
+# --------------------------------------------------------------------------
+# A14 refined: perceptual narrator bounds (semitones and percent), the stored profile as a drift check
+# --------------------------------------------------------------------------
+
+
+def _p(f0, cen=1100.0, mood="measured"):
+    return {"f0_hz": f0, "centroid_hz": cen, "f0_range_hz": 60.0, "wps": 2.4, "mood": mood}
+
+
+def _with(x):
+    base = {f"N{k}": _p(180.0) for k in range(5)}                   # baseline 180 Hz, 1100 Hz
+    return R.narrator_consistency(dict(base, X=x))["lines"]["X"]
+
+
+def _up(st):
+    return 180.0 * 2 ** (st / 12)
+
+
+@pytest.mark.parametrize("st,mood,want", [
+    (1.49, "measured", "consistent"), (1.51, "measured", "off"), (1.51, "hushed", "off"),       # never higher, any mood
+    (-1.49, "plain", "consistent"), (-1.51, "plain", "off"), (-1.51, "measured", "off"), (-1.51, None, "off"),
+    (-2.99, "hushed", "consistent"), (-2.99, "grave", "consistent"), (-2.99, "close", "consistent"),
+    (-3.01, "hushed", "off"), (-3.01, "grave", "off"), (-3.01, "close", "off"),
+])
+def test_narrator_f0_bounds_sit_at_1_5_and_3_semitones(st, mood, want):
+    x = _with(_p(_up(st), mood=mood))
+    assert x["verdict"] == want, x
+    assert x["f0_st"] == pytest.approx(st, abs=0.01)
+
+
+@pytest.mark.parametrize("pct,mood,want", [
+    (24, "measured", "consistent"), (26, "measured", "off"), (26, "grave", "off"),               # never brighter
+    (-24, "plain", "consistent"), (-26, "plain", "off"),
+    (-39, "grave", "consistent"), (-39, "hushed", "consistent"), (-41, "close", "off"),
+])
+def test_narrator_centroid_bounds_sit_at_25_and_40_percent(pct, mood, want):
+    x = _with(_p(180.0, cen=1100.0 * (1 + pct / 100), mood=mood))
+    assert x["verdict"] == want, x
+    assert x["centroid_pct"] == pytest.approx(pct, abs=0.01)
+
+
+def _drift_film(tmp_path, monkeypatch, plan, ref_f0, ref_cen=None):
+    """The fixture plan with four plain and measured narrator lines near 183 Hz, and a stored profile."""
+    p = json.loads(json.dumps(plan))
+    (tmp_path / "audio").mkdir(exist_ok=True)
+    profs = {}
+    for k, (lid, f0) in enumerate({"L1": 183.0, "NB": 181.0, "NC": 185.0, "ND": 182.0}.items()):
+        wav = _wav(tmp_path / "audio" / f"{lid}.wav", _speech(f0, seed=k))
+        if lid == "L1":
+            _line(p, "L1").update(wav=str(wav), delivery={"mood": "plain"})
+        else:
+            p["lines"].append({"id": lid, "kind": "narration", "start_s": 9.0 + k, "text": "one two three four five six seven",
+                               "wav": str(wav), "delivery": {"mood": "measured"}, "_part": "ch-1"})
+    if ref_cen is None:                                               # the films' own centroid, so only f0 drifts
+        ref_cen = R.voice_profile(_levelled(_speech(183.0, seed=0)), 7)["centroid_hz"]
+    f = tmp_path / "narrator-profile.json"
+    f.write_text(json.dumps({"voice": {"engine": "test-tone", "voice": "none"},
+                             "baseline": {"f0_hz": ref_f0, "centroid_hz": ref_cen}}), encoding="utf-8")
+    monkeypatch.setattr(R, "NARRATOR_PROFILE", f)
+    return p
+
+
+@pytest.mark.parametrize("ref_st,grade", [(0.5, "pass"), (1.5, "warn"), (2.5, "block")])
+def test_narrator_drift_in_f0_warns_past_1_and_blocks_past_2_semitones(tmp_path, monkeypatch, plan, film, ref_st, grade):
+    p = _drift_film(tmp_path, monkeypatch, plan, ref_f0=183.0 * 2 ** (-ref_st / 12))
+    j = J.Journal(film=f"drift-{grade}")
+    if grade == "block":
+        with pytest.raises(R.Refused, match=r"narrator-drift f0 \+2\.\d+ semitones"):
+            R.build_mix(p, film, j)
+    else:
+        R.build_mix(p, film, j)
+    d = [e for e in lints(J.read(j.path), "narrator-drift") if e["unit"] == "narrator-f0"][0]
+    assert d["status"] == ("pass" if grade == "pass" else "fail")
+    assert d["severity"] == ("block" if grade == "block" else "warn")
+    jd = J.Journal(film=f"drift-{grade}-draft")
+    R.build_mix(p, film, jd, draft=True)                              # a draft only ever warns
+    assert all(e["severity"] == "warn" for e in lints(J.read(jd.path), "narrator-drift"))
+
+
+@pytest.mark.parametrize("ratio,grade", [(1.10, "pass"), (1.20, "warn"), (1.30, "block")])
+def test_a_timbre_only_swap_is_caught_by_centroid_drift(tmp_path, monkeypatch, plan, film, ratio, grade):
+    cen = R.voice_profile(_levelled(_speech(183.0, seed=0)), 7)["centroid_hz"]
+    p = _drift_film(tmp_path, monkeypatch, plan, ref_f0=183.0, ref_cen=cen / ratio)   # same pitch, brighter film
+    j = J.Journal(film=f"timbre-{grade}")
+    if grade == "block":
+        with pytest.raises(R.Refused, match=r"narrator-drift centroid \+"):
+            R.build_mix(p, film, j)
+    else:
+        R.build_mix(p, film, j)
+    d = [e for e in lints(J.read(j.path), "narrator-drift") if e["unit"] == "narrator-centroid"][0]
+    assert d["status"] == ("pass" if grade == "pass" else "fail") and d["severity"] == ("block" if grade == "block" else "warn")
+
+
+def test_a_narrator_with_no_stored_profile_is_a_review_item(plan, film):
+    j = J.Journal(film="no-profile")                                  # the fixture's narrator is a test tone: no profile
+    p = json.loads(json.dumps(plan))
+    R.build_mix(p, film, j)
+    rev = lints(J.read(j.path), "narrator-drift")
+    assert len(rev) == 1 and rev[0]["status"] == "review" and rev[0]["evidence"]["check"] == "no reference profile"
+
+
+def test_a_second_voice_on_the_plain_lines_with_the_narrator_on_the_lower_moods_is_refused():
+    lines = {f"P{k}": _p(205.0 + k * 0.5, mood=("plain" if k % 2 else "measured")) for k in range(8)}   # voice X
+    for k, mood in enumerate(["hushed", "hushed", "grave", "grave", "grave", "close", "close"]):          # Tara, 176 Hz
+        lines[f"L{k}"] = _p(176.0 + (k % 3) * 0.5, mood=mood)
+    res = R.narrator_consistency(lines)
+    assert all(r["verdict"] == "consistent" for r in res["lines"].values())          # every line alone is within bounds
+    assert res["spread_ok"]                                                          # and the baseline lines agree
+    assert -3.0 < res["lines"]["L0"]["f0_st"] < -2.4
+    assert {m for m, g in res["groups"].items() if not g["ok"]} == {"hushed", "grave", "close", "lower moods pooled"}
+    one = R.narrator_consistency({**{f"P{k}": _p(183.0) for k in range(6)}, "H": _p(183.0 * 2 ** (-2.8 / 12), mood="hushed")})
+    assert not one["group_off"] and one["lines"]["H"]["verdict"] == "consistent"     # a single line may still drop 3
+
+
+def test_the_mood_split_refuses_the_mix(plan, film, tmp_path):
+    p = json.loads(json.dumps(plan))
+    (tmp_path / "audio").mkdir()
+    voices = {"L1": (205.0, "plain"), "NB": (206.0, "measured"), "NC": (204.0, "plain"), "ND": (205.5, "measured"),
+              "H1": (176.0, "hushed"), "H2": (177.0, "hushed"), "G1": (176.5, "grave"), "G2": (175.5, "grave")}
+    for k, (lid, (f0, mood)) in enumerate(voices.items()):
+        wav = _wav(tmp_path / "audio" / f"{lid}.wav", _speech(f0, seed=k))
+        if lid == "L1":
+            _line(p, "L1").update(wav=str(wav), delivery={"mood": mood})
+        else:
+            p["lines"].append({"id": lid, "kind": "narration", "start_s": 9.0 + k, "text": "one two three four five six seven",
+                               "wav": str(wav), "delivery": {"mood": mood}, "_part": "ch-1"})
+    j = J.Journal(film="mood-split")
+    with pytest.raises(R.Refused, match=r"hushed: median f0 -2\.\d+ semitones"):
+        R.build_mix(p, film, j)
+    grp = {e["unit"]: e["status"] for e in lints(J.read(j.path), "narrator-consistency") if e["unit"].startswith("narrator:")}
+    assert grp == {"narrator:hushed": "fail", "narrator:grave": "fail", "narrator:lower moods pooled": "fail"}
