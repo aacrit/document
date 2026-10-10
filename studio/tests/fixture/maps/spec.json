@@ -1,0 +1,22 @@
+{
+ "id": "FX1",
+ "title": "A fixture map",
+ "extent": [9.4, 9.8, 14.8, 14.2],
+ "sources": [
+  {"id": "Natural Earth", "licence": "public domain"},
+  {"id": "fixture-src:p1", "licence": "CC0"}
+ ],
+ "layers": [
+  {"file": "land.geojson", "style": "land"},
+  {"file": "land.geojson", "style": "coast"},
+  {"file": "river.geojson", "style": "river", "where": {"name": "Fixture river"}},
+  {"file": "river.geojson", "style": "line", "where": {"name": "Fixture border"}, "clip": [11.0, 10.0, 13.0, 13.5]}
+ ],
+ "places": [
+  {"name": "Alpha", "lon": 11.2, "lat": 11.4, "style": "listed", "sub": "52.1 per cent"},
+  {"name": "Beta", "lon": 13.2, "lat": 12.2, "style": "unlisted", "anchor": "w"}
+ ],
+ "labels": [{"text": "Fixture river", "style": "river", "lon": 12.6, "lat": 11.0}],
+ "legend": [{"style": "listed", "text": "A listed place"}, {"style": "line", "text": "The line"}],
+ "notes": ["Line approximate, from the fixture's description."]
+}
