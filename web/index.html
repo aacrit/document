@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="build" content="__BUILD__" />
+    <meta name="description" content="Document: portraits of places, made from the public record." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='currentColor' stroke-width='1.6'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="../design/tokens.css" />
+    <link rel="stylesheet" href="./src/style.css" />
+    <title>Document</title>
+  </head>
+  <body>
+    <main class="page">
+      <header class="page-header">
+        <p class="eyebrow">A voidvision production</p>
+        <h1>Document</h1>
+        <p class="value-line">Portraits of places, made from the public record.</p>
+      </header>
+
+      <figure class="film">
+        <video
+          id="film"
+          controls
+          playsinline
+          preload="metadata"
+          poster="/media/maxwell-street/poster.jpg"
+          src="/media/maxwell-street/sketch.mp4"
+        ></video>
+        <figcaption>
+          <span class="film-title">Maxwell Street, Chicago</span>
+          <span class="film-meta" id="film-meta">A sketch for the first portrait. Every frame is a public-domain photograph.</span>
+        </figcaption>
+      </figure>
+
+      <section class="ledger" aria-labelledby="ledger-heading">
+        <h2 id="ledger-heading">Every frame, and where it came from</h2>
+        <p class="muted">Each shot is a real photograph. The camera moves; the picture is not changed.</p>
+        <ol id="sources" class="sources"></ol>
+      </section>
+
+      <section class="card" id="feedback-card">
+        <h2>Know this place?</h2>
+        <p class="muted">Tell us what we got wrong, or what we left out. Corrections are listed in the credits.</p>
+        <form id="feedback-form" novalidate>
+          <label for="feedback-text">Your correction</label>
+          <textarea id="feedback-text" name="text" maxlength="2000" rows="3" required></textarea>
+          <button type="submit">Send</button>
+          <p id="feedback-status" role="status" aria-live="polite"></p>
+        </form>
+      </section>
+
+      <footer class="page-footer">
+        <a href="./privacy.html">Privacy</a>
+      </footer>
+    </main>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

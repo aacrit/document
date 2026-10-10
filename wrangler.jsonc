@@ -1,0 +1,72 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "document",
+  "main": "worker/src/index.ts",
+  "compatibility_date": "2026-09-01",
+  // Worker logs are kept (errors, and anything the Worker itself writes,
+  // which is never a request body, IP or key), but invocation logs, one
+  // record per request with its URL, headers and client details, are off,
+  // and query strings are redacted from what remains (V3; web/privacy.html
+  // says so, and tests/privacy-page.test.ts checks both). Traces stay off.
+  "observability": {
+    "enabled": true,
+    "redact_query_string": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": false
+    },
+    "traces": {
+      "enabled": false
+    }
+  },
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "none",
+    // Only the Worker's own routes run the Worker: every static page,
+    // script, stylesheet and font is served by Workers Static Assets
+    // directly, with its headers from dist/_headers (scripts/build.mjs), and
+    // costs no Worker invocation (the free plan's 100,000 a day are shared by
+    // the whole account). A path that matches no asset still falls through
+    // to the Worker, which answers 404. Add a product's API routes here.
+    "run_worker_first": ["/e", "/feedback", "/healthz", "/api/*", "/media/*"]
+  },
+  // Per-client rate limit (worker/src/guard.ts). The binding counts per
+  // client network in memory at each Cloudflare location and stores
+  // nothing. Periods can only be 10 or 60 seconds. namespace_id must be a
+  // number unique across the Cloudflare account: /brief assigns it.
+  "ratelimits": [
+    { "name": "RL_API", "namespace_id": "7501", "simple": { "limit": 20, "period": 10 } }
+  ],
+  // Films, posters and their sources ledgers (R-08: media never enters
+  // git). R2 bills past its free tier, so studio/publish caps what is
+  // uploaded (budget.yaml r2_storage_gb). Served by worker/src/media.ts.
+  "r2_buckets": [
+    { "binding": "MEDIA", "bucket_name": "document-media" }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "document",
+      "database_id": "2c31a4c8-571d-43e8-ab8f-b39b6a7218d9"
+    }
+  ],
+  "vars": {
+    "BUILD_TAG": "dev",
+    // Day ceilings (worker/src/config.ts). Together their worst case is this
+    // product's share of the account's 100,000 D1 writes a day; budget.yaml
+    // states it and tests/hardening.test.ts recomputes it from these values.
+    "EVENT_DAILY_CEILING": "4000",
+    "FEEDBACK_DAILY_CEILING": "100"
+  }
+  // Cloudflare caps cron triggers at 5 per account, and this account's one
+  // scheduler Worker (see the root CLAUDE.md "API" stack note) already uses
+  // its share. This product has no cron trigger of its own: 90-day feedback
+  // retention runs in bounded batches before every feedback insert and on
+  // each client event's first count of a day (`purgeOldFeedback` in
+  // worker/src/index.ts). `event_counts` rows are kept indefinitely: they
+  // are aggregate daily totals and identify no one. The `scheduled` handler
+  // is still exported so the shared scheduler Worker, or a future dedicated
+  // trigger, can run feedback retention deterministically.
+  // "triggers": { "crons": ["0 4 * * *"] }
+}

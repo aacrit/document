@@ -1,0 +1,177 @@
+# The served-page contract. scripts/contract.mjs runs every check in `checks`
+# against `url` (or the URL passed to `--url`) and exits non-zero if any fail.
+# A check tagged `requires: deployed` needs the Cloudflare runtime and is
+# reported as SKIP against a localhost URL; it must PASS on the preview.
+# `events.allowed` and `events.server_only` are the source of truth that
+# worker/src/config.ts mirrors; tests/contract-events.test.ts keeps them in
+# sync.
+url: https://document.voidvision.org
+
+checks:
+  - name: homepage status 200
+    type: status
+    path: /
+    expect: 200
+
+  - name: homepage names the product
+    type: contains
+    path: /
+    text: "Document"
+
+  - name: homepage carries a build marker
+    type: meta
+    path: /
+    meta_name: build
+
+  - name: homepage carries the film
+    type: contains
+    path: /
+    text: "/media/maxwell-street/sketch.mp4"
+
+  - name: the film is served (deployed only)
+    type: status
+    path: /media/maxwell-street/sketch.mp4
+    expect: 200
+    requires: deployed
+
+  - name: the sources ledger is served (deployed only)
+    type: status
+    path: /media/maxwell-street/sources.json
+    expect: 200
+    requires: deployed
+
+  - name: privacy page responds
+    type: status
+    path: /privacy
+    expect: 200
+
+  - name: healthz responds
+    type: status
+    path: /healthz
+    expect: 200
+
+  - name: healthz reports ok
+    type: json
+    path: /healthz
+    field: ok
+    expect: true
+
+  - name: homepage has no leftover placeholders
+    type: forbidden
+    path: /
+    strings:
+      - "undefined"
+      - "NaN"
+      - "lorem"
+      - "TODO"
+      - "__"
+      - "core_success_event"
+
+  - name: homepage carries no anonymous-id telemetry
+    type: forbidden
+    path: /
+    strings:
+      - "anon-id"
+      - "localStorage.setItem(\"anon"
+
+  - name: homepage loads nothing from a font CDN
+    type: forbidden
+    path: /
+    strings:
+      - "fonts.googleapis.com"
+      - "fonts.gstatic.com"
+
+  # Headers a <meta> tag cannot carry. Static pages get them from
+  # dist/_headers (scripts/build.mjs), Worker responses from
+  # worker/src/headers.ts.
+  - name: homepage cannot be framed (CSP)
+    type: header
+    path: /
+    header: content-security-policy
+    contains: "frame-ancestors 'none'"
+
+  - name: homepage cannot be framed (X-Frame-Options)
+    type: header
+    path: /
+    header: x-frame-options
+    expect: DENY
+
+  - name: homepage is not content-sniffed
+    type: header
+    path: /
+    header: x-content-type-options
+    expect: nosniff
+
+  - name: homepage sends no referrer
+    type: header
+    path: /
+    header: referrer-policy
+    expect: no-referrer
+
+  - name: homepage loads fonts from its own origin only
+    type: header
+    path: /
+    header: content-security-policy
+    contains: "font-src 'self'"
+
+  - name: healthz carries the API policy
+    type: header
+    path: /healthz
+    header: content-security-policy
+    expect: "default-src 'none'; frame-ancestors 'none'"
+
+  - name: healthz cannot be framed (X-Frame-Options)
+    type: header
+    path: /healthz
+    header: x-frame-options
+    expect: DENY
+
+  # The per-client rate limit actually bites. The Workers Rate Limiting
+  # binding only counts on Cloudflare, so this runs against the preview and
+  # production only. It must be the Worker's own refusal, not a WAF 1015
+  # page (also a 429), and it waits out the WAF's 10 s window first.
+  # The binding counts permissively, so the burst goes 20 at a time: 25
+  # sequential requests never tripped it (Dial's Spark release, 2026-09-26).
+  - name: rate limit bites on the Worker (deployed only)
+    type: burst
+    path: /healthz
+    count: 80
+    concurrency: 20
+    expect_status: 429
+    expect_error: rate_limited
+    pause_before_seconds: 11
+    requires: deployed
+
+# The zone's one free WAF rate-limiting rule, shared by every product on
+# voidvision.org. Not a check: the /release skill confirms the live rule
+# matches this before a release, and web/privacy.html discloses what it logs
+# (tests/privacy-page.test.ts pairs the two). Blocked requests are recorded
+# in Cloudflare's Security Events with IP, path and user agent.
+zone_waf_rule:
+  name: voidvision worker invocations
+  expression: '(not http.request.uri.path wildcard "/assets/*" and not cf.client.bot)'
+  characteristic: ip
+  requests: 30
+  period_seconds: 10
+  action: block
+  mitigation_timeout_seconds: 10
+  logs_blocked_requests: [ip, path, user_agent]
+
+events:
+  allowed:
+    - page_view
+    # Placeholder: rename to the product's core success event at Spark
+    # (scripts/lint-events.mjs fails the gate until then).
+    - "film_completed"
+    - feedback_received
+    - rate_limiter_error
+  # Counted only by the Worker code that does the thing being counted; /e
+  # rejects them, so a client cannot inflate them or exhaust their ceilings.
+  server_only:
+    - feedback_received
+    - rate_limiter_error
+
+# The one event the kill criteria in CHARTER.md count. It must be the
+# product's core action completing (an export, an order, a finished task),
+# never page views or feedback.
+success_event: "film_completed"

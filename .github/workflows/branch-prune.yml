@@ -1,0 +1,25 @@
+name: branch-prune
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Delete remote branches already merged into main
+        run: |
+          set -e
+          git fetch origin --prune
+          for branch in $(git branch -r --merged origin/main | sed 's/origin\///' | grep -v -E '^(main|HEAD|release/)'); do
+            echo "Deleting merged branch: $branch"
+            git push origin --delete "$branch"
+          done

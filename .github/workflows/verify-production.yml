@@ -1,0 +1,35 @@
+name: verify-production
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install
+      - name: Run the served-page contract against production
+        id: contract
+        run: npm run contract -- --url https://document.voidvision.org
+      - name: Open or update the prod-red issue on failure
+        if: failure()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          EXISTING=$(gh issue list --label prod-red --state open --json number --jq '.[0].number')
+          BODY="The served-page contract failed against https://document.voidvision.org at $(date -u +%FT%TZ). See the failed run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. The Agentique Watch routine also reads this label weekly; closing this issue does not require a code change if the maintainer confirms the site is healthy again."
+          if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+          else
+            gh issue create --title "Production contract failing: document" --label prod-red --body "$BODY"
+          fi

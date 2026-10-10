@@ -1,0 +1,49 @@
+# Free-tier budget for document. `estimate_at_1000_users_per_day` is the number
+# the brief and the G3 launch packet quote; `ceiling` is the platform's actual
+# free-tier limit. The launch quota dry-run fails once any estimate crosses
+# `alert_at` of its ceiling. Workers requests and D1 rows written are quotas of
+# the whole Cloudflare account, shared by every product on it, not per product.
+alert_at: 0.7
+
+quotas:
+  - name: workers_requests_per_day
+    ceiling: 100000
+    estimate_at_1000_users_per_day: 6000
+    notes: "Account-wide. ~3 /e and /feedback requests plus ~3 /media range requests per visitor a day (films are streamed through the Worker from R2). ~3 Worker requests per visitor a day: a couple of /e events and occasional /feedback. Static pages, scripts, styles and fonts are served by Workers Static Assets without invoking the Worker (wrangler.jsonc's run_worker_first lists only the Worker routes), so they do not count here. Not bounded against abuse on the free plan: a refused request is still an invocation. The zone's WAF rule caps bursts (the /release skill), and the rest is an accepted risk signed at G3 (the /launch skill)."
+
+  - name: d1_rows_read_per_day
+    ceiling: 5000000
+    estimate_at_1000_users_per_day: 20000
+    notes: "Each counted request reads its counter row; /healthz and the rate-limit check do not touch D1."
+
+  - name: d1_rows_written_per_day
+    ceiling: 100000
+    estimate_at_1000_users_per_day: 3000
+    worst_case_rows: 11204
+    worst_case_max_share: 0.15
+    notes: "Account-wide. Typical is ~3,000 (one counter update per /e call, occasional feedback). Every write path sits behind a day ceiling that writes nothing once reached, so this product's writes are bounded by the sum of ceiling x rows-per-count, index entries included (worker/src/config.ts's worstCaseDailyWrites, with wrangler.jsonc's values): /e client events 2 x (4,000 + 1 + a daily feedback purge of up to 2 x the 100-row feedback ceiling, 2 rows each) = 8,802; feedback 100 x 22 + 101 = 2,301; rate_limiter_error 101. Worst case 11,204 rows, 11.2% of the account's 100,000; worst_case_max_share caps it at 15%, so four live products at their caps stay under the 70% alert together. tests/hardening.test.ts recomputes worst_case_rows from wrangler.jsonc and checks the share. Refused requests (rate limit, cross-site, content type, ceilings) write nothing."
+
+  - name: d1_storage_mb
+    ceiling: 500
+    estimate_at_1000_users_per_day: 40
+    notes: "D1's free tier caps one database at 500 MB. Feedback is bounded at ~39 MB (FEEDBACK_DAILY_CEILING 100/day x 90-day retention purged before every insert = 9,000 rows x at most 4,000 B of text + 256 B of page + overhead); event_counts is well under 1 MB a year."
+
+  - name: kv_writes_per_day
+    ceiling: 1000
+    estimate_at_1000_users_per_day: 0
+    notes: "No KV writes in v1; reserved for config."
+
+  - name: r2_storage_gb
+    ceiling: 10
+    estimate_at_1000_users_per_day: 6
+    notes: "Films as 720p (about 0.3 GB per 15-minute film) plus posters and sources ledgers. 20 films is about 6 GB. R2 bills past the free tier, so the studio's publish step refuses an upload that would take the bucket past 7 GB; older films then play from their archive.org master only. The Spark sketch is about 15 MB."
+
+  - name: r2_class_b_ops_per_month
+    ceiling: 10000000
+    estimate_at_1000_users_per_day: 2400000
+    notes: "Reads. 1,000 viewers a day watching about 8 minutes each; a browser fetches a progressive MP4 in a few dozen range requests, and HLS (6 s segments, Blueprint) in about 80. 80 x 1,000 x 30 = 2.4M a month, 24%. Each /media request is also a Worker invocation: about 2,700 a day, inside workers_requests_per_day's headroom."
+
+  - name: github_actions_minutes_per_month
+    ceiling: 2000
+    estimate_at_1000_users_per_day: 60
+    notes: "gate on every PR/push, verify-production every 6 hours, weekly branch-prune."

@@ -1,0 +1,18 @@
+#!/bin/sh
+# Secret and size scan on every commit.
+node "$(dirname "$0")/pre-commit.mjs" || exit 1
+
+# R-01 locally: nothing lands on main unless the gate is green. Without a remote
+# there is no CI, so this hook is the gate. Branch commits stay fast.
+branch=$(git symbolic-ref --short HEAD 2>/dev/null)
+if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+  if [ ! -d node_modules ]; then
+    echo "pre-commit: run npm install first; the gate must run before anything lands on $branch." >&2
+    exit 1
+  fi
+  echo "pre-commit: committing to $branch, running the gate (R-01)..." >&2
+  if ! npm run gate --silent > .gate-last.log 2>&1; then
+    echo "pre-commit: the gate failed, so nothing lands on $branch. See .gate-last.log or run npm run gate." >&2
+    exit 1
+  fi
+fi

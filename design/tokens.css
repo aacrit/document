@@ -1,0 +1,91 @@
+/*
+ * Ink & Momentum tokens - the ONLY file in this repo allowed to define a
+ * color literal (hex, rgb(), hsl()). Every other file must reference these
+ * custom properties. scripts/lint-design.mjs enforces this.
+ */
+
+/* Faces are self-hosted (design/fonts.css); never a font CDN (V3). */
+@import "./fonts.css";
+
+:root {
+  /* Hearth palette - dark (default) */
+  --color-bg: #181410;
+  --color-surface: #221c15;
+  --color-cream: #ede2cf;
+  --color-forest: #4f8064;
+  --color-terracotta: #cf7344;
+  --color-burgundy: #a8404f;
+  --color-ochre: #cba14e;
+
+  /* Derived states, never new hexes */
+  --color-terracotta-hover: oklch(from var(--color-terracotta) calc(l + 0.05) c h);
+  --color-surface-raised: oklch(from var(--color-surface) calc(l + 0.03) c h);
+  --color-cream-muted: oklch(from var(--color-cream) l c h / 0.62);
+  --color-border: oklch(from var(--color-cream) l c h / 0.14);
+
+  /* Radii and shadows */
+  --radius-card: 14px;
+  --radius-control: 8px;
+  --radius-pill: 999px;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(12 8 4 / 0.35);
+  --shadow-hover: 0 2px 4px rgb(0 0 0 / 0.4), 0 16px 40px rgb(12 8 4 / 0.45);
+
+  /* Type */
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
+  --font-structure: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+
+  /* Motion */
+  --dur-instant: 80ms;
+  --dur-fast: 160ms;
+  --dur-normal: 240ms;
+  --dur-morph: 360ms;
+  --dur-cinema: 520ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-cinematic: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-rack: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --ease-whip: cubic-bezier(0.25, 0, 0, 1);
+}
+
+/* Light theme variant. Same roles, same earned-accent rule; only the ground
+   and text swap. Toggle with data-theme="light" on :root or <html>. */
+:root[data-theme="light"] {
+  --color-bg: #ede2cf; /* literal: var(--color-cream) would resolve to the redefined dark ink below */
+  --color-surface: #ffffff;
+  --color-cream: #181410;
+  --color-border: oklch(from #181410 l c h / 0.12);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --color-bg: #ede2cf; /* literal: var(--color-cream) would resolve to the redefined dark ink below */
+    --color-surface: #ffffff;
+    --color-cream: #181410;
+    --color-border: oklch(from #181410 l c h / 0.12);
+  }
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-cream);
+  font-family: var(--font-structure);
+}
+
+/* Every numeral rides the data face with tabular figures, no exceptions. */
+.tabular-nums,
+[data-numeral] {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reduced motion is law: every transition and animation collapses to none. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
