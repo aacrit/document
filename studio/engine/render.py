@@ -81,6 +81,9 @@ LIMIT_ATTEMPTS = 3
 LIMIT_MAX_DB, LIMIT_OVER_1DB_S, LIMIT_LRA_DROP = 3.0, 0.050, 0.3   # past these the limiter compresses: refused
 LIMIT_ACTED_LOGGED = 200            # the limiter's largest actions journaled with their timestamps
 DIALOGUE_LUFS = -20.0               # GRAMMAR 8.5: each synthetic voice line levelled to this before mixing
+VOICE_TP = DIALOGUE_LUFS + 12.5     # GRAMMAR A13: a synthetic voice line's true peak after levelling, at most -7.5 dBTP
+VOICE_LIMIT_MARGIN_DB = 0.3         # the per-line limiter's ceiling sits this far under VOICE_TP
+VOICE_LIMIT_MAX_DB, VOICE_LIMIT_OVER_SHARE = 8.0, 0.15   # past these a line is a bad take: refused, re-render it
 MUSIC_LUFS = -26.0                  # a music cue's bed level, 6 dB under the dialogue (its gain_db is an offset from it)
 DUCK_DB = 9.0                       # GRAMMAR 8.5: music under voice
 MASTER_CRF = 18
@@ -1375,11 +1378,26 @@ def _level(journal: Journal, unit: str, x: np.ndarray, target: float, what: str)
     return g
 
 
+def _journal_peak(journal: Journal, unit: str, peak: dict, draft: bool) -> None:
+    """A13: a line's peak reduction as a decision, and the bad-take lint (blocking; a warning under --draft)."""
+    journal.decision("assembly", f"{unit} peak-controlled to {peak['ceiling_dbtp']:g} dBTP: at most {peak['max_reduction_db']:.2f} dB, "
+                     f"over 1 dB for {peak['over_1db_s']:.3f} s",
+                     f"its true peak after levelling was {peak['tp_before']:.2f} dBTP, past the voice ceiling {VOICE_TP:g} dBTP "
+                     f"(GRAMMAR A13: {DIALOGUE_LUFS:g} LUFS + 12.5 dB)", unit=unit,
+                     evidence=dict({k: v for k, v in peak.items() if k != "acted"}, acted=peak["acted"][:20]))
+    journal.lint("voice-peak-control", not peak["bad_take"], stage="assembly", phase="preflight", unit=unit,
+                 severity="warn" if draft else "block", grammar="A13",
+                 evidence={"max_reduction_db": peak["max_reduction_db"], "over_1db_s": peak["over_1db_s"],
+                           "over_1db_share": peak["over_1db_share"], "bad_take": peak["bad_take"],
+                           "limits": {"max_db": VOICE_LIMIT_MAX_DB, "over_1db_share": VOICE_LIMIT_OVER_SHARE},
+                           "result": None if not peak["bad_take"] else ("kept (draft)" if draft else "refused: re-render the take")})
+
+
 def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) -> tuple[np.ndarray, dict]:
     n = int(round(plan["frames"] / FPS * AUDIO_RATE))
     voice, music, amb, clips = (np.zeros(n, np.float32) for _ in range(4))
     placed = {"lines": [], "cues": [], "clips": [], "missing": []}
-    missing_voice = []
+    missing_voice, bad_takes = [], []
     for ln in plan["lines"]:
         wav = film / (ln.get("wav") or f"audio/{ln['id']}.wav")
         if not wav.exists():
@@ -1391,12 +1409,20 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
             continue
         x = _read_wav(wav)
         level = None if ln.get("archival_audio") else _level(journal, ln["id"], x, DIALOGUE_LUFS, "dialogue")
-        k = _place(voice, x, float(ln["start_s"]), (level or 0.0) + float(ln.get("gain_db", 0.0)))
+        peak = None
+        if level is not None:                    # A13: peak control on a synthetic line, after its levelling
+            x, peak = voice_peak_control(x * np.float32(10 ** (level / 20)))
+            if peak:
+                _journal_peak(journal, ln["id"], peak, draft)
+                if peak["bad_take"]:
+                    bad_takes.append(f"{ln['id']} ({'; '.join(peak['bad_take'])})")
+        k = _place(voice, x, float(ln["start_s"]), float(ln.get("gain_db", 0.0)))   # the levelling is already in x
         sp = plan["speakers"].get(ln.get("speaker"), {})
         placed["lines"].append({"id": ln["id"], "speaker": ln.get("speaker"), "side": sp.get("side"),
                                 "kind": "narration" if ln.get("kind") == "narration" else ("archival" if ln.get("archival_audio") else "reading"),
                                 "at_s": float(ln["start_s"]), "dur_s": round(k / AUDIO_RATE, 3),
-                                "level_db": None if level is None else round(level, 2)})
+                                "level_db": None if level is None else round(level, 2),
+                                "peak_reduction_db": peak["max_reduction_db"] if peak else None})
     for c in plan["cues"]:
         wav = film / (c.get("wav") or f"audio/{c['id']}.wav")
         if not wav.exists():
@@ -1423,6 +1449,8 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
             placed["clips"].append(s["id"])
     if missing_voice and not draft:
         raise Refused(f"voice WAVs missing for {', '.join(missing_voice)} (render with --draft to place silence)")
+    if bad_takes and not draft:
+        raise Refused(f"voice-peak-control (A13): bad takes, re-render them instead of crushing them: {'; '.join(bad_takes)}")
     env = (np.abs(voice) > 1e-3).astype(np.float32)
     env = np.clip(moving_average(env, int(0.25 * AUDIO_RATE)) * 4, 0, 1)
     duck = 1 - env * (1 - 10 ** (-DUCK_DB / 20))
@@ -1471,6 +1499,10 @@ def loudness_lints(journal: Journal, loud: dict, *, draft: bool = False) -> list
                                "result": None if not over else ("compressed (draft)" if draft else "refused")})
         if over:
             refusals.append("the true-peak limiter compressed the programme instead of only catching peaks: " + "; ".join(over))
+    else:
+        journal.lint("limiter-peak-only", True, stage="assembly", phase="preflight", severity=sev, grammar="8.5",
+                     evidence={"limiter": "not needed", "max_reduction_db": 0.0, "over_1db_s": 0.0,
+                               "predicted_tp": loud["predicted_tp"], "ceiling": TARGET_TP})
     return [] if draft else refusals
 
 
@@ -1543,6 +1575,46 @@ def _limit(src: Path, dst: Path, gain_db: float, ceiling_db: float) -> None:
         raise EncodeError(f"true-peak limiter failed: {r.stderr[-500:]}")
 
 
+def _limit_array(x: np.ndarray, ceiling_db: float) -> np.ndarray:
+    """The true-peak limiter of _limit (alimiter, 4x oversampled, delay
+    compensated, no auto level) on a mono 48 kHz array, same length out."""
+    lim = 10 ** (ceiling_db / 20)
+    af = (f"aresample={AUDIO_RATE * LIMIT_OVERSAMPLE},alimiter=limit={lim:.6f}:attack={LIMITER_ATTACK_MS}:"
+          f"release={LIMITER_RELEASE_MS}:level=0:latency=1,aresample={AUDIO_RATE}")
+    r = subprocess.run([ffmpeg(), "-hide_banner", "-nostats", "-v", "error", "-f", "f32le", "-ar", str(AUDIO_RATE), "-ac", "1",
+                        "-i", "pipe:0", "-af", af, "-f", "f32le", "-ar", str(AUDIO_RATE), "-ac", "1", "pipe:1"],
+                       input=np.ascontiguousarray(x, dtype=np.float32).tobytes(), capture_output=True)
+    if r.returncode:
+        raise EncodeError(f"voice peak limiter failed: {r.stderr.decode(errors='replace')[-500:]}")
+    y = np.frombuffer(r.stdout, dtype=np.float32).copy()
+    return np.pad(y, (0, max(0, len(x) - len(y))))[: len(x)]
+
+
+def voice_peak_control(x: np.ndarray, ceiling_db: float | None = None) -> tuple[np.ndarray, dict | None]:
+    """GRAMMAR A13: a levelled synthetic voice line whose true peak passes
+    the voice ceiling goes through the oversampled true-peak limiter, so its
+    crest fits the master's 14.5 dB between -16 LUFS and -1.5 dBTP. Returns
+    the line and what the limiter did (None when it was not needed), with
+    ``bad_take`` listing why when it had to cut more than VOICE_LIMIT_MAX_DB,
+    or more than 1 dB for over VOICE_LIMIT_OVER_SHARE of the line."""
+    ceiling_db = VOICE_TP if ceiling_db is None else ceiling_db
+    m = _measure(x)
+    if not math.isfinite(m["input_tp"]) or m["input_tp"] <= ceiling_db:
+        return x, None
+    y = _limit_array(x, ceiling_db - VOICE_LIMIT_MARGIN_DB)
+    gr = _gr_stats(x, y)
+    dur = len(x) / AUDIO_RATE
+    share = gr["over_1db_s"] / dur if dur else 0.0
+    bad = []
+    if gr["max_reduction_db"] > VOICE_LIMIT_MAX_DB:
+        bad.append(f"{gr['max_reduction_db']:.2f} dB of peak reduction at {gr['max_at_s']:.3f} s (limit {VOICE_LIMIT_MAX_DB:g} dB)")
+    if share > VOICE_LIMIT_OVER_SHARE:
+        bad.append(f"over 1 dB for {gr['over_1db_s']:.3f} s, {share:.0%} of the line (limit {VOICE_LIMIT_OVER_SHARE:.0%})")
+    after = _measure(y)
+    return y, dict(gr, ceiling_dbtp=round(ceiling_db - VOICE_LIMIT_MARGIN_DB, 2), tp_before=m["input_tp"], tp_after=after["input_tp"],
+                   i_after=after["input_i"], over_1db_share=round(share, 4), bad_take=bad)
+
+
 def gain_reduction(src: Path, limited: Path, gain_db: float, block_ms: float = 1.0) -> dict:
     """What the limiter did, measured: the input with its linear gain against
     the limiter's output, block by block (1 ms RMS ratio). Returns the largest
@@ -1551,7 +1623,12 @@ def gain_reduction(src: Path, limited: Path, gain_db: float, block_ms: float = 1
     import soundfile as sf
     a, _ = sf.read(str(src), dtype="float64", always_2d=True)
     b, _ = sf.read(str(limited), dtype="float64", always_2d=True)
-    a, b = a.mean(axis=1) * 10 ** (gain_db / 20), b.mean(axis=1)
+    return _gr_stats(a.mean(axis=1) * 10 ** (gain_db / 20), b.mean(axis=1), block_ms)
+
+
+def _gr_stats(a: np.ndarray, b: np.ndarray, block_ms: float = 1.0) -> dict:
+    """gain_reduction's measure on two aligned mono arrays: a before the limiter, b after it."""
+    a, b = np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64)
     n = min(len(a), len(b))
     k = max(1, int(round(AUDIO_RATE * block_ms / 1000)))
     m = n // k
@@ -1787,7 +1864,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         # still's own first frame. The rendered pixels are checked again after motion (phase post-render).
         journal.stage("scout", "start", phase="preflight")
         if draft:
-            journal.human("scout", "draft render: missing voice WAVs become silence, and dynamic loudness a warning, instead of refusing the run",
+            journal.human("scout", "draft render: missing voice WAVs become silence; dynamic loudness, a compressing master limiter and A13 bad takes are warnings instead of refusing the run",
                           override="--draft")
         with journal.unit("scout", "preflight", size={"driver": "items", "value": 1}):
             pf = preflight(out, journal, min_free_gb=min_free_gb)
@@ -2083,7 +2160,7 @@ def main(argv=None) -> int:
     ap.add_argument("--from", dest="from_shot", default=None, help="re-render from this shot; earlier shots come from the cache")
     ap.add_argument("--workers", type=int, default=DEFAULT_WORKERS, help=f"CPU worker processes (default {DEFAULT_WORKERS}, max {MAX_WORKERS})")
     ap.add_argument("--burn-subtitles", action="store_true", help="burn the English subtitles into the picture (off by default)")
-    ap.add_argument("--draft", action="store_true", help="place silence for missing voice WAVs and accept dynamic loudness instead of refusing (journaled)")
+    ap.add_argument("--draft", action="store_true", help="place silence for missing voice WAVs and accept dynamic loudness, a compressing limiter or a bad take instead of refusing (journaled)")
     ap.add_argument("--fit-voices", action="store_true",
                     help="move overlapping voice lines later (0.8 s apart) and lengthen their shots (journaled)")
     ap.add_argument("--audio-only", action="store_true",

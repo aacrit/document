@@ -1039,6 +1039,76 @@ def test_audio_only_runs_the_preflight_and_the_sound_without_frames(film, tmp_pa
     assert lints(evs, "still-first-frame-whole-pixels")                 # the pre-flight ran in full
 
 
+def _levelled(x):
+    g, _ = R.level_gain(x, R.DIALOGUE_LUFS)
+    return x * 10 ** (g / 20)
+
+
+def _voice(seconds=3.0, amp=0.05):
+    return amp * np.sin(2 * np.pi * 220 * np.arange(int(48000 * seconds)) / 48000)
+
+
+def test_a13_a_peaky_voice_line_is_peak_controlled(tmp_path):
+    x = _voice()
+    for at in (0.8, 2.1):                                             # two plosive-like peaks over the -7.5 dBTP voice ceiling
+        i = int(at * 48000)
+        x[i:i + 96] += 0.12 * np.sin(np.linspace(0, np.pi, 96))
+    y, peak = R.voice_peak_control(_levelled(x))
+    assert peak and not peak["bad_take"] and peak["tp_before"] > R.VOICE_TP
+    assert peak["tp_after"] <= R.VOICE_TP + 0.2 and 0.1 < peak["max_reduction_db"] <= R.VOICE_LIMIT_MAX_DB
+    assert len(y) == len(x)
+    quiet, quiet_peak = R.voice_peak_control(_levelled(_voice()))   # a steady line under the ceiling is left alone
+    assert quiet_peak is None
+
+
+def test_a13_a_line_cut_more_than_8_db_is_a_bad_take(tmp_path):
+    x = _voice()
+    x[48000] += 1.0                                                   # one click far over the line's own level
+    x[48001] -= 1.0
+    _, peak = R.voice_peak_control(_levelled(x))
+    assert peak["max_reduction_db"] > R.VOICE_LIMIT_MAX_DB and peak["over_1db_share"] <= R.VOICE_LIMIT_OVER_SHARE
+    assert len(peak["bad_take"]) == 1 and "dB of peak reduction" in peak["bad_take"][0]
+    film = make_film(tmp_path / "film")
+    _wav(film / "audio" / "L1.wav", x)
+    plan, _ = _plan(film)
+    j = J.Journal(film="bad-take")
+    with pytest.raises(R.Refused, match=r"voice-peak-control \(A13\).*L1 \(.*dB of peak reduction"):
+        R.build_mix(plan, film, j)
+    evs = J.read(j.path)
+    lint = [e for e in lints(evs, "voice-peak-control") if e["unit"] == "L1"][0]
+    assert lint["status"] == "fail" and lint["severity"] == "block" and lint["evidence"]["result"] == "refused: re-render the take"
+    assert [e for e in evs if e["kind"] == "decision" and e["unit"] == "L1" and "peak-controlled" in e["what"]]
+    jd = J.Journal(film="bad-take-draft")
+    _, placed = R.build_mix(plan, film, jd, draft=True)               # a draft keeps the take, with a warning
+    assert [ln["peak_reduction_db"] for ln in placed["lines"] if ln["id"] == "L1"][0] > R.VOICE_LIMIT_MAX_DB
+    assert [e for e in lints(J.read(jd.path), "voice-peak-control") if e["unit"] == "L1"][0]["severity"] == "warn"
+
+
+def test_a13_a_line_limited_over_1_db_for_15_percent_is_a_bad_take(tmp_path):
+    x = 0.02 * np.sin(2 * np.pi * 220 * np.arange(48000 * 3) / 48000)
+    for s in np.arange(0, 3, 0.02):                                   # a peak every 20 ms: the limiter never lets go
+        i = int(s * 48000)
+        x[i:i + 48] += 0.5 * np.sin(np.linspace(0, np.pi, 48))
+    _, peak = R.voice_peak_control(_levelled(x))
+    assert peak["max_reduction_db"] <= R.VOICE_LIMIT_MAX_DB and peak["over_1db_share"] > R.VOICE_LIMIT_OVER_SHARE
+    assert len(peak["bad_take"]) == 1 and "of the line (limit 15%)" in peak["bad_take"][0]
+    film = make_film(tmp_path / "film")
+    _wav(film / "audio" / "L2.wav", x)
+    plan, _ = _plan(film)
+    with pytest.raises(R.Refused, match=r"voice-peak-control \(A13\).*L2 \(over 1 dB for"):
+        R.build_mix(plan, film, J.Journal(film="crushed"))
+
+
+def test_a13_archival_audio_is_never_peak_controlled(plan, film):
+    arch = json.loads(json.dumps(plan))
+    for ln in arch["lines"]:
+        ln["archival_audio"] = True
+    j = J.Journal(film="archival-peaks")
+    _, placed = R.build_mix(arch, film, j)
+    assert all(ln["peak_reduction_db"] is None and ln["level_db"] is None for ln in placed["lines"])
+    assert not lints(J.read(j.path), "voice-peak-control")
+
+
 def _dynamic(real):
     def fake(src, dst):
         loud = real(src, dst)
