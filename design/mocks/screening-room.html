@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="void document: history told with the record itself.">
+<title>void document</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="house.css">
+<style>
+
+.marquee { position: relative; min-height: 100svh; display: grid; grid-template-rows: auto 1fr auto auto; grid-template-areas: "bar" "space" "card" "credit"; padding: 0 16px 16px; }
+.poster { position: absolute; inset: 0; margin: 0; overflow: hidden; background: var(--color-letterbox); }
+.poster img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 35%; animation: house-lights-in var(--dur-cinema) var(--ease-cinematic) both; filter: grayscale(1); }
+.poster::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to top, var(--scrim-strong) 0%, var(--scrim-strong) 30%, var(--scrim-soft) 58%, var(--scrim-none) 80%), linear-gradient(to bottom, var(--scrim-soft) 0%, var(--scrim-none) 18%); }
+@keyframes house-lights-in { from { opacity: 0; } to { opacity: 1; } }
+.marquee-bar { grid-area: bar; position: relative; z-index: 1; padding-top: 8px; }
+.marquee-card { grid-area: card; position: relative; z-index: 1; max-width: 860px; padding-bottom: 18px; }
+.marquee-card .title { font-size: clamp(42px, 7.4vw, 104px); }
+.marquee-card .note { font-size: 14px; color: var(--color-cream-muted); max-width: 56ch; margin-top: 14px; }
+.marquee-card .actions { display: flex; align-items: center; gap: 20px; margin-top: 18px; flex-wrap: wrap; }
+.marquee-card .actions a:not(.btn) { font-size: 15px; min-height: 44px; display: inline-flex; align-items: center; }
+.marquee-card .credits { font-size: 13px; margin-top: 14px; max-width: 60ch; }
+.marquee > .frame-credit { grid-area: credit; position: relative; z-index: 1; font-size: 11.5px; }
+.wordmark { font-size: 19px; }
+@media (min-width: 760px) {
+  .marquee { padding: 0 clamp(24px, 5vw, 72px) clamp(28px, 6vh, 64px); grid-template-columns: 1fr auto; grid-template-areas: "bar bar" "space space" "card credit"; column-gap: 32px; }
+  .marquee > .frame-credit { justify-self: end; align-self: end; text-align: right; padding-bottom: 18px; }
+}
+.mini { position: relative; aspect-ratio: 16 / 10; background: var(--color-letterbox); border-radius: var(--radius-frame); overflow: hidden; display: grid; align-content: end; padding: 16px; gap: 6px; }
+.mini .t { font: 300 24px/1.2 var(--font-display); }
+
+</style>
+</head>
+<body>
+<main class="marquee">
+  <figure class="poster"><img src="_media/partition/S-020.jpg" alt="A large crowd before the walls of the Red Fort in Delhi, Independence Day 1947."></figure>
+  <header class="marquee-bar"><a class="wordmark" href="screening-room.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/><circle cx="18.6" cy="17.6" r="1.25" fill="var(--color-safelight)" stroke="none"/></svg><span class="wm"><span class="wm-void">void</span> <span class="wm-doc">document</span></span></a></header>
+  <section class="marquee-card titlecard" aria-labelledby="ft">
+    <p class="eyebrow">Now showing</p>
+    <h1 class="title" id="ft">The Partition of India</h1>
+    <p class="place"><span class="num">1946</span> to <span class="num">1948</span>, told with the public record</p>
+    <p class="note">This film tells of killing, abduction and flight through the words of people who were there. Every reading is word for word from its source, sometimes in part (marked <span class="num">...</span>). Voices are read by a computer; no recording is imitated. This film shows no bodies or killing. Every second carries a mark that says what it is.</p>
+    <div class="actions">
+      <a class="btn" href="film.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg><span>Watch</span><span class="num">21:33</span></a>
+      <a href="sources.html">Sources</a>
+    </div>
+    <p class="credits safe">Film and photographs from the National Archives, the Internet Archive and Wikimedia Commons. Words from Hansard and the Punjab Boundary Commission papers.</p>
+  </section>
+  <p class="frame-credit">Indian Independence Day at the Red Fort. Unknown author, <span class="num">1947.</span> Wikimedia Commons, public domain.</p>
+</main>
+<footer class="house-foot">
+  <span>void document is part of void, with void news and void history.</span>
+  <span>Films are free to watch and licensed CC BY 4.0.</span>
+  <a href="#privacy">Privacy</a>
+</footer>
+<section class="mock-states" aria-label="Mock states, not part of the page">
+  <header><p class="eyebrow">Mock states, not part of the page</p><p>Screening room <span class="num">/</span>, void document round 2. Stills and credits come from the stills ledger. The runtime on Watch is the treatment's planned <span class="num">21:33</span> (the full plan; <span class="num">18:06</span> if some readings cannot be used) and is replaced by the cut's own figure. Hindi and Urdu subtitles: listed on the film page.</p></header>
+  <div class="grid">
+    <div class="mock-state"><p class="eyebrow">Before the film is published</p><div class="mini"><p class="t">The first void document is being made.</p><p class="muted">The Partition of India, <span class="num">1946</span> to <span class="num">1948</span>.</p></div><p class="muted">No date promised, no countdown. Until it ships, <span class="num">/</span> keeps serving the earlier stub.</p></div>
+    <div class="mock-state"><p class="eyebrow">Copy rules for this film</p><p class="muted">Sober and plain. Never "tragic", "horrific", "bloodiest"; never a death toll as a headline. The note under the title says what the film shows and does not show, so a viewer can choose.</p></div>
+  </div>
+</section>
+</body>
+</html>

@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Tell void document what The Partition of India gets wrong.">
+<title>Correct something · The Partition of India · void document</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="house.css">
+<style>
+
+/* Corrections: one job, flag an error at a moment in the film. One hero:
+   the moment itself (the frame and its source) beside the form. */
+.correct { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; display: grid; gap: 32px; }
+.correct-head { display: grid; gap: 12px; max-width: 640px; }
+.correct-head h1 { font: 300 clamp(34px, 5.5vw, 56px)/1.05 var(--font-display); }
+.correct-head h1 em { font-style: italic; }
+.correct-head p:not(.eyebrow) { color: var(--color-cream-muted); font-size: 16px; max-width: 56ch; }
+
+.moment { display: grid; gap: 10px; align-content: start; }
+.moment .frame { aspect-ratio: 16 / 9; width: 100%; object-fit: cover; object-position: 50% 50%; border-radius: var(--radius-frame); background: var(--color-letterbox); }
+.moment .t { font-size: 14px; }
+.moment .w { font-size: 13px; }
+.moment .when { font-size: 13px; color: var(--color-cream-muted); }
+
+form { display: grid; gap: 22px; }
+form[hidden] { display: none; }
+.field { display: grid; gap: 6px; }
+.field label { font-size: 15px; font-weight: 500; }
+.field .hint { font-size: 13px; color: var(--color-cream-muted); }
+input, textarea {
+  width: 100%;
+  background: var(--color-surface);
+  color: var(--color-cream);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: 11px 12px;
+  font: 400 16px/1.5 var(--font-structure);
+  min-height: 44px;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+input:hover, textarea:hover { border-color: var(--color-cream-faint); }
+input:focus-visible, textarea:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; border-color: transparent; }
+input.tcin { width: 120px; font-family: var(--font-data); font-variant-numeric: tabular-nums; font-feature-settings: "calt" 0, "liga" 0; }
+.sent-panel { display: grid; gap: 8px; justify-items: start; padding: 20px; border: 1px solid var(--color-border); border-radius: var(--radius-card); background: var(--color-surface); animation: credit-rise var(--dur-normal) var(--ease-cinematic) both; }
+.sent-panel .h { font: 300 28px/1.1 var(--font-display); }
+.sent-panel[hidden] { display: none; }
+@keyframes credit-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+textarea { resize: vertical; min-height: 148px; }
+.count { justify-self: end; font-size: 12px; color: var(--color-cream-muted); }
+.privacy-note { font-size: 13px; color: var(--color-cream-muted); max-width: 52ch; }
+.send-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.status { font-size: 14px; min-height: 1.4em; }
+.status.err { color: var(--color-error-text); }
+.field.invalid input, .field.invalid textarea { border-color: var(--color-burgundy); }
+.field .msg { font-size: 13px; color: var(--color-error-text); }
+
+.made { border-top: 1px solid var(--color-border); padding-top: 20px; display: grid; gap: 6px; }
+.made h2 { font: 400 20px/1.3 var(--font-display); }
+
+@media (min-width: 860px) {
+  .correct { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); column-gap: 56px; padding-top: 40px; }
+  .correct-head { grid-column: 1 / -1; }
+  .moment { position: sticky; top: 24px; }
+  .made { grid-column: 2; }
+}
+.mini-form { display: grid; gap: 8px; }
+
+</style>
+</head>
+<body>
+<header class="house-bar">
+  <a class="wordmark" href="screening-room.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/><circle cx="18.6" cy="17.6" r="1.25" fill="var(--color-safelight)" stroke="none"/></svg><span class="wm"><span class="wm-void">void</span> <span class="wm-doc">document</span></span></a>
+  <a class="back" href="film.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 6 8.5 12l6 6"/></svg><span>Back to the film</span></a>
+</header>
+<main class="correct">
+  <header class="correct-head">
+    <p class="eyebrow">Corrections</p>
+    <h1>Correct something in <em>The Partition of India</em></h1>
+    <p>If the film gets something wrong, a name, a date, a place, a word in a subtitle, tell us what, and where. When a correction changes the film, it is listed in the credits with the date.</p>
+  </header>
+
+  <aside class="moment" aria-label="The moment you are correcting">
+    <img class="frame" src="_media/partition/S-038.jpg" alt="Seen whole: a long column of carts, cattle and people on foot moving under dust at Balloki, Kasur." style="object-fit:contain;background:var(--doc-black)">
+    <p class="when">At <span class="tc">11:07</span>, from Sources</p>
+    <p class="t">Refugees at Balloki, Kasur during partition of India</p>
+    <p class="w safe">Photo Division, Government of India, <span class="num">1947</span> · <a class="source" href="sources.html#S-038">Source</a></p>
+  </aside>
+
+  <div>
+    <div class="sent-panel" id="sent" hidden role="status">
+        <p class="h">Sent.</p>
+        <p>If it leads to a change, the fix will be listed in the credits with the date.</p>
+        <button class="btn quiet" type="button" id="again">Send another</button>
+      </div>
+    <form novalidate id="form">
+      <div class="field">
+        <label for="when">Where in the film</label>
+        <span class="hint" id="when-hint">Optional. The time, like 17:12, or the shot's title as Sources lists it.</span>
+        <input class="tcin" id="when" name="when" inputmode="numeric" value="11:07" aria-describedby="when-hint">
+      </div>
+      <div class="field">
+        <label for="what">What is wrong</label>
+        <textarea id="what" name="what" maxlength="2000" required aria-describedby="what-count" placeholder="For example: you wrote 7:12, I think you meant 17:12."></textarea>
+        <span class="count num" id="what-count">0 of 2,000</span>
+      </div>
+      <div class="field">
+        <label for="how">How do you know</label>
+        <span class="hint" id="how-hint">Optional. A book, an archive record, a link, or what you saw yourself.</span>
+        <input id="how" name="how" maxlength="500" aria-describedby="how-hint">
+      </div>
+      <p class="privacy-note">We do not ask who you are, so we cannot reply. Nothing you send is shown publicly unless it leads to a fix, and then only the fix is listed.</p>
+      <div class="send-row">
+        <button class="btn" type="submit">Send correction</button>
+        <p class="status" role="status" aria-live="polite"></p>
+      </div>
+    </form>
+    <section class="made" aria-labelledby="made-h" style="margin-top:40px">
+      <h2 id="made-h">Corrections so far</h2>
+      <p class="muted">None yet.</p>
+    </section>
+  </div>
+</main>
+<footer class="house-foot">
+  <span>void document is part of void, with void news and void history.</span>
+  <span>Films are free to watch and licensed CC BY 4.0.</span>
+  <a href="#privacy">Privacy</a>
+</footer>
+
+<section class="mock-states" aria-label="Mock states, not part of the page">
+  <header><p class="eyebrow">Mock states, not part of the page</p><p>Corrections <span class="num">/f/partition-of-india/correct</span>. Above: arriving from a Sources entry ("Correct this", <span class="num">?s=S-001</span>), so the moment shows that item and its credit. From a paused frame it carries <span class="num">?t=</span>; with neither, the field is empty.</p></header>
+  <div class="grid">
+    <div class="mock-state">
+      <p class="eyebrow">Sending</p>
+      <div class="send-row"><button class="btn" type="button" disabled style="opacity:.6">Sending</button></div>
+      <p class="muted">The button holds its width and says "Sending". Fields stay editable.</p>
+    </div>
+    <div class="mock-state">
+      <p class="eyebrow">Sent</p>
+      <div class="sent-panel" role="status">
+        <p class="h">Sent.</p>
+        <p>If it leads to a change, the fix will be listed in the credits with the date.</p>
+        <button class="btn quiet" type="button">Send another</button>
+      </div>
+      <p class="muted">The form is replaced in place by this panel; the page does not move and the moment stays beside it. Send another brings back an empty form. <span class="num">correction_submitted</span> is counted server-side when the Worker accepts it.</p>
+    </div>
+    <div class="mock-state">
+      <p class="eyebrow">Nothing written</p>
+      <div class="field invalid mini-form"><label>What is wrong</label><textarea aria-invalid="true" style="min-height:64px"></textarea><span class="msg">Write what is wrong before sending.</span></div>
+    </div>
+    <div class="mock-state">
+      <p class="eyebrow">Timecode not understood</p>
+      <div class="field invalid mini-form"><label>Where in the film</label><input class="tcin" value="2:40" aria-invalid="true"><span class="msg">Use a time inside the film, like <span class="num">17:12</span>, the shot's title, or leave this empty.</span></div>
+    </div>
+    <div class="mock-state">
+      <p class="eyebrow">Daily limit reached</p>
+      <p class="status err">Corrections are full for today. Send this tomorrow; your text is still here.</p>
+      <p class="muted">The Worker's day ceiling, or the per-client rate limit. Both answer <span class="num">429</span>.</p>
+    </div>
+    <div class="mock-state">
+      <p class="eyebrow">Could not send</p>
+      <p class="status err">Could not send. Check your connection and send again; your text is still here.</p>
+    </div>
+  </div>
+</section>
+<script>
+  // Mock only: show the in-place states without a server.
+  const form = document.getElementById("form"), sent = document.getElementById("sent");
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const what = document.getElementById("what");
+    if (!what.value.trim()) { what.setAttribute("aria-invalid", "true"); what.focus(); return; }
+    const b = form.querySelector("button"); b.textContent = "Sending"; b.disabled = true;
+    setTimeout(() => { form.hidden = true; sent.hidden = false; sent.querySelector("button").focus(); }, 500);
+  });
+  document.getElementById("again").addEventListener("click", () => { form.reset(); form.querySelector("button").textContent = "Send correction"; form.querySelector("button").disabled = false; sent.hidden = true; form.hidden = false; });
+</script>
+</body>
+</html>

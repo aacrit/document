@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board card · Document render</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font: 400 14px/1.5 var(--font-structure); padding: 16px; display: grid; gap: 16px; align-content: start; }
+.num, code { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+p { margin: 0; }
+.eb { font: 500 10.5px/1.3 var(--font-data); letter-spacing: var(--track-eyebrow); text-transform: uppercase; color: var(--color-cream-muted); }
+.note { font-size: 12px; color: var(--color-cream-muted); }
+.card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-card); box-shadow: var(--shadow-card); overflow: hidden; display: grid; }
+.card .frame { aspect-ratio: 16 / 9; width: 100%; object-fit: cover; display: block; }
+.card .body { padding: 16px 18px 18px; display: grid; gap: 10px; }
+.card .from { display: flex; align-items: center; gap: 8px; }
+.card .from svg { width: 18px; height: 18px; }
+.card h2 { margin: 0; font: 300 28px/1.1 var(--font-display); letter-spacing: 0.01em; }
+.outcome { display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: 15px; }
+.outcome i { width: 9px; height: 9px; border-radius: 50%; }
+.outcome.done { color: var(--color-done-text); } .outcome.done i { background: var(--color-forest); }
+.outcome.failed { color: var(--color-error-text); } .outcome.failed i { background: var(--color-burgundy); }
+.card dl { margin: 0; display: grid; grid-template-columns: 76px 1fr; gap: 4px 12px; font-size: 13px; }
+.card dt { color: var(--color-cream-muted); }
+.card dd { margin: 0; }
+.fix { font-size: 13px; display: grid; gap: 6px; padding: 10px 12px; background: var(--color-bg); border-radius: var(--radius-control); }
+code { font-size: 12px; overflow-wrap: anywhere; font-feature-settings: "calt" 0, "liga" 0; }
+.btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 18px; border-radius: var(--radius-control); background: var(--color-action); color: var(--color-action-ink); font: 500 15px/1 var(--font-structure); text-decoration: none; }
+.links { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-top: 4px; }
+.links a:not(.btn) { color: var(--color-cream); text-underline-offset: 3px; text-decoration-color: var(--color-cream-faint); font-size: 14px; min-height: 44px; display: inline-flex; align-items: center; }
+</style>
+</head>
+<body>
+<p class="eb">Board card, one per render: finished</p>
+<article class="card" aria-label="Render finished: The Partition of India">
+  <img class="frame" src="_media/partition/S-001.jpg" alt="Ledger still S-001.">
+  <div class="body">
+    <p class="from"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/><circle cx="18.6" cy="17.6" r="1.25" fill="var(--color-safelight)" stroke="none"/></svg><span class="eb">void document · render r-0001</span></p>
+    <h2>The Partition of India</h2>
+    <p class="outcome done"><i></i>Rendered</p>
+    <dl><dt>Film</dt><dd>runtime from the cut</dd><dt>Marks</dt><dd>every second marked; generated share within the <span class="num">15%</span> cap</dd><dt>Render</dt><dd>wall time, and how it compared with the prediction</dd></dl>
+    <div class="links"><a class="btn" href="lens.html?mode=hosted">Open in the studio</a></div>
+  </div>
+</article>
+<p class="note">The link goes to <code>/studio</code>. Once <code>doc publish</code> has put the film on the site, the card links to the film instead.</p>
+
+<p class="eb" style="margin-top:12px">Board card, one per render: failed</p>
+<article class="card" aria-label="Render failed: The Partition of India">
+  <div class="body">
+    <p class="from"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="1.2" stroke-opacity="0.5"/><path d="M6.5 10V8h3M14.5 8h3v2M17.5 13v2h-3M9.5 15h-3v-2"/><circle cx="19.1" cy="17.3" r="1.2" fill="var(--color-safelight)" stroke="none"/></svg><span class="eb">void document · render r-0001</span></p>
+    <h2>The Partition of India</h2>
+    <p class="outcome failed"><i></i>Failed at marks lint</p>
+    <dl>
+      <dt>Kept</dt><dd>every stage before marks lint</dd>
+      <dt>Render</dt><dd>ran, then stopped at the lint</dd>
+      <dt>Why</dt><dd>Second <span class="num">14</span> carries no mark.</dd>
+    </dl>
+    <div class="fix"><p>Fix the mark track, then resume on the laptop:</p><code>doc render partition-of-india --from marks</code></div>
+    <p class="note">To watch a render while it runs, open <code>/studio</code>. It is worth bookmarking: the Board only hears when a render ends.</p>
+    <div class="links">
+      <a class="btn" href="lens.html?mode=hosted">Open in the studio</a>
+    </div>
+  </div>
+</article>
+</body>
+</html>

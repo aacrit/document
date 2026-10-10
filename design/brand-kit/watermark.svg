@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="65" height="65" role="img" aria-label="void document in-film watermark">
+  <!--
+    The in-film watermark: the logomark at 6% of frame height (65 px at 1080p,
+    43 px at 720p), top right, inset 4% of width from the right edge and 5% of
+    height from the top. Whole group at opacity 0.6. Beneath the bone strokes
+    sits a halo: the same strokes in black at 0.35, 2 px wider at 1080p, so
+    the mark holds on a white sky. The halo exists only in the burned-in
+    watermark, never on the site. Colours cite design/tokens.css:
+    --doc-bone #ede2cf, --doc-safelight #eda23c, --doc-black #0f0c0a.
+  -->
+  <g opacity="0.6">
+    <g fill="none" stroke="#0f0c0a" stroke-opacity="0.35" stroke-width="2.34" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3.5 8V4.5H7"/>
+      <path d="M17 4.5h3.5V8"/>
+      <path d="M20.5 16v3.5H17"/>
+      <path d="M7 19.5H3.5V16"/>
+      <circle cx="12" cy="12" r="4.2"/>
+    </g>
+    <g fill="none" stroke="#ede2cf" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3.5 8V4.5H7"/>
+      <path d="M17 4.5h3.5V8"/>
+      <path d="M20.5 16v3.5H17"/>
+      <path d="M7 19.5H3.5V16"/>
+      <circle cx="12" cy="12" r="4.2"/>
+    </g>
+    <circle cx="18.6" cy="17.6" r="1.25" fill="#eda23c"/>
+  </g>
+</svg>

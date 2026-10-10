@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Every shot of The Partition of India with its mark, archive and licence.">
+<title>Sources · The Partition of India · void document</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="house.css">
+<style>
+
+.ledger { max-width: 1100px; margin: 0 auto; padding: 16px 16px 40px; }
+.ledger-head { display: grid; gap: 10px; padding: 16px 0 28px; }
+.ledger-head h1 { font: 300 clamp(36px, 6vw, 68px)/1.05 var(--font-display); }
+.ledger-head p { color: var(--color-cream-muted); max-width: 64ch; }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 0 20px; position: sticky; top: 0; z-index: 3; background: var(--color-bg); padding-top: 10px; }
+.filters button { appearance: none; min-height: 40px; padding: 0 14px; border-radius: var(--radius-pill); border: 1px solid var(--color-border); background: none; color: var(--color-cream); font: 400 13px/1 var(--font-structure); display: inline-flex; gap: 8px; align-items: center; cursor: pointer; }
+.filters button i { width: 3px; height: 14px; border-radius: 1px; background: var(--h, var(--color-cream-faint)); }
+.filters button[aria-pressed="true"] { background: var(--color-surface-raised); border-color: var(--color-cream-faint); }
+.filters button .num { color: var(--color-cream-muted); }
+.filters .f-archive { --h: var(--mark-archive); } .filters .f-reconstructed { --h: var(--mark-reconstructed); } .filters .f-generated, .filters .f-drawn { --h: var(--mark-generated); } .filters .f-card { --h: var(--mark-reconstructed); }
+.layout { display: grid; gap: 40px; }
+.entries { list-style: none; margin: 0; padding: 0; }
+.entry { display: grid; gap: 8px; padding: 22px 0; border-top: 1px solid var(--color-border); }
+.ehead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ehead .mark { position: static; font-size: 11.5px; }
+.lid { font-size: 12px; color: var(--color-cream-muted); }
+.entry h2 { font: 400 21px/1.3 var(--font-display); }
+.entry dl, .readings dl { margin: 0; display: grid; grid-template-columns: 90px 1fr; gap: 5px 14px; font-size: 14px; }
+.entry dt, .readings dt { color: var(--color-cream-muted); font-size: 12px; padding-top: 2px; }
+.entry dd, .readings dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.correct-this { justify-self: start; font-size: 13px; color: var(--color-cream-muted); min-height: 44px; display: inline-flex; align-items: center; }
+.readings { list-style: none; margin: 0; padding: 0; }
+.readings li { padding: 20px 0; border-top: 1px solid var(--color-border); display: grid; gap: 10px; }
+.readings .rch { border-top: 0; padding: 18px 0 0; }
+.readings .rch h3 { margin: 0; font: 400 19px/1.3 var(--font-display); color: var(--color-cream-muted); }
+.readings .rflag { margin: 0; font: italic 300 19px/1.3 var(--font-display); color: var(--color-cream); }
+.readings .rpersp { margin: 0; font-size: 13px; color: var(--color-cream-muted); }
+.readings li.flagged { border-left: 2px solid var(--color-cream-faint); padding-left: 14px; }
+.readings q { font: italic 300 18px/1.45 var(--font-display); quotes: "\201C" "\201D"; }
+.balance { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--color-border); border-radius: var(--radius-card); background: var(--color-surface); }
+.balance h3 { margin: 0; font: 400 20px/1.25 var(--font-display); }
+.btable { display: grid; grid-template-columns: 96px 1fr auto; gap: 8px 12px; align-items: center; font-size: 14px; }
+.btable .bar { height: 8px; border-radius: 2px; background: var(--color-surface-raised); position: relative; overflow: hidden; }
+.btable .bar i { position: absolute; inset: 0 auto 0 0; background: var(--color-cream-muted); }
+.btable .band { position: absolute; top: 0; bottom: 0; left: 10%; width: 25%; border-left: 1px solid var(--color-cream); border-right: 1px solid var(--color-cream); }
+.btable .floor { position: absolute; top: -2px; bottom: -2px; left: 30%; width: 1px; background: var(--color-cream); }
+.short { font-size: 14px; display: grid; gap: 6px; }
+.short p { padding-left: 10px; border-left: 2px solid var(--color-border); }
+h2.sec { font: 400 26px/1.2 var(--font-display); margin: 40px 0 8px; }
+@media (min-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr) 340px; align-items: start; } .side { position: sticky; top: 72px; } }
+
+</style>
+</head>
+<body>
+<header class="house-bar"><a class="wordmark" href="screening-room.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/><circle cx="18.6" cy="17.6" r="1.25" fill="var(--color-safelight)" stroke="none"/></svg><span class="wm"><span class="wm-void">void</span> <span class="wm-doc">document</span></span></a><a class="back" href="film.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 6 8.5 12l6 6"/></svg><span>Back to the film</span></a></header>
+<main class="ledger">
+  <header class="ledger-head">
+    <p class="eyebrow">Sources</p>
+    <h1>The Partition of India</h1>
+    <p>Every shot with the mark it carries on screen, where it came from and its licence. Every reading with its speaker, their side, the year and the source. Every reading is word for word from its source, sometimes in part (marked <span class="num">...</span>). This film shows no bodies or killing.</p>
+    <p><a href="#bal">Whose words, and how long</a> · <a href="#readings">All <span class="num">26</span> readings</a></p>
+  </header>
+  <div class="filters" role="group" aria-label="Show shots by mark">
+    <button aria-pressed="true">All <span class="num">8</span></button>
+    <button class="f-archive" aria-pressed="false"><i></i>ARCHIVE <span class="num">5</span></button>
+    <button class="f-reconstructed" aria-pressed="false"><i></i>RECONSTRUCTED <span class="num">0</span></button>
+    <button class="f-generated" aria-pressed="false"><i></i>AI-GENERATED <span class="num">0</span></button>
+    <button class="f-drawn" aria-pressed="false"><i></i>DRAWN <span class="num">2</span></button>
+    <button class="f-card" aria-pressed="false"><i></i>CARD <span class="num">1</span></button>
+  </div>
+  <div class="layout">
+    <div>
+      <h2 class="sec" style="margin-top:8px">4  The roads <span class="muted" style="font-size:15px">August to December <span class="num">1947</span></span></h2>
+      <ol class="entries">
+      <li id="" class="entry" data-class="archive">
+        <div class="ehead"><span class="mark" data-class="archive" role="img" aria-label="ARCHIVE Wikimedia Commons 1947"><span class="cls">ARCHIVE</span><span class="det">Wikimedia Commons <span class="num">1947</span></span></span><a class="tc" href="film.html#t=660">11:00</a></div>
+        <h2>Refugees on train roof during Partition</h2>
+        <dl>
+          <dt>What</dt><dd>Film, <span class="num">5</span> s. The film returns to it three times.</dd>
+          <dt>Archive</dt><dd>Wikimedia Commons</dd>
+          <dt>Item</dt><dd><a class="source" href="https://commons.wikimedia.org/wiki/File:Refugees_on_train_roof_during_Partition.ogv" rel="noreferrer">The film at Wikimedia Commons</a></dd>
+          <dt>Licence</dt><dd>Public domain (India)</dd>
+        </dl>
+        <a class="correct-this" href="correct.html?t=660">Correct this</a>
+      </li>
+      <li id="S-038" class="entry" data-class="archive">
+        <div class="ehead"><span class="mark" data-class="archive" role="img" aria-label="ARCHIVE Photo Division, Government of India 1947"><span class="cls">ARCHIVE</span><span class="det">Photo Division, Government of India <span class="num">1947</span></span></span><a class="tc" href="film.html#t=667">11:07</a></div>
+        <h2>Refugees at Balloki, Kasur during partition of India. From Balloki Head Kasur carts, cattle, donkeys, dogs, men, women, boys, girls, babies, bicycles, baggage – ail in constant move under pall of dust.</h2>
+        <dl>
+          <dt>What</dt><dd>Photograph, <span class="num">1947</span> (catalogued by the Photo Division in February <span class="num">1954</span>)</dd>
+          <dt>Archive</dt><dd>Photo Division, Government of India; Wikimedia Commons</dd>
+          <dt>Item</dt><dd><a class="source" href="https://commons.wikimedia.org/wiki/File:Refugee_at_Balloki,_Kasur_during_partition_of_India.jpg" rel="noreferrer">The photograph at Wikimedia Commons</a></dd>
+          <dt>Licence</dt><dd>Public domain</dd>
+        </dl>
+        <a class="correct-this" href="correct.html?t=667">Correct this</a>
+      </li>
+      <li id="" class="entry" data-class="drawn">
+        <div class="ehead"><span class="mark" data-class="drawn" role="img" aria-label="DRAWN from The Transfer of Power, vol. XII"><span class="cls">DRAWN</span><span class="det">from The Transfer of Power, vol. XII</span></span><a class="tc" href="film.html#t=677">11:17</a></div>
+        <h2>The twelve districts the Punjab Boundary Force was to hold</h2>
+        <dl>
+          <dt>What</dt><dd>Map, <span class="num">28</span> s</dd>
+          <dt>Archive</dt><dd>Drawn by void document</dd>
+          
+          <dt>Licence</dt><dd>The figures are facts from the Governor of the Punjab's telegram of 8 August 1947, printed in The Transfer of Power, volume XII (HMSO, 1983). The map is drawn by void document, licensed CC BY 4.0.</dd>
+        </dl>
+        <a class="correct-this" href="correct.html?t=677">Correct this</a>
+      </li>
+      <li id="" class="entry" data-class="archive">
+        <div class="ehead"><span class="mark" data-class="archive" role="img" aria-label="ARCHIVE US Army / NARA 1948"><span class="cls">ARCHIVE</span><span class="det">US Army / NARA <span class="num">1948</span></span></span><a class="tc" href="film.html#t=705">11:45</a></div>
+        <h2>Misc. Newsreel Scenes In India, <span class="num">1948</span>-<span class="num">1966</span></h2>
+        <dl>
+          <dt>What</dt><dd>Film, <span class="num">14</span> s. The reel is dated <span class="num">1948</span>, after this chapter's months, and the narration says so.</dd>
+          <dt>Archive</dt><dd>US Army and National Archives; Internet Archive</dd>
+          <dt>Item</dt><dd><a class="source" href="https://archive.org/details/LC-49494" rel="noreferrer">The film at the Internet Archive</a></dd>
+          <dt>Licence</dt><dd>Public Domain Mark 1.0</dd>
+        </dl>
+        <a class="correct-this" href="correct.html?t=705">Correct this</a>
+      </li>
+      <li id="" class="entry" data-class="card">
+        <div class="ehead"><span class="mark" data-class="card" role="img" aria-label="VOID DOCUMENT"><span class="cls">VOID DOCUMENT</span></span><a class="tc" href="film.html#t=719">11:59</a></div>
+        <h2>Note on the Sikh Plan. Government of West Punjab, Lahore, <span class="num">1948.</span></h2>
+        <dl>
+          <dt>What</dt><dd>Perspective card, <span class="num">8</span> s: “One of a series of pamphlets that government issued placing blame for the killings on the Sikh community. Its account, not the film's.”</dd>
+          
+          
+          
+        </dl>
+        <a class="correct-this" href="correct.html?t=719">Correct this</a>
+      </li>
+      <li id="" class="entry" data-class="drawn">
+        <div class="ehead"><span class="mark" data-class="drawn" role="img" aria-label="DRAWN from Note on the Sikh Plan"><span class="cls">DRAWN</span><span class="det">from Note on the Sikh Plan</span></span><a class="tc" href="film.html#t=727">12:07</a></div>
+        <h2>The pamphlet's title page, typeset</h2>
+        <dl>
+          <dt>What</dt><dd>Typeset page, <span class="num">12</span> s, under its statement</dd>
+          <dt>Archive</dt><dd>Drawn by void document</dd>
+          
+          <dt>Licence</dt><dd>The pamphlet is public domain (Internet Archive); the typeset page is drawn by void document, licensed CC BY 4.0.</dd>
+        </dl>
+        <a class="correct-this" href="correct.html?t=727">Correct this</a>
+      </li>
+      <li id="S-029" class="entry" data-class="archive">
+        <div class="ehead"><span class="mark" data-class="archive" role="img" aria-label="ARCHIVE Wikimedia Commons 1946"><span class="cls">ARCHIVE</span><span class="det">Wikimedia Commons <span class="num">1946</span></span></span><a class="tc" href="film.html#t=739">12:19</a></div>
+        <h2>First day of Constituent Assembly of India. In the first row (From Left): Dr. B. R. Ambedkar, B. G. Kher, Vallabhai Patel and K. M. Munshi.</h2>
+        <dl>
+          <dt>What</dt><dd>Photograph, <span class="num">11</span> December <span class="num">1946,</span> held <span class="num">20</span> s</dd>
+          <dt>Archive</dt><dd>Wikimedia Commons</dd>
+          <dt>Item</dt><dd><a class="source" href="https://commons.wikimedia.org/wiki/File:Indian_Constituent_Assembly.JPG" rel="noreferrer">The photograph at Wikimedia Commons</a></dd>
+          <dt>Licence</dt><dd>Public domain</dd>
+        </dl>
+        <a class="correct-this" href="correct.html?t=739">Correct this</a>
+      </li>
+      <li id="S-036" class="entry" data-class="archive">
+        <div class="ehead"><span class="mark" data-class="archive" role="img" aria-label="ARCHIVE Photo Division, Government of India 1947"><span class="cls">ARCHIVE</span><span class="det">Photo Division, Government of India <span class="num">1947</span></span></span><a class="tc" href="film.html#t=846">14:06</a></div>
+        <h2>Columns of non-Muslim refugees from West Punjab moving towards India. Picture shows them near Baloke Head.</h2>
+        <dl>
+          <dt>What</dt><dd>Photograph, September <span class="num">1947</span>. The chapter ends on it.</dd>
+          <dt>Archive</dt><dd>Photo Division, Govt. of India; Wikimedia Commons</dd>
+          <dt>Item</dt><dd><a class="source" href="https://commons.wikimedia.org/wiki/File:Columns_of_refugees_from_West_Punjab.jpg" rel="noreferrer">The photograph at Wikimedia Commons</a></dd>
+          <dt>Licence</dt><dd>Public domain</dd>
+        </dl>
+        <a class="correct-this" href="correct.html?t=846">Correct this</a>
+      </li>
+      </ol>
+      <p class="muted" style="font-size:13px;padding-top:12px">Chapters <span class="num">1</span> to <span class="num">3</span>, <span class="num">5</span> and the close follow the same form.</p>
+      <h2 class="sec" id="readings">Readings</h2>
+      <ol class="readings">
+        <li class="rch"><h3><span class="num">1</span>  The count</h3></li><li><q>I unreservedly condemn the acts of violence and deeply sympathize with those who have suffered ... At present I do not know who is responsible for the resultant loss of life and property which has been reported in the press.</q><dl><dt>Speaker</dt><dd>Muhammad Ali Jinnah</dd><dt>Side</dt><dd>Pakistan</dd><dt>Year</dt><dd><span class="num">1946</span></dd><dt>Length</dt><dd><span class="num">12</span> s</dd><dt>Source</dt><dd>Statement of <span class="num">17</span> August <span class="num">1946,</span> Jinnah Papers</dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Muhammad Ali Jinnah was used.</dd></dl></li>
+        <li><q>when I sent for the map and studied the distribution of the Sikh population under this proposal, I must say that I was astounded to find that the plan which they had produced divided their community into two almost equal parts</q><dl><dt>Speaker</dt><dd>Lord Mountbatten</dd><dt>Side</dt><dd>Britain</dd><dt>Year</dt><dd><span class="num">1947</span></dd><dt>Length</dt><dd><span class="num">14</span> s</dd><dt>Source</dt><dd>Press conference, <span class="num">4</span> June <span class="num">1947,</span> The Transfer of Power, vol. XI</dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Lord Mountbatten was used.</dd></dl></li>
+        <li><q>We have closed a dreary chapter. It would be untrue if I were to say that we are altogether happy. Our common quest for freedom need never have divided and torn us asunder one from the other. This has actually taken place. The shadow of our differences has thrown its gloom over us. We have let ourselves be rent apart.</q><dl><dt>Speaker</dt><dd>Baldev Singh</dd><dt>Side</dt><dd>Sikh</dd><dt>Year</dt><dd><span class="num">1947</span></dd><dt>Length</dt><dd><span class="num">20</span> s</dd><dt>Source</dt><dd><a class="source" href="https://bagichablog.com/2021/06/04/4-june-1947-broadcast-by-viceroy-mountbatten/" rel="noreferrer">All India Radio broadcast following Mountbatten's announcement of the Partition Plan, <span class="num">3</span> June <span class="num">1947</span> (contemporary Reuter wire transcript)</a></dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Baldev Singh was used.</dd></dl></li>
+        <li class="rch"><h3><span class="num">2</span>  The line</h3></li><li><q>the divergence of opinion between my colleagues was so wide that an agreed solution of the boundary problem was not to be obtained</q><dl><dt>Speaker</dt><dd>Cyril Radcliffe</dd><dt>Side</dt><dd>Britain</dd><dt>Year</dt><dd><span class="num">1947</span></dd><dt>Length</dt><dd><span class="num">10</span> s</dd><dt>Source</dt><dd>Report of the Punjab Boundary Commission, <span class="num">12</span> August <span class="num">1947,</span> paragraph <span class="num">6</span></dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Cyril Radcliffe was used.</dd></dl></li>
+        <li><q>It is not disputed by the Indian National Congress that on the basis of <span class="num">1941</span> census the percentage of the | Muslims is <span class="num">51,14</span> and that of the non-Muslims <span class="num">48.86.</span> The difference, therefore, is not .<span class="num">8</span> as was stated by His Excellency the Viceroy in the Press Conference but <span class="num">2,28</span> and this obviously is not negligible ... The Muslims, therefore, though in majority in the district as a whole are in minority in the tehsil of Pathankot.</q><dl><dt>Speaker</dt><dd>Din Mohammad</dd><dt>Side</dt><dd>Pakistan</dd><dt>Year</dt><dd><span class="num">1947</span></dd><dt>Length</dt><dd><span class="num">14</span> s</dd><dt>Source</dt><dd>Report of Mr. Justice Din Mohammad, <span class="num">5</span> August <span class="num">1947</span></dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Din Mohammad was used.</dd></dl></li>
+        <li><q>The electoral rolls disclose that in the Gurdaspur district there are <span class="num">74,790</span> Muslims voters as against <span class="num">81,525</span> non-Muslim voters. If for the purpose of exercise of political rights in the matter of partition the test laid down in other parts of India is the plebiscite test,then I do not see why that test should not be employed in this district when the population majority is one per cent or <span class="num">1</span>- <span class="num">1</span>/<span class="num">2</span> per cent.</q><dl><dt>Speaker</dt><dd>Mehr Chand Mahajan</dd><dt>Side</dt><dd>India</dd><dt>Year</dt><dd><span class="num">1947</span></dd><dt>Length</dt><dd><span class="num">14</span> s</dd><dt>Source</dt><dd>Report of Mr. Justice Meher Chand Mahajan, <span class="num">3</span> August <span class="num">1947</span></dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Mehr Chand Mahajan was used.</dd></dl></li>
+        <li><q>This means thatif the notional division is adhered to, and the boundaries are demarcated according to it about <span class="num">17</span> lacs i.e. a million and about seven hundred thousand of Sikhs would be left stranded in the Western Punjab</q><dl><dt>Speaker</dt><dd>Teja Singh</dd><dt>Side</dt><dd>Sikh</dd><dt>Year</dt><dd><span class="num">1947</span></dd><dt>Length</dt><dd><span class="num">16</span> s</dd><dt>Source</dt><dd>Report of Mr. Justice Teja Singh, <span class="num">4</span> August <span class="num">1947</span></dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Teja Singh was used.</dd></dl></li>
+        <li><q>Kashmir, which was so placed geographically that it could join either Dominion, provided part of Gurdaspur were put into East Punjab by the Boundary Commission</q><dl><dt>Speaker</dt><dd>Record of interview, Viceroy's staff</dd><dt>Side</dt><dd>Britain</dd><dt>Year</dt><dd><span class="num">1947</span></dd><dt>Length</dt><dd><span class="num">10</span> s</dd><dt>Source</dt><dd>The Transfer of Power, vol. XII, item <span class="num">335</span></dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Record of interview, Viceroy's staff was used.</dd></dl></li>
+        <li><q>The Viceroy has from the outset made it absolutely clear that he himself must have nothing to do either with arbitration of any kind or with the Boundary Commissions.</q><dl><dt>Speaker</dt><dd>Lord Ismay</dd><dt>Side</dt><dd>Britain</dd><dt>Year</dt><dd><span class="num">1947</span></dd><dt>Length</dt><dd><span class="num">8</span> s</dd><dt>Source</dt><dd>The Transfer of Power, vol. XII, item <span class="num">428</span></dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Lord Ismay was used.</dd></dl></li>
+        <li><q>I have not found it possible to preserve undivided the irrigation system of the Upper Bari Doab Canal, which extends from Madhopur in the Pathankot Tahsil to the western border of the district of Lahore, although I have made small adjustments of the I.ahorc-Amritsar district boundary to mitigate some of the consequences of this severance; nor can I see any means of preserving under one territorial jurisdiction the Mandi Hydro-electric Scheme</q><dl><dt>Speaker</dt><dd>Cyril Radcliffe</dd><dt>Side</dt><dd>Britain</dd><dt>Year</dt><dd><span class="num">1947</span></dd><dt>Length</dt><dd><span class="num">18</span> s</dd><dt>Source</dt><dd>Report of the Punjab Boundary Commission, paragraph <span class="num">11</span></dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Cyril Radcliffe was used.</dd></dl></li>
+        <li class="rch"><h3><span class="num">3</span>  The midnight</h3></li><li><q>I know there are people who do not quite agree with the division of Indian and the partition of the Punjab and Bengal. Much has been said against it, but now that it has been accepted, it is the duty of every one of us to loyally abide by it ... in my judgment there was no other solution and I am sure future history will record its verdict in favour of it. ... You are free; you are free to go to your temples, you are free to go to your mosques or to any other places of worship in this State of Pakistan.</q><dl><dt>Speaker</dt><dd>Muhammad Ali Jinnah</dd><dt>Side</dt><dd>Pakistan</dd><dt>Year</dt><dd><span class="num">1947</span></dd><dt>Length</dt><dd><span class="num">30</span> s</dd><dt>Source</dt><dd>Address to the Constituent Assembly of Pakistan, <span class="num">11</span> August <span class="num">1947</span></dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Muhammad Ali Jinnah was used.</dd></dl></li>
+        <li><q>Neither the railways nor the main roads are safe, and the village raiding is quite impossible to control without a very great display of force. Fire power is really less important than numbers.</q><dl><dt>Speaker</dt><dd>Sir Evan Jenkins</dd><dt>Side</dt><dd>Britain</dd><dt>Year</dt><dd><span class="num">1947</span></dd><dt>Length</dt><dd><span class="num">12</span> s</dd><dt>Source</dt><dd>The Transfer of Power, vol. XII, item <span class="num">459</span></dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Sir Evan Jenkins was used.</dd></dl></li>
+        <li><q>Long years ago we made a tryst with destiny, and now the time comes when we shall redeem our pledge, not wholly or in full measure, but very substantially.</q><dl><dt>Speaker</dt><dd>Jawaharlal Nehru</dd><dt>Side</dt><dd>India</dd><dt>Year</dt><dd><span class="num">1947</span></dd><dt>Length</dt><dd><span class="num">28</span> s</dd><dt>Source</dt><dd><a class="source" href="https://sansad.in/uploads/const_Assmbly_Debates_Volume5_14_August1947_950585f851.pdf" rel="noreferrer">Constituent Assembly of India Debates, Volume V, <span class="num">14</span> August <span class="num">1947</span> (official record; midnight address 'A Tryst with Destiny')</a></dd><dt>Voice</dt><dd>His own recording, All India Radio, 14 August 1947.</dd></dl></li>
+        <li><q>We have finished one phase, and for that rejoicings are going on today. Our hearts are full of joy and some pride and satisfaction. But we know that there is no rejoicing in the whole of the country. There is enough of grief in our hearts. Not far from Delhi, big cities are ablaze and its heat is reaching us here. Our happiness cannot be complete.</q><dl><dt>Speaker</dt><dd>Jawaharlal Nehru</dd><dt>Side</dt><dd>India</dd><dt>Year</dt><dd><span class="num">1947</span></dd><dt>Length</dt><dd><span class="num">14</span> s</dd><dt>Source</dt><dd>Constituent Assembly Debates, <span class="num">14</span> August <span class="num">1947,</span> in the Debates' English translation</dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Jawaharlal Nehru was used.</dd></dl></li>
+        <li class="rch"><h3><span class="num">4</span>  The roads</h3></li><li><q>This means that in addition to police we have a strength of say <span class="num">7500</span> effective rifles to control <span class="num">12</span> districts with a population of no less than <span class="num">12</span> million. ... Rural raiding in areas in which communities are inextricably mixed cannot be checked except by display and use of force on massive scale.</q><dl><dt>Speaker</dt><dd>Sir Evan Jenkins</dd><dt>Side</dt><dd>Britain</dd><dt>Year</dt><dd><span class="num">1947</span></dd><dt>Length</dt><dd><span class="num">16</span> s</dd><dt>Source</dt><dd>Telegram of <span class="num">8</span> August <span class="num">1947,</span> The Transfer of Power, vol. XII, item <span class="num">382</span></dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Sir Evan Jenkins was used.</dd></dl></li>
+        <li class="flagged"><p class="rflag">Account of the Government of West Punjab, <span class="num">1948</span></p><p class="rpersp">One of a series of pamphlets that government issued placing blame for the killings on the Sikh community. Its account, not the film's.</p><q>Darshan Singh stated that the village had been attacked on the previous night and that all the inhabitants, nearly <span class="num">120</span> people, had been killed. He stated that he had killed five fellows himself, and boastfully added that no one had been allowed to escape alive.</q><dl><dt>Speaker</dt><dd>Darshan Singh</dd><dt>Side</dt><dd>Sikh</dd><dt>Year</dt><dd><span class="num">1947</span></dd><dt>Length</dt><dd><span class="num">12</span> s</dd><dt>Source</dt><dd><a class="source" href="https://archive.org/details/in.ernet.dli.2015.71809" rel="noreferrer">Note on the Sikh Plan (Government of West Punjab, Lahore, <span class="num">1948</span>), one of a series of pamphlets on the <span class="num">1947</span> disturbances</a></dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Darshan Singh was used.</dd></dl></li>
+        <li><q>We have never stood nor do we stand today for Hindu domination; we do not want that Hindus as such as a religious community shall override any other interests. But we do want that India's interests shall be paramount, that the interests of no special community shall stand in the way, whether it is a majority or a minority religious community.</q><dl><dt>Speaker</dt><dd>Renuka Ray</dd><dt>Side</dt><dd>India, a woman's words</dd><dt>Year</dt><dd><span class="num">1947</span></dd><dt>Length</dt><dd><span class="num">16</span> s</dd><dt>Source</dt><dd><a class="source" href="https://cms.rajyasabha.nic.in/UploadedFiles/ElectronicPublications/Selected%20Women%20Speech_Final.pdf" rel="noreferrer">&quot;Question of Religious Minorities and Majorities in a Secular State&quot;, discussion on the Report of Minority Rights, Constituent Assembly Debates, Volume V, <span class="num">28</span> August <span class="num">1947,</span> pp. <span class="num">268</span>-<span class="num">269,</span> in Selected Speeches of Women Members of the Constituent Assembly (Rajya Sabha Secretariat, New Delhi, April <span class="num">2012</span>)</a></dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Renuka Ray was used.</dd></dl></li>
+        <li><q>I went to the Purana Quila today. I saw thousands of Muslims there ... Why did they have to live in the fort? Of whom were they frightened?</q><dl><dt>Speaker</dt><dd>Mohandas K. Gandhi</dd><dt>Side</dt><dd>India</dd><dt>Year</dt><dd><span class="num">1947</span></dd><dt>Length</dt><dd><span class="num">12</span> s</dd><dt>Source</dt><dd><a class="source" href="https://archive.org/details/Swaraj-Gandhi-1947-09-13" rel="noreferrer">Post-Prayer Speech, <span class="num">13</span> September <span class="num">1947,</span> New Delhi (Collected Works of Mahatma Gandhi, Volume <span class="num">89</span>)</a></dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Mohandas K. Gandhi was used.</dd></dl></li>
+        <li class="flagged"><p class="rflag">Account of the Shiromani Gurdwara Parbandhak Committee, <span class="num">1950</span></p><q>of over twelve millions, and the butchering of about a million.</q><dl><dt>Speaker</dt><dd>Gurbachan Singh Talib</dd><dt>Side</dt><dd>Sikh</dd><dt>Year</dt><dd><span class="num">1950</span></dd><dt>Length</dt><dd><span class="num">10</span> s</dd><dt>Source</dt><dd>Muslim League Attack on Sikhs and Hindus in the Punjab <span class="num">1947,</span> for the Shiromani Gurdwara Parbandhak Committee</dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Gurbachan Singh Talib was used.</dd></dl></li>
+        <li class="rch"><h3><span class="num">5</span>  After the line</h3></li><li><q>some <span class="num">2,000</span> armed raiders entered Kashmir, on or about the <span class="num">22</span>nd October; they took the Jhelum Valley road leading to Srinagar. It is alleged that they came in reprisal for attacks on Moslems in some parts of Kashmir reported by refugees. On <span class="num">26</span>th October, the Maharajah appealed to the Government of India for help, and asked for leave to accede to that Dominion.</q><dl><dt>Speaker</dt><dd>Philip Noel-Baker</dd><dt>Side</dt><dd>Britain</dd><dt>Year</dt><dd><span class="num">1947</span></dd><dt>Length</dt><dd><span class="num">14</span> s</dd><dt>Source</dt><dd>Kashmir (Situation), HC Deb <span class="num">30</span> October <span class="num">1947</span></dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Philip Noel-Baker was used.</dd></dl></li>
+        <li><q>The total number of refugees who have moved from the East Punjab to the West Punjab and vice versa is <span class="num">8,500,000</span> or thereabouts.</q><dl><dt>Speaker</dt><dd>Philip Noel-Baker</dd><dt>Side</dt><dd>Britain</dd><dt>Year</dt><dd><span class="num">1947</span></dd><dt>Length</dt><dd><span class="num">10</span> s</dd><dt>Source</dt><dd>India and Pakistan (Refugees, Relief), HC Deb <span class="num">18</span> December <span class="num">1947</span></dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Philip Noel-Baker was used.</dd></dl></li>
+        <li><q>In that hour of trial the women of Pakistan played their part and contributed their full share by working day and night for the relief of the sick and the wounded.</q><dl><dt>Speaker</dt><dd>Fatima Jinnah</dd><dt>Side</dt><dd>Pakistan, a woman's words</dd><dt>Year</dt><dd><span class="num">1948</span></dd><dt>Length</dt><dd><span class="num">10</span> s</dd><dt>Source</dt><dd><a class="source" href="https://archive.org/details/mohtarama-fatima-jinnah-1948-1967-1976" rel="noreferrer">Speech at Curzon Hall, Dacca, March <span class="num">1948,</span> in Mohtarama Fatima Jinnah: Speeches, Messages and Statements, <span class="num">1948</span>-<span class="num">1967</span> (compiled by Jamil Ahmed, <span class="num">1976</span>)</a></dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Fatima Jinnah was used.</dd></dl></li>
+        <li><q>The number of abducted women still to be recovered is about <span class="num">100</span> and the District Liaison Officer has clues of <span class="num">47</span> out of them. The progress of recovery is very slow. From Istof April, <span class="num">1948</span> to <span class="num">25</span>th April, <span class="num">1948</span> only <span class="num">16</span> women and <span class="num">10</span> children were recovered.</q><dl><dt>Speaker</dt><dd>Chief Liaison Officer (India), East Punjab Liaison Agency</dd><dt>Side</dt><dd>India</dd><dt>Year</dt><dd><span class="num">1948</span></dd><dt>Length</dt><dd><span class="num">18</span> s</dd><dt>Source</dt><dd>Letter of <span class="num">29</span> April <span class="num">1948</span> to the Chief Secretary, East Punjab</dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Chief Liaison Officer (India), East Punjab Liaison Agency was used.</dd></dl></li>
+        <li><q>It is a very sad history and no one can deny that the Muslims living in this country have been the greatest sufferers as a result of the events that have taken place. Not only have their lives and property been in danger and full of insecurity, but their very honour has been at stake and their loyalties have been questioned.</q><dl><dt>Speaker</dt><dd>Begum Aizaz Rasul</dd><dt>Side</dt><dd>India, a woman's words</dd><dt>Year</dt><dd><span class="num">1949</span></dd><dt>Length</dt><dd><span class="num">20</span> s</dd><dt>Source</dt><dd><a class="source" href="https://cms.rajyasabha.nic.in/UploadedFiles/ElectronicPublications/Selected%20Women%20Speech_Final.pdf" rel="noreferrer">&quot;Against Separate Electorate&quot;, consideration of the Report of the Advisory Committee on Minorities, Constituent Assembly Debates, Volume VIII, <span class="num">25</span> May <span class="num">1949,</span> pp. <span class="num">300</span>-<span class="num">303,</span> in Selected Speeches of Women Members of the Constituent Assembly (Rajya Sabha Secretariat, New Delhi, April <span class="num">2012</span>)</a></dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Begum Aizaz Rasul was used.</dd></dl></li>
+        <li class="rch"><h3>Close: the border today</h3></li><li><q>I am conscious too that the award cannot go far towards satisfying sentiments and aspirations deeply held on either side but directly in conflict as to their bearing on the placing of the boundary. ...</q><dl><dt>Speaker</dt><dd>Cyril Radcliffe</dd><dt>Side</dt><dd>Britain</dd><dt>Year</dt><dd><span class="num">1947</span></dd><dt>Length</dt><dd><span class="num">24</span> s</dd><dt>Source</dt><dd>Report of the Punjab Boundary Commission, paragraph <span class="num">12</span></dd><dt>Voice</dt><dd>Read by a computer voice. No recording of Cyril Radcliffe was used.</dd></dl></li>
+        <li class="flagged"><p class="rflag">Account of the Government of India's Fact Finding Organisation, <span class="num">1949</span></p><q>Taking these factors into consideration the loss of non-Muslim life has been estimated at a figure between <span class="num">200,000</span> and <span class="num">250,000.</span> It is believed that an equal number of Muslims perished in the course of the riots in India.</q><dl><dt>Speaker</dt><dd>G. D. Khosla</dd><dt>Side</dt><dd>India</dd><dt>Year</dt><dd><span class="num">1949</span></dd><dt>Length</dt><dd><span class="num">14</span> s</dd><dt>Source</dt><dd>Stern Reckoning, for the Fact Finding Organisation, Government of India</dd><dt>Voice</dt><dd>Read by a computer voice. No recording of G. D. Khosla was used.</dd></dl></li>
+      </ol>
+    </div>
+    <aside class="side">
+      <section class="balance" aria-labelledby="bal">
+        <h3 id="bal">Whose words, and how long</h3>
+        <p class="muted" style="font-size:13px">Seconds of testimony by side: words read by a computer voice and one archival recording; narration is not counted. All <span class="num">396</span> s are listed under Readings. Each side should hold <span class="num">10%</span> to <span class="num">35%</span>.</p>
+        <div class="btable">
+          <span>Britain</span><span class="bar rule"><i style="width:34.3%"></i><b class="band"></b></span><span class="num" style="font-size:12px">136 s · 34.3%</span>
+          <span>India</span><span class="bar rule"><i style="width:34.3%"></i><b class="band"></b></span><span class="num" style="font-size:12px">136 s · 34.3%</span>
+          <span>Pakistan</span><span class="bar rule"><i style="width:16.7%"></i><b class="band"></b></span><span class="num" style="font-size:12px">66 s · 16.7%</span>
+          <span>Sikh</span><span class="bar rule"><i style="width:14.6%"></i><b class="band"></b></span><span class="num" style="font-size:12px">58 s · 14.6%</span>
+          <span>Bangladesh</span><span class="bar rule"><i style="width:0%"></i><b class="band"></b></span><span class="num" style="font-size:12px">0 s · 0%</span>
+        </div>
+        <p class="muted" style="font-size:12px">Readings we are still seeking permission to use would bring Bangladesh to <span class="num">10.6%</span> and Britain down to <span class="num">22.1%</span>.</p>
+        <div class="btable"><span>Women</span><span class="bar"><i style="width:11.6%"></i><b class="floor"></b></span><span class="num" style="font-size:12px">46 s · 11.6%</span></div>
+        <p class="muted" style="font-size:12px">Floor <span class="num">30%</span>. Fatima Jinnah <span class="num">10</span> s, Renuka Ray <span class="num">16</span> s, Begum Aizaz Rasul <span class="num">20</span> s. With the readings still being sought, <span class="num">23.4%</span>: still short.</p>
+        <div class="short"><p>The record holds no first-person account under an open licence by a Bengali or Bangladeshi witness, and women's words are short of the film's rule.</p><p class="muted" style="font-size:12px">Searched: The 1947 Partition Archive, Citizens Archive of Pakistan, SOAS, ADST, FRUS, Hansard, Internet Archive, Wikisource, sansad.in, na.gov.pk. This card closes the film while the shortfall remains.</p></div>
+        <p class="muted" style="font-size:12px">Seconds by mark, whole film: ARCHIVE film <span class="num">137</span> s (<span class="num">10.6%</span>), ARCHIVE stills about <span class="num">628</span> s (<span class="num">48.6%</span>), DRAWN about <span class="num">308</span> s (<span class="num">23.8%</span>), CARD <span class="num">220</span> s (<span class="num">17.0%</span>), AI-GENERATED <span class="num">0</span>.</p>
+      </section>
+    </aside>
+  </div>
+</main>
+<footer class="house-foot">
+  <span>void document is part of void, with void news and void history.</span>
+  <span>Films are free to watch and licensed CC BY 4.0.</span>
+  <a href="#privacy">Privacy</a>
+</footer>
+<section class="mock-states" aria-label="Mock states, not part of the page">
+  <header><p class="eyebrow">Mock states, not part of the page</p><p>Sources <span class="num">/f/partition-of-india/sources</span>. Entries show chapter 4 with its planned times; the finished film's own times replace them.</p></header>
+  <div class="grid">
+    <div class="mock-state"><p class="eyebrow">Filter: AI-GENERATED, none in this film</p><p style="font:300 22px/1.3 var(--font-display)">No shot in this film is AI-generated.</p><p class="muted">When there are some, each lists its prompt, model and seed, and the check that found no people in it.</p></div>
+    <div class="mock-state"><p class="eyebrow">A RECONSTRUCTED entry</p><p><span class="mark inline" data-class="reconstructed" role="img" aria-label="RECONSTRUCTED archive 1947 upscaled"><span class="cls">RECONSTRUCTED</span><span class="det">archive <span class="num">1947</span> upscaled</span></span></p><p class="muted">The alteration is named from GRAMMAR's closed list (colourised, upscaled, stabilised, interpolated, re-timed, inpainted, motion added, tinted, audio synthesised).</p></div>
+  </div>
+</section>
+</body>
+</html>

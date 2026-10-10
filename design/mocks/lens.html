@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-mode="local">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Lens · void document</title>
+<link rel="stylesheet" href="../tokens.css">
+<script>try { if (new URLSearchParams(location.search).get("mode") === "hosted") document.documentElement.dataset.mode = "hosted"; } catch (e) {}</script>
+<style>
+/* Director's Lens: the control room. Private, one expert user, dense,
+   keyboard-driven. Same type voices and the same safelight meaning as the
+   public site; nothing else is shared. Dark only. No grain: an instrument
+   shows the frame exactly as rendered. */
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body.lens { font: 400 13px/1.45 var(--font-structure); background: var(--color-letterbox); color: var(--color-cream); min-height: 100vh; }
+.num, .tc, kbd, code { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-feature-settings: "calt" 0, "liga" 0; }
+/* Safelight marks the source only: credit, item link, archive timecode (.tc.src). The film clock and playhead are bone. */
+.safe, .tc.src { color: var(--color-safelight); }
+.muted { color: var(--color-cream-muted); }
+p { margin: 0; }
+a { color: inherit; }
+a.source { color: var(--color-safelight); text-decoration-color: var(--color-safelight-glow); text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+kbd { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border: 1px solid var(--color-border); border-bottom-width: 2px; border-radius: 4px; font-size: 11px; color: var(--color-cream); background: var(--color-surface); }
+.eb { font: 500 10.5px/1.3 var(--font-data); letter-spacing: var(--track-eyebrow); text-transform: uppercase; color: var(--color-cream-muted); }
+
+/* Mode switches: local shows controls; hosted is read-only and shows freshness. */
+[data-mode="local"] .hosted-only, [data-mode="hosted"] .local-only { display: none !important; }
+
+/* ---------- top bar ---------- */
+.lbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding: 8px 16px; border-bottom: 1px solid var(--color-border); background: var(--color-bg); position: sticky; top: 0; z-index: 5; }
+.lbar .id { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.lbar .id svg { width: 22px; height: 22px; flex: none; }
+.lbar .id .app { font: 400 16px/1 var(--font-display); letter-spacing: var(--track-credit); }
+.lbar .id .film { font: 300 italic 16px/1 var(--font-display); color: var(--color-cream); white-space: nowrap; }
+.lbar .id .run { color: var(--color-cream-muted); font-size: 12px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px; border: 1px solid var(--color-border); border-radius: var(--radius-pill); font-size: 12px; white-space: nowrap; }
+.chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-cream); }
+.chip.rendering .dot { animation: breathe 3s ease-in-out infinite; }
+.chip.failed { border-color: var(--color-burgundy); color: var(--color-error-text); }
+.chip.failed .dot { background: var(--color-burgundy); }
+.chip.done { border-color: var(--color-forest); color: var(--color-done-text); }
+.chip.done .dot { background: var(--color-forest); }
+.chip.waiting .dot, .chip.stale .dot { background: none; border: 1.5px solid var(--color-cream-muted); }
+.chip.stale { color: var(--color-cream-muted); border-style: dashed; }
+@keyframes breathe { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+.clock { display: flex; gap: 16px; margin-left: auto; align-items: baseline; }
+.clock b { font-weight: 600; font-size: 15px; }
+.clock .lbl { color: var(--color-cream-muted); font-size: 11px; margin-right: 6px; }
+.keys { display: flex; gap: 6px; }
+.keys button { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px 0 6px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-cream); border-radius: var(--radius-control); font: 500 12px/1 var(--font-structure); cursor: pointer; }
+.keys button:hover { border-color: var(--color-cream-faint); }
+.ro { font-size: 12px; color: var(--color-cream-muted); }
+
+/* ---------- deck ---------- */
+.deck { display: grid; gap: 16px; padding: 16px; }
+.stage { display: grid; gap: 12px; min-width: 0; }
+
+.monitor { position: relative; aspect-ratio: 16 / 9; background: var(--color-letterbox); border: 1px solid var(--color-border); border-radius: 6px; overflow: hidden; }
+.monitor > img { width: 100%; height: 100%; object-fit: contain; display: block; animation: develop var(--develop-dur) var(--ease-out) both; }
+@keyframes develop { from { opacity: 0.6; } to { opacity: 1; } }
+.corner { position: absolute; width: 16px; height: 16px; border: 1.5px solid var(--color-cream-faint); }
+.corner.tl { top: 10px; left: 10px; border-right: 0; border-bottom: 0; } .corner.tr { top: 10px; right: 10px; border-left: 0; border-bottom: 0; }
+.corner.bl { bottom: 10px; left: 10px; border-right: 0; border-top: 0; } .corner.br { bottom: 10px; right: 10px; border-left: 0; border-top: 0; }
+.ov { position: absolute; display: flex; gap: 8px; align-items: center; font-size: 11.5px; padding: 4px 8px; background: var(--scrim-strong); border-radius: 4px; }
+.ov.tl { top: 14px; left: 14px; } .ov.tr { top: 14px; right: 14px; } .ov.bl { bottom: 14px; left: 14px; } .ov.br { bottom: 14px; right: 14px; }
+.ov .slate { font: 600 12px/1 var(--font-data); padding: 3px 6px; border: 1px solid var(--color-cream-faint); border-radius: 3px; animation: slate var(--slate-dur) var(--ease-cinematic) both; }
+@keyframes slate { 0% { background: var(--color-cream); color: var(--color-bg); } 100% { background: none; color: var(--color-cream); } }
+.ov .sep { color: var(--color-cream-faint); }
+
+.progress { display: grid; gap: 7px; }
+.progress .row { display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: baseline; font-size: 12px; color: var(--color-cream-muted); }
+.progress .row b { color: var(--color-cream); font-weight: 600; font-size: 14px; }
+.progress .row .pct { margin-left: auto; }
+.segbar { display: flex; gap: 2px; height: 8px; }
+.seg { position: relative; background: var(--color-surface-raised); border-radius: 1px; overflow: hidden; }
+.seg.done { background: var(--color-cream-muted); }
+.seg.run i { position: absolute; inset: 0 auto 0 0; background: var(--color-cream); transition: width var(--dur-normal) var(--ease-out); }
+
+.strip { scrollbar-width: thin; scrollbar-color: var(--color-surface-raised) var(--color-letterbox); list-style: none; margin: 0; padding: 0 0 4px; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(96px, 1fr); gap: 8px; overflow-x: auto; scroll-snap-type: x proximity; }
+.cell { display: grid; gap: 4px; scroll-snap-align: start; min-width: 96px; }
+.cell .th { position: relative; aspect-ratio: 16 / 9; border-radius: 3px; overflow: hidden; background: var(--color-surface); border: 1px solid var(--color-border); }
+.cell .th img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cell.wait .th img { opacity: 0.22; filter: grayscale(1); }
+.cell.wait .th { border-style: dashed; }
+.cell .unr { position: absolute; inset: auto 0 4px 0; text-align: center; font-size: 10px; color: var(--color-cream-muted); }
+.cell.run .th { outline: 2px solid var(--color-cream); outline-offset: 1px; }
+.cell .cap { display: flex; justify-content: space-between; align-items: center; }
+.cell .id { font-size: 12px; font-weight: 600; }
+.cell .g svg { width: 15px; height: 15px; display: block; }
+.cell.done .g { color: var(--color-done-text); }
+.cell.wait .g, .cell .m { color: var(--color-cream-muted); }
+.cell .m { font-size: 11px; }
+.cell.fail .th { outline: 2px solid var(--color-burgundy); outline-offset: 1px; }
+.cell.fail .g { color: var(--color-error-text); }
+
+.strip::-webkit-scrollbar { height: 8px; }
+.strip::-webkit-scrollbar-track { background: var(--color-letterbox); }
+.strip::-webkit-scrollbar-thumb { background: var(--color-surface-raised); border-radius: 4px; }
+.lower { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: start; }
+.lower .panel.src .inner { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+
+/* ---------- rail ---------- */
+.verdict { display: flex; align-items: center; gap: 9px; font: 400 22px/1 var(--font-display); }
+.verdict i { width: 10px; height: 10px; border-radius: 50%; }
+.verdict.ok { color: var(--color-done-text); } .verdict.ok i { background: var(--color-forest); }
+.verdict.watch { color: var(--color-cream); } .verdict.watch i { background: none; border: 2px solid var(--color-cream); }
+.verdict.bad { color: var(--color-error-text); } .verdict.bad i { background: var(--color-burgundy); }
+.reasons { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 12px; }
+.reasons li { display: grid; grid-template-columns: 84px 64px 1fr; gap: 8px; align-items: baseline; }
+.reasons li .muted { font-size: 11px; }
+.reasons li.flag span:nth-child(2) { color: var(--color-cream); font-weight: 600; }
+.stage-note { font-size: 11.5px; color: var(--color-cream-muted); border-left: 2px solid var(--color-border); padding-left: 8px; }
+.rail { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.panel { background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 12px 14px 14px; display: grid; gap: 10px; min-width: 0; }
+.panel > header { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+
+.stages { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.stg { display: grid; grid-template-columns: 18px 1fr auto; gap: 0 8px; align-items: center; padding: 5px 0; }
+.stg .g svg { width: 16px; height: 16px; display: block; }
+.stg .k { font-weight: 500; }
+.stg .t { font-size: 12px; }
+.stg .d { grid-column: 2 / -1; font-size: 11.5px; color: var(--color-cream-muted); }
+.stg.done .g { color: var(--color-done-text); }
+.stg.wait { color: var(--color-cream-muted); }
+.stg.wait .t { font-family: var(--font-structure); font-size: 11.5px; }
+.stg.run .g { color: var(--color-cream); }
+.stg.run { background: var(--color-surface); margin: 0 -8px; padding: 5px 8px; border-radius: 6px; }
+.stg.fail .g, .stg.fail .k { color: var(--color-error-text); }
+
+.meters { display: grid; grid-template-columns: auto 1fr auto; gap: 8px 10px; align-items: center; }
+.meters .l { color: var(--color-cream-muted); font-size: 12px; }
+.meters .v { text-align: right; font-size: 12.5px; }
+.meter { height: 4px; background: var(--color-surface-raised); border-radius: 2px; overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--color-cream); }
+.spark { width: 100%; height: 30px; display: block; }
+.spark path { fill: none; stroke: var(--color-cream-muted); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.fact { display: grid; gap: 1px; }
+.fact .l { font-size: 11px; color: var(--color-cream-muted); }
+.fact .v { font-size: 13px; font-weight: 600; }
+.lockrow { display: grid; grid-template-columns: 18px 1fr; gap: 8px; align-items: start; padding-top: 8px; border-top: 1px solid var(--color-border); }
+.lockrow svg { width: 16px; height: 16px; }
+.lockrow .d { font-size: 11.5px; color: var(--color-cream-muted); }
+
+.wave { width: 100%; height: 56px; display: block; }
+.wave .quiet { fill: var(--color-cream-faint); }
+.wave .said { fill: var(--color-cream-muted); }
+.wave .tosay { fill: var(--color-cream-faint); }
+.wave .region { fill: var(--color-surface); }
+.wave .tick { stroke: var(--color-cream-faint); stroke-width: 1; }
+.wave .ph { stroke: var(--color-cream); stroke-width: 1.5; }
+.line-now { display: grid; gap: 4px; }
+.line-now q { font: italic 300 15px/1.4 var(--font-display); quotes: none; }
+
+.plate { position: relative; margin: 0; width: 100%; background: var(--color-letterbox); border-radius: 3px; overflow: hidden; }
+.plate img { width: 100%; height: 100%; object-fit: fill; display: block; }
+.win { position: absolute; border: 1px dashed var(--color-cream-muted); }
+.win.to { border-style: dotted; }
+.win.now { border: 1.5px solid var(--color-cream); box-shadow: 0 0 0 9999px var(--scrim-soft); }
+.src dl { margin: 0; display: grid; grid-template-columns: 64px 1fr; gap: 4px 10px; font-size: 12px; }
+.src dt { color: var(--color-cream-muted); }
+.src dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.src .title { font: 400 15px/1.3 var(--font-display); }
+
+/* ---------- log drawer ---------- */
+.log { background: var(--color-bg); border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); margin: 0 16px; border-radius: 8px; border: 1px solid var(--color-border); }
+.log summary { list-style: none; display: flex; gap: 12px; align-items: center; padding: 8px 16px; cursor: pointer; font-size: 12px; min-height: 40px; }
+.log summary::-webkit-details-marker { display: none; }
+.log summary .last { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-data); color: var(--color-cream-muted); }
+.log ol { list-style: none; margin: 0; padding: 4px 16px 12px; max-height: 32vh; overflow: auto; font: 400 11.5px/1.6 var(--font-data); }
+.log li { display: grid; grid-template-columns: 64px 76px 1fr; gap: 10px; }
+.log li .c, .log li .s { color: var(--color-cream-muted); }
+.log li.warn .m { color: var(--color-cream); }
+.log li.error .m { color: var(--color-error-text); }
+
+/* ---------- layouts ---------- */
+@media (min-width: 1180px) {
+  .deck { grid-template-columns: minmax(0, 1fr) 360px; align-items: start; }
+  .rail { position: sticky; top: 58px; }
+}
+/* Under 1180 the stage's children join the deck grid so the rail sits
+   right under the strip, then the lower band: no void, one flow. */
+@media (max-width: 1179px) {
+  .stage { display: contents; }
+  .monitor { order: 1; } .progress { order: 2; } .strip { order: 3; } .rail { order: 4; } .lower { order: 5; }
+}
+@media (min-width: 760px) and (max-width: 1179px) {
+  .rail { grid-template-columns: 1fr 1fr; }
+  .rail .panel.health { grid-column: 1 / -1; }
+}
+@media (max-width: 759px) {
+  /* Compact sticky header on phones: two rows, at most 64 px. */
+  .lbar { padding: 6px 12px; gap: 4px 8px; }
+  .lbar .id { gap: 7px; }
+  .lbar .id svg { width: 18px; height: 18px; }
+  .lbar .id .app, .lbar .id .run, .lbar .ro, .chip .long { display: none; }
+  .lbar .id .film { font-size: 15px; }
+  .chip { height: 22px; padding: 0 8px; font-size: 11px; }
+  .clock { margin-left: 0; width: 100%; justify-content: space-between; }
+  .clock b { font-size: 13px; }
+  .lower { grid-template-columns: 1fr; }
+  .lower .panel.src .inner { grid-template-columns: 1fr; }
+  .reasons li { grid-template-columns: 76px 60px 1fr; }
+  .keys { display: none; }
+  .deck { padding: 12px; gap: 12px; }
+  .ov.bl { display: none; }
+  .ov { font-size: 10.5px; padding: 3px 6px; }
+  .progress .row .rate { display: none; }
+  .strip { grid-auto-columns: 112px; }
+  .log li { grid-template-columns: 58px 1fr; }
+  .log li .s { display: none; }
+}
+
+/* ---------- state gallery (mock only) ---------- */
+.gallery { border-top: 1px dashed var(--color-cream-faint); margin-top: 24px; padding: 24px 16px 48px; }
+.gallery > header { display: grid; gap: 4px; margin-bottom: 16px; max-width: 900px; }
+.gallery .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); gap: 14px; }
+.gstate { border: 1px solid var(--color-border); border-radius: 10px; padding: 12px; display: grid; gap: 10px; align-content: start; background: var(--color-bg); }
+.gstate .chips { margin-top: -2px; }
+.mini { position: relative; aspect-ratio: 16 / 9; background: var(--color-letterbox); border: 1px solid var(--color-border); border-radius: 6px; overflow: hidden; display: grid; place-items: center; }
+.mini > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.mini .msg { position: relative; display: grid; gap: 6px; justify-items: center; text-align: center; padding: 14px; background: var(--scrim-strong); border-radius: 6px; max-width: 88%; }
+.mini .msg .h { font: 300 18px/1.3 var(--font-display); }
+.mini .msg .b { font-size: 12px; color: var(--color-cream-muted); }
+.mini.dim > img { opacity: 0.35; filter: grayscale(0.6); }
+.acts { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--color-cream-muted); align-items: center; }
+.acts span { display: inline-flex; align-items: center; gap: 6px; }
+[data-mode="hosted"] .gallery .acts kbd { display: none; }
+.copy { height: 30px; padding: 0 12px; border-radius: var(--radius-control); border: 1px solid var(--color-border); background: var(--color-action); color: var(--color-action-ink); font: 500 12px/1 var(--font-structure); cursor: pointer; }
+.why { display: grid; grid-template-columns: 52px 1fr; gap: 3px 10px; font-size: 12px; }
+.why dt { color: var(--color-cream-muted); }
+.why dd { margin: 0; }
+code { font-size: 11.5px; background: var(--color-surface); padding: 1px 5px; border-radius: 3px; }
+.keymap { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 12px; align-items: center; }
+
+/* Wordmark: "void" in the data face, as the void family sets its name; "document" in the display face. */
+.wm { display: inline-flex; align-items: baseline; gap: 0.32em; white-space: nowrap; }
+.wm-void { font: 400 0.86em/1 var(--font-data); letter-spacing: 0; font-feature-settings: "calt" 0, "liga" 0; }
+.wm-doc { font: 400 1em/1 var(--font-display); letter-spacing: var(--track-credit); }
+
+/* The in-picture mark (GRAMMAR 4.1). Lives inside a frame box that is a size
+   container, so every length is a share of the frame, as at 1080p. */
+.frame-box { position: relative; container-type: size; aspect-ratio: 16 / 9; overflow: hidden; background: var(--color-letterbox); }
+.frame-box > img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.mark {
+  position: absolute; left: 4cqw; top: 5cqh; z-index: 3;
+  display: inline-flex; align-items: baseline; gap: 0.9em;
+  padding: 0.6em 0.75em 0.6em 0.7em;
+  background: var(--mark-scrim);
+  border-radius: 0.55cqh;
+  box-shadow: inset 3px 0 0 var(--mark-hue, var(--mark-archive));
+  color: var(--mark-text);
+  font: 500 max(9px, 3.1cqh)/1 var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "calt" 0, "liga" 0;
+  white-space: nowrap;
+}
+.mark .cls { font-weight: 600; letter-spacing: 0.06em; }
+.mark .det { letter-spacing: 0.01em; }
+.mark[data-class="archive"] { --mark-hue: var(--mark-archive); }
+.mark[data-class="reconstructed"] { --mark-hue: var(--mark-reconstructed); }
+.mark[data-class="generated"], .mark[data-class="drawn"] { --mark-hue: var(--mark-generated); }
+.mark[data-class="card"] { --mark-hue: var(--mark-reconstructed); font-size: max(8px, 2.4cqh); }
+/* Lower third (GRAMMAR 9): bottom left, never above 75% of frame height. */
+.lower-third { position: absolute; left: 4cqw; bottom: 7cqh; max-width: 56cqw; z-index: 3; display: grid; gap: 0.3em; padding: 0.7em 0.9em; background: var(--mark-scrim); border-radius: 0.55cqh; color: var(--mark-text); font: 400 max(9px, 2.6cqh)/1.25 var(--font-structure); }
+.lower-third .n { font: 400 max(11px, 3.6cqh)/1.1 var(--font-display); }
+.lower-third .s { opacity: 0.86; }
+/* Subtitle cue: bottom centre; moves up above a lower third. */
+.cue { position: absolute; left: 50%; bottom: 7cqh; transform: translateX(-50%); width: max-content; max-width: 84cqw; text-align: center; z-index: 4; margin: 0; }
+.cue.over-lt { bottom: 29cqh; }
+.cue span { font: 500 max(11px, 3.9cqh)/1.45 var(--font-structure); background: var(--mark-scrim); color: var(--mark-text); padding: 0.1em 0.45em; box-decoration-break: clone; -webkit-box-decoration-break: clone; border-radius: 3px; }
+.cue[lang="hi"] span { font-family: "Noto Sans Devanagari", var(--font-structure); }
+.cue[lang="ur"] span { font-family: "Noto Nastaliq Urdu", "Noto Naskh Arabic", var(--font-structure); line-height: 1.9; }
+/* Player menus: subtitles and the mark legend. */
+.menu { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; box-shadow: var(--shadow-card); padding: 6px; display: grid; gap: 2px; min-width: 220px; }
+.menu .mh { font: 500 10.5px/1.3 var(--font-data); letter-spacing: var(--track-eyebrow); text-transform: uppercase; color: var(--color-cream-muted); padding: 8px 10px 4px; }
+.menu button { appearance: none; background: none; border: 0; color: var(--color-cream); text-align: start; min-height: 40px; padding: 0 10px; border-radius: 6px; font: 400 14px/1.3 var(--font-structure); display: flex; gap: 10px; align-items: center; cursor: pointer; }
+.menu button:hover { background: var(--color-surface-raised); }
+.menu button[aria-checked="true"]::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--color-cream); }
+.menu button[aria-checked="false"]::before { content: ""; width: 6px; height: 6px; }
+.menu [lang="hi"] { font-family: "Noto Sans Devanagari", var(--font-structure); }
+.menu [lang="ur"] { font-family: "Noto Nastaliq Urdu", "Noto Naskh Arabic", var(--font-structure); }
+.legend { display: grid; gap: 10px; padding: 6px 8px 8px; }
+.legend .row { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-items: start; }
+.legend .row .mark { position: static; font-size: 11px; }
+.legend .row p { font-size: 13px; color: var(--color-cream-muted); }
+.gen { color: var(--color-generated-text); }
+
+.lbar .id .wm { font-size: 15px; }
+.monitor { container-type: size; }
+.monitor .ov.tl { left: auto; right: 14px; top: 14px; }
+.monitor .ov.tr { top: 48px; }
+.monitor .mark-note { position: absolute; left: 4cqw; top: calc(5cqh + 4.6cqh + 10px); font-size: 10.5px; color: var(--color-cream-muted); background: var(--scrim-strong); padding: 2px 6px; border-radius: 3px; }
+.eta-range b { font-size: 14px; }
+.eta-range .basis { color: var(--color-cream-muted); font-size: 11px; margin-left: 6px; }
+.stg .flag { grid-column: 2 / -1; font-size: 11.5px; color: var(--color-cream); border-left: 2px solid var(--color-cream-muted); padding-left: 8px; margin-top: 3px; }
+.predict summary { cursor: pointer; font-size: 12px; color: var(--color-cream-muted); list-style: none; min-height: 32px; display: flex; align-items: center; gap: 6px; text-decoration: underline; text-decoration-color: var(--color-cream-faint); text-underline-offset: 3px; }
+.predict summary::-webkit-details-marker { display: none; }
+.rates { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 6px; }
+.rates th { text-align: left; font-weight: 500; color: var(--color-cream-muted); padding: 4px 6px 4px 0; border-bottom: 1px solid var(--color-border); }
+.rates td { padding: 4px 6px 4px 0; border-bottom: 1px solid var(--color-border); font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.rates td:first-child { font-family: var(--font-structure); }
+.calib { font-size: 11.5px; color: var(--color-cream-muted); }
+.strip-marks { display: flex; height: 18px; gap: 2px; border-radius: 3px; overflow: hidden; }
+.strip-marks span { position: relative; }
+.strip-marks .archive { background: var(--mark-archive); } .strip-marks .reconstructed, .strip-marks .card { background: var(--mark-reconstructed); opacity: 0.85; }
+.strip-marks .generated { background: var(--mark-generated); } .strip-marks .drawn { background: repeating-linear-gradient(135deg, var(--mark-generated) 0 5px, var(--color-surface-raised) 5px 7px); }
+.mkey { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; font-size: 12px; align-items: center; }
+.mkey i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.mkey .archive { background: var(--mark-archive); } .mkey .generated { background: var(--mark-generated); } .mkey .drawn { background: repeating-linear-gradient(135deg, var(--mark-generated) 0 3px, var(--color-surface-raised) 3px 4px); } .mkey .card { background: var(--mark-reconstructed); }
+.gauge { display: grid; gap: 5px; }
+.gauge .top { display: flex; justify-content: space-between; font-size: 12px; }
+.gauge .track { position: relative; height: 8px; background: var(--color-surface-raised); border-radius: 2px; }
+.gauge .track i { position: absolute; inset: 0 auto 0 0; background: var(--color-cream-muted); border-radius: 2px; }
+.gauge .track .cap { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--color-cream); }
+.gauge.over .track i { background: var(--color-burgundy); }
+.gauge .gnote { font-size: 11px; color: var(--color-cream-muted); }
+</style>
+</head>
+<body class="lens">
+<header class="lbar">
+  <div class="id"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/><circle cx="18.6" cy="17.6" r="1.25" fill="var(--color-safelight)" stroke="none"/></svg><span class="app">Lens</span><span class="film">Calibration</span><span class="run num">cal-0003</span></div>
+  <div class="chips">
+    <span class="chip rendering" role="status"><i class="dot"></i>Calibrating</span>
+    <span class="chip local-only">On this laptop<span class="long"> · every frame</span></span>
+    <span class="chip hosted-only" role="status"><span class="long">Live from the laptop · updated </span><span class="num">4</span> s ago</span>
+  </div>
+  <div class="clock">
+    <span><span class="lbl">Elapsed</span><b class="num">0:58</b></span>
+    <span class="eta-range"><span class="lbl">Finishes</span><b class="num">03:18:01</b> to <b class="num">03:18:46</b><span class="basis">from <span class="num">3</span> to <span class="num">12</span> past samples per stage</span></span>
+  </div>
+  <nav class="keys local-only" aria-label="Controls"><button type="button"><kbd>P</kbd>Pause after this unit</button><button type="button"><kbd>L</kbd>Log</button><button type="button"><kbd>?</kbd>Keys</button></nav>
+  <span class="ro hosted-only">Read only. Control the run on the laptop.</span>
+</header>
+
+<main class="deck">
+  <section class="stage" aria-label="Monitor">
+    <div class="monitor">
+      <img src="_media/partition/S-001.jpg" alt="Live frame 96 of the Ken Burns calibration move on ledger still S-001: men around a conference table.">
+      <span class="mark" data-class="archive" role="img" aria-label="ARCHIVE Wikimedia Commons 1947"><span class="cls">ARCHIVE</span><span class="det">Wikimedia Commons <span class="num">1947</span></span></span>
+      <span class="mark-note">mark preview; burned in at assembly</span>
+      <div class="ov tl"><span class="slate">S-001</span><span>Ken Burns</span></div>
+      <div class="ov tr"><span class="tc">0:03.20</span></div>
+      <div class="ov br"><span class="local-only">frame <span class="num">96/120</span> · <span class="num">41</span> ms</span><span class="hosted-only">frame <span class="num">96/120</span> · as of <span class="num">4</span> s ago</span></div>
+    </div>
+    <div class="progress">
+      <div class="row"><span>Units <b class="num">5</b> of <b class="num">10</b> done</span><span class="rate">motion <span class="num">41</span> ms/frame live, history <span class="num">39</span> to <span class="num">44</span> ms</span><span class="pct"><b class="num">5 / 9</b></span></div>
+      <div class="segbar" role="progressbar" aria-valuemin="0" aria-valuemax="9" aria-valuenow="4" aria-label="Stages"><span class="seg done" style="flex:1"></span><span class="seg done" style="flex:1"></span><span class="seg done" style="flex:1"></span><span class="seg done" style="flex:1"></span><span class="seg run" style="flex:1"><i style="width:80%"></i></span><span class="seg wait" style="flex:1"></span><span class="seg wait" style="flex:1"></span><span class="seg wait" style="flex:1"></span><span class="seg wait" style="flex:1"></span></div>
+    </div>
+    <div class="lower">
+      <section class="panel">
+        <header><span class="eb">Marks on the reel</span><span class="muted"><span class="num">22</span> s fixture</span></header>
+        <div class="strip-marks" role="img" aria-label="Marks by second: archive 6 s, AI-generated 5 s, drawn 5 s, card 6 s"><span class="archive" style="flex:6" title="ARCHIVE"></span><span class="generated" style="flex:5" title="AI-GENERATED"></span><span class="drawn" style="flex:5" title="DRAWN"></span><span class="card" style="flex:6" title="CARD"></span></div>
+        <div class="mkey"><i class="archive"></i><span>ARCHIVE <span class="muted">S-001, Ken Burns</span></span><span class="num">27%</span><i class="generated"></i><span>AI-GENERATED <span class="muted">a canal through flat wheat country, monsoon sky</span></span><span class="num">23%</span><i class="drawn"></i><span>DRAWN <span class="muted">Punjab districts from Census of India 1941</span></span><span class="num">23%</span><i class="card"></i><span>CARD <span class="muted">the record-is-silent card</span></span><span class="num">27%</span></div>
+        <div class="gauge over"><div class="top"><span>Generated share</span><span class="num">23% of 15% cap</span></div><div class="track"><i style="width:23%"></i><span class="cap" style="left:15%"></span></div><p class="gnote">AI-GENERATED seconds over runtime (GRAMMAR <span class="num">2.6</span>). Over the cap here because the reel is a fixture; on a film this blocks the render.</p></div>
+        <div class="gauge"><div class="top"><span>Narration</span><span class="num">0% of 25% ceiling</span></div><div class="track"><i style="width:0"></i><span class="cap" style="left:25%"></span></div><p class="gnote">The reel has a reading, not narration. Readings must reach <span class="num">30%</span> on a film.</p></div>
+      </section>
+      <section class="panel src">
+        <header><span class="eb">Source · S-001</span><span class="muted num">499 × 316</span></header>
+        <div class="inner">
+          <figure class="plate" style="aspect-ratio:499 / 316"><img src="_media/partition/S-001.jpg" alt=""><span class="win now" style="left:8%;top:10%;width:80%;height:78%"></span></figure>
+          <div style="display:grid;gap:8px;align-content:start">
+            <p class="title">Lord Mountbatten meets Nehru, Jinnah and other Leaders to plan Partition</p>
+            <dl><dt>Archive</dt><dd>Wikimedia Commons</dd><dt>Year</dt><dd class="num">1947</dd><dt>Licence</dt><dd>Public domain, unknown author</dd><dt>Mark</dt><dd>ARCHIVE</dd><dt>Resampler</dt><dd class="num">Lanczos · 499→1920 px · 3.85× · ARCHIVE (A5)</dd><dt>Opening</dt><dd>whole, native aspect, 1.5 s (A7)</dd></dl>
+          </div>
+        </div>
+      </section>
+    </div>
+  </section>
+
+  <aside class="rail">
+    <section class="panel health"><header><span class="eb">Health</span><span class="muted">worst of five checks</span></header><p class="verdict watch"><i></i>Watch</p>
+      <ul class="reasons"><li class="flag"><span>GPU temp</span><span class="num">84 °C</span><span class="muted">watch from 80</span></li><li class="flag"><span>Throttle</span><span>power cap</span><span class="muted">watch</span></li></ul></section>
+    <section class="panel">
+      <header><span class="eb">Pipeline</span><span class="muted">baselines calibrated <span class="num">2026-10-09 22:10</span> (cal-0002)</span></header>
+      <ol class="stages">
+                    <li class="stg done"><span class="g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5.5 12.5 4 4 9-9"/></svg></span><span class="k">Scout ledgers</span><span class="t"><span class="num">0:03</span></span><span class="d">predicted <span class="num">0:02–0:04</span> from <span class="num">3</span> runs · rights re-read on <span class="num">3</span> fixture items, all on the allowlist</span></li>
+          <li class="stg done"><span class="g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5.5 12.5 4 4 9-9"/></svg></span><span class="k">Conform</span><span class="t"><span class="num">0:06</span></span><span class="d">predicted <span class="num">0:05–0:07</span> from <span class="num">3</span> runs · video fixture: 3:2 pulldown found, inverse telecine (field match, decimate) <span class="num">29.97</span> to <span class="num">23.976</span> fps, no speed change, stays ARCHIVE (A6). Conform method logged per clip.</span></li>
+          <li class="stg done"><span class="g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5.5 12.5 4 4 9-9"/></svg></span><span class="k">Story fit</span><span class="t"><span class="num">0:01</span></span><span class="d">predicted <span class="num">0:01–0:02</span> from <span class="num">3</span> runs · fixture coverage: <span class="num">4</span> themes, each with a source</span></li>
+          <li class="stg done"><span class="g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5.5 12.5 4 4 9-9"/></svg></span><span class="k">Narration</span><span class="t"><span class="num">0:38</span></span><span class="d">predicted <span class="num">0:27–0:31</span> from <span class="num">9</span> runs · <span class="num">1</span> reading, <span class="num">9.6</span> s of audio, Orpheus <span class="num">3</span>B, whisper match</span><span class="flag"><span class="num">31%</span> slower than history. GPU at <span class="num">84</span> °C with the power cap active during this stage.</span></li>
+          <li class="stg done"><span class="g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5.5 12.5 4 4 9-9"/></svg></span><span class="k">Score</span><span class="t"><span class="num">0:12</span></span><span class="d">predicted <span class="num">0:11–0:14</span> from <span class="num">3</span> runs · house motif fixture, <span class="num">20</span> s</span></li>
+          <li class="stg run"><span class="g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 8v4l2.5 2"/></svg></span><span class="k">Motion</span><span class="t"><span class="num">0:04</span> so far</span><span class="d">predicted <span class="num">0:04–0:06</span> (<span class="num">12</span> samples) · S-<span class="num">001,</span> Ken Burns, <span class="num">96</span> of <span class="num">120</span> frames, <span class="num">41</span> ms/frame live</span></li>
+          <li class="stg wait"><span class="g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1.2"/></svg></span><span class="k">Generation</span><span class="t"><span class="num">3:05–3:40</span></span><span class="d">predicted, <span class="num">3</span> samples · <span class="num">1</span> clip, <span class="num">81</span> frames at <span class="num">832×480,</span> Wan <span class="num">2.2</span> TI<span class="num">2</span>V <span class="num">5</span>B, then the no-people check</span></li>
+          <li class="stg wait"><span class="g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1.2"/></svg></span><span class="k">Marks lint</span><span class="t"><span class="num">0:01–0:02</span></span><span class="d">predicted, <span class="num">3</span> samples · <span class="num">22</span> s fixture reel, one mark per second</span></li>
+          <li class="stg wait"><span class="g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1.2"/></svg></span><span class="k">Assembly</span><span class="t"><span class="num">0:09–0:12</span></span><span class="d">predicted, <span class="num">3</span> samples · <span class="num">22</span> s at <span class="num">1080</span>p and <span class="num">720</span>p HLS</span></li>
+          <li class="stg wait"><span class="g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1.2"/></svg></span><span class="k">Subtitles</span><span class="t"><span class="num">0:04–0:06</span></span><span class="d">predicted, <span class="num">3</span> samples · <span class="num">3</span> tracks: English captions, Hindi, Urdu</span></li>
+          <li class="stg wait"><span class="g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 12h12"/></svg></span><span class="k">Publish</span><span class="t">skipped</span><span class="d">calibration runs are never published</span></li>
+      </ol>
+      <details class="predict" open>
+        <summary>How this is predicted</summary>
+        <p class="calib">Cost per unit is the median to p90 of past runs on this machine (RTX 4090 Laptop, <span class="num">16</span> GB), blended with this run's live rate once a stage has done <span class="num">3</span> units. Under <span class="num">3</span> samples: "first run: no estimate yet".</p>
+        <table class="rates"><thead><tr><th>Stage</th><th>Unit</th><th>Median</th><th>p90</th><th>n</th><th>Live</th></tr></thead><tbody>
+          <tr><td>Narration</td><td style="font-family:var(--font-structure)">per second of audio</td><td>2.9 s</td><td>3.2 s</td><td>9</td><td>4.0 s</td></tr>
+          <tr><td>Score</td><td style="font-family:var(--font-structure)">per second of music</td><td>0.58 s</td><td>0.66 s</td><td>3</td><td>0.60 s</td></tr>
+          <tr><td>Motion</td><td style="font-family:var(--font-structure)">per frame</td><td>39 ms</td><td>44 ms</td><td>12</td><td>41 ms</td></tr>
+          <tr><td>Generation</td><td style="font-family:var(--font-structure)">per frame at <span class="num">832×480</span></td><td>2.4 s</td><td>2.7 s</td><td>3</td><td>not started</td></tr>
+          <tr><td>Marks lint</td><td style="font-family:var(--font-structure)">per second of film</td><td>0.05 s</td><td>0.08 s</td><td>3</td><td>not started</td></tr>
+          <tr><td>Assembly</td><td style="font-family:var(--font-structure)">per second of film</td><td>0.45 s</td><td>0.52 s</td><td>3</td><td>not started</td></tr>
+          <tr><td>Subtitles</td><td style="font-family:var(--font-structure)">per cue</td><td>0.30 s</td><td>0.42 s</td><td>3</td><td>not started</td></tr>
+        </tbody></table>
+      </details>
+    </section>
+    <section class="panel">
+      <header><span class="eb">Machine</span><span class="muted">every <span class="num">2</span> s · nvidia-smi</span></header>
+      <div class="meters"><span class="l">GPU</span><span class="meter"><i style="width:6%"></i></span><span class="v num">6%</span><span class="l">VRAM</span><span class="meter"><i style="width:9%"></i></span><span class="v num">1.4 / 16.0 GB</span></div>
+      <p class="stage-note">Ken Burns motion runs on the CPU; GPU idle is expected. Generation is next and is GPU-bound.</p>
+      <div class="facts"><div class="fact"><span class="l">Temp</span><span class="v num">84 °C</span></div><div class="fact"><span class="l">Power</span><span class="v num">118 W</span></div><div class="fact"><span class="l">Throttle</span><span class="v">power cap</span></div><div class="fact"><span class="l">CPU</span><span class="v num">68%</span></div><div class="fact"><span class="l">RAM used</span><span class="v num">9.1 GB</span></div><div class="fact"><span class="l">D: free</span><span class="v num">176 GB</span></div></div>
+      <div class="lockrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="9" rx="1.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg><div><p>GPU lock held by this run</p><p class="d">cal-0003 · since <span class="num">03:13:43</span>. One GPU job at a time.</p></div></div>
+    </section>
+  </aside>
+</main>
+<details class="log"><summary><kbd class="local-only">L</kbd><span class="eb">Log</span><span class="last">03:14:41 motion S-001 frame 96/120 41 ms</span></summary><ol>
+  <li class="info"><span class="c num">03:13:43</span><span class="s">run</span><span class="m">cal-0003 calibrate start; fixtures: S-001, reading src-hansard-19470603 p36, prompt from GRAMMAR 5.3, census-1941 map</span></li>
+  <li class="warn"><span class="c num">03:14:24</span><span class="s">narration</span><span class="m">38.1 s for 9.6 s of audio: 31% over history (median 2.9 s per second); GPU 84 C, power cap</span></li>
+  <li class="info"><span class="c num">03:14:41</span><span class="s">motion</span><span class="m">S-001 frame 96/120 41 ms</span></li>
+</ol></details>
+
+<section class="gallery" aria-label="Mock states, not part of the page">
+  <header><p class="eb">Mock states, not part of the page</p><p class="muted">Director's Lens, round 2, shown on a <code>doc calibrate</code> run, because no Partition screenplay exists yet. The inputs are real (ledger still <code>S-001</code>, Attlee's reading, GRAMMAR's own example prompt, the <span class="num">1941</span> census table); every timing is illustrative of what the timing ledger records. On a film render the same panels show the film's shots, its full marks strip and the live caps.</p></header>
+  <div class="grid">
+    <div class="gstate"><div class="chips"><span class="chip">First run</span></div><p class="eb">A stage with fewer than <kbd>3</kbd> samples</p><p>Generation · <span class="muted">first run: no estimate yet</span> · live <span class="num">2.6</span> s per frame</p><p class="muted" style="font-size:12px">The header then shows "Finishes: no estimate until generation has <span class="num">3</span> units", never a guess.</p></div>
+    <div class="gstate"><div class="chips"><span class="chip failed"><i class="dot"></i>Generation rejected</span></div><dl class="why"><dt>What</dt><dd>The no-people check found a figure in frames <span class="num">40</span> to <span class="num">52</span> of the canal clip.</dd><dt>Then</dt><dd>The clip is dropped, never shown, and the shot falls back to a Ken Burns move or a cut.</dd></dl></div>
+    <div class="gstate"><div class="chips"><span class="chip failed"><i class="dot"></i>Failed</span></div><dl class="why"><dt>What</dt><dd>Marks lint: second <span class="num">14</span> carries no mark.</dd><dt>Run</dt><dd><code>doc render partition-of-india --from marks</code></dd></dl><div class="acts local-only"><span><kbd>R</kbd> resume</span></div><div class="acts hosted-only"><button class="copy" type="button">Copy command</button><span>Resume on the laptop.</span></div></div>
+    <div class="gstate"><div class="chips"><span class="chip stale"><i class="dot"></i>No update for <span class="num">2</span> min <span class="num">10</span> s</span></div><p class="muted">Hosted only, after <span class="num">30</span> s without a push. Offline after <span class="num">10</span> min.</p></div>
+  </div>
+</section>
+</body>
+</html>

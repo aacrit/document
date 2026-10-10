@@ -27,3 +27,9 @@ coverage/
 *.sqlite3
 *.db
 .gate-last.log
+
+# Mock media: real frames for design mocks, never committed (R-08)
+design/mocks/_media/
+
+# Brand-kit preview media: copies of ledger stills, never committed (R-08)
+design/brand-kit/_media/

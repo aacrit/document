@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>void document mocks</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="house.css">
+<style>
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; display: grid; gap: 24px; }
+  h1 { font: 300 40px/1.1 var(--font-display); }
+  ul { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--color-border); }
+  li { display: grid; gap: 2px; padding: 14px 0; border-bottom: 1px solid var(--color-border); }
+  li a { font: 400 20px/1.3 var(--font-display); }
+  li span { font-size: 13px; color: var(--color-cream-muted); }
+</style>
+</head>
+<body>
+<main>
+  <a class="wordmark" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/><circle cx="18.6" cy="17.6" r="1.25" fill="var(--color-safelight)" stroke="none"/></svg><span class="wm"><span class="wm-void">void</span> <span class="wm-doc">document</span></span></a>
+  <h1>Blueprint mocks</h1>
+  <p class="muted">Each page is responsive; open it at any width. States are listed under each page, below a dashed rule. Images come from <code>_media/</code> (gitignored).</p>
+  <ul>
+    <li><a href="screening-room.html">Screening room</a><span><span class="num">/</span>, public</span></li>
+    <li><a href="film.html">Film</a><span><span class="num">/f/partition-of-india</span>, public</span></li>
+    <li><a href="sources.html">Sources</a><span><span class="num">/f/partition-of-india/sources</span>, public</span></li>
+    <li><a href="correct.html">Corrections</a><span><span class="num">/f/partition-of-india/correct</span>, public</span></li>
+    <li><a href="lens.html">Director's Lens, local</a><span><span class="num">127.0.0.1</span>, founder only</span></li>
+    <li><a href="lens.html?mode=hosted">Director's Lens, hosted</a><span><span class="num">/studio</span> behind the admin sign-in, founder only</span></li>
+    <li><a href="studio-login.html">Studio sign-in</a><span><span class="num">/studio</span>, one admin account</span></li>
+    <li><a href="board-card.html">Board card</a><span>one card per finished or failed render</span></li>
+    <li><a href="phone.html">Narrow widths</a><span>Lens at <span class="num">768</span> and <span class="num">375</span> px, sign-in, Board card and Film at <span class="num">375</span> px, side by side</span></li>
+  </ul>
+</main>
+</body>
+</html>

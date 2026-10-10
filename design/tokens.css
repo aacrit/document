@@ -1,41 +1,140 @@
 /*
- * Ink & Momentum tokens - the ONLY file in this repo allowed to define a
- * color literal (hex, rgb(), hsl()). Every other file must reference these
- * custom properties. scripts/lint-design.mjs enforces this.
+ * void document tokens: the product's layer over Ink & Momentum. This is the ONLY
+ * file in this repo allowed to define a color literal (hex, rgb(), hsl()).
+ * Every other file references these custom properties.
+ * scripts/lint-design.mjs enforces this.
+ *
+ * Grammar (type voices, motion tiers, earned accents, copy voice) is Ink &
+ * Momentum's and is not redefined here. Document has its own say on the
+ * hues and what they mean, one texture (film grain), and its motion presets.
+ * See design/BRAND.md.
+ *
+ * The five literals, and the one thing each may mean:
+ *   --doc-black      the theatre: ground, letterbox, the dark around a frame
+ *   --doc-bone       the screen: text, and every control (quiet, never a hue)
+ *   --doc-safelight  "this is real, here is where it came from": credits,
+ *                    source and ledger links, and a timecode only where it
+ *                    points to a source (a ledger entry, a credit link).
+ *                    Player clocks, transcript times and typed input are
+ *                    never amber. Nothing else earns it.
+ *   --doc-burgundy   something failed (a send, a load, a render)
+ *   --doc-forest     something finished (Director's Lens only: a shot done)
+ *   --doc-ink        light-theme text only (house lights up)
+ *   --doc-cold       AI-GENERATED and DRAWN marks only (GRAMMAR 4): never amber,
+ *                    hue 259 deg vs amber 70 deg (189 deg apart), L* 40.6 vs
+ *                    72.3 (31.7 apart, so the two read apart in greyscale)
+ * Every other color is derived from these with OKLch relative color.
+ *
+ * Contrast, WCAG 2.x, checked 2026-10-10 by computing each pair
+ * (alpha tokens composited over the ground they sit on):
+ *   dark  cream on bg                         15.21
+ *   dark  cream on surface                    14.06
+ *   dark  cream-muted on bg                    6.94
+ *   dark  cream-muted on surface               6.69
+ *   dark  safelight on bg                      9.13
+ *   dark  safelight on surface                 8.44
+ *   dark  error-text on bg                     6.54
+ *   dark  error-text on surface                6.05
+ *   dark  done-text on bg                      7.43
+ *   dark  done-text on surface                 6.87
+ *   dark  bg on cream (primary button)        15.21
+ *   dark  cream on scrim over a white photo    9.12  (scrim = bg at 0.82)
+ *   dark  safelight on scrim over white        5.48
+ *   dark  cream-muted on scrim over white      4.98
+ *   light ink on bone                         13.87
+ *   light ink-muted on bone                    5.83
+ *   light safelight on bone                    5.26
+ *   light safelight on surface                 5.85
+ *   light error-text on bone                   5.54
+ *   light bone on ink (primary button)        13.87
+ *   mark text on the mark scrim (black 60%) over a white frame   5.34
+ *   mark text on the mark scrim over a black frame              19.53
+ *   generated-text (cold blue, lightened) on bg                  9.80
+ *   generated-text on surface                                    9.07
+ *   cold blue rule on the scrim over black (graphic, 3:1 needed)  3.32
+ * Amber or cold blue as label text on the scrim over a white frame fails
+ * (amber 2.69), so a mark's text is always --mark-text and its class hue
+ * rides as a 3 px rule on the plate's left edge, never as the text.
+ * Raw burgundy (3.26) and raw forest (4.27) on bg fail for text: they are
+ * used for marks and fills only; text uses --color-error-text and
+ * --color-done-text.
  */
 
 /* Faces are self-hosted (design/fonts.css); never a font CDN (V3). */
 @import "./fonts.css";
 
 :root {
-  /* Hearth palette - dark (default) */
-  --color-bg: #181410;
-  --color-surface: #221c15;
-  --color-cream: #ede2cf;
-  --color-forest: #4f8064;
-  --color-terracotta: #cf7344;
-  --color-burgundy: #a8404f;
-  --color-ochre: #cba14e;
+  /* Primaries: the only literals */
+  --doc-black: #0f0c0a;
+  --doc-bone: #ede2cf;
+  --doc-safelight: #eda23c;
+  --doc-burgundy: #a8404f;
+  --doc-forest: #4f8064;
+  --doc-ink: #1c1712;
+  --doc-cold: #2f5fa8;
 
-  /* Derived states, never new hexes */
-  --color-terracotta-hover: oklch(from var(--color-terracotta) calc(l + 0.05) c h);
-  --color-surface-raised: oklch(from var(--color-surface) calc(l + 0.03) c h);
-  --color-cream-muted: oklch(from var(--color-cream) l c h / 0.62);
-  --color-border: oklch(from var(--color-cream) l c h / 0.14);
+  /* Roles, dark (the default: the theatre) */
+  --color-bg: var(--doc-black);
+  --color-letterbox: oklch(from var(--doc-black) calc(l - 0.05) c h);
+  --color-surface: oklch(from var(--doc-black) calc(l + 0.045) c h);
+  --color-surface-raised: oklch(from var(--doc-black) calc(l + 0.085) c h);
+  --color-cream: var(--doc-bone);
+  --color-cream-muted: oklch(from var(--doc-bone) l c h / 0.66);
+  --color-cream-faint: oklch(from var(--doc-bone) l c h / 0.32); /* rules and ticks only, never text */
+  --color-border: oklch(from var(--doc-bone) l c h / 0.14);
+  --color-safelight: var(--doc-safelight);
+  --color-safelight-glow: oklch(from var(--doc-safelight) l c h / 0.18);
+  --color-burgundy: var(--doc-burgundy);
+  --color-error-text: oklch(from var(--doc-burgundy) calc(l + 0.17) c h);
+  --color-forest: var(--doc-forest);
+  --color-done-text: oklch(from var(--doc-forest) calc(l + 0.14) c h);
+
+  /* Provenance marks (films/GRAMMAR.md section 4). GRAMMAR names them
+     mark.archive, mark.reconstructed, mark.generated; the lint reads these. */
+  --mark-archive: var(--doc-safelight);
+  --mark-reconstructed: var(--doc-bone);
+  --mark-generated: var(--doc-cold);
+  --mark-text: oklch(from var(--doc-bone) calc(l + 0.06) c h);
+  --mark-scrim: oklch(from var(--doc-black) 0 0 0 / 0.6);
+  --color-generated-text: oklch(from var(--doc-cold) 0.78 0.075 h);
+
+  /* Controls are bone: an action is quiet, never a hue */
+  --color-action: var(--color-cream);
+  --color-action-ink: var(--color-bg);
+  --color-action-hover: oklch(from var(--doc-bone) calc(l + 0.04) c h);
+  --color-focus: var(--color-cream);
+
+  /* Scrims keep text legible over a photograph (checked over pure white) */
+  --scrim-strong: oklch(from var(--doc-black) l c h / 0.82);
+  --scrim-soft: oklch(from var(--doc-black) l c h / 0.45);
+  --scrim-none: oklch(from var(--doc-black) l c h / 0);
+
+  /* Spark-stub aliases. web/src/style.css still uses the Hearth names.
+     Forge moves it to the role names above and then deletes these. */
+  --color-ochre: var(--color-safelight);
+  --color-terracotta: var(--color-action);
+  --color-terracotta-hover: var(--color-action-hover);
+
+  /* Texture: film grain, in the dark only. Never laid over a photograph. */
+  --texture-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  --grain-opacity: 0.06;
 
   /* Radii and shadows */
   --radius-card: 14px;
   --radius-control: 8px;
+  --radius-frame: 2px; /* a projected frame is nearly square-cornered */
   --radius-pill: 999px;
-  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(12 8 4 / 0.35);
-  --shadow-hover: 0 2px 4px rgb(0 0 0 / 0.4), 0 16px 40px rgb(12 8 4 / 0.45);
+  --shadow-card: 0 1px 2px oklch(from var(--doc-black) calc(l - 0.15) c h / 0.4), 0 8px 24px oklch(from var(--doc-black) l c h / 0.35);
+  --shadow-hover: 0 2px 4px oklch(from var(--doc-black) calc(l - 0.15) c h / 0.4), 0 16px 40px oklch(from var(--doc-black) l c h / 0.45);
 
-  /* Type */
+  /* Type: the three voices */
   --font-display: "Fraunces", ui-serif, Georgia, serif;
   --font-structure: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-data: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+  --track-credit: 0.04em;   /* title cards and credit names */
+  --track-eyebrow: 0.12em;  /* tiny mono eyebrows, the only capitals */
 
-  /* Motion */
+  /* Motion tiers (Ink & Momentum) */
   --dur-instant: 80ms;
   --dur-fast: 160ms;
   --dur-normal: 240ms;
@@ -45,23 +144,70 @@
   --ease-cinematic: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-rack: cubic-bezier(0.25, 0.46, 0.45, 0.94);
   --ease-whip: cubic-bezier(0.25, 0, 0, 1);
+  --spring-snappy: linear(0 0%, 0.41 12.7%, 0.71 27.1%, 0.91 39.7%, 1.02 50.2%, 1 100%);
+  --spring-gentle: linear(0 0%, 0.47 11.3%, 0.78 25.9%, 0.95 42.2%, 1 100%);
+
+  /* The film's springs (design/brand-kit/BRAND-KIT.md 6, from motion.py):
+     site motion uses these too, so the site and the film move alike. */
+  --spring-stamp: linear(0 0%, 0.0488 5%, 0.1568 10%, 0.2853 15%, 0.4129 20%, 0.5288 25%, 0.6287 30%, 0.7118 35%, 0.779 40%, 0.8324 45%, 0.874 50%, 0.9061 55%, 0.9306 60%, 0.949 65%, 0.9628 70%, 0.9731 75%, 0.9806 80%, 0.9861 85%, 0.9901 90%, 0.993 95%, 1 100%);
+  --spring-settle: linear(0 0%, 0.036 5%, 0.1206 10%, 0.228 15%, 0.3415 20%, 0.4512 25%, 0.5513 30%, 0.6393 35%, 0.7144 40%, 0.777 45%, 0.8282 50%, 0.8694 55%, 0.902 60%, 0.9275 65%, 0.9471 70%, 0.9621 75%, 0.9733 80%, 0.9816 85%, 0.9876 90%, 0.992 95%, 1 100%);
+  --spring-arrive: linear(0 0%, 0.0336 5%, 0.1137 10%, 0.2165 15%, 0.3266 20%, 0.4343 25%, 0.5337 30%, 0.6222 35%, 0.6985 40%, 0.7629 45%, 0.8161 50%, 0.8593 55%, 0.8939 60%, 0.9212 65%, 0.9424 70%, 0.9586 75%, 0.9709 80%, 0.9801 85%, 0.9868 90%, 0.9916 95%, 1 100%);
+  --spring-drift: linear(0 0%, 0.0364 5%, 0.1219 10%, 0.2301 15%, 0.3442 20%, 0.4542 25%, 0.5544 30%, 0.6423 35%, 0.7172 40%, 0.7795 45%, 0.8303 50%, 0.8711 55%, 0.9034 60%, 0.9286 65%, 0.9479 70%, 0.9627 75%, 0.9737 80%, 0.9818 85%, 0.9878 90%, 0.992 95%, 1 100%);
+  --stamp-dur: 341ms;
+  --settle-dur: 450ms;
+  --arrive-dur: 565ms;
+  --drift-dur: 934ms;
+  --stagger: 167ms; /* 4 frames at 24 fps */
+  --ease-in-quad: cubic-bezier(0.11, 0, 0.5, 0);
+  --ease-out-quad: cubic-bezier(0.5, 1, 0.89, 1);
+  --ease-out-sine: cubic-bezier(0.61, 1, 0.88, 1);
+  --ease-in-sine: cubic-bezier(0.12, 0, 0.39, 0);
+  /* Lower-third wash (BRAND-KIT 4): the theatre black at 0.5, feathered to 0. */
+  --lt-wash: oklch(from var(--doc-black) l c h / 0.5);
+
+  /* void document's named presets (design/BRAND.md) */
+  --house-lights-dur: var(--dur-cinema);     /* chrome leaves when the film plays */
+  --house-lights-idle: 2500ms;               /* pointer still this long while playing: chrome leaves */
+  --rack-to-source-dur: var(--dur-morph);    /* a paused frame's credit comes into focus */
+  --credit-roll-speed: 42;                   /* px per second, constant, like a projector */
+  --develop-dur: var(--dur-fast);            /* Lens: a new frame replaces the last */
+  --slate-dur: 600ms;                        /* Lens: a new shot is announced on the monitor */
 }
 
-/* Light theme variant. Same roles, same earned-accent rule; only the ground
-   and text swap. Toggle with data-theme="light" on :root or <html>. */
+/* House lights up: the light theme. Every charter surface (Screening room,
+   Film, Sources, Corrections, the Director's Lens) sets data-theme="dark" on
+   <html>: the theatre never turns its lights on, and end credits are light
+   on dark. Only /privacy.html follows the viewer's preference, and the
+   print stylesheet uses these roles for a printed sources list. */
 :root[data-theme="light"] {
-  --color-bg: #ede2cf; /* literal: var(--color-cream) would resolve to the redefined dark ink below */
-  --color-surface: #ffffff;
-  --color-cream: #181410;
-  --color-border: oklch(from #181410 l c h / 0.12);
+  --color-bg: var(--doc-bone);
+  --color-surface: oklch(from var(--doc-bone) calc(l + 0.035) c h);
+  --color-surface-raised: oklch(from var(--doc-bone) calc(l + 0.05) c h);
+  --color-cream: var(--doc-ink);
+  --color-cream-muted: oklch(from var(--doc-ink) l c h / 0.7);
+  --color-cream-faint: oklch(from var(--doc-ink) l c h / 0.3);
+  --color-border: oklch(from var(--doc-ink) l c h / 0.14);
+  --color-safelight: oklch(from var(--doc-safelight) calc(l - 0.29) c h);
+  --color-error-text: oklch(from var(--doc-burgundy) calc(l - 0.04) c h);
+  --color-done-text: oklch(from var(--doc-forest) calc(l - 0.1) c h);
+  --color-action-hover: oklch(from var(--doc-ink) calc(l + 0.08) c h);
+  --grain-opacity: 0;
 }
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
-    --color-bg: #ede2cf; /* literal: var(--color-cream) would resolve to the redefined dark ink below */
-    --color-surface: #ffffff;
-    --color-cream: #181410;
-    --color-border: oklch(from #181410 l c h / 0.12);
+    --color-bg: var(--doc-bone);
+    --color-surface: oklch(from var(--doc-bone) calc(l + 0.035) c h);
+    --color-surface-raised: oklch(from var(--doc-bone) calc(l + 0.05) c h);
+    --color-cream: var(--doc-ink);
+    --color-cream-muted: oklch(from var(--doc-ink) l c h / 0.7);
+    --color-cream-faint: oklch(from var(--doc-ink) l c h / 0.3);
+    --color-border: oklch(from var(--doc-ink) l c h / 0.14);
+    --color-safelight: oklch(from var(--doc-safelight) calc(l - 0.29) c h);
+    --color-error-text: oklch(from var(--doc-burgundy) calc(l - 0.04) c h);
+    --color-done-text: oklch(from var(--doc-forest) calc(l - 0.1) c h);
+    --color-action-hover: oklch(from var(--doc-ink) calc(l + 0.08) c h);
+    --grain-opacity: 0;
   }
 }
 
@@ -78,7 +224,18 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Reduced motion is law: every transition and animation collapses to none. */
+/* Data and command text never use ligatures: "--from" must not fuse into a dash. */
+.tabular-nums,
+[data-numeral],
+code,
+kbd,
+samp {
+  font-feature-settings: "calt" 0, "liga" 0;
+}
+
+/* Reduced motion is law: every transition and animation collapses to its
+   final state. Components that move by script (the credit roll, the Lens
+   frame swap) also read matchMedia and skip the motion. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

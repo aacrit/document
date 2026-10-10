@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="The Partition of India, told with the public record.">
+<title>The Partition of India · void document</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="house.css">
+<style>
+
+.screen { position: relative; display: grid; background: var(--color-letterbox); }
+.topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 4px 16px; }
+.topbar .wordmark { font-size: 17px; color: var(--color-cream-muted); }
+.top-links { display: flex; gap: 18px; }
+.top-links a { font-size: 14px; color: var(--color-cream-muted); min-height: 44px; display: inline-flex; align-items: center; }
+.stage { position: relative; }
+.paused-credit { display: grid; gap: 3px; padding: 12px 16px 4px; animation: rack-to-source var(--rack-to-source-dur) var(--ease-rack) both; }
+.paused-credit .t { font-size: 14px; }
+.paused-credit .w { font-size: 13px; }
+.paused-credit a { font-size: 13px; min-height: 32px; display: inline-flex; align-items: center; justify-self: start; }
+@keyframes rack-to-source { from { opacity: 0; filter: blur(3px); } to { opacity: 1; filter: none; } }
+.controls { display: grid; grid-template-columns: auto 1fr repeat(5, auto); grid-template-areas: "scrub scrub scrub scrub scrub scrub scrub" "play tc subs marks list vol full";
+  --ctl-label: 1; align-items: center; gap: 2px 2px; padding: 4px 8px 10px; position: relative; }
+.controls > button, .controls > a.ic { appearance: none; background: none; border: 0; color: var(--color-cream); min-width: 44px; min-height: 44px; border-radius: var(--radius-control); display: inline-grid; place-items: center; cursor: pointer; }
+.controls svg { width: 22px; height: 22px; }
+.controls > button, .controls > a.ic { grid-auto-flow: row; gap: 2px; padding: 2px 6px; text-decoration: none; }
+.controls > button::after, .controls > a.ic::after { content: attr(data-label); font: 500 11px/1.1 var(--font-structure); color: var(--color-cream-muted); white-space: nowrap; }
+@media (max-width: 520px) { .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; } .controls .scrub { flex: 0 0 calc(100% - 16px); } .controls .time { flex: 1 1 auto; } .controls > button, .controls > a.ic { flex: 0 0 auto; min-width: 52px; } .controls .subs { margin-left: auto; } }
+.controls > button:hover, .controls > a.ic:hover { background: var(--color-surface); }
+.controls [aria-expanded="true"] { background: var(--color-surface); }
+.controls .play { grid-area: play; } .controls .time { grid-area: tc; font-size: 13px; padding-left: 4px; }
+.controls .time .of { color: var(--color-cream-muted); }
+.controls .subs { grid-area: subs; } .controls .marks { grid-area: marks; } .controls .list { grid-area: list; } .controls .vol { grid-area: vol; } .controls .full { grid-area: full; }
+.scrub { grid-area: scrub; position: relative; height: 28px; margin: 0 8px; }
+.scrub::before { content: ""; position: absolute; left: 0; right: 0; top: 13px; height: 2px; background: var(--color-cream-faint); }
+.scrub .fill { position: absolute; left: 0; top: 13px; height: 2px; background: var(--color-cream); }
+.scrub .tick { position: absolute; top: 9px; width: 1px; height: 10px; background: var(--color-cream-faint); }
+.scrub .head { position: absolute; top: 8px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--color-cream); }
+.popover { position: absolute; right: 8px; bottom: 100%; z-index: 6; }
+@media (min-width: 760px) and (min-aspect-ratio: 4/3) {
+  .screen { height: 100svh; min-height: 540px; grid-template-rows: auto 1fr auto; }
+  .stage { display: grid; place-items: center; min-height: 0; }
+  .stage .frame-box { height: 100%; max-height: 100%; width: auto; max-width: 100%; }
+  /* Player chrome never touches the frame's top-left mark zone, its lower-third
+     zone (bottom left) or the subtitle line: the paused credit sits top right. */
+  .paused-credit { position: absolute; right: 24px; top: 15%; z-index: 5; max-width: 340px; padding: 10px 12px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-control); }
+}
+.after-wrap { background: var(--color-bg); }
+.after { max-width: 1040px; margin: 0 auto; padding: 40px 16px 24px; display: grid; gap: 32px; align-items: start; }
+.after .titlecard .title { font-size: clamp(36px, 5.4vw, 64px); }
+.after .note { font-size: 14px; color: var(--color-cream-muted); max-width: 60ch; }
+.onward { display: grid; border-top: 1px solid var(--color-border); }
+.onward a { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--color-border); text-decoration: none; min-height: 60px; }
+.onward .t { font: 400 20px/1.25 var(--font-display); } .onward .m { font-size: 13px; color: var(--color-cream-muted); grid-column: 1; }
+.onward svg { width: 20px; height: 20px; grid-row: 1 / span 2; grid-column: 2; color: var(--color-cream-muted); }
+.drill { border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); }
+.drill > summary { list-style: none; display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 12px; padding: 14px 0; cursor: pointer; min-height: 56px; }
+.drill > summary::-webkit-details-marker { display: none; }
+.drill > summary .t { font: 400 20px/1.25 var(--font-display); } .drill > summary .s { font-size: 13px; color: var(--color-cream-muted); }
+.drill > summary svg { width: 20px; height: 20px; color: var(--color-cream-muted); }
+.chapters { list-style: none; margin: 0 0 16px; padding: 0; display: grid; }
+.chapters li { display: grid; grid-template-columns: 64px 1fr; gap: 12px; padding: 8px 0; border-top: 1px solid var(--color-border); font-size: 15px; }
+.chapters li .muted { font-size: 13px; }
+@media (min-width: 760px) { .after { grid-template-columns: 1fr 1fr; column-gap: 56px; } .after > .titlecard { grid-column: 1 / -1; } }
+.mini-frame { width: 100%; }
+
+</style>
+</head>
+<body>
+<main>
+  <section class="screen" aria-label="The Partition of India, the film">
+    <div class="topbar"><a class="wordmark" href="screening-room.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/><circle cx="18.6" cy="17.6" r="1.25" fill="var(--color-safelight)" stroke="none"/></svg><span class="wm"><span class="wm-void">void</span> <span class="wm-doc">document</span></span></a><nav class="top-links" aria-label="This film"><a href="sources.html">Sources</a><a href="correct.html">Correct something</a></nav></div>
+    <div class="stage">
+      <div class="frame-box field">
+        <img src="_media/partition/S-038.jpg" alt="Seen whole: a long column of carts, cattle and people on foot moving under dust at Balloki, Kasur.">
+        <span class="mark" data-class="archive" role="img" aria-label="ARCHIVE Photo Division, Government of India 1947"><span class="cls">ARCHIVE</span><span class="det">Photo Division, Government of India <span class="num">1947</span></span></span>
+        <svg class="wmk" viewBox="0 0 24 24" role="img" aria-label="void document watermark"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><g class="halo"><path d="M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/></g><g class="ink"><path d="M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/></g></g><circle class="ember" cx="18.6" cy="17.6" r="1.25"/></svg>
+      </div>
+      <aside class="paused-credit" aria-live="polite">
+        <p class="t">Refugees at Balloki, Kasur during partition of India</p>
+        <p class="w safe">Photo Division, Government of India, <span class="num">1947</span> (catalogued <span class="num">1954</span>-<span class="num">02</span>). Wikimedia Commons, public domain.</p>
+        <a class="source" href="sources.html#S-038">See the source</a>
+      </aside>
+    </div>
+    <div class="controls" role="group" aria-label="Film controls">
+      <div class="scrub" role="slider" tabindex="0" aria-label="Position" aria-valuemin="0" aria-valuemax="100" aria-valuenow="31"><span class="tick" style="left:5.65%"></span><span class="tick" style="left:23.82%"></span><span class="tick" style="left:37.51%"></span><span class="tick" style="left:51.04%"></span><span class="tick" style="left:66.36%"></span><div class="fill" style="width:51.6%"></div><div class="head" style="left:51.6%"></div></div>
+      <button class="play" aria-label="Play" data-label="Play"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg></button>
+      <span class="time tc">11:07 <span class="of">/ 21:33</span></span>
+      <button class="subs" aria-haspopup="menu" aria-expanded="false" data-label="Subtitles"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="M7 14.5h4M13 14.5h4M7 11h10"/></svg></button>
+      <button class="marks" aria-haspopup="dialog" aria-expanded="false" data-label="Marks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h6v4H4zM4 15h6v4H4z"/><path d="M13 7h7M13 17h7"/></svg></button>
+      <a class="ic list" href="#chapters" data-label="Chapters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 7h10M9 12h10M9 17h10M5 7h.01M5 12h.01M5 17h.01"/></svg></a>
+      <button class="vol" data-label="Sound"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4zM15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"/></svg></button>
+      <button class="full" data-label="Full screen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg></button>
+      </div>
+    <p class="provenance"><strong>No AI-generated images in this film.</strong> Voices are read by a computer; no recording is imitated. <a href="#legend">What the marks mean</a></p>
+  </section>
+  <div class="after-wrap"><section class="after">
+    <div class="titlecard">
+      <p class="eyebrow">void document</p>
+      <h1 class="title">The Partition of India</h1>
+      <p class="place"><span class="num">1946</span> to <span class="num">1948</span>, told with the public record</p>
+      <p class="note">Accounts from Britain, India, Pakistan and the Sikh community. Every reading is word for word from its source, sometimes in part (marked <span class="num">...</span>). Voices are read by a computer; no recording is imitated. This film shows no bodies or killing. The record we could find holds no first-person account by a Bengali or Bangladeshi witness, and women's words fall short of the film's own rule; the film says so on screen.</p>
+    </div>
+    <nav class="onward" aria-label="About this film">
+      <a href="sources.html"><span class="t">Sources</span><span class="m">Every shot with its mark, archive and licence; every reading with its speaker and source</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 16 16 8M10 8h6v6"/></svg></a>
+      <a href="correct.html"><span class="t">Correct something</span><span class="m">Tell us what the film gets wrong.</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 16 16 8M10 8h6v6"/></svg></a>
+    </nav>
+    <details class="drill" id="chapters" open>
+      <summary><span class="t">Chapters</span><span class="s"><span class="num">5</span> chapters</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+      <ol class="chapters">
+        <li><a class="tc" href="#t=0" style="text-decoration:none;color:inherit">0:00</a><span>Cold open</span></li>
+        <li><a class="tc" href="#t=73" style="text-decoration:none;color:inherit">1:13</a><span><span class="num">1</span>  The count <span class="muted"><span class="num">1946</span> to <span class="num">3</span> June <span class="num">1947</span></span></span></li>
+        <li><a class="tc" href="#t=308" style="text-decoration:none;color:inherit">5:08</a><span><span class="num">2</span>  The line <span class="muted"><span class="num">30</span> June to <span class="num">17</span> August <span class="num">1947</span></span></span></li>
+        <li><a class="tc" href="#t=485" style="text-decoration:none;color:inherit">8:05</a><span><span class="num">3</span>  The midnight <span class="muted"><span class="num">11</span> to <span class="num">15</span> August <span class="num">1947</span></span></span></li>
+        <li><a class="tc" href="#t=660" style="text-decoration:none;color:inherit">11:00</a><span><span class="num">4</span>  The roads <span class="muted">August to December <span class="num">1947</span></span></span></li>
+        <li><a class="tc" href="#t=858" style="text-decoration:none;color:inherit">14:18</a><span><span class="num">5</span>  After the line <span class="muted">October <span class="num">1947</span> to <span class="num">1949</span></span></span></li>
+        <li><a class="tc" href="#t=1094" style="text-decoration:none;color:inherit">18:14</a><span>Close: the border today</span></li>
+        <li><a class="tc" href="#t=1233" style="text-decoration:none;color:inherit">20:33</a><span>Credits</span></li>
+      </ol>
+    </details>
+    <details class="drill">
+      <summary><span class="t">Transcript</span><span class="s">English, हिन्दी, اردو</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+    </details>
+  </section></div>
+</main>
+<footer class="house-foot">
+  <span>void document is part of void, with void news and void history.</span>
+  <span>Films are free to watch and licensed CC BY 4.0.</span>
+  <a href="#privacy">Privacy</a>
+</footer>
+<section class="mock-states" aria-label="Mock states, not part of the page">
+  <header><p class="eyebrow">Mock states, not part of the page</p><p>Film <span class="num">/f/partition-of-india</span>. The frame above is chapter <span class="num">4</span> at its planned <span class="num">11:07</span>: ledger still <span class="num">S-038</span> in its A7 opening, whole at its native aspect on the near-black field, with its mark top left and the watermark top right. No voice is over it in the treatment. Times are the treatment's plan until the cut.</p></header>
+  <div class="grid">
+    <div class="mock-state"><p class="eyebrow">End: the close's record-is-silent card</p><div class="frame-box field"><span class="mark" data-class="card" role="img" aria-label="VOID DOCUMENT"><span class="cls">VOID DOCUMENT</span></span><div class="card-silent"><div><p class="s">The record holds no first-person account under an open licence by a Bengali or Bangladeshi witness, and women's words are short of the film's rule.</p><p class="q">Searched: The <span class="num">1947</span> Partition Archive, Citizens Archive of Pakistan, SOAS, ADST, FRUS, Hansard, Internet Archive, Wikisource, sansad.in, na.gov.pk.</p></div></div></div><p class="muted">Eight seconds, in silence, before the house motif and the credits. Reworded at the cut to whatever shortfall remains.</p></div>
+    <div class="mock-state"><p class="eyebrow">End: the credits roll</p><div class="frame-box field"><span class="mark" data-class="card" role="img" aria-label="VOID DOCUMENT"><span class="cls">VOID DOCUMENT</span></span><div class="credits-roll"><p class="h">Photographs</p><p>Refugees at Balloki, Kasur during partition of India. Photo Division, Government of India, <span class="num">1947</span>. Public domain.</p><p>First day of Constituent Assembly of India. Wikimedia Commons, <span class="num">1946</span>. Public domain.</p><p class="h">Film</p><p>Refugees on train roof during Partition. Wikimedia Commons, <span class="num">1947</span>. Public domain.</p><p class="h">Readings</p><p>Read by a computer voice. No recording of Renuka Ray was used.</p><p>Read by a computer voice. No recording of Begum Aizaz Rasul was used.</p></div></div><p class="muted">Every shot, reading and recording, generated from the sources file, rolling at a constant speed over black. Headings in amber: credits are where things came from.</p></div>
+    <div class="mock-state"><p class="eyebrow">End card, after the last frame</p><div class="frame-box field"><div class="endcard"><div style="display:grid;gap:14px;justify-items:center"><p style="margin:0;font:300 max(16px,4cqh)/1.2 var(--font-display)">The Partition of India</p><div class="acts"><a class="btn" href="#">Watch again</a><a class="btn quiet" href="sources.html">Sources</a><a class="btn quiet" href="correct.html">Correct something</a></div></div></div></div><p class="muted"><span class="num">film_completed</span> is counted once, at the last frame. Reduced motion: the credits stand still and scroll with the page.</p></div>
+    <div class="mock-state"><p class="eyebrow">A7, after the opening: the camera moves in</p><div class="frame-box moved"><img src="_media/partition/S-038.jpg" alt="" style="object-position:50% 55%"><span class="mark" data-class="archive" role="img" aria-label="ARCHIVE Photo Division, Government of India 1947"><span class="cls">ARCHIVE</span><span class="det">Photo Division, Government of India <span class="num">1947</span></span></span><svg class="wmk" viewBox="0 0 24 24" role="img" aria-label="void document watermark"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><g class="halo"><path d="M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/></g><g class="ink"><path d="M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/></g></g><circle class="ember" cx="18.6" cy="17.6" r="1.25"/></svg></div><p class="muted">About <span class="num">1.5</span> s whole on the near-black field (the frame above), then DRIFT for <span class="num">10</span> s. A fill to <span class="num">16:9</span> is allowed only if every person in the photograph is in frame at some point in the shot.</p></div>
+    <div class="mock-state"><p class="eyebrow">Speaker lower third, English caption raised</p><div class="frame-box field"><img src="_media/partition/S-029.JPG" alt=""><span class="mark" data-class="archive" role="img" aria-label="ARCHIVE Wikimedia Commons 1946"><span class="cls">ARCHIVE</span><span class="det">Wikimedia Commons <span class="num">1946</span></span></span><svg class="wmk" viewBox="0 0 24 24" role="img" aria-label="void document watermark"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><g class="halo"><path d="M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/></g><g class="ink"><path d="M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/></g></g><circle class="ember" cx="18.6" cy="17.6" r="1.25"/></svg><div class="lt is-in"><div class="wash"></div><div class="rule"></div><p class="line name" style="--i:1">Renuka Ray</p><p class="line role" style="--i:2">Member, Constituent Assembly of India (West Bengal: General), <span class="num">1947</span></p><p class="line src" style="--i:3">Question of Religious Minorities and Majorities in a Secular State, Constituent Assembly Debates<span class="suffix">  ·  read by a computer voice</span></p></div><p class="cue raised"><span>We have never stood nor do we stand today for Hindu domination ...</span></p></div><p class="muted">Chapter <span class="num">4</span>, held <span class="num">20</span> s on <span class="num">S-029</span>, the Assembly's first day; the narrator gives the photograph's date. The reading is a verbatim span of the testimony ledger, cut where marked.</p></div>
+    <div class="mock-state"><p class="eyebrow">Partisan source: the flag comes before the name</p><div class="frame-box field"><div class="page-typeset"><p class="pt">Note on the Sikh Plan</p><p class="pp">Government of West Punjab</p><p class="pp">Lahore, <span class="num">1948</span></p></div><span class="mark" data-class="drawn" role="img" aria-label="DRAWN from Note on the Sikh Plan"><span class="cls">DRAWN</span><span class="det">from Note on the Sikh Plan</span></span><svg class="wmk" viewBox="0 0 24 24" role="img" aria-label="void document watermark"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><g class="halo"><path d="M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/></g><g class="ink"><path d="M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/></g></g><circle class="ember" cx="18.6" cy="17.6" r="1.25"/></svg><div class="lt is-in flagged"><div class="wash"></div><p class="flag">Account of the Government of West Punjab, <span class="num">1948</span></p><div class="rule"></div><p class="line name" style="--i:1">Darshan Singh</p><p class="line role" style="--i:2">Statement recorded by officials, <span class="num">1947</span></p><p class="line src" style="--i:3">Note on the Sikh Plan, Government of West Punjab, Lahore<span class="suffix">  ·  read by a computer voice</span></p></div></div><p class="muted">A partisan statement never sits on a photograph: it is read over the typeset title page (DRAWN), after its perspective card. Its words are not shown here.</p></div>
+    <div class="mock-state"><p class="eyebrow">Chapter card (CARD, no watermark)</p><div class="frame-box field"><span class="mark" data-class="card" role="img" aria-label="VOID DOCUMENT"><span class="cls">VOID DOCUMENT</span></span><div class="card-chapter"><div><p class="t"><span class="n">4</span>The roads</p><div class="r"></div><p class="d">August to December <span class="num">1947</span></p></div></div></div></div>
+    <div class="mock-state"><p class="eyebrow">Record is silent (CARD)</p><div class="frame-box field"><span class="mark" data-class="card" role="img" aria-label="VOID DOCUMENT"><span class="cls">VOID DOCUMENT</span></span><div class="card-silent"><div><p class="s">The record holds no open-licence photograph of Cyril Radcliffe or of the Commission's sittings.</p><p class="q">Searched: Wikimedia Commons, Library of Congress, NARA.</p></div></div></div><p class="muted">Chapter <span class="num">2</span>, <span class="num">6</span> s. Fades in on a sine, never moves.</p></div>
+    <div class="mock-state" id="legend"><p class="eyebrow">The Marks button opens this</p><div class="menu legend-menu" role="dialog" aria-label="What the marks mean">
+  <p class="mh">What the marks mean</p>
+  <p class="lead">No AI-generated images in this film. Voices are read by a computer; no recording is imitated.</p>
+  <div class="legend">
+    <div class="row"><span class="mark" data-class="archive" role="img" aria-label="ARCHIVE Wikimedia Commons 1947"><span class="cls">ARCHIVE</span><span class="det">Wikimedia Commons <span class="num">1947</span></span></span><p>Real film or photograph from the archive, unaltered beyond trims, crops and slow moves.</p></div>
+    <div class="row"><span class="mark" data-class="reconstructed" role="img" aria-label="RECONSTRUCTED archive 1947 upscaled"><span class="cls">RECONSTRUCTED</span><span class="det">archive <span class="num">1947</span> upscaled</span></span><p>Archive film or photographs changed in a way that matters: colourised, re-timed, stabilised, or enlarged by a computer model. The mark names the change. This film has none.</p></div>
+    <div class="row"><span class="mark" data-class="generated" role="img" aria-label="AI-GENERATED context"><span class="cls">AI-GENERATED</span><span class="det">context</span></span><p>Made by a computer model: places, weather, objects. Never people, never a recorded event.</p></div>
+    <div class="row"><span class="mark" data-class="drawn" role="img" aria-label="DRAWN from a census table"><span class="cls">DRAWN</span><span class="det">from a census table</span></span><p>A map or diagram drawn by us from named data.</p></div>
+    <div class="row"><span class="mark" data-class="card" role="img" aria-label="VOID DOCUMENT"><span class="cls">VOID DOCUMENT</span></span><p>Text on black: titles, chapter cards, and where the record is silent.</p></div>
+    <a class="source" href="sources.html" style="font-size:13px;min-height:36px;display:inline-flex;align-items:center">Every shot and its mark</a>
+  </div>
+</div></div>
+    <div class="mock-state"><p class="eyebrow">Hindi subtitles (draft, not yet reviewed)</p><div class="frame-box mini-frame">
+        <img src="_media/partition/S-029.JPG" alt="Men in suits and long coats seated around a conference table with papers, a large map on the wall behind them.">
+        <span class="mark" data-class="archive" role="img" aria-label="ARCHIVE Wikimedia Commons 1946"><span class="cls">ARCHIVE</span><span class="det">Wikimedia Commons <span class="num">1946</span></span></span>
+        
+        <p class="cue" lang="hi"><span>[रेणुका रे, संविधान सभा, <span class="num">1947</span>]</span></p>
+      </div><p class="muted">Lower thirds are subtitled as a bracketed line. GRAMMAR <span class="num">10</span>: every track is reviewed by a reader of the language before release.</p></div>
+    <div class="mock-state"><p class="eyebrow">Urdu subtitles, right to left (draft, not yet reviewed)</p><div class="frame-box mini-frame">
+        <img src="_media/partition/S-029.JPG" alt="Men in suits and long coats seated around a conference table with papers, a large map on the wall behind them.">
+        <span class="mark" data-class="archive" role="img" aria-label="ARCHIVE Wikimedia Commons 1946"><span class="cls">ARCHIVE</span><span class="det">Wikimedia Commons <span class="num">1946</span></span></span>
+        
+        <p class="cue" lang="ur" dir="rtl"><span>[رینوکا رے، دستور ساز اسمبلی، <bdi class="num">1947</bdi>]</span></p>
+      </div><p class="muted">The cue box is <span class="num">dir="rtl"</span>; numerals are isolated with <span class="num">bdi</span> so the year never reorders. Nastaliq gets a taller line.</p></div>
+    
+  </div>
+</section>
+</body>
+</html>
