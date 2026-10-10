@@ -110,3 +110,6 @@ After three review rounds on the Bengal award line (each anchor choice either in
 
 ## 2026-10-10: The pilot goes live on document.voidvision.org (founder, in chat)
 The Partition pilot episode is published on document.voidvision.org, with the complete site UI from the G2 design (screening room, film page with marks and captions, sources, corrections), a link to void history's Partition page (news.voidvision.org/history/partition-of-india/) and a shout-out to the void family (void news, void history). It goes live through the G3 launch gate and /release.
+
+## 2026-10-11: G3 approved, pilot to go live (founder, in chat)
+Founder: "Is this live, if not make it". Release follows T7 (site), the C5 map fix and the production contract; the security review and Lighthouse run on the preview before the swap.
