@@ -186,6 +186,9 @@ LINE = {
     "line": ("line", 1.0, 5.0, None),
     "line_dashed": ("line", 1.0, 4.0, (14, 9)),
 }
+# line styles laid on a solid dark band, so a dotted line reads over a shaded area's outline
+HALOED = {"working"}
+HALO_PX = 4.0
 # points: (marker, radius px, label font, label role)
 POINT = {
     "town": ("dot", 4.5, "structure", "muted"),
@@ -225,6 +228,35 @@ GEONAMES = "GeoNames (CC BY 4.0)"
 UNPLACED = [({"BGD", "IND"}, "the Bengal award's line: no open dataset places it, so it is drawn only as "
                              "today's border, dashed")]
 SOLID = ("line", "line_dashed")
+
+
+def _as_set(v) -> set | None:
+    """A `where` value as the set of values it accepts; None when the key is not filtered."""
+    if v is None:
+        return None
+    return set(v) if isinstance(v, (list, tuple, set)) else {v}
+
+
+def _unplaced_pair_possible(where: dict) -> str | None:
+    """Static check: a filter that names both sides and can match an unplaced pair.
+    One-sided and unfiltered layers are checked on the features they match at render."""
+    left, right = _as_set(where.get("ADM0_A3_L")), _as_set(where.get("ADM0_A3_R"))
+    if left is None or right is None:
+        return None
+    for codes, why in UNPLACED:
+        a, b = sorted(codes)
+        if (a in left and b in right) or (b in left and a in right):
+            return f"on {[a, b]} is refused: {why}"
+    return None
+
+
+def unplaced_feature(props: dict) -> str | None:
+    """The reason a feature may not be drawn solid, from its own ADM0_A3_L/R pair."""
+    pair = {props.get("ADM0_A3_L"), props.get("ADM0_A3_R")}
+    for codes, why in UNPLACED:
+        if pair == codes:
+            return why
+    return None
 SOURCE_SHORT_MAX = 40
 _COLOUR_VALUE = re.compile(r"#[0-9a-fA-F]{3,8}\b|\b(?:rgb|rgba|hsl|hsla|oklch)\(")
 _COLOUR_KEYS = {"color", "colour", "fill", "stroke", "rgb", "hex"}
@@ -286,11 +318,10 @@ def check_spec(spec: dict) -> None:
             if pth.get("style") not in LINE or len(pth.get("points", [])) < 2:
                 raise MapRefused(f"{spec['id']}: a path needs a line style and two points")
     for ly in [ly for v in views for ly in v.get("layers", [])]:
-        where = ly.get("where") or {}
-        pair = {where.get("ADM0_A3_L"), where.get("ADM0_A3_R")}
-        for codes, why in UNPLACED:
-            if ly.get("style") in SOLID and pair == codes:
-                raise MapRefused(f"{spec['id']}: a solid line on {sorted(codes)} is refused: {why}")
+        if ly.get("style") in SOLID:
+            why = _unplaced_pair_possible(ly.get("where") or {})
+            if why:
+                raise MapRefused(f"{spec['id']}: a solid line {why}")
         st = ly.get("style")
         if st not in POLY and st not in LINE:
             raise MapRefused(f"{spec['id']}: unknown layer style {st}")
@@ -696,7 +727,7 @@ def _draw_layers(cv: Canvas, spec: dict, proj: Projection, geodata: Path, used: 
         style = ly["style"]
         clip = ly.get("clip")
         n = 0
-        omask = lmask = fmask = None
+        omask = lmask = fmask = hmask = None
         for props, g, bb in _load(str(path)):
             if not _overlaps(bb, view) or not _matches(props, ly.get("where")):
                 continue
@@ -707,6 +738,11 @@ def _draw_layers(cv: Canvas, spec: dict, proj: Projection, geodata: Path, used: 
             if ly.get("endpoints") and not _touches(_lines_of(g), ly["endpoints"], ly.get("tol", 0.03)):
                 continue
             n += 1
+            if style in SOLID:
+                why = unplaced_feature(props)
+                if why:
+                    raise MapRefused(f"{spec['id']}: layer {ly['file']} ({style}) matched a feature on "
+                                     f"{sorted({props.get('ADM0_A3_L'), props.get('ADM0_A3_R')})}: {why}")
             if style in POLY:
                 role, a, orole, opx, _ = POLY[style]
                 if orole and omask is None:
@@ -728,6 +764,8 @@ def _draw_layers(cv: Canvas, spec: dict, proj: Projection, geodata: Path, used: 
                 role, a, px, dash = LINE[style]
                 if lmask is None:
                     lmask, lmd = cv.mask()
+                    if style in HALOED:
+                        hmask, hmd = cv.mask()
                 for line in _merge_touching(_lines_of(g)):
                     if ly.get("span"):
                         line = span_line(line, ly["span"])
@@ -737,6 +775,8 @@ def _draw_layers(cv: Canvas, spec: dict, proj: Projection, geodata: Path, used: 
                     for part in parts:
                         pts = [proj(*p) for p in part]
                         _line_on(lmd, [(x * SS, y * SS) for x, y in pts], 255, px, dash)
+                        if style in HALOED:
+                            _line_on(hmd, [(x * SS, y * SS) for x, y in pts], 255, px + HALO_PX, None)
         if fmask is not None:
             cv.composite(fmask, POLY[style][0], POLY[style][1])
             if POLY[style][4] is not None:
@@ -744,6 +784,8 @@ def _draw_layers(cv: Canvas, spec: dict, proj: Projection, geodata: Path, used: 
                              stroke=True)
         if omask is not None:
             cv.composite(omask, POLY[style][2], 0.9, stroke=True)
+        if hmask is not None:
+            cv.composite(hmask, "halo", 1.0, stroke=True)
         if lmask is not None:
             cv.composite(lmask, LINE[style][0], LINE[style][1], stroke=True)
         if n == 0:
@@ -1085,8 +1127,10 @@ def check_specs(folder: Path | str) -> list[str]:
     for f in files:
         try:
             check_spec(json.loads(f.read_text(encoding="utf-8")))
-        except (MapRefused, ValueError, KeyError) as e:
+        except MapRefused as e:
             problems.append(f"{f.name}: {e}")
+        except Exception as e:  # a malformed spec is a violation to report, never a crash
+            problems.append(f"{f.name}: {type(e).__name__}: {e}")
     return problems
 
 

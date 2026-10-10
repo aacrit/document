@@ -369,3 +369,59 @@ def test_the_source_line_zone_carries_no_map_strokes():
     assert np.array_equal(za, zb)
     # and the strokes are really there, outside the zone
     assert not np.array_equal(np.asarray(a), np.asarray(b))
+
+
+@pytest.mark.parametrize("where", [
+    None,                                                        # no filter at all
+    {"ADM0_A3_L": "BGD"},                                         # one side named
+    {"FEATURECLA": "International boundary (verify)"},            # class only
+    {"name": ["Fixture border", "Fixture east border"]},          # a list that includes it
+])
+def test_a_solid_layer_matching_a_bengal_feature_is_refused_at_render(where):
+    s = spec()
+    ly = {"file": "river.geojson", "style": "line"}
+    if where is not None:
+        ly["where"] = where
+    s["layers"].append(ly)
+    with pytest.raises(maps.MapRefused, match="Bengal award"):
+        maps.render_map(s, GEO)
+    ly["style"] = "border_today"   # the same features, dashed, are allowed
+    maps.render_map(s, GEO)
+
+
+@pytest.mark.parametrize("left,right,refused", [
+    (["BGD", "PAK"], ["IND"], True),
+    ("IND", ["BGD", "NPL"], True),
+    (["PAK"], ["IND", "NPL"], False),
+])
+def test_list_values_in_where_are_read_statically(left, right, refused):
+    s = spec()
+    s["layers"].append({"file": "river.geojson", "style": "line", "where": {"ADM0_A3_L": left, "ADM0_A3_R": right}})
+    if refused:
+        with pytest.raises(maps.MapRefused, match="Bengal award"):
+            maps.check_spec(s)
+    else:
+        maps.check_spec(s)
+
+
+def test_check_specs_reports_a_malformed_spec_instead_of_crashing(tmp_path):
+    (tmp_path / "D1.json").write_text("{not json", encoding="utf-8")
+    bad = spec()
+    bad["layers"] = "not a list"
+    (tmp_path / "D2.json").write_text(json.dumps(bad), encoding="utf-8")
+    problems = maps.check_specs(tmp_path)
+    assert [p_.split(":")[0] for p_ in problems] == ["D1.json", "D2.json"]
+    assert maps.main(["check-specs", str(tmp_path)]) == 1
+
+
+def test_a_haloed_line_lies_on_a_dark_band():
+    s = spec()
+    s["layers"].append({"file": "river.geojson", "style": "working", "where": {"name": "Fixture river"}})
+    with_halo, _ = maps.render_map(s, GEO)
+    old = maps.HALOED
+    try:
+        maps.HALOED = set()
+        without, _ = maps.render_map(s, GEO)
+    finally:
+        maps.HALOED = old
+    assert np.asarray(with_halo).astype(int).sum() < np.asarray(without).astype(int).sum()

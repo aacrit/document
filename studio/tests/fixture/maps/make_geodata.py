@@ -17,6 +17,10 @@ RIVER = {"type": "FeatureCollection", "features": [
      "geometry": {"type": "LineString", "coordinates": [[10.5, 13.5], [11.5, 12.4], [12.2, 12.0], [13.6, 10.4]]}},
     {"type": "Feature", "properties": {"name": "Fixture border"},
      "geometry": {"type": "LineString", "coordinates": [[12.0, 10.1], [12.3, 11.5], [11.8, 13.0], [12.1, 13.9]]}},
+    # a stand-in for the India-Bangladesh border: no layer may draw it solid
+    {"type": "Feature", "properties": {"name": "Fixture east border", "FEATURECLA": "International boundary (verify)",
+                                       "ADM0_A3_L": "BGD", "ADM0_A3_R": "IND"},
+     "geometry": {"type": "LineString", "coordinates": [[13.0, 10.3], [13.4, 12.0], [13.9, 12.9]]}},
 ]}
 
 
