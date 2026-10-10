@@ -1,0 +1,83 @@
+{
+ "_note": "The narrator's stored profile (GRAMMAR A14 narrator-consistency anchor): Orpheus 3B tara, the five audition takes the founder approved by ear (DECISIONS 2026-10-10, Narrator Tara), document-work/audition/orpheus/tara-0..4.wav with the spoken lines of audition/script.json. Made by studio.engine.render.narrator_profile_from_takes; re-make it with the same function if the measure changes.",
+ "voice": {
+  "engine": "orpheus",
+  "voice": "tara"
+ },
+ "baseline": {
+  "f0_hz": 175.87,
+  "centroid_hz": 1083.25
+ },
+ "scale": {
+  "f0_hz": 5.456,
+  "centroid_hz": 104.523
+ },
+ "takes": {
+  "tara-0.wav": {
+   "f0_hz": 179.55,
+   "f0_p10_hz": 162.59,
+   "f0_p90_hz": 223.34,
+   "f0_range_hz": 60.75,
+   "centroid_hz": 983.91,
+   "words": 7,
+   "speech_s": 3.92,
+   "wps": 1.79,
+   "voiced_frames": 223,
+   "active_frames": 257,
+   "sha256": "853a80679565e732"
+  },
+  "tara-1.wav": {
+   "f0_hz": 170.89,
+   "f0_p10_hz": 154.4,
+   "f0_p90_hz": 258.29,
+   "f0_range_hz": 103.89,
+   "centroid_hz": 1083.25,
+   "words": 13,
+   "speech_s": 5.38,
+   "wps": 2.42,
+   "voiced_frames": 308,
+   "active_frames": 370,
+   "sha256": "2000c98d898dbf00"
+  },
+  "tara-2.wav": {
+   "f0_hz": 175.87,
+   "f0_p10_hz": 155.49,
+   "f0_p90_hz": 217.0,
+   "f0_range_hz": 61.51,
+   "centroid_hz": 1153.75,
+   "words": 19,
+   "speech_s": 6.59,
+   "wps": 2.88,
+   "voiced_frames": 373,
+   "active_frames": 517,
+   "sha256": "56410820b33661da"
+  },
+  "tara-3.wav": {
+   "f0_hz": 175.86,
+   "f0_p10_hz": 162.27,
+   "f0_p90_hz": 227.31,
+   "f0_range_hz": 65.03,
+   "centroid_hz": 927.77,
+   "words": 22,
+   "speech_s": 7.63,
+   "wps": 2.88,
+   "voiced_frames": 547,
+   "active_frames": 634,
+   "sha256": "b82ad420d3d6705e"
+  },
+  "tara-4.wav": {
+   "f0_hz": 222.41,
+   "f0_p10_hz": 185.69,
+   "f0_p90_hz": 250.99,
+   "f0_range_hz": 65.3,
+   "centroid_hz": 1142.71,
+   "words": 9,
+   "speech_s": 2.8,
+   "wps": 3.21,
+   "voiced_frames": 167,
+   "active_frames": 218,
+   "sha256": "a2277f12a4324659"
+  }
+ },
+ "method": "studio.engine.render.voice_profile on each take levelled to -20 LUFS; median and 1.4826 x MAD, floored at 2% of the median"
+}
