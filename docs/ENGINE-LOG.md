@@ -220,3 +220,8 @@ On the trailer, with the current WAVs in `teaser/audio/`, R2 passes: 4.93 dB at 
 - it is over 3 dB for 0.603 s, 6.4% of the line, against a 5% limit.
 
 Its time over 1 dB is 13.2%. The current R9.wav measured the same as in r-20261010-135712-ed71. The other 13 peak-controlled lines pass, the largest being N8 at 3.5% over 3 dB and 11.2% over 1 dB. Under `--draft` the master needs no limiter: the mix's peak after gain is -1.76 dBTP, so the cut is 0 dB with 0 s over 1 dB, and `limiter-peak-only` passes. The master comes out linear at -15.96 LUFS, -1.76 dBTP and LRA 8.2. Open: R9 needs a take that passes, or a ruling on the bounds.
+
+## 2026-10-10: trailer audio passes after the Noel-Baker recast (Chief of Staff)
+- Run r-20261010-140647-b87a (journal in ~/document-work/journal): with R9 re-voiced by blend:br-m-5 (bm_daniel 0.7 + am_eric), every synthetic line passes voice-peak-control and the master needs no limiter. Final master figures come from a full non-draft render, to be cited when the trailer is re-rendered on the merged engine (the -1.76 dBTP figure above came from the --draft run).
+- Episode narration (Orpheus, 24 lines): 4 word-gate failures were ASR artefacts (name spelling "Teja"/"Taya", numerals written as digits, a one-decode spelling "violense"), accepted as human overrides in journal/manual-overrides.jsonl. One real slip (E:N18 "documents" spoken as "document" on every seed) was fixed by rephrasing narration. Candidate gate fixes: normalise numerals and possessives before comparing.
+- Orpheus speed varies by run: 2.1 s of compute per second of speech in the audition, 4.36 s/s for the episode's 24 lines (run of 782 s wall for 164 s of audio).
