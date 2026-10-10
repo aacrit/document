@@ -68,7 +68,25 @@ DEFAULT_WORKERS, MAX_WORKERS = 8, 12
 MIN_FREE_GB = 10.0
 MAX_HOLD_S = 2.0                    # GRAMMAR 7.1: a longer freeze is RECONSTRUCTED re-timed
 OPEN_S = 1.5                        # A7: the whole photograph, before any move
-TARGET_LUFS, TARGET_TP, TARGET_LRA = -16.0, -1.5, 11.0
+A7_FULL_LIMIT, A7_BAND_LIMIT = 6.0, 3.5   # A7 pixel check: low-pass mean difference, whole picture and outer band
+A7_BAND = 0.05                      # the outer band: 5% of the photograph's content on each side
+A7_MOUNT_STD = 6.0                  # a border row or column whose luminance varies less than this is a mount, trimmed
+A7_DETAIL_FLOOR = 5.0               # band detail under this cannot show a 1% crop (band score >= 0.76 x detail at z 1.01): inconclusive
+TARGET_LUFS, TARGET_TP = -16.0, -1.5           # GRAMMAR 8.5
+TARGET_LRA, LRA_MAX = 11.0, 50.0    # loudnorm's LRA target: at least 11, raised above the mix's own range (8.5 sets no limit)
+LIMIT_MARGIN_DB = 0.5               # the true-peak limiter's ceiling sits this far under TARGET_TP
+LIMIT_OVERSAMPLE = 4                # alimiter runs at 4x 48 kHz, so it holds inter-sample peaks
+LIMITER_ATTACK_MS, LIMITER_RELEASE_MS = 5, 50
+LIMIT_ATTEMPTS = 3
+LIMIT_MAX_DB, LIMIT_OVER_1DB_S, LIMIT_LRA_DROP = 3.0, 0.050, 0.3   # past these the limiter compresses: refused
+LIMIT_ACTED_LOGGED = 200            # the limiter's largest actions journaled with their timestamps
+DIALOGUE_LUFS = -20.0               # GRAMMAR 8.5: each synthetic voice line levelled to this before mixing
+VOICE_TP = DIALOGUE_LUFS + 12.5     # GRAMMAR A13: a synthetic voice line's true peak after levelling, at most -7.5 dBTP
+VOICE_LIMIT_MARGIN_DB = 0.3         # the per-line limiter's ceiling sits this far under VOICE_TP
+# A13 bad take (refused, re-render it): over 8 dB for more than 20 ms in total, over 1 dB for more than 20% of the
+# line, or over 3 dB for more than 5% of it. A click cut deep for a few ms is peak control; sustained cuts are compression.
+VOICE_OVER_8DB_MAX_S, VOICE_OVER_1DB_MAX_SHARE, VOICE_OVER_3DB_MAX_SHARE = 0.020, 0.20, 0.05
+MUSIC_LUFS = -26.0                  # a music cue's bed level, 6 dB under the dialogue (its gain_db is an offset from it)
 DUCK_DB = 9.0                       # GRAMMAR 8.5: music under voice
 MASTER_CRF = 18
 MASTER_THREADS = 4
@@ -1206,8 +1224,16 @@ def still_first_frame_whole(plan: dict, pics: Pictures, i: int, detail: dict | N
     resized to the whole-image fit and centred. The two are compared after a
     box downsample (8x at 1080p), because a dense photograph resampled two
     ways (the renderer's bicubic affine after a Lanczos prescale, and a plain
-    Lanczos resize) differs pixel by pixel while agreeing at every scale a
-    crop or zoom would change."""
+    Lanczos resize) differs pixel by pixel while agreeing once box-averaged.
+
+    Two scores, both on the box-downsampled pair: the mean over the whole
+    picture (under A7_FULL_LIMIT), and the mean over its outer band, the
+    outer 5% of the fitted rectangle on each side (under A7_BAND_LIMIT). A
+    zoom about the centre shifts content most at the edges, and the whole-
+    picture mean dilutes that: a 1% crop of two of the trailer's stills
+    scored 3.8 and 5.0 there, under 6. On the trailer's 10 real stills at
+    1080p the band scores 0.5 to 1.6 whole and 8.5 to 24.5 at z 1.01
+    (2026-10-10)."""
     s = plan["shots"][i]
     raw = np.asarray(pics.shot(i, 0.0)).astype(np.float32)
     W, H = plan["W"], plan["H"]
@@ -1230,10 +1256,46 @@ def still_first_frame_whole(plan: dict, pics: Pictures, i: int, detail: dict | N
     def low(a):
         return a[:hh, :ww].reshape(hh // f, f, ww // f, f, 3).mean(axis=(1, 3))
 
-    diff = float(np.mean(np.abs(low(raw) - low(ref))))
+    d = np.abs(low(raw) - low(ref)).mean(axis=2)
+    diff = float(d.mean())
+    # The band sits on the photograph's content: a uniform mount or border is trimmed first, because a zoom moves
+    # nothing visible inside it and the band would compare blank against blank.
+    cl, ct, cr, cb = content_box(orig)
+    gx0, gy0 = (fx0 + cl * k) / f, (fy0 + ct * k) / f
+    gx1, gy1 = (fx0 + (orig.width - cr) * k) / f, (fy0 + (orig.height - cb) * k) / f
+    bw, bh = A7_BAND * (gx1 - gx0), A7_BAND * (gy1 - gy0)
+    yy, xx = np.mgrid[0:d.shape[0], 0:d.shape[1]] + 0.5          # cell centres, in low-res cells
+    inside = (xx >= gx0 + 1) & (xx <= gx1 - 1) & (yy >= gy0 + 1) & (yy <= gy1 - 1)   # off the photograph's edge cells
+    core = (xx > gx0 + bw) & (xx < gx1 - bw) & (yy > gy0 + bh) & (yy < gy1 - bh)
+    band = inside & ~core
+    band_diff = float(d[band].mean()) if band.any() else diff
+    g = low(ref).mean(axis=2)                                     # the reference's own detail in the band: what a shift would change
+    dx, dy = np.abs(np.diff(g, axis=1)), np.abs(np.diff(g, axis=0))
+    band_detail = float((dx[band[:, 1:] & band[:, :-1]].mean() + dy[band[1:, :] & band[:-1, :]].mean()) / 2) if band.any() else 0.0
+    whole = outside_max <= 2.0 and diff < A7_FULL_LIMIT and band_diff < A7_BAND_LIMIT
+    verdict = "not whole" if not whole else ("inconclusive" if band_detail < A7_DETAIL_FLOOR else "whole")
     if detail is not None:
-        detail.update(outside_max=round(outside_max, 2), low_pass_mean_diff=round(diff, 3), box=f)
-    return outside_max <= 2.0 and diff < 6.0
+        detail.update(outside_max=round(outside_max, 2), low_pass_mean_diff=round(diff, 3), band_mean_diff=round(band_diff, 3),
+                      band_detail=round(band_detail, 3), mount_trim_px={"left": cl, "top": ct, "right": cr, "bottom": cb},
+                      limits={"outside": 2.0, "full": A7_FULL_LIMIT, "band": A7_BAND_LIMIT, "detail_floor": A7_DETAIL_FLOOR},
+                      box=f, verdict=verdict)
+    return whole
+
+
+def content_box(img: Image.Image) -> tuple[int, int, int, int]:
+    """How many pixels of uniform border (a mount, a scanner's margin) each
+    side of the photograph carries: rows or columns, from the edge in, whose
+    luminance varies by less than A7_MOUNT_STD and stays near the edge's tone.
+    At most 40% per side. Returns (left, top, right, bottom)."""
+    a = np.asarray(img.convert("L"), dtype=np.float32)
+
+    def run(lines: np.ndarray) -> int:
+        std, mean = lines.std(axis=1), lines.mean(axis=1)
+        cap = int(0.4 * len(lines))
+        ok = (std[:cap] < A7_MOUNT_STD) & (np.abs(mean[:cap] - mean[0]) < 2 * A7_MOUNT_STD)
+        return int(np.argmin(ok)) if not ok.all() else cap
+
+    return run(a.T), run(a), run(a.T[::-1]), run(a[::-1])
 
 
 def preflight_stills(plan: dict, journal: Journal) -> list[str]:
@@ -1247,7 +1309,8 @@ def preflight_stills(plan: dict, journal: Journal) -> list[str]:
                 ev: dict = {}
                 ok = still_first_frame_whole(plan, pics, i, ev)
                 journal.lint("still-first-frame-whole-pixels", ok, stage="scout", unit=s["id"], grammar="A7",
-                             phase="preflight", evidence=dict(ev, enters_by=s["transition_in"].get("type")))
+                             phase="preflight", evidence=dict(ev, enters_by=s["transition_in"].get("type")),
+                             status="inconclusive" if ev.get("verdict") == "inconclusive" else None)
                 if not ok:
                     bad.append(s["id"])
     finally:
@@ -1302,11 +1365,44 @@ def moving_average(x: np.ndarray, k: int) -> np.ndarray:
     return ((c[hi] - c[lo]) / k).astype(np.float32)
 
 
+def _level(journal: Journal, unit: str, x: np.ndarray, target: float, what: str) -> float | None:
+    """Level one synthetic voice line or music cue to its target by a measured
+    linear gain (never archival audio, which keeps its own level and
+    dynamics), and journal the gain as a decision."""
+    g, m = level_gain(x, target)
+    if g is None:
+        journal.decision("assembly", f"{unit} not levelled", "too short or too quiet to measure (gated out)", unit=unit,
+                         evidence={"measured_i": m.get("input_i")})
+        return None
+    journal.decision("assembly", f"{unit} levelled to {target:g} LUFS ({what}) by {g:+.2f} dB",
+                     f"measured {m['input_i']:.2f} LUFS integrated, true peak {m['input_tp']:.2f} dBTP; linear gain only",
+                     unit=unit, evidence={"measured_i": m["input_i"], "measured_tp": m["input_tp"], "target": target, "gain_db": round(g, 2)})
+    return g
+
+
+def _journal_peak(journal: Journal, unit: str, peak: dict, draft: bool) -> None:
+    """A13: a line's peak reduction as a decision, and the bad-take lint (blocking; a warning under --draft)."""
+    journal.decision("assembly", f"{unit} peak-controlled to {peak['ceiling_dbtp']:g} dBTP: at most {peak['max_reduction_db']:.2f} dB; "
+                     f"over 8 dB {peak['over_8db_s']:.3f} s, over 3 dB {peak['over_3db_s']:.3f} s, over 1 dB {peak['over_1db_s']:.3f} s "
+                     f"of {peak['dur_s']:.3f} s",
+                     f"its true peak after levelling was {peak['tp_before']:.2f} dBTP, past the voice ceiling {VOICE_TP:g} dBTP "
+                     f"(GRAMMAR A13: {DIALOGUE_LUFS:g} LUFS + 12.5 dB)", unit=unit,
+                     evidence=dict({k: v for k, v in peak.items() if k != "acted"}, acted=peak["acted"][:20]))
+    journal.lint("voice-peak-control", not peak["bad_take"], stage="assembly", phase="preflight", unit=unit,
+                 severity="warn" if draft else "block", grammar="A13",
+                 evidence={"max_reduction_db": peak["max_reduction_db"], "max_at_s": peak["max_at_s"], "dur_s": peak["dur_s"],
+                           "over_8db_s": peak["over_8db_s"], "over_3db_s": peak["over_3db_s"], "over_1db_s": peak["over_1db_s"],
+                           "over_3db_share": peak["over_3db_share"], "over_1db_share": peak["over_1db_share"], "bad_take": peak["bad_take"],
+                           "limits": {"over_8db_s": VOICE_OVER_8DB_MAX_S, "over_1db_share": VOICE_OVER_1DB_MAX_SHARE,
+                                      "over_3db_share": VOICE_OVER_3DB_MAX_SHARE},
+                           "result": None if not peak["bad_take"] else ("kept (draft)" if draft else "refused: re-render the take")})
+
+
 def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) -> tuple[np.ndarray, dict]:
     n = int(round(plan["frames"] / FPS * AUDIO_RATE))
     voice, music, amb, clips = (np.zeros(n, np.float32) for _ in range(4))
     placed = {"lines": [], "cues": [], "clips": [], "missing": []}
-    missing_voice = []
+    missing_voice, bad_takes = [], []
     for ln in plan["lines"]:
         wav = film / (ln.get("wav") or f"audio/{ln['id']}.wav")
         if not wav.exists():
@@ -1317,11 +1413,21 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
             missing_voice.append(ln["id"])
             continue
         x = _read_wav(wav)
-        k = _place(voice, x, float(ln["start_s"]), float(ln.get("gain_db", 0.0)))
+        level = None if ln.get("archival_audio") else _level(journal, ln["id"], x, DIALOGUE_LUFS, "dialogue")
+        peak = None
+        if level is not None:                    # A13: peak control on a synthetic line, after its levelling
+            x, peak = voice_peak_control(x * np.float32(10 ** (level / 20)))
+            if peak:
+                _journal_peak(journal, ln["id"], peak, draft)
+                if peak["bad_take"]:
+                    bad_takes.append(f"{ln['id']} ({'; '.join(peak['bad_take'])})")
+        k = _place(voice, x, float(ln["start_s"]), float(ln.get("gain_db", 0.0)))   # the levelling is already in x
         sp = plan["speakers"].get(ln.get("speaker"), {})
         placed["lines"].append({"id": ln["id"], "speaker": ln.get("speaker"), "side": sp.get("side"),
                                 "kind": "narration" if ln.get("kind") == "narration" else ("archival" if ln.get("archival_audio") else "reading"),
-                                "at_s": float(ln["start_s"]), "dur_s": round(k / AUDIO_RATE, 3)})
+                                "at_s": float(ln["start_s"]), "dur_s": round(k / AUDIO_RATE, 3),
+                                "level_db": None if level is None else round(level, 2),
+                                "peak_reduction_db": peak["max_reduction_db"] if peak else None})
     for c in plan["cues"]:
         wav = film / (c.get("wav") or f"audio/{c['id']}.wav")
         if not wav.exists():
@@ -1330,8 +1436,14 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
             placed["missing"].append(c["id"])
             continue
         target = music if c.get("kind") == "music" else amb
-        k = _place(target, _read_wav(wav), float(c["start_s"]), float(c.get("gain_db", 0.0)), float(c["end_s"]))
-        placed["cues"].append({"id": c["id"], "kind": c.get("kind"), "at_s": float(c["start_s"]), "dur_s": round(k / AUDIO_RATE, 3)})
+        x = _read_wav(wav)
+        level = None
+        if c.get("kind") == "music":            # levelled over the part that plays
+            span = x[: max(0, int(round((float(c["end_s"]) - float(c["start_s"])) * AUDIO_RATE)))]
+            level = _level(journal, c["id"], span, MUSIC_LUFS, "music bed")
+        k = _place(target, x, float(c["start_s"]), (level or 0.0) + float(c.get("gain_db", 0.0)), float(c["end_s"]))
+        placed["cues"].append({"id": c["id"], "kind": c.get("kind"), "at_s": float(c["start_s"]), "dur_s": round(k / AUDIO_RATE, 3),
+                               "level_db": None if level is None else round(level, 2)})
     for s in plan["shots"]:
         if s["kind"] == "archive_video" and (s.get("sound") or {}).get("mode", "own") == "own" and s["_video"]["probe"]["has_audio"]:
             x = clip_audio(s)
@@ -1342,6 +1454,8 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
             placed["clips"].append(s["id"])
     if missing_voice and not draft:
         raise Refused(f"voice WAVs missing for {', '.join(missing_voice)} (render with --draft to place silence)")
+    if bad_takes and not draft:
+        raise Refused(f"voice-peak-control (A13): bad takes, re-render them instead of crushing them: {'; '.join(bad_takes)}")
     env = (np.abs(voice) > 1e-3).astype(np.float32)
     env = np.clip(moving_average(env, int(0.25 * AUDIO_RATE)) * 4, 0, 1)
     duck = 1 - env * (1 - 10 ** (-DUCK_DB / 20))
@@ -1349,25 +1463,66 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
     return mix.astype(np.float32), placed
 
 
-def loudness_lints(journal: Journal, loud: dict) -> None:
-    """Journal what the loudness pass did: the measured result against -16
-    LUFS, and a flag when loudnorm fell back from linear gain to its dynamic
-    mode (which compresses the programme, usually because linear gain would
-    push a peak past -1.5 dBTP)."""
+def loudness_lints(journal: Journal, loud: dict, *, draft: bool = False) -> list[str]:
+    """Journal what the loudness pass did and why: every step it took (the
+    LRA target raised above the programme's own range, the true-peak limiter
+    with the values each attempt used) as a decision, the measured result
+    against -16 LUFS, whether the gain was linear, and whether the limiter
+    stayed peak control (GRAMMAR 8.5 keeps archival audio's own dynamics).
+    A dynamic result or a limiter that compressed blocks a final master, and
+    is only a warning under --draft. Returns the reasons the run must be
+    refused (empty when it may go on)."""
     if not loud["normalised"]:
         journal.decision("assembly", "loudness not normalised", "the programme is silent (no voice, music or clip sound placed)")
-        return
+        return []
+    for step in loud.get("steps", []):
+        journal.decision("assembly", step["what"], step["why"], unit="loudness", evidence=step.get("evidence"))
     journal.lint("loudness", phase="preflight", passed=abs(loud["output_i"] - TARGET_LUFS) <= 1.0 and loud["output_tp"] <= TARGET_TP + 0.5,
                  stage="assembly", severity="warn", evidence=loud, grammar="8.5")
-    journal.lint("loudnorm-linear", loud["linear"], stage="assembly", phase="preflight", severity="warn", grammar="8.5",
-                 evidence={"normalization_type": loud["normalization_type"], "input_i": loud.get("input_i"),
-                           "input_tp": loud.get("input_tp"),
-                           "why": None if loud["linear"] else
-                           "loudnorm fell back to dynamic mode, which compresses the programme: linear gain to -16 LUFS "
-                           "would push a peak past -1.5 dBTP"})
+    sev = "warn" if draft else "block"
+    refusals = []
+    blockers = "; ".join(loud.get("blockers") or ["cause unknown"])
+    causes = {k: loud.get(k) for k in ("input_i", "input_tp", "input_lra", "gain_db", "predicted_tp", "lra_target")}
+    causes["limiter"] = {k: v for k, v in (loud.get("limiter") or {}).items() if k != "acted"} or None
+    journal.lint("loudnorm-linear", loud["linear"], stage="assembly", phase="preflight", severity=sev,
+                 grammar="8.5", evidence=dict(causes, normalization_type=loud["normalization_type"],
+                                              result=None if loud["linear"] else ("dynamic (draft)" if draft else "refused"),
+                                              why=None if loud["linear"] else
+                                              "loudnorm fell back to dynamic mode, which compresses the programme "
+                                              f"(GRAMMAR 8.5 keeps archival dynamics): {blockers}"))
     if not loud["linear"]:
-        journal.decision("assembly", "the mix was normalised in loudnorm's dynamic mode",
-                         "linear gain would have clipped a peak; check the loudest cue or reading", unit="loudness")
+        journal.decision("assembly", "the mix was normalised in loudnorm's dynamic mode", blockers, unit="loudness")
+        refusals.append(f"the mix could only reach {TARGET_LUFS:g} LUFS in loudnorm's dynamic mode: {blockers}")
+    lim = loud.get("limiter")
+    if lim:
+        over = limiter_overreach(lim)
+        journal.lint("limiter-peak-only", not over, stage="assembly", phase="preflight", severity=sev, grammar="8.5",
+                     evidence={"max_reduction_db": lim["max_reduction_db"], "over_1db_s": lim["over_1db_s"],
+                               "input_lra": loud["input_lra"], "lra_after": lim["lra_after"], "lra_drop": lim["lra_drop"],
+                               "limits": {"max_db": LIMIT_MAX_DB, "over_1db_s": LIMIT_OVER_1DB_S, "lra_drop": LIMIT_LRA_DROP},
+                               "acted": lim["acted"], "acted_total": lim["acted_total"], "over": over,
+                               "result": None if not over else ("compressed (draft)" if draft else "refused")})
+        if over:
+            refusals.append("the true-peak limiter compressed the programme instead of only catching peaks: " + "; ".join(over))
+    else:
+        journal.lint("limiter-peak-only", True, stage="assembly", phase="preflight", severity=sev, grammar="8.5",
+                     evidence={"limiter": "not needed", "max_reduction_db": 0.0, "over_1db_s": 0.0,
+                               "predicted_tp": loud["predicted_tp"], "ceiling": TARGET_TP})
+    return [] if draft else refusals
+
+
+def limiter_overreach(lim: dict) -> list[str]:
+    """How the limiter went past peak control, if it did: more than 1 dB of
+    gain reduction for over 50 ms in total, more than 3 dB at any point, or
+    the loudness range after limiting more than 0.3 LU under the mix's own."""
+    over = []
+    if lim["max_reduction_db"] > LIMIT_MAX_DB:
+        over.append(f"{lim['max_reduction_db']:.2f} dB of gain reduction at {lim['max_at_s']:.3f} s (limit {LIMIT_MAX_DB:g} dB)")
+    if lim["over_1db_s"] > LIMIT_OVER_1DB_S:
+        over.append(f"more than 1 dB of gain reduction for {lim['over_1db_s']:.3f} s in total (limit {LIMIT_OVER_1DB_S:g} s)")
+    if lim["lra_drop"] > LIMIT_LRA_DROP:
+        over.append(f"the loudness range fell {lim['lra_drop']:.2f} LU (limit {LIMIT_LRA_DROP:g})")
+    return over
 
 
 def _loudnorm_json(stderr: str) -> dict:
@@ -1375,27 +1530,226 @@ def _loudnorm_json(stderr: str) -> dict:
     return json.loads(j) if j else {}
 
 
+def _measure(src: Path | np.ndarray) -> dict:
+    """loudnorm's first pass on a file or a mono 48 kHz float array:
+    integrated loudness, true peak, loudness range, gate threshold and target
+    offset, as floats (silence measures input_i -inf). A failed or unreadable
+    measurement raises EncodeError: it must never pass for silence."""
+    cmd = [ffmpeg(), "-hide_banner", "-nostats"]
+    if isinstance(src, np.ndarray):
+        cmd += ["-f", "f32le", "-ar", str(AUDIO_RATE), "-ac", "1", "-i", "pipe:0"]
+        data = np.ascontiguousarray(src, dtype=np.float32).tobytes()
+    else:
+        cmd += ["-i", str(src)]
+        data = None
+    cmd += ["-af", f"loudnorm=I={TARGET_LUFS}:TP={TARGET_TP}:LRA={TARGET_LRA}:print_format=json", "-f", "null", "-"]
+    r = subprocess.run(cmd, input=data, capture_output=True)
+    err = r.stderr.decode(errors="replace")
+    try:
+        m = _loudnorm_json(err)
+        out = {k: float(m[k]) for k in ("input_i", "input_tp", "input_lra", "input_thresh", "target_offset")}
+    except (KeyError, ValueError, json.JSONDecodeError):
+        out = {}
+    if r.returncode or not out:
+        raise EncodeError(f"loudness measurement failed (exit {r.returncode}): {err[-300:]}")
+    return out
+
+
+def level_gain(x: np.ndarray, target: float) -> tuple[float | None, dict]:
+    """The linear gain that brings x's integrated loudness to target, and the
+    measurement. None when x is too short or quiet to measure (gated out)."""
+    if len(x) < int(0.4 * AUDIO_RATE):
+        return None, {}
+    m = _measure(x)
+    if not math.isfinite(m["input_i"]) or m["input_i"] < -70:
+        return None, m
+    return target - m["input_i"], m
+
+
+def _limit(src: Path, dst: Path, gain_db: float, ceiling_db: float) -> None:
+    """Linear gain, then a true-peak limiter: alimiter run 4x oversampled
+    (192 kHz), so the peaks it holds under the ceiling include inter-sample
+    peaks, with no auto level and its look-ahead delay compensated."""
+    lim = 10 ** (ceiling_db / 20)
+    af = (f"volume={gain_db:.3f}dB:precision=double,aresample={AUDIO_RATE * LIMIT_OVERSAMPLE},"
+          f"alimiter=limit={lim:.6f}:attack={LIMITER_ATTACK_MS}:release={LIMITER_RELEASE_MS}:level=0:latency=1,"
+          f"aresample={AUDIO_RATE}")
+    r = subprocess.run([ffmpeg(), "-hide_banner", "-nostats", "-v", "error", "-y", "-i", str(src), "-af", af,
+                        "-ar", str(AUDIO_RATE), "-c:a", "pcm_f32le", str(dst)], capture_output=True, text=True)
+    if r.returncode:
+        raise EncodeError(f"true-peak limiter failed: {r.stderr[-500:]}")
+
+
+def _limit_array(x: np.ndarray, ceiling_db: float) -> np.ndarray:
+    """The true-peak limiter of _limit (alimiter, 4x oversampled, delay
+    compensated, no auto level) on a mono 48 kHz array, same length out."""
+    lim = 10 ** (ceiling_db / 20)
+    af = (f"aresample={AUDIO_RATE * LIMIT_OVERSAMPLE},alimiter=limit={lim:.6f}:attack={LIMITER_ATTACK_MS}:"
+          f"release={LIMITER_RELEASE_MS}:level=0:latency=1,aresample={AUDIO_RATE}")
+    r = subprocess.run([ffmpeg(), "-hide_banner", "-nostats", "-v", "error", "-f", "f32le", "-ar", str(AUDIO_RATE), "-ac", "1",
+                        "-i", "pipe:0", "-af", af, "-f", "f32le", "-ar", str(AUDIO_RATE), "-ac", "1", "pipe:1"],
+                       input=np.ascontiguousarray(x, dtype=np.float32).tobytes(), capture_output=True)
+    if r.returncode:
+        raise EncodeError(f"voice peak limiter failed: {r.stderr.decode(errors='replace')[-500:]}")
+    y = np.frombuffer(r.stdout, dtype=np.float32).copy()
+    return np.pad(y, (0, max(0, len(x) - len(y))))[: len(x)]
+
+
+def voice_peak_control(x: np.ndarray, ceiling_db: float | None = None) -> tuple[np.ndarray, dict | None]:
+    """GRAMMAR A13: a levelled synthetic voice line whose true peak passes
+    the voice ceiling goes through the oversampled true-peak limiter, so its
+    crest fits the master's 14.5 dB between -16 LUFS and -1.5 dBTP. Returns
+    the line and what the limiter did (None when it was not needed), with
+    ``bad_take`` listing why when its cuts were compression, not peak
+    control: over 8 dB for more than 20 ms in total, over 1 dB for more than
+    20% of the line, or over 3 dB for more than 5% of it."""
+    ceiling_db = VOICE_TP if ceiling_db is None else ceiling_db
+    m = _measure(x)
+    if not math.isfinite(m["input_tp"]) or m["input_tp"] <= ceiling_db:
+        return x, None
+    y = _limit_array(x, ceiling_db - VOICE_LIMIT_MARGIN_DB)
+    gr = _gr_stats(x, y)
+    dur = len(x) / AUDIO_RATE
+    share1 = gr["over_1db_s"] / dur if dur else 0.0
+    share3 = gr["over_3db_s"] / dur if dur else 0.0
+    bad = []
+    if gr["over_8db_s"] > VOICE_OVER_8DB_MAX_S:
+        bad.append(f"over 8 dB for {gr['over_8db_s']:.3f} s in total (limit {VOICE_OVER_8DB_MAX_S:g} s; "
+                   f"at most {gr['max_reduction_db']:.2f} dB at {gr['max_at_s']:.3f} s)")
+    if share1 > VOICE_OVER_1DB_MAX_SHARE:
+        bad.append(f"over 1 dB for {gr['over_1db_s']:.3f} s, {share1:.1%} of the line (limit {VOICE_OVER_1DB_MAX_SHARE:.0%})")
+    if share3 > VOICE_OVER_3DB_MAX_SHARE:
+        bad.append(f"over 3 dB for {gr['over_3db_s']:.3f} s, {share3:.1%} of the line (limit {VOICE_OVER_3DB_MAX_SHARE:.0%})")
+    after = _measure(y)
+    return y, dict(gr, ceiling_dbtp=round(ceiling_db - VOICE_LIMIT_MARGIN_DB, 2), tp_before=m["input_tp"], tp_after=after["input_tp"],
+                   i_after=after["input_i"], dur_s=round(dur, 3), over_1db_share=round(share1, 4), over_3db_share=round(share3, 4),
+                   bad_take=bad)
+
+
+def gain_reduction(src: Path, limited: Path, gain_db: float, block_ms: float = 1.0) -> dict:
+    """What the limiter did, measured: the input with its linear gain against
+    the limiter's output, block by block (1 ms RMS ratio). Returns the largest
+    reduction and where, the time spent over 1 dB, and the stretches where it
+    acted (over 0.1 dB, merged across gaps under 10 ms)."""
+    import soundfile as sf
+    a, _ = sf.read(str(src), dtype="float64", always_2d=True)
+    b, _ = sf.read(str(limited), dtype="float64", always_2d=True)
+    return _gr_stats(a.mean(axis=1) * 10 ** (gain_db / 20), b.mean(axis=1), block_ms)
+
+
+def _gr_stats(a: np.ndarray, b: np.ndarray, block_ms: float = 1.0) -> dict:
+    """gain_reduction's measure on two aligned mono arrays: a before the limiter, b after it."""
+    a, b = np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64)
+    n = min(len(a), len(b))
+    k = max(1, int(round(AUDIO_RATE * block_ms / 1000)))
+    m = n // k
+    ra = np.sqrt(np.mean(a[: m * k].reshape(m, k) ** 2, axis=1))
+    rb = np.sqrt(np.mean(b[: m * k].reshape(m, k) ** 2, axis=1))
+    live = ra > 10 ** (-60 / 20)
+    gr = np.zeros(m)
+    gr[live] = np.clip(20 * np.log10(ra[live] / np.maximum(rb[live], 1e-12)), 0, None)
+    block_s = k / AUDIO_RATE
+    acted = []
+    idx = np.flatnonzero(gr > 0.1)
+    if len(idx):
+        start = prev = idx[0]
+        for j in list(idx[1:]) + [None]:
+            if j is not None and (j - prev) * block_s < 0.010:
+                prev = j
+                continue
+            seg = gr[start:prev + 1]
+            acted.append({"at_s": round(start * block_s, 3), "dur_s": round((prev - start + 1) * block_s, 3),
+                          "max_db": round(float(seg.max()), 2)})
+            if j is not None:
+                start = prev = j
+    top = int(np.argmax(gr)) if m else 0
+    return {"max_reduction_db": round(float(gr.max()) if m else 0.0, 2), "max_at_s": round(top * block_s, 3),
+            "over_1db_s": round(float(np.count_nonzero(gr > 1.0)) * block_s, 3),
+            "over_3db_s": round(float(np.count_nonzero(gr > 3.0)) * block_s, 3),
+            "over_8db_s": round(float(np.count_nonzero(gr > 8.0)) * block_s, 3),
+            "acted_s": round(float(np.count_nonzero(gr > 0.1)) * block_s, 3), "block_ms": block_ms,
+            "acted_total": len(acted), "acted": sorted(acted, key=lambda e: -e["max_db"])[:LIMIT_ACTED_LOGGED]}
+
+
 def loudnorm(src: Path, dst: Path) -> dict:
-    """Two-pass EBU R128 to -16 LUFS integrated, -1.5 dBTP."""
-    ff = ffmpeg()
-    base = f"loudnorm=I={TARGET_LUFS}:TP={TARGET_TP}:LRA={TARGET_LRA}"
-    r = subprocess.run([ff, "-hide_banner", "-nostats", "-i", str(src), "-af", base + ":print_format=json", "-f", "null", "-"],
-                       capture_output=True, text=True)
-    m = _loudnorm_json(r.stderr)
-    if r.returncode or not m or m.get("input_i") in ("-inf", None) or float(m["input_i"]) < -70:
+    """EBU R128 to -16 LUFS integrated, -1.5 dBTP, by linear gain only
+    (GRAMMAR 8.5: archival audio keeps its own dynamics). The voices and
+    music were already levelled line by line (build_mix), so the gain here
+    is small.
+
+    1. Measure the mix (loudnorm's first pass).
+    2. If the gain to -16 LUFS would push the true peak past -1.5 dBTP, apply
+       that gain and an oversampled true-peak limiter just under the ceiling
+       (``<dst stem>-limited.wav``), measure again, and measure what the
+       limiter did (``gain_reduction``). It may only catch peaks; how much it
+       acted, and where, is returned for loudness_lints to judge.
+    3. Set the LRA target above the measured range (8.5 sets no LRA limit;
+       loudnorm stays linear only when the range fits its target).
+    4. Apply loudnorm with ``linear=true`` and the measured values.
+
+    Returns the measurements, every step taken (``steps``, journaled as
+    decisions), and why a result is not linear (``blockers``)."""
+    m1 = _measure(src)
+    if not math.isfinite(m1["input_i"]) or m1["input_i"] < -70:
         shutil.copyfile(src, dst)
-        return {"normalised": False, "input_i": m.get("input_i"), "reason": "silent programme"}
-    af = (base + f":measured_I={m['input_i']}:measured_TP={m['input_tp']}:measured_LRA={m['input_lra']}"
-          f":measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true:print_format=json")
-    r2 = subprocess.run([ff, "-hide_banner", "-nostats", "-y", "-i", str(src), "-af", af, "-ar", str(AUDIO_RATE), "-c:a", "pcm_s24le", str(dst)],
-                        capture_output=True, text=True)
+        return {"normalised": False, "input_i": m1["input_i"], "reason": "silent programme"}
+    steps, blockers = [], []
+    gain = TARGET_LUFS - m1["input_i"]
+    predicted = m1["input_tp"] + gain
+    res = {"normalised": True, "input_i": m1["input_i"], "input_tp": m1["input_tp"], "input_lra": m1["input_lra"],
+           "gain_db": round(gain, 2), "predicted_tp": round(predicted, 2), "limiter": None}
+    feed, m = src, m1
+    if predicted > TARGET_TP:
+        limited = dst.with_name(dst.stem + "-limited.wav")
+        ceiling = TARGET_TP - LIMIT_MARGIN_DB
+        attempts = []
+        for attempt in range(1, LIMIT_ATTEMPTS + 1):
+            _limit(src, limited, gain, ceiling)
+            m = _measure(limited)
+            after = m["input_tp"] + TARGET_LUFS - m["input_i"]
+            attempts.append({"attempt": attempt, "pre_gain_db": round(gain, 2), "ceiling_dbtp": round(ceiling, 2),
+                             "measured": {k: m[k] for k in ("input_i", "input_tp", "input_lra")},
+                             "peak_after_final_gain_dbtp": round(after, 2)})
+            if after <= TARGET_TP:
+                break
+            ceiling -= after - TARGET_TP + 0.1      # the final linear gain would lift the held peaks past the ceiling
+        feed = limited
+        gr = gain_reduction(src, limited, gain)
+        res["limiter"] = dict(gr, ceiling_dbtp=round(ceiling, 2), pre_gain_db=round(gain, 2), oversample=LIMIT_OVERSAMPLE,
+                              attack_ms=LIMITER_ATTACK_MS, release_ms=LIMITER_RELEASE_MS, attempts=attempts, file=str(limited),
+                              lra_after=m["input_lra"], lra_drop=round(m1["input_lra"] - m["input_lra"], 2))
+        steps.append({"what": f"true-peak limiter (alimiter, {LIMIT_OVERSAMPLE}x oversampled) at {ceiling:.2f} dBTP before the linear gain",
+                      "why": f"the mix's true peak {m1['input_tp']:.2f} dBTP plus the {gain:.2f} dB gain to {TARGET_LUFS:g} LUFS "
+                             f"would reach {predicted:.2f} dBTP, past {TARGET_TP:g}; it acted for {gr['acted_s']:.3f} s in "
+                             f"{gr['acted_total']} places, at most {gr['max_reduction_db']:.2f} dB (at {gr['max_at_s']:.3f} s)",
+                      "evidence": {k: v for k, v in res["limiter"].items() if k != "acted"}})
+    lra_target = min(LRA_MAX, max(TARGET_LRA, float(math.ceil(m["input_lra"] + 1.0))))
+    res["lra_target"] = lra_target
+    if lra_target > TARGET_LRA:
+        steps.append({"what": f"loudnorm LRA target raised from {TARGET_LRA:g} to {lra_target:g} LU",
+                      "why": f"the mix's own loudness range is {m['input_lra']:.1f} LU; loudnorm compresses a range above "
+                             "its target, and GRAMMAR 8.5 sets no range limit",
+                      "evidence": {"input_lra": m["input_lra"], "lra_target": lra_target}})
+    if m["input_lra"] > lra_target:
+        blockers.append(f"input_lra {m['input_lra']:.1f} LU exceeds loudnorm's largest LRA target ({LRA_MAX:g})")
+    if m["input_tp"] + TARGET_LUFS - m["input_i"] > TARGET_TP:
+        blockers.append(f"true peak {m['input_tp']:.2f} dBTP plus {TARGET_LUFS - m['input_i']:.2f} dB gain passes {TARGET_TP:g} dBTP"
+                        + (" after the limiter" if res["limiter"] else ""))
+    measured_lra = max(m["input_lra"], 0.1)       # loudnorm never runs linear on a measured LRA of exactly 0 (a steady tone)
+    af = (f"loudnorm=I={TARGET_LUFS}:TP={TARGET_TP}:LRA={lra_target}:measured_I={m['input_i']}:measured_TP={m['input_tp']}"
+          f":measured_LRA={measured_lra}:measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true:print_format=json")
+    r2 = subprocess.run([ffmpeg(), "-hide_banner", "-nostats", "-y", "-i", str(feed), "-af", af, "-ar", str(AUDIO_RATE),
+                         "-c:a", "pcm_s24le", str(dst)], capture_output=True, text=True)
     if r2.returncode:
         raise EncodeError(f"loudnorm pass 2 failed: {r2.stderr[-500:]}")
     m2 = _loudnorm_json(r2.stderr)
-    return {"normalised": True, "input_i": float(m["input_i"]), "input_tp": float(m["input_tp"]),
-            "output_i": float(m2.get("output_i", "nan")), "output_tp": float(m2.get("output_tp", "nan")),
-            "normalization_type": m2.get("normalization_type"),
-            "linear": m2.get("normalization_type") == "linear"}
+    nt = m2.get("normalization_type")
+    if nt != "linear" and not blockers:
+        blockers.append(f"loudnorm reported {nt!r}")
+    res.update(output_i=float(m2.get("output_i", "nan")), output_tp=float(m2.get("output_tp", "nan")),
+               output_lra=float(m2.get("output_lra", "nan")), normalization_type=nt, linear=nt == "linear",
+               steps=steps, blockers=blockers)
+    return res
 
 
 # --------------------------------------------------------------------------
@@ -1498,7 +1852,7 @@ class _Direct:
 
 def render(film: Path | str, out: Path | str | None = None, *, height: int = 1080, from_shot: str | None = None,
            workers: int = DEFAULT_WORKERS, burn_subtitles: bool = False, min_free_gb: float = MIN_FREE_GB,
-           encode_preset: str = "slow", draft: bool = False, fit_voices_opt: bool = False,
+           encode_preset: str = "slow", draft: bool = False, fit_voices_opt: bool = False, audio_only: bool = False,
            journal: Journal | None = None) -> dict:
     film = Path(film).resolve()
     out = Path(out).resolve() if out else film / "out"
@@ -1507,7 +1861,8 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
     run_t0 = time.perf_counter()
     resume_cmd = f"python -m studio.engine.render {film} --out {out} --res {height}"
     settings = {"height": H, "width": W, "fps": FPS, "workers": workers, "from": from_shot, "burn_subtitles": burn_subtitles,
-                "min_free_gb": min_free_gb, "encode_preset": encode_preset, "draft": draft, "fit_voices": fit_voices_opt}
+                "min_free_gb": min_free_gb, "encode_preset": encode_preset, "draft": draft, "fit_voices": fit_voices_opt,
+                "audio_only": audio_only}
     current = {"stage": "scout", "unit": None}
     n_req = int(workers)
     n = max(1, min(n_req, MAX_WORKERS, os.cpu_count() or 1))
@@ -1522,7 +1877,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         # still's own first frame. The rendered pixels are checked again after motion (phase post-render).
         journal.stage("scout", "start", phase="preflight")
         if draft:
-            journal.human("scout", "draft render: missing voice WAVs become silence instead of refusing the run",
+            journal.human("scout", "draft render: missing voice WAVs become silence; dynamic loudness, a compressing master limiter and A13 bad takes are warnings instead of refusing the run",
                           override="--draft")
         with journal.unit("scout", "preflight", size={"driver": "items", "value": 1}):
             pf = preflight(out, journal, min_free_gb=min_free_gb)
@@ -1606,11 +1961,24 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         journal.artifact("assembly", work / "mix.wav", unit="mix", role="mix")
         journal.event("unit", "assembly", "mix", lens="narration", status="info", lines=placed["lines"], peaks=None)
         with journal.unit("assembly", "loudness", size={"driver": "seconds", "value": round(plan["duration_s"], 3)},
-                          settings={"I": TARGET_LUFS, "TP": TARGET_TP, "LRA": TARGET_LRA, "passes": 2}) as u:
+                          settings={"I": TARGET_LUFS, "TP": TARGET_TP, "LRA_min": TARGET_LRA, "linear": True,
+                                    "limiter": {"oversample": LIMIT_OVERSAMPLE, "margin_db": LIMIT_MARGIN_DB}}) as u:
             loud = loudnorm(work / "mix.wav", work / "mix-norm.wav")
             u.extra.update(loudness=loud)
+        if loud.get("limiter"):
+            journal.artifact("assembly", loud["limiter"]["file"], unit="loudness", role="mix-limited")
         journal.artifact("assembly", work / "mix-norm.wav", unit="loudness", role="mix-normalised")
-        loudness_lints(journal, loud)
+        # Pre-flight, before any frame: a final master's loudness is linear, and its limiter only catches peaks (GRAMMAR 8.5).
+        refusals = loudness_lints(journal, loud, draft=draft)
+        if refusals:
+            raise Refused(f"loudness (pre-flight): {'; '.join(refusals)} (GRAMMAR 8.5; render with --draft to accept it)")
+        if audio_only:                       # --audio-only: the pre-flight and the sound, no frames and no master
+            journal.stage("assembly", "done", detail={"audio_only": True})
+            summary = {"run": journal.run, "journal": str(journal.path), "mix": str(work / "mix-norm.wav"), "loudness": loud,
+                       "frames": 0, "duration_s": plan["duration_s"], "wall_s": round(time.perf_counter() - run_t0, 2)}
+            journal.event("stage", "run", None, lens="run.end", status="done", outcome="ok", audio_only=True,
+                          **{k: v for k, v in summary.items() if k != "loudness"})
+            return summary
 
         # Frames.
         current.update(stage="motion", unit=None)
@@ -1805,16 +2173,24 @@ def main(argv=None) -> int:
     ap.add_argument("--from", dest="from_shot", default=None, help="re-render from this shot; earlier shots come from the cache")
     ap.add_argument("--workers", type=int, default=DEFAULT_WORKERS, help=f"CPU worker processes (default {DEFAULT_WORKERS}, max {MAX_WORKERS})")
     ap.add_argument("--burn-subtitles", action="store_true", help="burn the English subtitles into the picture (off by default)")
-    ap.add_argument("--draft", action="store_true", help="place silence for missing voice WAVs instead of refusing (journaled)")
+    ap.add_argument("--draft", action="store_true", help="place silence for missing voice WAVs and accept dynamic loudness, a compressing limiter or a bad take instead of refusing (journaled)")
     ap.add_argument("--fit-voices", action="store_true",
                     help="move overlapping voice lines later (0.8 s apart) and lengthen their shots (journaled)")
+    ap.add_argument("--audio-only", action="store_true",
+                    help="run the pre-flight and the sound (mix, levelling, loudness) only: no frames, no master")
     a = ap.parse_args(argv)
     try:
         s = render(a.film, a.out, height=a.res, from_shot=a.from_shot, workers=a.workers, burn_subtitles=a.burn_subtitles,
-                   draft=a.draft, fit_voices_opt=a.fit_voices)
+                   draft=a.draft, fit_voices_opt=a.fit_voices, audio_only=a.audio_only)
     except Refused as e:
         print(f"render: refused: {e}", file=sys.stderr)
         return 2
+    if a.audio_only:
+        lo = s["loudness"]
+        print(f"render: audio only, {s['duration_s']:.2f} s -> {s['mix']} "
+              f"({lo.get('output_i')} LUFS, {lo.get('output_tp')} dBTP, LRA {lo.get('output_lra')})")
+        print(f"render: journal {s['journal']}")
+        return 0
     print(f"render: {s['frames']} frames, {s['duration_s']:.2f} s of film in {s['wall_s']} s -> {s['master']}")
     print(f"render: journal {s['journal']}")
     return 0

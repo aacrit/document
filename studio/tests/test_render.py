@@ -79,6 +79,9 @@ def test_every_lint_t1_enforces_ran_and_passed(rendered):
                  "loudnorm-linear", "mark-class-valid", "clip-in-out"):
         found = lints(evs, rule)
         assert found, rule
+        if rule == "still-first-frame-whole-pixels":
+            # the fixture's drawn stills are smooth gradients at their edges: the band cannot see a small crop there
+            found = [e for e in found if not (e["status"] == "inconclusive" and e["evidence"]["band_detail"] < R.A7_DETAIL_FLOOR)]
         assert all(e["status"] == "pass" for e in found), (rule, found)
     review = lints(evs, "fill-ok")
     assert {e["unit"]: e["evidence"]["fill_ok"] for e in review} == {"S3": True, "S4": False, "S5": False}
@@ -887,7 +890,7 @@ def test_a_render_with_fit_voices_journals_and_saves_the_fitted_screenplay(tmp_p
 
 
 # --------------------------------------------------------------------------
-# Re-review: probe the crossfade, synthetic by generator, loudnorm fallback, long dips
+# Re-review: probe the crossfade, synthetic by generator, linear loudness, long dips
 # --------------------------------------------------------------------------
 
 
@@ -914,19 +917,250 @@ def test_sources_marks_an_item_with_only_a_generator_as_a_test_fixture(tmp_path)
     assert {s["id"]: s["test_fixture"] for s in doc["shots"] if s["id"] in ("S3", "S4", "S5")} == {"S3": True, "S4": True, "S5": True}
 
 
-def test_loudnorm_dynamic_fallback_is_flagged(tmp_path):
+def _wav(path, x):
     import soundfile as sf
-    t = np.arange(48000 * 6) / 48000
-    x = (0.01 * np.sin(2 * np.pi * 300 * t)).astype("float32")      # about -43 dBFS
-    x[48000 * 3] = 0.99                                             # one near full-scale click
-    sf.write(str(tmp_path / "mix.wav"), x, 48000, subtype="FLOAT")
-    loud = R.loudnorm(tmp_path / "mix.wav", tmp_path / "norm.wav")
-    assert loud["normalised"] and loud["normalization_type"] == "dynamic" and loud["linear"] is False
-    j = J.Journal(film="loud")
-    R.loudness_lints(j, loud)
+    sf.write(str(path), np.asarray(x, dtype="float32"), 48000, subtype="FLOAT")
+    return path
+
+
+def _tone(seconds, amp, hz=300.0):
+    t = np.arange(int(48000 * seconds)) / 48000
+    return amp * np.sin(2 * np.pi * hz * t)
+
+
+def test_a_high_lra_mix_comes_out_linear(tmp_path):
+    x = _tone(20, 0.04)                                               # 10 s quiet, then 10 s about 17 dB louder
+    x[48000 * 10:] *= 7.0
+    loud = R.loudnorm(_wav(tmp_path / "mix.wav", x), tmp_path / "norm.wav")
+    assert loud["input_lra"] > R.TARGET_LRA                         # the old fixed LRA 11 made loudnorm go dynamic
+    assert loud["limiter"] is None and loud["lra_target"] > loud["input_lra"]
+    assert loud["normalization_type"] == "linear" and loud["linear"] and not loud["blockers"]
+    assert abs(loud["output_i"] - R.TARGET_LUFS) <= 0.5 and loud["output_tp"] <= R.TARGET_TP
+    j = J.Journal(film="lra")
+    assert R.loudness_lints(j, loud) == []
     evs = J.read(j.path)
     flag = lints(evs, "loudnorm-linear")[0]
-    assert flag["status"] == "fail" and flag["severity"] == "warn" and "dynamic" in flag["evidence"]["why"]
+    assert flag["status"] == "pass" and flag["severity"] == "block" and flag["phase"] == "preflight"
+    assert flag["evidence"]["input_lra"] == loud["input_lra"] and flag["evidence"]["lra_target"] == loud["lra_target"]
+    raised = [e for e in evs if e["kind"] == "decision" and "LRA target raised" in e["what"]]
+    assert raised and raised[0]["evidence"]["input_lra"] == loud["input_lra"]
+
+
+def test_a_peaky_well_levelled_mix_passes_with_only_peak_limiting(tmp_path):
+    x = _tone(12, 0.216)                                              # about -17 LUFS, so the gain to -16 is about 1 dB
+    x += np.random.default_rng(3).normal(0, 0.01, len(x))            # a little noise, so only lag 0 lines up (the tone repeats every 160)
+    for at in (4.0, 8.0):                                             # two 3 ms peaks 1.5 dB over the ceiling after the gain
+        i = int(at * 48000)
+        x[i:i + 144] += 0.6 * np.sin(np.linspace(0, np.pi, 144))
+    loud = R.loudnorm(_wav(tmp_path / "mix.wav", x), tmp_path / "norm.wav")
+    assert loud["predicted_tp"] > R.TARGET_TP
+    lim = loud["limiter"]
+    assert lim and lim["oversample"] == 4 and Path(lim["file"]).exists()
+    assert 0.1 < lim["max_reduction_db"] <= R.LIMIT_MAX_DB and lim["over_1db_s"] <= R.LIMIT_OVER_1DB_S
+    assert lim["lra_drop"] <= R.LIMIT_LRA_DROP
+    assert {round(a["at_s"]) for a in lim["acted"]} == {4, 8}           # it acted at the two peaks and nowhere else
+    a0 = lim["attempts"][0]
+    assert a0["pre_gain_db"] == lim["pre_gain_db"] == loud["gain_db"] and a0["ceiling_dbtp"] == R.TARGET_TP - R.LIMIT_MARGIN_DB
+    assert loud["normalization_type"] == "linear" and loud["output_tp"] <= R.TARGET_TP
+    import soundfile as sf
+    y, _ = sf.read(str(tmp_path / "norm.wav"))
+    assert len(y) == len(x)
+    # the limiter's look-ahead delay is compensated: the output lines up with the input sample for sample
+    seg = slice(48000, 48000 * 3)                                     # a stretch the limiter never touched
+    lags = range(-300, 301)
+    corr = [float(np.dot(x[seg], np.roll(y, -lag)[seg])) for lag in lags]
+    assert lags[int(np.argmax(corr))] == 0
+    scale = 10 ** ((R.TARGET_LUFS - loud["input_i"]) / 20)
+    assert np.max(np.abs(y[seg] - x[seg] * scale)) < 0.02             # and is the input times one linear gain
+    j = J.Journal(film="peaky")
+    assert R.loudness_lints(j, loud) == []
+    evs = J.read(j.path)
+    dec = [e for e in evs if e["kind"] == "decision" and "true-peak limiter" in e["what"]]
+    assert dec and f"{loud['input_tp']:.2f} dBTP" in dec[0]["why"] and dec[0]["evidence"]["attempts"]
+    peak = lints(evs, "limiter-peak-only")[0]
+    assert peak["status"] == "pass" and peak["severity"] == "block" and len(peak["evidence"]["acted"]) == 2
+
+
+def test_a_sustained_loud_passage_refuses(tmp_path):
+    x = np.concatenate([_tone(29, 0.068), _tone(1, 0.5)])             # 29 s at -27 LUFS, then 1 s 17 dB louder
+    loud = R.loudnorm(_wav(tmp_path / "mix.wav", x), tmp_path / "norm.wav")
+    lim = loud["limiter"]
+    assert lim and lim["over_1db_s"] > 0.5 and lim["max_at_s"] >= 29.0
+    j = J.Journal(film="sustained")
+    refusals = R.loudness_lints(j, loud)
+    assert any("compressed the programme" in r for r in refusals)
+    peak = lints(J.read(j.path), "limiter-peak-only")[0]
+    assert peak["status"] == "fail" and peak["severity"] == "block" and peak["evidence"]["result"] == "refused"
+    assert any("1 dB of gain reduction" in o for o in peak["evidence"]["over"])
+    assert R.loudness_lints(J.Journal(film="sustained-draft"), loud, draft=True) == []
+
+
+def test_a_failed_loudness_measurement_raises(tmp_path):
+    (tmp_path / "bad.wav").write_bytes(b"not a wav")
+    with pytest.raises(R.EncodeError, match="loudness measurement failed"):
+        R.loudnorm(tmp_path / "bad.wav", tmp_path / "norm.wav")
+    loud = R.loudnorm(_wav(tmp_path / "silent.wav", np.zeros(48000 * 2)), tmp_path / "norm.wav")
+    assert loud["normalised"] is False and loud["reason"] == "silent programme"
+
+
+def test_voice_lines_and_music_are_levelled_before_mixing(plan, film):
+    j = J.Journal(film="level")
+    mix, placed = R.build_mix(plan, film, j)
+    lv = {e["unit"]: e for e in J.read(j.path) if e["kind"] == "decision" and "levelled to" in e["what"]}
+    assert set(lv) == {"L1", "L2"}                                    # C1 (ambience) is missing and never levelled
+    for ln in placed["lines"]:
+        ev = lv[ln["id"]]["evidence"]
+        assert ev["target"] == R.DIALOGUE_LUFS and abs(ev["measured_i"] + ev["gain_db"] - R.DIALOGUE_LUFS) < 0.01
+        assert ln["level_db"] == ev["gain_db"]
+        x = mix[int(ln["at_s"] * 48000): int((ln["at_s"] + ln["dur_s"]) * 48000)]
+        assert abs(R._measure(x)["input_i"] - R.DIALOGUE_LUFS) < 0.6
+
+
+def test_archival_audio_is_never_levelled(plan, film):
+    arch = json.loads(json.dumps(plan))
+    k = next(n for n, ln in enumerate(arch["lines"]) if ln.get("kind") == "testimony")
+    arch["lines"][k]["archival_audio"] = True
+    j = J.Journal(film="archival")
+    _, placed = R.build_mix(arch, film, j)
+    first = next(ln for ln in placed["lines"] if ln["id"] == arch["lines"][k]["id"])
+    assert first["kind"] == "archival" and first["level_db"] is None
+    assert first["id"] not in {e["unit"] for e in J.read(j.path) if e["kind"] == "decision"}
+
+
+def test_audio_only_runs_the_preflight_and_the_sound_without_frames(film, tmp_path):
+    j = J.Journal(film="audio-only")
+    out = tmp_path / "out"
+    s = R.render(film, out, height=HEIGHT, workers=1, min_free_gb=1, audio_only=True, journal=j)
+    evs = J.read(j.path)
+    assert s["frames"] == 0 and Path(s["mix"]).exists() and s["loudness"]["linear"]
+    assert not [e for e in evs if e.get("lens") == "frame"] and not (out / "master.mp4").exists()
+    assert evs[0]["settings"]["audio_only"] is True and evs[-1]["outcome"] == "ok" and evs[-1]["audio_only"] is True
+    assert lints(evs, "loudnorm-linear")[0]["status"] == "pass"
+    assert lints(evs, "still-first-frame-whole-pixels")                 # the pre-flight ran in full
+
+
+def _levelled(x):
+    g, _ = R.level_gain(x, R.DIALOGUE_LUFS)
+    return x * 10 ** (g / 20)
+
+
+def _voice(seconds=3.0, amp=0.05):
+    return amp * np.sin(2 * np.pi * 220 * np.arange(int(48000 * seconds)) / 48000)
+
+
+def test_a13_a_peaky_voice_line_is_peak_controlled(tmp_path):
+    x = _voice()
+    for at in (0.8, 2.1):                                             # two plosive-like peaks over the -7.5 dBTP voice ceiling
+        i = int(at * 48000)
+        x[i:i + 96] += 0.12 * np.sin(np.linspace(0, np.pi, 96))
+    y, peak = R.voice_peak_control(_levelled(x))
+    assert peak and not peak["bad_take"] and peak["tp_before"] > R.VOICE_TP
+    assert peak["tp_after"] <= R.VOICE_TP + 0.2 and 0.1 < peak["max_reduction_db"] <= 8.0 and not peak["bad_take"]
+    assert len(y) == len(x)
+    quiet, quiet_peak = R.voice_peak_control(_levelled(_voice()))   # a steady line under the ceiling is left alone
+    assert quiet_peak is None
+
+
+def test_a13_a_single_click_is_peak_control_not_a_bad_take(tmp_path):
+    x = _voice()
+    x[48000] += 1.0                                                   # one click far over the line's own level
+    x[48001] -= 1.0
+    _, peak = R.voice_peak_control(_levelled(x))
+    assert peak["max_reduction_db"] > 8.0                             # cut deep, but only for a few ms
+    assert 0 < peak["over_8db_s"] <= R.VOICE_OVER_8DB_MAX_S and not peak["bad_take"]
+    film = make_film(tmp_path / "film")
+    _wav(film / "audio" / "L1.wav", x)
+    plan, _ = _plan(film)
+    j = J.Journal(film="click")
+    _, placed = R.build_mix(plan, film, j)
+    evs = J.read(j.path)
+    lint = [e for e in lints(evs, "voice-peak-control") if e["unit"] == "L1"][0]
+    assert lint["status"] == "pass" and lint["severity"] == "block"
+    assert {"over_8db_s", "over_3db_s", "over_1db_s"} <= set(lint["evidence"])
+    dec = [e for e in evs if e["kind"] == "decision" and e["unit"] == "L1" and "peak-controlled" in e["what"]][0]
+    assert "over 8 dB" in dec["what"] and "over 3 dB" in dec["what"] and "over 1 dB" in dec["what"]
+
+
+def test_a13_a_sustained_10_db_cut_is_a_bad_take(tmp_path):
+    x = _voice(3.0)
+    for s in np.arange(1.0, 1.3, 0.005):                              # 300 ms of peaks every 5 ms: the limiter holds over 10 dB
+        i = int(s * 48000)
+        x[i:i + 24] += 1.0 * np.sin(np.linspace(0, np.pi, 24))
+    _, peak = R.voice_peak_control(_levelled(x))
+    assert peak["over_8db_s"] > R.VOICE_OVER_8DB_MAX_S and peak["max_reduction_db"] >= 10.0
+    assert any("over 8 dB for" in b for b in peak["bad_take"])
+    film = make_film(tmp_path / "film")
+    _wav(film / "audio" / "L1.wav", x)
+    plan, _ = _plan(film)
+    j = J.Journal(film="bad-take")
+    with pytest.raises(R.Refused, match=r"voice-peak-control \(A13\).*L1 \(.*over 8 dB for"):
+        R.build_mix(plan, film, j)
+    lint = [e for e in lints(J.read(j.path), "voice-peak-control") if e["unit"] == "L1"][0]
+    assert lint["status"] == "fail" and lint["severity"] == "block" and lint["evidence"]["result"] == "refused: re-render the take"
+    jd = J.Journal(film="bad-take-draft")
+    _, placed = R.build_mix(plan, film, jd, draft=True)               # a draft keeps the take, with a warning
+    assert [ln["peak_reduction_db"] for ln in placed["lines"] if ln["id"] == "L1"][0] >= 10.0
+    assert [e for e in lints(J.read(jd.path), "voice-peak-control") if e["unit"] == "L1"][0]["severity"] == "warn"
+
+
+def test_a13_a_line_over_1_db_for_a_quarter_of_it_is_a_bad_take(tmp_path):
+    x = _voice(4.0, 0.02)
+    for s in np.arange(0, 1.5, 0.02):                                 # mild peaks every 20 ms through the first 1.5 s
+        i = int(s * 48000)
+        x[i:i + 48] += 0.06 * np.sin(np.linspace(0, np.pi, 48))
+    _, peak = R.voice_peak_control(_levelled(x))
+    assert peak["over_1db_share"] >= 0.25 and peak["over_8db_s"] == 0
+    assert peak["over_3db_share"] <= R.VOICE_OVER_3DB_MAX_SHARE and len(peak["bad_take"]) == 1    # only the 1 dB bound fails
+    assert any("over 1 dB for" in b and "limit 20%" in b for b in peak["bad_take"])
+    film = make_film(tmp_path / "film")
+    _wav(film / "audio" / "L2.wav", x)
+    plan, _ = _plan(film)
+    with pytest.raises(R.Refused, match=r"voice-peak-control \(A13\).*L2 \(.*over 1 dB for"):
+        R.build_mix(plan, film, J.Journal(film="crushed"))
+
+
+def test_a13_archival_audio_is_never_peak_controlled(plan, film):
+    arch = json.loads(json.dumps(plan))
+    for ln in arch["lines"]:
+        ln["archival_audio"] = True
+    j = J.Journal(film="archival-peaks")
+    _, placed = R.build_mix(arch, film, j)
+    assert all(ln["peak_reduction_db"] is None and ln["level_db"] is None for ln in placed["lines"])
+    assert not lints(J.read(j.path), "voice-peak-control")
+
+
+def _dynamic(real):
+    def fake(src, dst):
+        loud = real(src, dst)
+        return dict(loud, normalization_type="dynamic", linear=False, blockers=["forced by the test"])
+    return fake
+
+
+def test_a_dynamic_loudness_result_blocks_before_any_frame(tmp_path, monkeypatch):
+    film = make_film(tmp_path / "film")
+    monkeypatch.setattr(R, "loudnorm", _dynamic(R.loudnorm))
+    j = J.Journal(film="dynamic")
+    with pytest.raises(R.Refused, match=r"loudness \(pre-flight\).*forced by the test"):
+        R.render(film, tmp_path / "out", height=HEIGHT, workers=1, min_free_gb=1, journal=j)
+    evs = J.read(j.path)
+    assert not [e for e in evs if e.get("lens") == "frame"]
+    assert not [e for e in evs if e.get("lens") == "unit.start" and e["stage"] == "motion"]
+    assert evs[-1]["lens"] == "run.end" and evs[-1]["outcome"] == "refused"
+    flag = lints(evs, "loudnorm-linear")[0]
+    assert flag["status"] == "fail" and flag["severity"] == "block" and flag["phase"] == "preflight"
+    assert flag["evidence"]["result"] == "refused" and "input_lra" in flag["evidence"] and "input_tp" in flag["evidence"]
+
+
+def test_a_dynamic_loudness_result_is_only_a_warning_under_draft(tmp_path):
+    loud = R.loudnorm(_wav(tmp_path / "mix.wav", _tone(4, 0.1)), tmp_path / "norm.wav")
+    loud = dict(loud, normalization_type="dynamic", linear=False, blockers=["forced by the test"])
+    j = J.Journal(film="dynamic-draft")
+    assert R.loudness_lints(j, loud, draft=True) == []
+    assert R.loudness_lints(J.Journal(film="dynamic-final"), loud)
+    evs = J.read(j.path)
+    flag = lints(evs, "loudnorm-linear")[0]
+    assert flag["status"] == "fail" and flag["severity"] == "warn" and flag["evidence"]["result"] == "dynamic (draft)"
+    assert "forced by the test" in flag["evidence"]["why"]
     assert [e for e in evs if e["kind"] == "decision" and "dynamic" in e["what"]]
 
 
@@ -996,6 +1230,114 @@ def test_a_still_whose_own_first_frame_is_not_whole_still_refuses(tmp_path, plan
     assert R.preflight_stills(zoomed, j) == ["S4"]
     ev = [e for e in lints(J.read(j.path), "still-first-frame-whole-pixels") if e["unit"] == "S4"][0]
     assert ev["status"] == "fail" and ev["phase"] == "preflight"
+
+
+def _photo_still(path, w=1500, h=2000, contrast=40.0, seed=11):
+    """A high-detail test image with a photograph's statistics: 1/f noise in
+    each channel, so it has edges and texture at every scale (white noise on a
+    gradient averages out under the check's box filter, a photograph does not)."""
+    from PIL import Image
+    rng = np.random.default_rng(seed)
+    fy, fx = np.fft.fftfreq(h)[:, None], np.fft.rfftfreq(w)[None, :]
+    amp = 1.0 / np.maximum(np.hypot(fx, fy), 1.0 / max(w, h))
+    chans = []
+    for _ in range(3):
+        x = np.fft.irfft2(amp * np.exp(2j * np.pi * rng.random(amp.shape)), s=(h, w))
+        chans.append(128 + contrast * (x - x.mean()) / x.std())
+    Image.fromarray(np.clip(np.stack(chans, axis=2), 0, 255).astype(np.uint8)).save(path)
+
+
+def test_a_one_percent_crop_of_a_detailed_still_fails_a7(tmp_path):
+    film = make_film(tmp_path / "film")
+    _photo_still(film / "stills" / "FX-STILL-B.png")                 # S4, portrait, pillarboxed
+    led = json.loads((film / "stills-ledger.json").read_text(encoding="utf-8"))
+    led["items"][1].update(width=1500, height=2000)
+    (film / "stills-ledger.json").write_text(json.dumps(led), encoding="utf-8")
+    plan = R.build_plan(film, W=1920, H=1080, burn_subtitles=False, journal=J.Journal(film="crop"))
+    i = [s["id"] for s in plan["shots"]].index("S4")
+    scores = {}
+    for z in (1.0, 1.01):
+        pl = json.loads(json.dumps(plan))
+        pl["shots"][i]["_cam"]["path"][0] = {"z": z, "x": 0.5, "y": 0.5}
+        pics = R.Pictures(pl)
+        try:
+            ev = {}
+            scores[z] = (R.still_first_frame_whole(pl, pics, i, ev), ev)
+        finally:
+            pics.close()
+    whole, crop = scores[1.0], scores[1.01]
+    assert whole[0] and whole[1]["band_mean_diff"] < R.A7_BAND_LIMIT, whole
+    assert not crop[0] and crop[1]["band_mean_diff"] >= R.A7_BAND_LIMIT, crop
+    assert crop[1]["low_pass_mean_diff"] < R.A7_FULL_LIMIT          # the whole-picture mean alone passed this 1% crop
+
+
+def _mounted_still(path, pad=0.15, tone=225):
+    """A detailed photograph on a uniform mount: the photograph in the middle,
+    a flat border of `pad` of its size on every side."""
+    from PIL import Image
+    _photo_still(path, w=1200, h=1600)
+    with Image.open(path) as im:
+        photo = np.asarray(im.convert("RGB"))
+    py, px = int(1600 * pad), int(1200 * pad)
+    mount = np.full((1600 + 2 * py, 1200 + 2 * px, 3), tone, np.uint8)
+    mount[py:py + 1600, px:px + 1200] = photo
+    Image.fromarray(mount).save(path)
+    return mount.shape[1], mount.shape[0]
+
+
+def _a7_at(film, sid, z, H=1080):
+    plan = R.build_plan(film, W=H * 16 // 9, H=H, burn_subtitles=False, journal=J.Journal(film="a7"))
+    i = [s["id"] for s in plan["shots"]].index(sid)
+    pl = json.loads(json.dumps(plan))
+    pl["shots"][i]["_cam"]["path"][0] = {"z": z, "x": 0.5, "y": 0.5}
+    pics = R.Pictures(pl)
+    try:
+        ev = {}
+        return R.still_first_frame_whole(pl, pics, i, ev), ev
+    finally:
+        pics.close()
+
+
+def _use_still(film, maker):
+    w, h = maker(film / "stills" / "FX-STILL-B.png")
+    led = json.loads((film / "stills-ledger.json").read_text(encoding="utf-8"))
+    led["items"][1].update(width=w, height=h)
+    (film / "stills-ledger.json").write_text(json.dumps(led), encoding="utf-8")
+
+
+def test_a_mounted_still_is_measured_on_the_photograph_not_the_mount(tmp_path, monkeypatch):
+    film = make_film(tmp_path / "film")
+    _use_still(film, _mounted_still)
+    ok, ev = _a7_at(film, "S4", 1.0)
+    assert ok and ev["verdict"] == "whole"
+    trim = ev["mount_trim_px"]
+    assert all(abs(trim[k] - v) <= 2 for k, v in {"left": 180, "right": 180, "top": 240, "bottom": 240}.items()), trim
+    ok, ev = _a7_at(film, "S4", 1.01)
+    assert not ok and ev["band_mean_diff"] >= R.A7_BAND_LIMIT, ev
+    # without the trim the band lies on the blank mount and the 1% crop passes: what the review found
+    monkeypatch.setattr(R, "content_box", lambda img: (0, 0, 0, 0))
+    ok, ev = _a7_at(film, "S4", 1.01)
+    assert ok and ev["band_mean_diff"] < R.A7_BAND_LIMIT and ev["low_pass_mean_diff"] < R.A7_FULL_LIMIT, ev
+
+
+def test_a_still_without_detail_at_its_edges_is_inconclusive(tmp_path):
+    from PIL import Image
+    film = make_film(tmp_path / "film")
+
+    def soft(path):
+        yy, xx = np.mgrid[0:1600, 0:1200]
+        img = np.stack([80 + 40 * xx / 1200, 70 + 30 * yy / 1600, 90 + 0 * xx], axis=2)    # a smooth wash, no edges
+        Image.fromarray(img.astype(np.uint8)).save(path)
+        return 1200, 1600
+
+    _use_still(film, soft)
+    ok, ev = _a7_at(film, "S4", 1.0)
+    assert ok and ev["verdict"] == "inconclusive" and ev["band_detail"] < R.A7_DETAIL_FLOOR
+    plan = R.build_plan(film, W=640, H=360, burn_subtitles=False, journal=J.Journal(film="soft"))
+    j = J.Journal(film="soft-preflight")
+    assert R.preflight_stills(plan, j) == []                          # inconclusive never blocks; the geometric lint decides
+    s4 = [e for e in lints(J.read(j.path), "still-first-frame-whole-pixels") if e["unit"] == "S4"][0]
+    assert s4["status"] == "inconclusive" and s4["evidence"]["verdict"] == "inconclusive"
 
 
 def _no_frames_rendered(evs, out):
