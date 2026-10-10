@@ -110,7 +110,11 @@ NARRATOR_CENTROID_UP = 0.25         # centroid above the baseline by more than 2
 NARRATOR_CENTROID_DOWN = 0.25       # below by more than 25%: out of character for plain and measured lines
 NARRATOR_CENTROID_DOWN_LOWER = 0.40  # lower moods may go 40% below
 NARRATOR_SPREAD_MAX_ST = 1.0        # the baseline lines' robust f0 spread past this is two voices sharing the part
-NARRATOR_DRIFT_ST = 1.0             # the film's baseline f0 this far from the stored audition profile: a drift warning
+NARRATOR_GROUP_DOWN_ST = 1.5        # a lower-mood group's median f0 may sit at most this far under the baseline
+NARRATOR_GROUP_MIN = 2              # a group of one is a single line, which may drop NARRATOR_F0_DOWN_LOWER_ST
+# narrator-drift, the film's baseline against the stored audition profile: warn past the first, block past the second
+NARRATOR_DRIFT_WARN_ST, NARRATOR_DRIFT_BLOCK_ST = 1.0, 2.0
+NARRATOR_DRIFT_WARN_CENTROID, NARRATOR_DRIFT_BLOCK_CENTROID = 0.15, 0.25
 NARRATOR_PROFILE = Path(__file__).resolve().parents[1] / "narrator-profile.json"   # optional anchor: the approved audition
 NEUTRALISE = "colour cast removed"  # A14: the alteration a neutralised colour cast is marked with
 NEUTRALISE_FILTER = "hue=s=0"       # chroma to neutral, luma kept, before scaling and pillarboxing
@@ -1686,8 +1690,23 @@ def narrator_consistency(profiles: dict[str, dict]) -> dict:
         lines[lid] = {"profile": {k: v for k, v in p.items() if k != "mood"}, "mood": mood, "f0_st": d_st,
                       "centroid_pct": None if d_cen is None else round(100 * d_cen, 2), "off": off, "allowed": allowed,
                       "verdict": verdict}
+    # A single lower-mood line may drop 3 semitones, but a whole mood may not: otherwise a second voice could take
+    # the plain lines and leave the narrator only the lower ones. Each lower mood with at least NARRATOR_GROUP_MIN lines,
+    # and the lower moods pooled, keep their median f0 within NARRATOR_GROUP_DOWN_ST of the baseline.
+    groups = {}
+    if base.get("f0_hz") and enough:
+        sets = {m: [p["f0_hz"] for p in measured.values() if p.get("mood") == m] for m in sorted(MOOD_MAY_BE_LOWER)}
+        sets["lower moods pooled"] = [p["f0_hz"] for p in measured.values() if p.get("mood") in MOOD_MAY_BE_LOWER]
+        for m, v in sets.items():
+            if len(v) < NARRATOR_GROUP_MIN:
+                continue
+            d = round(_st(float(np.median(v)), base["f0_hz"]), 2)
+            groups[m] = {"lines": len(v), "median_f0_hz": round(float(np.median(v)), 2), "f0_st": d,
+                         "ok": d >= -NARRATOR_GROUP_DOWN_ST}
+    group_off = [f"{m}: median f0 {g['f0_st']:+.2f} semitones over {g['lines']} lines (a mood may sit at most "
+                 f"{NARRATOR_GROUP_DOWN_ST:g} below the baseline)" for m, g in groups.items() if not g["ok"]]
     return {"baseline": base, "lines": lines, "enough": enough, "min_lines": NARRATOR_MIN_LINES,
-            "baseline_lines": sorted(pool),
+            "groups": groups, "group_off": group_off, "baseline_lines": sorted(pool),
             "baseline_from": ("plain and measured lines" if pool is unmarked
                               else f"all lines (fewer than {NARRATOR_MIN_LINES} plain or measured)"),
             "bounds": {"f0_up_st": NARRATOR_F0_UP_ST, "f0_down_st": NARRATOR_F0_DOWN_ST,
@@ -1726,29 +1745,58 @@ def narrator_profile_from_takes(takes: list[tuple[Path, str]], voice: dict) -> d
             "method": "studio.engine.render.voice_profile on each take levelled to -20 LUFS; median over the takes"}
 
 
+def narrator_drift(baseline: dict, stored: dict | None) -> dict:
+    """The film's narrator baseline against the stored audition profile:
+    f0 in semitones, centroid as a fraction. Each is ``ok``, ``warn``
+    (past NARRATOR_DRIFT_WARN_*) or ``block`` (past NARRATOR_DRIFT_BLOCK_*)."""
+    if not stored or not baseline.get("f0_hz") or not baseline.get("centroid_hz"):
+        return {}
+    f0 = round(_st(baseline["f0_hz"], float(stored["baseline"]["f0_hz"])), 2)
+    cen = round(baseline["centroid_hz"] / float(stored["baseline"]["centroid_hz"]) - 1, 4)
+
+    def grade(v, warn, block):
+        return "block" if abs(v) > block else ("warn" if abs(v) > warn else "ok")
+
+    return {"f0": {"value": f0, "unit": "semitones", "warn": NARRATOR_DRIFT_WARN_ST, "block": NARRATOR_DRIFT_BLOCK_ST,
+                   "grade": grade(f0, NARRATOR_DRIFT_WARN_ST, NARRATOR_DRIFT_BLOCK_ST)},
+            "centroid": {"value": cen, "unit": "fraction", "warn": NARRATOR_DRIFT_WARN_CENTROID,
+                         "block": NARRATOR_DRIFT_BLOCK_CENTROID,
+                         "grade": grade(cen, NARRATOR_DRIFT_WARN_CENTROID, NARRATOR_DRIFT_BLOCK_CENTROID)}}
+
+
 def narrator_consistency_lints(journal: Journal, profiles: dict[str, dict], draft: bool,
                                narrator_voice: dict | None = None) -> list[str]:
-    """Journal the narrator's baseline and every line's profile; one
-    narrator-consistency lint per line and one for the part as a whole (the
-    baseline lines' pitch spread), blocking, a warning under --draft; and the
-    drift check against the stored audition profile (narrator-drift, always a
-    warning). Returns what is out of character, with why."""
+    """Journal the narrator's baseline and every line's profile, and lint:
+    narrator-consistency per line, for the part's spread and for each
+    lower-mood group (blocking, a warning under --draft); narrator-drift
+    against the stored audition profile for f0 and centroid (a warning past
+    the first bound, blocking past the second, a warning under --draft), or
+    a review item "no reference profile" when the narrator voice has none.
+    Returns what is refused, with why."""
     res = narrator_consistency(profiles)
     stored, why = load_narrator_profile(narrator_voice)
-    drift = None
-    if stored and res["baseline"].get("f0_hz"):
-        drift = round(_st(res["baseline"]["f0_hz"], float(stored["baseline"]["f0_hz"])), 2)
+    drift = narrator_drift(res["baseline"], stored)
     journal.event("unit", "assembly", "narrator", lens="narrator-profile", status="info", grammar="A14",
                   baseline=res["baseline"], baseline_from=res["baseline_from"], baseline_lines=res["baseline_lines"],
-                  bounds=res["bounds"], spread_st=res["spread_st"], drift_st=drift, reference=why,
+                  bounds=res["bounds"], spread_st=res["spread_st"], groups=res["groups"], drift=drift, reference=why,
                   lines={k: v["profile"] | {"mood": v["mood"]} for k, v in res["lines"].items()}, enough=res["enough"])
-    journal.lint("narrator-drift", drift is None or abs(drift) <= NARRATOR_DRIFT_ST, stage="assembly", phase="preflight",
-                 unit="narrator", severity="warn", grammar="A14",
-                 status="inconclusive" if drift is None else None,
-                 evidence={"drift_st": drift, "limit_st": NARRATOR_DRIFT_ST, "film_baseline": res["baseline"],
-                           "reference": (stored or {}).get("baseline"), "why": why})
     sev = "warn" if draft else "block"
     off = []
+    if not stored:
+        journal.lint("narrator-drift", True, stage="assembly", phase="preflight", unit="narrator", severity="review",
+                     grammar="A14", evidence={"check": "no reference profile", "why": why, "narrator_voice": narrator_voice,
+                                              "film_baseline": res["baseline"]})
+    else:
+        for k, d in drift.items():
+            blocks = d["grade"] == "block"
+            journal.lint("narrator-drift", d["grade"] == "ok", stage="assembly", phase="preflight", unit=f"narrator-{k}",
+                         severity=sev if blocks else "warn", grammar="A14",
+                         evidence=dict(d, film_baseline=res["baseline"], reference=stored["baseline"], why=why,
+                                       result=None if not blocks else ("kept (draft)" if draft else "refused: not the narrator's voice")))
+            if blocks:
+                v = f"{d['value']:+.2f} semitones" if k == "f0" else f"{d['value']:+.1%}"
+                off.append(f"narrator-drift {k} {v} from the stored profile (block past {d['block']:g}"
+                           + (" semitones)" if k == "f0" else ")"))
     journal.lint("narrator-consistency", res["spread_ok"], stage="assembly", phase="preflight", unit="narrator",
                  severity=sev, grammar="A14", status=None if res["enough"] else "inconclusive",
                  evidence={"spread_st": res["spread_st"], "limit_st": NARRATOR_SPREAD_MAX_ST, "baseline": res["baseline"],
@@ -1757,6 +1805,11 @@ def narrator_consistency_lints(journal: Journal, profiles: dict[str, dict], draf
     if not res["spread_ok"]:
         off.append(f"narrator (the baseline lines' pitch spreads {res['spread_st']:.2f} semitones, "
                    f"limit {NARRATOR_SPREAD_MAX_ST:g}: two voices share the part)")
+    for m, g in res["groups"].items():
+        journal.lint("narrator-consistency", g["ok"], stage="assembly", phase="preflight", unit=f"narrator:{m}", severity=sev,
+                     grammar="A14", evidence=dict(g, baseline=res["baseline"], limit_st=NARRATOR_GROUP_DOWN_ST,
+                                                  result=None if g["ok"] else ("kept (draft)" if draft else "refused")))
+    off += res["group_off"]
     for lid, r in res["lines"].items():
         bad = r["verdict"] == "off"
         journal.lint("narrator-consistency", not bad, stage="assembly", phase="preflight", unit=lid,
@@ -1841,7 +1894,7 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
     if bad_takes and not draft:
         raise Refused(f"voice-peak-control (A13): bad takes, re-render them instead of crushing them: {'; '.join(bad_takes)}")
     if narrator_off and not draft:
-        raise Refused(f"narrator-consistency (A14): not the narrator's voice, re-render: {'; '.join(narrator_off)}")
+        raise Refused(f"narrator-consistency and narrator-drift (A14): not the narrator's voice: {'; '.join(narrator_off)}")
     env = (np.abs(voice) > 1e-3).astype(np.float32)
     env = np.clip(moving_average(env, int(0.25 * AUDIO_RATE)) * 4, 0, 1)
     duck = 1 - env * (1 - 10 ** (-DUCK_DB / 20))

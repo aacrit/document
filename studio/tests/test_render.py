@@ -1614,7 +1614,7 @@ def test_narrator_consistency_blocks_the_mix_and_warns_under_draft(plan, film, t
             p["lines"].append({"id": lid, "kind": "narration", "start_s": 9.0 + k, "text": "one two three four five six seven",
                                "wav": str(wav), "delivery": {"mood": "measured"}, "_part": "ch-1"})
     j = J.Journal(film="narrator")
-    with pytest.raises(R.Refused, match=r"narrator-consistency \(A14\).*NOFF \(f0 \+4"):
+    with pytest.raises(R.Refused, match=r"narrator-consistency and narrator-drift \(A14\).*NOFF \(f0 \+4"):
         R.build_mix(p, film, j)
     evs = J.read(j.path)
     per = {e["unit"]: e for e in lints(evs, "narrator-consistency") if e["unit"] != "narrator"}
@@ -1692,7 +1692,7 @@ def test_two_voices_sharing_the_narrator_are_refused(plan, film, tmp_path):
             p["lines"].append({"id": lid, "kind": "narration", "start_s": 9.0 + k, "text": "one two three four five six seven",
                                "wav": str(wav), "delivery": {"mood": "measured"}, "_part": "ch-1"})
     j = J.Journal(film="two-narrators")
-    with pytest.raises(R.Refused, match=r"narrator-consistency \(A14\).*narrator \(the baseline lines' pitch spreads"):
+    with pytest.raises(R.Refused, match=r"narrator-consistency and narrator-drift \(A14\).*narrator \(the baseline lines' pitch spreads"):
         R.build_mix(p, film, j)
     whole = [e for e in lints(J.read(j.path), "narrator-consistency") if e["unit"] == "narrator"][0]
     assert whole["status"] == "fail" and whole["evidence"]["spread_st"] > R.NARRATOR_SPREAD_MAX_ST
@@ -1754,15 +1754,11 @@ def test_narrator_centroid_bounds_sit_at_25_and_40_percent(pct, mood, want):
     assert x["centroid_pct"] == pytest.approx(pct, abs=0.01)
 
 
-def test_the_stored_profile_is_only_a_drift_warning(tmp_path, monkeypatch, plan, film):
-    f = tmp_path / "narrator-profile.json"
-    f.write_text(json.dumps({"voice": {"engine": "test-tone", "voice": "none"}, "baseline": {"f0_hz": 150.0, "centroid_hz": 900.0}}),
-                 encoding="utf-8")
-    assert R.load_narrator_profile({"engine": "test-tone", "voice": "none"}, f)[0]["baseline"]["f0_hz"] == 150.0
-    assert R.load_narrator_profile({"engine": "orpheus", "voice": "tara"}, f)[0] is None
-    monkeypatch.setattr(R, "NARRATOR_PROFILE", f)
+def _drift_film(tmp_path, monkeypatch, plan, ref_f0, ref_cen=None):
+    """The fixture plan with four plain and measured narrator lines near 183 Hz, and a stored profile."""
     p = json.loads(json.dumps(plan))
-    (tmp_path / "audio").mkdir()
+    (tmp_path / "audio").mkdir(exist_ok=True)
+    profs = {}
     for k, (lid, f0) in enumerate({"L1": 183.0, "NB": 181.0, "NC": 185.0, "ND": 182.0}.items()):
         wav = _wav(tmp_path / "audio" / f"{lid}.wav", _speech(f0, seed=k))
         if lid == "L1":
@@ -1770,11 +1766,81 @@ def test_the_stored_profile_is_only_a_drift_warning(tmp_path, monkeypatch, plan,
         else:
             p["lines"].append({"id": lid, "kind": "narration", "start_s": 9.0 + k, "text": "one two three four five six seven",
                                "wav": str(wav), "delivery": {"mood": "measured"}, "_part": "ch-1"})
-    j = J.Journal(film="drift")
-    R.build_mix(p, film, j)                                           # 3.4 semitones from the profile: warned, never refused
-    evs = J.read(j.path)
-    drift = lints(evs, "narrator-drift")[0]
-    assert drift["status"] == "fail" and drift["severity"] == "warn" and drift["evidence"]["drift_st"] > R.NARRATOR_DRIFT_ST
-    assert all(e["status"] == "pass" for e in lints(evs, "narrator-consistency"))
-    base = [e for e in evs if e.get("lens") == "narrator-profile"][0]
-    assert base["baseline"]["f0_hz"] == pytest.approx(183.0, rel=0.02)      # the film's own lines, not the profile
+    if ref_cen is None:                                               # the films' own centroid, so only f0 drifts
+        ref_cen = R.voice_profile(_levelled(_speech(183.0, seed=0)), 7)["centroid_hz"]
+    f = tmp_path / "narrator-profile.json"
+    f.write_text(json.dumps({"voice": {"engine": "test-tone", "voice": "none"},
+                             "baseline": {"f0_hz": ref_f0, "centroid_hz": ref_cen}}), encoding="utf-8")
+    monkeypatch.setattr(R, "NARRATOR_PROFILE", f)
+    return p
+
+
+@pytest.mark.parametrize("ref_st,grade", [(0.5, "pass"), (1.5, "warn"), (2.5, "block")])
+def test_narrator_drift_in_f0_warns_past_1_and_blocks_past_2_semitones(tmp_path, monkeypatch, plan, film, ref_st, grade):
+    p = _drift_film(tmp_path, monkeypatch, plan, ref_f0=183.0 * 2 ** (-ref_st / 12))
+    j = J.Journal(film=f"drift-{grade}")
+    if grade == "block":
+        with pytest.raises(R.Refused, match=r"narrator-drift f0 \+2\.\d+ semitones"):
+            R.build_mix(p, film, j)
+    else:
+        R.build_mix(p, film, j)
+    d = [e for e in lints(J.read(j.path), "narrator-drift") if e["unit"] == "narrator-f0"][0]
+    assert d["status"] == ("pass" if grade == "pass" else "fail")
+    assert d["severity"] == ("block" if grade == "block" else "warn")
+    jd = J.Journal(film=f"drift-{grade}-draft")
+    R.build_mix(p, film, jd, draft=True)                              # a draft only ever warns
+    assert all(e["severity"] == "warn" for e in lints(J.read(jd.path), "narrator-drift"))
+
+
+@pytest.mark.parametrize("ratio,grade", [(1.10, "pass"), (1.20, "warn"), (1.30, "block")])
+def test_a_timbre_only_swap_is_caught_by_centroid_drift(tmp_path, monkeypatch, plan, film, ratio, grade):
+    cen = R.voice_profile(_levelled(_speech(183.0, seed=0)), 7)["centroid_hz"]
+    p = _drift_film(tmp_path, monkeypatch, plan, ref_f0=183.0, ref_cen=cen / ratio)   # same pitch, brighter film
+    j = J.Journal(film=f"timbre-{grade}")
+    if grade == "block":
+        with pytest.raises(R.Refused, match=r"narrator-drift centroid \+"):
+            R.build_mix(p, film, j)
+    else:
+        R.build_mix(p, film, j)
+    d = [e for e in lints(J.read(j.path), "narrator-drift") if e["unit"] == "narrator-centroid"][0]
+    assert d["status"] == ("pass" if grade == "pass" else "fail") and d["severity"] == ("block" if grade == "block" else "warn")
+
+
+def test_a_narrator_with_no_stored_profile_is_a_review_item(plan, film):
+    j = J.Journal(film="no-profile")                                  # the fixture's narrator is a test tone: no profile
+    p = json.loads(json.dumps(plan))
+    R.build_mix(p, film, j)
+    rev = lints(J.read(j.path), "narrator-drift")
+    assert len(rev) == 1 and rev[0]["status"] == "review" and rev[0]["evidence"]["check"] == "no reference profile"
+
+
+def test_a_second_voice_on_the_plain_lines_with_the_narrator_on_the_lower_moods_is_refused():
+    lines = {f"P{k}": _p(205.0 + k * 0.5, mood=("plain" if k % 2 else "measured")) for k in range(8)}   # voice X
+    for k, mood in enumerate(["hushed", "hushed", "grave", "grave", "grave", "close", "close"]):          # Tara, 176 Hz
+        lines[f"L{k}"] = _p(176.0 + (k % 3) * 0.5, mood=mood)
+    res = R.narrator_consistency(lines)
+    assert all(r["verdict"] == "consistent" for r in res["lines"].values())          # every line alone is within bounds
+    assert res["spread_ok"]                                                          # and the baseline lines agree
+    assert -3.0 < res["lines"]["L0"]["f0_st"] < -2.4
+    assert {m for m, g in res["groups"].items() if not g["ok"]} == {"hushed", "grave", "close", "lower moods pooled"}
+    one = R.narrator_consistency({**{f"P{k}": _p(183.0) for k in range(6)}, "H": _p(183.0 * 2 ** (-2.8 / 12), mood="hushed")})
+    assert not one["group_off"] and one["lines"]["H"]["verdict"] == "consistent"     # a single line may still drop 3
+
+
+def test_the_mood_split_refuses_the_mix(plan, film, tmp_path):
+    p = json.loads(json.dumps(plan))
+    (tmp_path / "audio").mkdir()
+    voices = {"L1": (205.0, "plain"), "NB": (206.0, "measured"), "NC": (204.0, "plain"), "ND": (205.5, "measured"),
+              "H1": (176.0, "hushed"), "H2": (177.0, "hushed"), "G1": (176.5, "grave"), "G2": (175.5, "grave")}
+    for k, (lid, (f0, mood)) in enumerate(voices.items()):
+        wav = _wav(tmp_path / "audio" / f"{lid}.wav", _speech(f0, seed=k))
+        if lid == "L1":
+            _line(p, "L1").update(wav=str(wav), delivery={"mood": mood})
+        else:
+            p["lines"].append({"id": lid, "kind": "narration", "start_s": 9.0 + k, "text": "one two three four five six seven",
+                               "wav": str(wav), "delivery": {"mood": mood}, "_part": "ch-1"})
+    j = J.Journal(film="mood-split")
+    with pytest.raises(R.Refused, match=r"hushed: median f0 -2\.\d+ semitones"):
+        R.build_mix(p, film, j)
+    grp = {e["unit"]: e["status"] for e in lints(J.read(j.path), "narrator-consistency") if e["unit"].startswith("narrator:")}
+    assert grp == {"narrator:hushed": "fail", "narrator:grave": "fail", "narrator:lower moods pooled": "fail"}
