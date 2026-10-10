@@ -101,3 +101,6 @@ The founder's existing DaVinci Resolve Studio 20.1 licence is used (sunk cost; $
 - R2 Director's-cut round-trip: the engine exports each film as an OpenTimelineIO timeline for Resolve; edits made there are read back into the screenplay and must re-pass every rule before render.
 - R3 Mastering and delivery: final master and upload to the founder's YouTube channel from Resolve's Deliver page, which avoids the YouTube API audit; the founder clicks publish.
 Resolve runs on the GPU, so it takes the GPU lock: never at the same time as Orpheus or another render.
+
+## 2026-10-10: Narrator delivery moves the level only; one narrator, measured (Chief of Staff, T1c)
+The episode screenplay's narration lines carry a `delivery` (mood, intensity, pace, pause after) from the narrator arc. The voice is rendered upstream, so in the engine a mood only sets a small level offset after the -20 LUFS levelling: plain 0, measured 0, grave -0.5, hushed -2.0, close -1.0 dB, never beyond 2 dB, and a synthetic line carries no `gain_db` of its own. A new blocking lint, narrator-consistency, refuses a narration take whose pitch or brightness strays more than 2.5 robust z from the narrator's own median, except lower (and slower) where the mood asks for it. Recorded as GRAMMAR A14, with `colour cast removed` for the 1946 newsreel.

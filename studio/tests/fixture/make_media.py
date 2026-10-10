@@ -71,6 +71,15 @@ def slow(dest: Path, seconds: float = 4.0, fps: int = 10) -> Path:
     return dest
 
 
+def magenta(dest: Path, seconds: float = 4.0) -> Path:
+    """A moving 24 fps pattern with a magenta cast (green cut to 55%), the
+    shape of the 1946 newsreel's transfer cast, for the A14 neutralise test."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    _run(["-f", "lavfi", "-i", f"testsrc2=size=640x480:rate=24:duration={seconds}",
+          "-vf", "colorchannelmixer=gg=0.55", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", str(dest)])
+    return dest
+
+
 STILLS = {"FX-STILL-A": (500, 350), "FX-STILL-B": (395, 316), "FX-STILL-C": (300, 420)}
 
 
