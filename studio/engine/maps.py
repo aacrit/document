@@ -1075,7 +1075,32 @@ def contact_sheet(paths: list[Path], out: Path, cols: int = 3, thumb_w: int = 64
     sheet.save(out)
 
 
+def check_specs(folder: Path | str) -> list[str]:
+    """Every rule check_spec enforces, over every D*.json in a folder, without rendering:
+    one line per violation (an empty list is a pass)."""
+    problems = []
+    files = sorted(Path(folder).glob("*.json"))
+    if not files:
+        return [f"{folder}: no specs found"]
+    for f in files:
+        try:
+            check_spec(json.loads(f.read_text(encoding="utf-8")))
+        except (MapRefused, ValueError, KeyError) as e:
+            problems.append(f"{f.name}: {e}")
+    return problems
+
+
 def main(argv=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["check-specs"]:
+        if len(argv) != 2:
+            print("usage: python -m studio.engine.maps check-specs <spec folder>")
+            return 2
+        problems = check_specs(argv[1])
+        for line in problems:
+            print("VIOLATION", line)
+        print(f"check-specs: {len(problems)} violation(s)")
+        return 1 if problems else 0
     ap = argparse.ArgumentParser(description="Render map specs to 1920x1080 DRAWN frames.")
     ap.add_argument("specs", nargs="+")
     ap.add_argument("--geodata", required=True)

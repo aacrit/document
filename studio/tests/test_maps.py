@@ -339,19 +339,19 @@ def test_a_solid_bengal_award_line_is_refused():
     maps.check_spec(s)
 
 
-EPISODE_SPECS = Path.home() / "document-work" / "episode" / "drawn" / "specs"
-
-
-@pytest.mark.skipif(not EPISODE_SPECS.exists(), reason="the episode's specs live outside the repo")
-def test_no_episode_spec_draws_a_bengal_line_solid():
-    for f in sorted(EPISODE_SPECS.glob("D*.json")):
-        s = json.loads(f.read_text(encoding="utf-8"))
-        maps.check_spec(s)
-        for v in s.get("views") or [s]:
-            for ly in v.get("layers", []):
-                w = ly.get("where") or {}
-                if {w.get("ADM0_A3_L"), w.get("ADM0_A3_R")} == {"BGD", "IND"}:
-                    assert ly["style"] not in maps.SOLID, f.name
+def test_check_specs_reports_every_violation_and_exits_non_zero(tmp_path):
+    good = spec()
+    bad = spec()
+    bad["layers"].append({"file": "river.geojson", "style": "line",
+                          "where": {"ADM0_A3_L": "BGD", "ADM0_A3_R": "IND"}})
+    (tmp_path / "D1.json").write_text(json.dumps(good), encoding="utf-8")
+    assert maps.check_specs(tmp_path) == []
+    assert maps.main(["check-specs", str(tmp_path)]) == 0
+    (tmp_path / "D2.json").write_text(json.dumps(bad), encoding="utf-8")
+    problems = maps.check_specs(tmp_path)
+    assert len(problems) == 1 and problems[0].startswith("D2.json") and "Bengal award" in problems[0]
+    assert maps.main(["check-specs", str(tmp_path)]) == 1
+    assert maps.main(["check-specs", str(tmp_path / "empty")]) == 1
 
 
 def test_the_source_line_zone_carries_no_map_strokes():
