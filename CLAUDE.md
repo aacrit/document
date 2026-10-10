@@ -69,6 +69,8 @@ See `CHARTER.md` for its surfaces and kill dates, and `contract.yaml` for what
   numpy, pillow, soundfile and pytest, plus ffmpeg (`DOCUMENT_PYTHON` picks the interpreter).
 - `python -m studio.engine.render <film dir>`: render a screenplay v2 to a 1080p24 master;
   every run is journaled (`studio/engine/journal.py`), issues go to `docs/ENGINE-LOG.md`.
+- `python -m studio.engine.captions <render dir>`: write the English captions (captions-en.vtt) from the
+  render's resolved screenplay (`studio/engine/captions.py`); they go to R2 with the film, poster and sources.json.
 - `npm run contract -- --url <url>`: run `contract.yaml` against a live URL.
   Checks marked `requires: deployed` show SKIP on localhost and must PASS
   on the preview.

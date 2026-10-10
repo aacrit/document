@@ -1,0 +1,273 @@
+/* The house: shared components for void document's public pages (Screening room,
+   Film, Sources, Corrections), ported from the G2-approved mocks
+   (design/mocks/house.css). Colors come from design/tokens.css only. */
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+html { background: var(--color-bg); -webkit-text-size-adjust: 100%; }
+body {
+  min-height: 100svh;
+  font-size: 16px;
+  line-height: 1.55;
+  isolation: isolate;
+  position: relative;
+  overflow-x: hidden;
+}
+/* Film grain lives in the dark around the pictures, behind every element,
+   so it never touches a photograph. */
+body::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: var(--texture-grain);
+  background-size: 160px 160px;
+  opacity: var(--grain-opacity);
+  pointer-events: none;
+}
+img { display: block; max-width: 100%; }
+p { margin: 0; }
+h1, h2, h3 { margin: 0; font-weight: 400; }
+
+/* Numerals and timecodes: data face, tabular, always. No ligatures in data
+   or command text, so -- never fuses into a dash. */
+.num, time, .tc, code, kbd {
+  font-feature-settings: "calt" 0, "liga" 0;
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+/* Safelight: provenance only. Timecodes, credits, source links. */
+.safe { color: var(--color-safelight); }
+/* A timecode earns safelight only where it points to a source (ledger
+   entries, credit links): add .src. Player clocks and transcript times stay bone. */
+.tc.src { color: var(--color-safelight); }
+
+.eyebrow {
+  font-family: var(--font-data);
+  font-size: 11px;
+  line-height: 1.4;
+  letter-spacing: var(--track-eyebrow);
+  text-transform: uppercase;
+  color: var(--color-cream-muted);
+}
+.muted { color: var(--color-cream-muted); }
+
+/* Links. Ordinary links are bone and underlined; source links are safelight. */
+a {
+  color: var(--color-cream);
+  text-decoration: underline;
+  text-decoration-color: var(--color-cream-faint);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  transition: text-decoration-color var(--dur-fast) var(--ease-out);
+}
+a:hover { text-decoration-color: currentColor; }
+a.source {
+  color: var(--color-safelight);
+  text-decoration-color: var(--color-safelight-glow);
+}
+a.source:hover { text-decoration-color: currentColor; }
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* Buttons: bone and quiet. Spring press on pointerdown. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 20px;
+  border-radius: var(--radius-control);
+  border: 1px solid transparent;
+  background: var(--color-action);
+  color: var(--color-action-ink);
+  font: 500 15px/1 var(--font-structure);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), transform var(--dur-normal) var(--spring-snappy);
+}
+.btn:hover { background: var(--color-action-hover); }
+.btn:active { transform: scale(0.97); transition-duration: var(--dur-instant); }
+.btn.quiet {
+  background: transparent;
+  color: var(--color-cream);
+  border-color: var(--color-border);
+}
+.btn.quiet:hover { border-color: var(--color-cream-muted); }
+.btn svg { width: 18px; height: 18px; flex: none; }
+.btn .num { font-size: 13px; opacity: 0.72; }
+
+/* Wordmark: the logomark plus the name, set like a studio card. */
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-cream);
+  text-decoration: none;
+  font: 400 19px/1 var(--font-display);
+  letter-spacing: var(--track-credit);
+  min-height: 44px;
+}
+.wordmark svg { width: 24px; height: 24px; flex: none; }
+
+/* Page frame for reading surfaces */
+.house-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.house-bar .back {
+  font-size: 14px;
+  color: var(--color-cream-muted);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+.house-bar .back:hover { color: var(--color-cream); }
+.house-bar .back svg { width: 18px; height: 18px; }
+
+.house-foot {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 40px 16px 48px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  font-size: 13px;
+  color: var(--color-cream-muted);
+  border-top: 1px solid var(--color-border);
+}
+.house-foot a { color: var(--color-cream-muted); }
+
+/* Title card: set like an opening credit. */
+.titlecard { display: grid; gap: 10px; }
+.titlecard .presents {
+  font: 400 12px/1.3 var(--font-structure);
+  letter-spacing: 0.22em;
+  color: var(--color-cream-muted);
+}
+.titlecard .title {
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-size: clamp(48px, 9vw, 120px);
+  line-height: 0.95;
+  letter-spacing: 0.01em;
+  font-variation-settings: "opsz" 144;
+}
+.titlecard .place {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 300;
+  font-size: clamp(18px, 2.2vw, 26px);
+  line-height: 1.3;
+  color: var(--color-cream);
+}
+
+/* Every image on the site wears its credit, bottom corner, in safelight. */
+.frame-credit {
+  font: 400 12px/1.45 var(--font-structure);
+  color: var(--color-safelight);
+  max-width: 34ch;
+}
+.frame-credit .num { font-size: 11px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn:active { transform: none; }
+}
+/* ---- void document r2 ---- */
+/* Wordmark: "void" in the data face, as the void family sets its name; "document" in the display face. */
+.wm { display: inline-flex; align-items: baseline; gap: 0.32em; white-space: nowrap; }
+.wm-void { font: 400 0.86em/1 var(--font-data); letter-spacing: 0; font-feature-settings: "calt" 0, "liga" 0; }
+.wm-doc { font: 400 1em/1 var(--font-display); letter-spacing: var(--track-credit); }
+
+/* The in-picture mark (GRAMMAR 4.1). Lives inside a frame box that is a size
+   container, so every length is a share of the frame, as at 1080p. */
+.frame-box { position: relative; container-type: size; aspect-ratio: 16 / 9; overflow: hidden; background: var(--color-letterbox); }
+.frame-box > img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.mark {
+  position: absolute; left: 4cqw; top: 5cqh; z-index: 3;
+  display: inline-flex; align-items: baseline; gap: 0.9em;
+  padding: 0.6em 0.75em 0.6em 0.7em;
+  background: var(--mark-scrim);
+  border-radius: 0.55cqh;
+  box-shadow: inset 3px 0 0 var(--mark-hue, var(--mark-archive));
+  color: var(--mark-text);
+  font: 500 max(9px, 3.1cqh)/1 var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "calt" 0, "liga" 0;
+  white-space: nowrap;
+}
+/* A mark shown as a label outside a frame (legends, Sources, galleries). */
+.mark.inline, .legend .mark, .ehead .mark { position: static; font-size: 11.5px; }
+.mark .cls { font-weight: 600; letter-spacing: 0.06em; }
+.mark .det { letter-spacing: 0.01em; }
+.mark[data-class="archive"] { --mark-hue: var(--mark-archive); }
+.mark[data-class="reconstructed"] { --mark-hue: var(--mark-reconstructed); }
+.mark[data-class="generated"], .mark[data-class="drawn"] { --mark-hue: var(--mark-generated); }
+.mark[data-class="card"] { --mark-hue: var(--mark-reconstructed); font-size: max(8px, 2.4cqh); }
+/* Lower third (GRAMMAR 9): bottom left, never above 75% of frame height. */
+/* Subtitle cue: bottom centre; moves up above a lower third. */
+.cue { position: absolute; left: 50%; bottom: 7cqh; transform: translateX(-50%); width: max-content; max-width: 84cqw; text-align: center; z-index: 4; margin: 0; }
+.cue.over-lt { bottom: 29cqh; }
+.cue > span { font: 500 max(11px, 3.9cqh)/1.45 var(--font-structure); background: var(--mark-scrim); color: var(--mark-text); padding: 0.1em 0.45em; box-decoration-break: clone; -webkit-box-decoration-break: clone; border-radius: 3px; }
+/* Player menus: subtitles and the mark legend. */
+.menu { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; box-shadow: var(--shadow-card); padding: 6px; display: grid; gap: 2px; min-width: 220px; }
+.menu .mh { font: 500 10.5px/1.3 var(--font-data); letter-spacing: var(--track-eyebrow); text-transform: uppercase; color: var(--color-cream-muted); padding: 8px 10px 4px; }
+.menu button, .controls .menu button { width: 100%; justify-content: flex-start; place-items: initial; min-width: 0; }
+.menu button { appearance: none; background: none; border: 0; color: var(--color-cream); text-align: start; min-height: 40px; padding: 0 10px; border-radius: 6px; font: 400 14px/1.3 var(--font-structure); display: flex; gap: 10px; align-items: center; cursor: pointer; }
+.menu button:hover { background: var(--color-surface-raised); }
+.menu button[aria-checked="true"]::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--color-cream); }
+.menu button[aria-checked="false"]::before { content: ""; width: 6px; height: 6px; }
+.legend { display: grid; gap: 10px; padding: 6px 8px 8px; }
+.legend .row { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-items: start; }
+.legend .row .mark { position: static; font-size: 11px; }
+.legend .row p { font-size: 13px; color: var(--color-cream-muted); }
+.gen { color: var(--color-generated-text); }
+/* ---- void document r3: brand kit ---- */
+/* Watermark: top right, 6% of height, 0.6 opacity, halo; off on every CARD. */
+/* A7: a still opens whole, at its native aspect, on the near-black field. */
+.frame-box.field { background: var(--doc-black); }
+/* Lower third, BBC school: no box, a rule, a wash (BRAND-KIT 4). */
+.cue.raised { bottom: calc(100cqh - 78.4cqh + 1.2cqh); }
+.cue.raised.flagged { bottom: calc(100cqh - 75.1cqh + 1.2cqh); }
+/* Cards over black (CARD: no watermark). */
+@keyframes rule-in { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes rule-centre { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes line-in { from { opacity: 0; transform: translateY(0.8cqh); } to { opacity: 1; transform: none; } }
+@keyframes title-in { from { opacity: 0; transform: translateY(0.6cqh); } to { opacity: 1; transform: none; } }
+@keyframes fade-in-sine { from { opacity: 0; } }
+/* Site motion uses the film's springs (BRAND-KIT 6), so both move alike. */
+.btn { transition: background var(--dur-fast) var(--ease-out), transform var(--stamp-dur) var(--spring-stamp); }
+.titlecard > * { animation: title-in var(--arrive-dur) var(--spring-arrive) both; }
+.paused-credit { animation: line-in var(--settle-dur) var(--spring-settle) both !important; }
+/* ---- r4 ---- */
+/* Flagged lower third: the account comes first and is as large as the name. */
+.cue.raised.flagged { bottom: calc(100cqh - 75.06cqh + 1.2cqh); }
+/* Provenance, said in words beside the player. */
+.provenance { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; padding: 10px 16px 14px; font-size: 13px; color: var(--color-cream-muted); }
+.provenance strong { font-weight: 500; color: var(--color-cream); }
+/* The legend: one column, so it fits at 375 px. */
+.legend .row { grid-template-columns: 1fr; gap: 4px; }
+.legend .lead { font-size: 13px; color: var(--color-cream); padding: 0 2px 4px; }
+.legend .row .mark { justify-self: start; white-space: normal; }
+.menu.legend-menu { max-width: min(92vw, 380px); }
+.endcard { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; }
+.endcard .acts { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+
+/* ---- site (T7) ---- */
+/* The logomark's ember: the one amber point in the wordmark (BRAND.md). */
+.wordmark .ember { fill: var(--color-safelight); stroke: none; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+[hidden] { display: none !important; }
+/* Footer: the void family, the licence, privacy. */
+.house-foot a { min-height: 24px; display: inline-flex; align-items: center; }

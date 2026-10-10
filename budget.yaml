@@ -9,7 +9,7 @@ quotas:
   - name: workers_requests_per_day
     ceiling: 100000
     estimate_at_1000_users_per_day: 6000
-    notes: "Account-wide. ~3 /e and /feedback requests plus ~3 /media range requests per visitor a day (films are streamed through the Worker from R2). ~3 Worker requests per visitor a day: a couple of /e events and occasional /feedback. Static pages, scripts, styles and fonts are served by Workers Static Assets without invoking the Worker (wrangler.jsonc's run_worker_first lists only the Worker routes), so they do not count here. Not bounded against abuse on the free plan: a refused request is still an invocation. The zone's WAF rule caps bursts (the /release skill), and the rest is an accepted risk signed at G3 (the /launch skill)."
+    notes: "Account-wide. ~3 /e and /feedback requests plus ~3 /media requests per visitor a day (the film, its poster, captions and sources.json are served through the Worker from R2; the film itself in byte ranges). Static pages, scripts, styles and fonts are served by Workers Static Assets without invoking the Worker (wrangler.jsonc's run_worker_first lists only the Worker routes), so they do not count here. Not bounded against abuse on the free plan: a refused request is still an invocation. The zone's WAF rule caps bursts (the /release skill), and the rest is an accepted risk signed at G3 (the /launch skill)."
 
   - name: d1_rows_read_per_day
     ceiling: 5000000
@@ -18,10 +18,10 @@ quotas:
 
   - name: d1_rows_written_per_day
     ceiling: 100000
-    estimate_at_1000_users_per_day: 3000
-    worst_case_rows: 11204
+    estimate_at_1000_users_per_day: 4000
+    worst_case_rows: 12605
     worst_case_max_share: 0.15
-    notes: "Account-wide. Typical is ~3,000 (one counter update per /e call, occasional feedback). Every write path sits behind a day ceiling that writes nothing once reached, so this product's writes are bounded by the sum of ceiling x rows-per-count, index entries included (worker/src/config.ts's worstCaseDailyWrites, with wrangler.jsonc's values): /e client events 2 x (4,000 + 1 + a daily feedback purge of up to 2 x the 100-row feedback ceiling, 2 rows each) = 8,802; feedback 100 x 22 + 101 = 2,301; rate_limiter_error 101. Worst case 11,204 rows, 11.2% of the account's 100,000; worst_case_max_share caps it at 15%, so four live products at their caps stay under the 70% alert together. tests/hardening.test.ts recomputes worst_case_rows from wrangler.jsonc and checks the share. Refused requests (rate limit, cross-site, content type, ceilings) write nothing."
+    notes: "Account-wide. Typical is ~4,000 (one counter update per /e call: about three page views per visitor, plus film_completed and source_opened, and occasional corrections). Every write path sits behind a day ceiling that writes nothing once reached, so this product's writes are bounded by the sum of ceiling x rows-per-count, index entries included (worker/src/config.ts's worstCaseDailyWrites, with wrangler.jsonc's values): /e client events, now three (page_view, film_completed, source_opened), 3 x (3,000 + 1 + a daily feedback purge of up to 2 x the 100-row feedback ceiling, 2 rows each) = 10,203; feedback 100 x 22 + 101 = 2,301; rate_limiter_error 101. Worst case 12,605 rows, 12.6% of the account's 100,000; worst_case_max_share caps it at 15%. EVENT_DAILY_CEILING went from 4,000 to 3,000 when source_opened was added (T7): at 4,000 three client events would reach 15,605 rows, over the 15% share, and 3,000 still covers three page views per visitor at the 1,000-a-day estimate, far above any day's completions or source opens. tests/hardening.test.ts recomputes worst_case_rows from wrangler.jsonc and checks the share. Refused requests (rate limit, cross-site, content type, ceilings) write nothing."
 
   - name: d1_storage_mb
     ceiling: 500

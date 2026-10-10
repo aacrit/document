@@ -1,0 +1,52 @@
+/* Sources: from design/mocks/sources.html (G2). */
+.ledger { max-width: 1100px; margin: 0 auto; padding: 16px 16px 40px; }
+.ledger-head { display: grid; gap: 10px; padding: 16px 0 28px; }
+.ledger-head h1 { font: 300 clamp(36px, 6vw, 68px)/1.05 var(--font-display); }
+.ledger-head p { color: var(--color-cream-muted); max-width: 64ch; }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 0 20px; position: sticky; top: 0; z-index: 3; background: var(--color-bg); padding-top: 10px; }
+.filters button { appearance: none; min-height: 40px; padding: 0 14px; border-radius: var(--radius-pill); border: 1px solid var(--color-border); background: none; color: var(--color-cream); font: 400 13px/1 var(--font-structure); display: inline-flex; gap: 8px; align-items: center; cursor: pointer; }
+.filters button i { width: 3px; height: 14px; border-radius: 1px; background: var(--h, var(--color-cream-faint)); }
+.filters button[aria-pressed="true"] { background: var(--color-surface-raised); border-color: var(--color-cream-faint); }
+.filters button .num { color: var(--color-cream-muted); }
+.filters .f-archive { --h: var(--mark-archive); } .filters .f-reconstructed { --h: var(--mark-reconstructed); } .filters .f-generated, .filters .f-drawn { --h: var(--mark-generated); } .filters .f-card { --h: var(--mark-reconstructed); }
+.layout { display: grid; gap: 40px; }
+.entries { list-style: none; margin: 0; padding: 0; }
+.entry { display: grid; gap: 8px; padding: 22px 0; border-top: 1px solid var(--color-border); }
+.ehead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ehead .mark { position: static; font-size: 11.5px; }
+.lid { font-size: 12px; color: var(--color-cream-muted); }
+.entry h2 { font: 400 21px/1.3 var(--font-display); }
+.entry dl, .readings dl { margin: 0; display: grid; grid-template-columns: 90px 1fr; gap: 5px 14px; font-size: 14px; }
+.entry dt, .readings dt { color: var(--color-cream-muted); font-size: 12px; padding-top: 2px; }
+.entry dd, .readings dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.correct-this { justify-self: start; font-size: 13px; color: var(--color-cream-muted); min-height: 44px; display: inline-flex; align-items: center; }
+.readings { list-style: none; margin: 0; padding: 0; }
+.readings li { padding: 20px 0; border-top: 1px solid var(--color-border); display: grid; gap: 10px; }
+.readings .rch { border-top: 0; padding: 18px 0 0; }
+.readings .rch h3 { margin: 0; font: 400 19px/1.3 var(--font-display); color: var(--color-cream-muted); }
+.readings .rflag { margin: 0; font: italic 300 19px/1.3 var(--font-display); color: var(--color-cream); }
+.readings .rpersp { margin: 0; font-size: 13px; color: var(--color-cream-muted); }
+.readings li.flagged { border-left: 2px solid var(--color-cream-faint); padding-left: 14px; }
+.readings q { font: italic 300 18px/1.45 var(--font-display); quotes: "\201C" "\201D"; }
+.balance { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--color-border); border-radius: var(--radius-card); background: var(--color-surface); }
+.balance h3 { margin: 0; font: 400 20px/1.25 var(--font-display); }
+.btable { display: grid; grid-template-columns: 96px 1fr auto; gap: 8px 12px; align-items: center; font-size: 14px; }
+.btable .bar { height: 8px; border-radius: 2px; background: var(--color-surface-raised); position: relative; overflow: hidden; }
+.btable .bar i { position: absolute; inset: 0 auto 0 0; background: var(--color-cream-muted); }
+.btable .band { position: absolute; top: 0; bottom: 0; left: 10%; width: 25%; border-left: 1px solid var(--color-cream); border-right: 1px solid var(--color-cream); }
+.btable .floor { position: absolute; top: -2px; bottom: -2px; left: 30%; width: 1px; background: var(--color-cream); }
+.short { font-size: 14px; display: grid; gap: 6px; }
+.short p { padding-left: 10px; border-left: 2px solid var(--color-border); }
+h2.sec { font: 400 26px/1.2 var(--font-display); margin: 40px 0 8px; }
+@media (min-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr) 340px; align-items: start; } .side { position: sticky; top: 72px; } }
+
+/* ---- site (T7) ---- */
+.small { font-size: 12px; }
+.balance p.small { font-size: 12px; }
+.btable .num.small { font-size: 12px; white-space: nowrap; }
+h2.sec .dates, .readings .rch .dates { font-size: 15px; }
+.chapter-block:first-child h2.sec { margin-top: 8px; }
+.empty { font: 300 22px/1.3 var(--font-display); padding: 16px 0; }
+.status.err { color: var(--color-error-text); font-size: 14px; }
+.readings dd a.tc { text-decoration: none; color: inherit; }
+.filters button:focus-visible { outline-offset: 2px; }

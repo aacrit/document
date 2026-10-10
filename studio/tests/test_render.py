@@ -371,6 +371,9 @@ def test_sources_timeline(rendered, plan):
     assert abs(sum(doc["share"].values()) - 1) < 1e-3 and doc["share"]["AI-GENERATED"] == 0
     assert doc["marks"][0]["from_s"] == 0 and doc["marks"][-1]["to_s"] == 24.75
     assert doc["readings"][0]["credit"] == "Read by a computer voice. No recording of Fixture speaker was used."
+    # The site's balance ("Whose words, and how long") needs each reading's length and whose words they are.
+    assert doc["readings"][0]["gender"] == "f"
+    assert doc["readings"][0]["dur_s"] == pytest.approx(1.2, abs=0.01)
     heads = [c["heading"] for c in doc["credits"]]
     assert heads[0] == "Shots" and "Readings" in heads
 

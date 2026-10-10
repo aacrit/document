@@ -4,84 +4,95 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="build" content="__BUILD__" />
+    <meta name="description" content="What void document counts, what the corrections form sends, and what is kept." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16'/%3E%3Ccircle cx='12' cy='12' r='4.2'/%3E%3C/svg%3E" />
     <link rel="stylesheet" href="../design/tokens.css" />
-    <link rel="stylesheet" href="./src/style.css" />
-    <title>Privacy - Document</title>
+    <link rel="stylesheet" href="./src/house.css" />
+    <link rel="stylesheet" href="./src/privacy.css" />
+    <title>Privacy · void document</title>
   </head>
   <body>
-    <main class="page">
-      <header class="page-header">
-        <h1>Privacy</h1>
+    <header class="house-bar">
+      <a class="wordmark" href="/"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16" /><circle cx="12" cy="12" r="4.2" /><circle class="ember" cx="18.6" cy="17.6" r="1.25" /></svg><span class="wm"><span class="wm-void">void</span> <span class="wm-doc">document</span></span></a>
+    </header>
+    <main class="prose">
+      <header>
+        <p class="eyebrow">Privacy</p>
+        <h1>What this site knows about you</h1>
       </header>
 
-      <section class="card">
+      <section>
         <h2>What this site counts</h2>
         <p>
-          Document counts how many times a small set of named events happen
-          each day, such as a page view or a completed action, as totals. It
-          does not record who did what, when a specific visit happened, or
-          anything else that could identify you. There is no anonymous id, no
-          cookie, no local storage, and no third-party analytics script.
-        </p>
-        <p>
-          The feedback form sends the text you type and the page you sent it
-          from; the server stores them with the time the message arrived.
-          Nothing else is attached to it. Please do not include your name,
-          email, or other personal details in a feedback message.
+          void document counts how many times a small set of named events happen
+          each day, as totals: a page opened, a film watched to its last frame,
+          and an archive's link opened from a film's Sources page. It does not
+          record who did what, when a specific visit happened, or anything else
+          that could identify you. There is no anonymous id, no cookie, no local storage, and no third-party analytics script.
+          The film page remembers nothing between visits, not even your
+          subtitle choice.
         </p>
       </section>
 
-      <section class="card">
+      <section>
+        <h2>The corrections form</h2>
+        <p>
+          The corrections form sends what you type (where in the film, what is
+          wrong, and how you know) and the page you sent it from; the server stores them with the time the message arrived.
+          Nothing else is attached to it. It never asks for your name or email;
+          please leave them, and other personal details, out of what you write.
+        </p>
+      </section>
+
+      <section>
         <h2>Your connection</h2>
         <p>
-          Every page, script, style and font comes from this site; nothing is
-          loaded from another company. To stop abuse, the server limits how
-          many requests one network can make in a short time. For that it
-          uses your IP address (for an IPv6 address, only its network part)
-          while answering the request: Cloudflare keeps a short-lived count in
-          memory, and Document never stores or logs the address. Document
-          keeps no log of ordinary requests: Cloudflare's per-request logs are
-          turned off for this site, and Document's own code logs nothing about
-          who asked or what was sent. Cloudflare, which hosts the site, still
-          handles your IP address to deliver it, as any host does.
+          Every page, script, style, font, film, poster, caption file and
+          sources list comes from this site; nothing is loaded from another company.
+          Links to archives, void news and void history take you to those sites
+          only when you follow them, and this site sends no referrer when you do.
+          To stop abuse, the server limits how many requests one network can
+          make in a short time. For that it uses your IP address (for an IPv6 address, only its network part)
+          while answering the request: Cloudflare keeps a short-lived count in memory,
+          and void document never stores or logs the address. void document
+          keeps no log of ordinary requests: Cloudflare's per-request logs are turned off for this site,
+          and void document's own code logs nothing about who asked or what
+          was sent. Cloudflare, which hosts the site, still handles your IP
+          address to deliver it, as any host does.
         </p>
         <p>
-          One exception: if one IP address sends more than 30 requests to
-          voidvision.org sites in 10 seconds, Cloudflare's firewall blocks it
-          for 10 seconds and records
-          each blocked request (the IP address, the page asked for and the
-          browser's user agent) in the site's security event log, which
-          Cloudflare keeps for a limited time. That log is used only to see
-          and stop abuse.
+          One exception: if one IP address sends more than 30 requests to voidvision.org sites in 10 seconds, Cloudflare's firewall blocks it for 10 seconds
+          and records each blocked request (the IP address, the page asked for and the browser's user agent)
+          in the site's security event log, which Cloudflare keeps for a
+          limited time. That log is used only to see and stop abuse.
         </p>
       </section>
 
-      <section class="card">
+      <section>
         <h2>Retention</h2>
         <p>
-          Daily event totals are kept indefinitely: a total identifies no
-          one, so there is nothing in it to delete. Feedback text is kept for
-          90 days, then deleted automatically in batches on days the site is
-          used. If the site goes unvisited for a while, deletion falls behind
-          and catches up once visits resume.
-          Cloudflare D1, the database Document uses, can restore itself to any
-          moment in the last 7 days, so deleted feedback can remain in that
-          restore window for up to 7 more days.
+          Daily event totals are kept indefinitely: a total identifies no one,
+          so there is nothing in it to delete. Feedback text is kept for 90 days, then deleted automatically in batches on days the site is used.
+          If the site goes unvisited for a while, deletion falls behind and catches up once visits resume.
+          Cloudflare D1, the database void document uses, can restore itself
+          to any moment in the last 7 days, so deleted feedback can remain in
+          that restore window for up to 7 more days.
         </p>
       </section>
 
-      <section class="card">
+      <section>
         <h2>Deletion</h2>
         <p>
-          Feedback text you sent can be deleted early on request, if you can
+          A correction you sent can be deleted early on request, if you can
           describe it well enough to find (for example, the page and roughly
-          when you sent it). Use the feedback form on the home page to ask.
+          when you sent it). Use the <a href="/f/partition-of-india/correct/">corrections form</a> to ask.
         </p>
       </section>
-
-      <footer class="page-footer">
-        <a href="./index.html">Back</a>
-      </footer>
     </main>
+    <footer class="house-foot">
+      <span>void document is part of void, with <a href="https://news.voidvision.org/" rel="noopener">void news</a> and <a href="https://news.voidvision.org/history/" rel="noopener">void history</a>.</span>
+      <span>Films are free to watch and licensed CC BY 4.0.</span>
+      <a href="/">Back to the film</a>
+    </footer>
   </body>
 </html>

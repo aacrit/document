@@ -15,6 +15,9 @@ export default defineConfig({
       input: {
         main: "index.html",
         privacy: "privacy.html",
+        film: "f/partition-of-india/index.html",
+        sources: "f/partition-of-india/sources/index.html",
+        correct: "f/partition-of-india/correct/index.html",
       },
     },
   },

@@ -10,7 +10,11 @@ import { describe, expect, it } from "vitest";
 import { CSP, cspViolations, injectCsp } from "../scripts/lib/csp.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const pages = () => readdirSync(path.join(root, "web")).filter((f) => f.endsWith(".html"));
+// Every source page under web/, at any depth (the film's pages live under web/f/).
+const pages = () =>
+  readdirSync(path.join(root, "web"), { recursive: true, encoding: "utf8" })
+    .map((f) => f.split(path.sep).join("/"))
+    .filter((f) => f.endsWith(".html") && !f.startsWith("node_modules/"));
 
 describe("CSP policy", () => {
   it("defaults to self, loads styles and fonts from this origin only, and allows no inline script or eval", () => {

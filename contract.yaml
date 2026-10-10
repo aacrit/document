@@ -24,27 +24,105 @@ checks:
   - name: homepage names the product
     type: contains
     path: /
-    text: "Document"
+    text: "void document"
 
   - name: homepage carries a build marker
     type: meta
     path: /
     meta_name: build
 
-  - name: homepage carries the film
+  - name: homepage names the film
     type: contains
     path: /
-    text: "/media/maxwell-street/sketch.mp4"
+    text: "The Partition of India"
+
+  - name: homepage links to the film
+    type: contains
+    path: /
+    text: "/f/partition-of-india/"
+
+  - name: homepage says what the film does not show
+    type: contains
+    path: /
+    text: "This film shows no bodies or killing."
+
+  - name: film page responds
+    type: status
+    path: /f/partition-of-india/
+    expect: 200
+
+  - name: film page carries the player and its media
+    type: contains
+    path: /f/partition-of-india/
+    text: "/media/partition-of-india/film.mp4"
+
+  - name: film page carries the English captions
+    type: contains
+    path: /f/partition-of-india/
+    text: "/media/partition-of-india/captions-en.vtt"
+
+  - name: film page says what the marks mean
+    type: contains
+    path: /f/partition-of-india/
+    text: "No AI-generated images in this film."
+
+  - name: film page links to void history's documentary
+    type: contains
+    path: /f/partition-of-india/
+    text: "https://news.voidvision.org/history/partition-of-india/"
+
+  - name: sources page responds
+    type: status
+    path: /f/partition-of-india/sources/
+    expect: 200
+
+  - name: sources page carries the balance
+    type: contains
+    path: /f/partition-of-india/sources/
+    text: "Whose words, and how long"
+
+  - name: corrections page responds
+    type: status
+    path: /f/partition-of-india/correct/
+    expect: 200
+
+  - name: corrections page carries the form
+    type: contains
+    path: /f/partition-of-india/correct/
+    text: "Correct something in"
+
+  - name: every page names the void family
+    type: contains
+    path: /f/partition-of-india/sources/
+    text: "void document is part of void, with"
 
   - name: the film is served (deployed only)
     type: status
-    path: /media/maxwell-street/sketch.mp4
+    path: /media/partition-of-india/film.mp4
     expect: 200
     requires: deployed
 
-  - name: the sources ledger is served (deployed only)
+  - name: the sources timeline is served (deployed only)
     type: status
-    path: /media/maxwell-street/sources.json
+    path: /media/partition-of-india/sources.json
+    expect: 200
+    requires: deployed
+
+  - name: the English captions are served (deployed only)
+    type: status
+    path: /media/partition-of-india/captions-en.vtt
+    expect: 200
+    requires: deployed
+
+  - name: the poster is served (deployed only)
+    type: status
+    path: /media/partition-of-india/poster.jpg
+    expect: 200
+    requires: deployed
+
+  - name: the trailer is served (deployed only)
+    type: status
+    path: /media/partition-of-india/trailer.mp4
     expect: 200
     requires: deployed
 
@@ -74,6 +152,14 @@ checks:
       - "TODO"
       - "__"
       - "core_success_event"
+
+  - name: the film page carries no studio words
+    type: forbidden
+    path: /f/partition-of-india/
+    strings:
+      - "/studio"
+      - "render"
+      - "pipeline"
 
   - name: homepage carries no anonymous-id telemetry
     type: forbidden
@@ -171,6 +257,8 @@ events:
     # Placeholder: rename to the product's core success event at Spark
     # (scripts/lint-events.mjs fails the gate until then).
     - "film_completed"
+    # An archive's item link opened from a film's Sources page.
+    - source_opened
     - feedback_received
     - rate_limiter_error
   # Counted only by the Worker code that does the thing being counted; /e

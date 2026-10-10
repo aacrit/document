@@ -8,6 +8,9 @@
 export const ALLOWED_EVENTS = [
   "page_view",
   "film_completed",
+  // A viewer opens an archive's item link on a film's Sources page: the
+  // Sources surface's justifying event (CHARTER.md).
+  "source_opened",
   // Server-only (see SERVER_ONLY_EVENTS): each is counted only by the
   // Worker code that does the thing being counted.
   "feedback_received",
@@ -33,9 +36,12 @@ export const CLIENT_EVENTS = ALLOWED_EVENTS.filter((n) => !(SERVER_ONLY_EVENTS a
 // EVENT_DAILY_CEILING overrides it). Past it, /e writes nothing and answers
 // 204. Every client event name has its own ceiling, so together they must
 // fit this product's share of the account's D1 writes (see
-// worstCaseDailyWrites below). 4,000 is ~4 page views per visitor at the
-// 1,000-visitors-a-day estimate.
-export const DEFAULT_EVENT_DAILY_CEILING = 4_000;
+// worstCaseDailyWrites below). 3,000 is ~3 page views per visitor at the
+// 1,000-visitors-a-day estimate (screening room, film, sources), and far
+// above any day's film_completed or source_opened. It was 4,000 with two
+// client events; source_opened made three, and 3 x 4,000 would take the
+// worst case past budget.yaml's 15% share.
+export const DEFAULT_EVENT_DAILY_CEILING = 3_000;
 
 // Per-day ceiling on accepted feedback messages (env FEEDBACK_DAILY_CEILING
 // overrides it), counted as the server-only `feedback_received`. Past it,

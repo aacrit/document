@@ -2425,7 +2425,12 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
     for ln in plan["lines"]:
         if ln.get("kind") == "testimony":
             sp = plan["speakers"].get(ln.get("speaker"), {})
+            # How long the reading is heard (its measured WAV) and whose words they are: the site's
+            # "Whose words, and how long" balance is computed from these (web/src/film-data.ts).
+            wav = voice_wav(Path(plan["film"]), ln)
+            dur = round(wav_seconds(wav), 3) if wav.exists() else None
             readings.append({"id": ln["id"], "speaker": ln.get("speaker"), "name": sp.get("name"), "side": sp.get("side"),
+                             "gender": sp.get("gender"), "dur_s": dur,
                              "year": ln.get("year"), "source": ln.get("source"), "locator": ln.get("locator"),
                              "start_s": ln.get("start_s"), "text": ln.get("text"),
                              "credit": (f"Read by a computer voice. No recording of {sp.get('name', ln.get('speaker'))} was used."
