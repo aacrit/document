@@ -202,6 +202,8 @@ def render(film: Path) -> None:
             [ffmpeg(), "-y", "-hide_banner", "-loglevel", "error",
              "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
              "-i", str(wav), "-c:v", "libx264", "-preset", "slow", "-crf", "21", "-pix_fmt", "yuv420p",
+             # Web loudness: -16 LUFS integrated, -1.5 dBTP (EBU R128 single pass).
+             "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-ar", str(AUDIO_RATE),
              "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", str(out_dir / "film.mp4")],
             stdin=subprocess.PIPE)
         frames = int(round(total * FPS))

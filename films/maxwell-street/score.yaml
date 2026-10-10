@@ -1,0 +1,343 @@
+# The score for "Maxwell Street", the first Document portrait, as note data on
+# sampled real instruments, in void-history's manifest format (rendered by
+# voidnews/pipeline/history/score.py; the samples live in
+# ~/.cache/void-score-samples and are pinned by sha256).
+#
+# The music claims nothing about the place or the people in the photographs.
+# It is a slow twelve-bar blues in C, played twice through at 68 beats a
+# minute (one beat is 0.882 s, one chorus 42.35 s), because Maxwell Street is
+# where Chicago blues went electric (dossier context_facts). It belongs to
+# the street without imitating any recording: three instruments, each
+# presented as what it is. A double bass, plucked, in a two-feel (root on the
+# first beat, fifth or third on the third), the footfall of the street from
+# the first frame. An upright piano, the softest layer, the kind of piano a
+# boarding house or a tavern on the block would have had, comping the third
+# and seventh of each chord on beats two and four, with one small fill at the
+# first turnaround and a plain chord left to ring at the close. A tenor
+# saxophone, played without vibrato and soft, the singer: it keeps silent for
+# the first four bars and sings five phrases in the C minor pentatonic with
+# the major sixth and, once, the major third, resting under each narration
+# line and singing between them. Nothing in it swells; the mixer ducks it
+# under the voice.
+#
+# Keys. void-history's validator caps a cue named `theme` at 32 s (a title
+# statement) and the Document sketch renderer asserts that validator, so the
+# film-length cue is keyed `sting:to_document`, the one key in the producer's
+# grammar with no length cap, no fold and no mood in its name (and whose name,
+# read as English, says what it is: the cue to Document). The `theme` here is a
+# true theme: the first eight bars of the same music, 28.5 s. The producer's
+# other mandatory keys are declared silent.
+slug: maxwell-street
+title: Maxwell Street
+version: 1
+key: C
+mode: a twelve-bar blues; the piano says the dominant sevenths, the saxophone the minor pentatonic with the sixth and, once, the major third
+tempo_bpm: 68
+textures: []
+
+instruments:
+  bass_pizz:
+    library: VSCO 2 Community Edition (Versilian Studios), Solo Contrabass, pizzicato. Softest layer (v1) except the C, which is the third layer's first take, the one take of that string the pitch check finds in tune (+2 cents; the v1 takes measure +11 and +17). Named an octave below what they sound; `note` is the sounding pitch
+    role_as_presented: a double bass, plucked
+    licence_as_stated: CC0 1.0 Universal (the repository's LICENSE file; the Readme asks for credit and that the samples not be sold on their own)
+    licence_url: https://creativecommons.org/publicdomain/zero/1.0/
+    licence_source: https://github.com/sgossner/VSCO-2-CE/blob/master/LICENSE
+    rights_basis: cc0-as-stated
+    credit_line: Versilian Studios and Sam Gossner, VSCO 2 Community Edition
+    kind: pluck
+    release_s: 0.4
+    gain_db: 0.0
+    samples:
+      - {file: vsco2ce/Strings/Solo Contrabass/Pizz/BKCtbss_Pizz_E0_v1_rr1.wav, note: E1, sha256: 7901d4aa056d2a6057a264ce98fc9e66a7ce48575d077a30f14083aa798cd188, url: "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Strings/Solo%20Contrabass/Pizz/BKCtbss_Pizz_E0_v1_rr1.wav"}
+      - {file: vsco2ce/Strings/Solo Contrabass/Pizz/BKCtbss_Pizz_C1_v3_rr1.wav, note: C2, sha256: 706d82ca773408bb6cd6f22466d5d017c1d36a9055f3a6b6af864407b26c5a0d, url: "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Strings/Solo%20Contrabass/Pizz/BKCtbss_Pizz_C1_v3_rr1.wav"}
+      - {file: vsco2ce/Strings/Solo Contrabass/Pizz/BKCtbss_Pizz_F#1_v1_rr1.wav, note: F#2, sha256: 6f91a2747ce3cea061c670f7bf5dc8611eef1c3af8d6e2dca75b6dac5a65bfc6, url: "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Strings/Solo%20Contrabass/Pizz/BKCtbss_Pizz_F%231_v1_rr1.wav"}
+      - {file: vsco2ce/Strings/Solo Contrabass/Pizz/BKCtbss_Pizz_G#1_v1_rr1.wav, note: Ab2, sha256: bf377a41759c17794901957edc89ff48fb405f98879549916d9b228492f7f8d1, url: "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Strings/Solo%20Contrabass/Pizz/BKCtbss_Pizz_G%231_v1_rr1.wav"}
+
+  piano:
+    library: VSCO 2 Community Edition (Versilian Studios / Ivy Audio), Upright Piano, softest layer (dyn1); the folder's MappingChart.txt maps file index i to MIDI key 21 + 2i
+    role_as_presented: an upright piano
+    licence_as_stated: CC0 1.0 Universal (the repository's LICENSE file; the folder's Info.txt says credit to Ivy Audio and Versilian Studios is encouraged)
+    licence_url: https://creativecommons.org/publicdomain/zero/1.0/
+    licence_source: https://github.com/sgossner/VSCO-2-CE/blob/master/LICENSE
+    rights_basis: cc0-as-stated
+    credit_line: Simon Dalzell of Ivy Audio and Versilian Studios, VSCO 2 Community Edition
+    kind: pluck
+    release_s: 0.4
+    gain_db: 0.0
+    samples:
+      - {file: vsco2ce/Keys/Upright Piano/Player_dyn1_rr1_008.wav, note: C#2, sha256: 3b4cdd096b01b23a81b2ad8ad880c409c8a78d69cd0306fe9bf66795cd62acca, url: "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Keys/Upright%20Piano/Player_dyn1_rr1_008.wav"}
+      - {file: vsco2ce/Keys/Upright Piano/Player_dyn1_rr1_012.wav, note: A2, sha256: 16be23a8378185f1b392600d3fa800a206945543866548640f7573534f76faf2, url: "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Keys/Upright%20Piano/Player_dyn1_rr1_012.wav"}
+      - {file: vsco2ce/Keys/Upright Piano/Player_dyn1_rr1_014.wav, note: C#3, sha256: f3d00b63bb178680fdd4d9ed7ea43d1df1cf29e00b567ccb022c2bd411a20607, url: "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Keys/Upright%20Piano/Player_dyn1_rr1_014.wav"}
+      - {file: vsco2ce/Keys/Upright Piano/Player_dyn1_rr1_016.wav, note: F3, sha256: f1a3a542cf70a13aa865ce130d50d72cd735449e605d1c5a45dc06b5a60b27fd, url: "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Keys/Upright%20Piano/Player_dyn1_rr1_016.wav"}
+      - {file: vsco2ce/Keys/Upright Piano/Player_dyn1_rr1_018.wav, note: A3, sha256: 01387cb5318c5abf11410ae8e2f4ef6aa83ec03254b4bccfe865aba262a2e412, url: "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Keys/Upright%20Piano/Player_dyn1_rr1_018.wav"}
+      - {file: vsco2ce/Keys/Upright Piano/Player_dyn1_rr1_020.wav, note: C#4, sha256: 08242e8d1c865c8cdc794cc7921d3d9663bedb5a12bfefe0de13aaa86fd23133, url: "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Keys/Upright%20Piano/Player_dyn1_rr1_020.wav"}
+      - {file: vsco2ce/Keys/Upright Piano/Player_dyn1_rr1_022.wav, note: F4, sha256: 660e57ad8fd868ed9c56fe36e4862a6aff1cb65b7838a568d4c4f2f0865ad1ab, url: "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Keys/Upright%20Piano/Player_dyn1_rr1_022.wav"}
+      - {file: vsco2ce/Keys/Upright Piano/Player_dyn1_rr1_024.wav, note: A4, sha256: 916c3ec2d61fb421e74fb4866ef75d3ef17e9d88e9dc858da24159846489d33f, url: "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Keys/Upright%20Piano/Player_dyn1_rr1_024.wav"}
+
+  saxophone:
+    library: Versilian Community Sample Library (VCSL, Versilian Studios), Tenor Saxophone, the Non-Vibrato set (the "_Main" microphone, the soft layer "vl2", one take per key, every whole tone). The files are named an octave below what they sound (the file "G#1" measures 103.9 Hz, G#2, within 1 cent, by harmonic product spectrum; "C2" measures 130.9 Hz, C3, within 1 cent; "E2" measures 164.8 Hz, E3, within 1 cent; "G#2" measures 207.6 Hz, G#3, within 1 cent); `note` is the sounding pitch. G sharp and E are recordings of those notes, unshifted; C sharp is one semitone over the recorded C. Nothing is shifted more than one semitone. Each recording is a note held 6.7 to 8.9 s and released, steady within 1 dB in half-second frames from its onset to half a second before its end; the loop regions below sit inside that steady part. A hold longer than the recording loops that region with an equal-power crossfade
+    role_as_presented: a tenor saxophone, played without vibrato
+    licence_as_stated: CC0 1.0 Universal (the repository's LICENSE file; the Readme calls it public domain, no royalties, no credit, no special terms)
+    licence_url: https://creativecommons.org/publicdomain/zero/1.0/
+    licence_source: https://github.com/sgossner/VCSL/blob/master/LICENSE
+    rights_basis: cc0-as-stated
+    credit_line: Versilian Studios, Versilian Community Sample Library
+    kind: sustain
+    attack_s: 0.3
+    release_s: 0.6
+    gain_db: 0.0
+    samples:
+      - {file: "vcsl/Aerophones/Reed Aerophones/Tenor Saxophone/Non-Vibrato/BrettTenor_NV_Main_G#1_vl2_rr1.wav", note: G#2, loop_start_s: 1.0, loop_end_s: 6.5, sha256: 65082f5260afeea5f28b7a66ed7d7076d9ea09927e5775c9bc530752f847bd10, url: "https://raw.githubusercontent.com/sgossner/VCSL/master/Aerophones/Reed%20Aerophones/Tenor%20Saxophone/Non-Vibrato/BrettTenor_NV_Main_G%231_vl2_rr1.wav"}
+      - {file: "vcsl/Aerophones/Reed Aerophones/Tenor Saxophone/Non-Vibrato/BrettTenor_NV_Main_C2_vl2_rr1.wav", note: C3, loop_start_s: 1.0, loop_end_s: 7.0, sha256: 09ab83ec9ddccc53dfbcc2fe938eacf35c1f5e6a2add063a24808f294cee40ba, url: "https://raw.githubusercontent.com/sgossner/VCSL/master/Aerophones/Reed%20Aerophones/Tenor%20Saxophone/Non-Vibrato/BrettTenor_NV_Main_C2_vl2_rr1.wav"}
+      - {file: "vcsl/Aerophones/Reed Aerophones/Tenor Saxophone/Non-Vibrato/BrettTenor_NV_Main_E2_vl2_rr1.wav", note: E3, loop_start_s: 1.0, loop_end_s: 7.5, sha256: b2eaabe51741561e10d998e55cdc202546d33f394d9a35e5ba3e5ea397b2a12e, url: "https://raw.githubusercontent.com/sgossner/VCSL/master/Aerophones/Reed%20Aerophones/Tenor%20Saxophone/Non-Vibrato/BrettTenor_NV_Main_E2_vl2_rr1.wav"}
+      - {file: "vcsl/Aerophones/Reed Aerophones/Tenor Saxophone/Non-Vibrato/BrettTenor_NV_Main_G#2_vl2_rr1.wav", note: G#3, loop_start_s: 1.0, loop_end_s: 5.5, sha256: c40b27a266b8547893834ef79f97ee05c4d78cd198d6d91b27aad7b556f68fda, url: "https://raw.githubusercontent.com/sgossner/VCSL/master/Aerophones/Reed%20Aerophones/Tenor%20Saxophone/Non-Vibrato/BrettTenor_NV_Main_G%232_vl2_rr1.wav"}
+
+# Note rows are [instrument, note, start in beats, length in beats or null, velocity].
+# One beat is 0.882 s. A bass or piano note with null rings out; one with a
+# length is released there. A saxophone note always has a length.
+# Bars: 1-4 C, 5-6 F7, 7-8 C, 9 G7, 10 F7, 11 C, 12 G7 (the turnaround); then
+# the same again from beat 48, closing on C at beat 88 (77.6 s) with one last
+# soft bass pulse at beat 92 (81.2 s). The cue is 85 s and fades over its last
+# 3.5 s; the film is 85.8 s and fades its picture over the last 2.5 s.
+cues:
+  # The film cue: both choruses, start to finish.
+  sting:to_document:
+    claims: []
+    length_s: 85.0
+    peak_dbfs: -12.0
+    room_wet: 0.5
+    fade_out_ms: 3500
+    notes:
+      - [bass_pizz, C2, 0, null, 0.50]
+      - [piano, E3, 1, 1.6, 0.36]
+      - [piano, Bb3, 1, 1.6, 0.36]
+      - [bass_pizz, G2, 2, null, 0.42]
+      - [piano, E3, 3, 1.6, 0.30]
+      - [piano, Bb3, 3, 1.6, 0.30]
+      - [bass_pizz, C2, 4, null, 0.50]
+      - [piano, E3, 5, 1.6, 0.36]
+      - [piano, Bb3, 5, 1.6, 0.36]
+      - [bass_pizz, E2, 6, null, 0.42]
+      - [piano, E3, 7, 1.6, 0.30]
+      - [piano, Bb3, 7, 1.6, 0.30]
+      - [bass_pizz, C2, 8, null, 0.50]
+      - [piano, E3, 9, 1.6, 0.36]
+      - [piano, Bb3, 9, 1.6, 0.36]
+      - [bass_pizz, G2, 10, null, 0.42]
+      - [piano, E3, 11, 1.6, 0.30]
+      - [piano, Bb3, 11, 1.6, 0.30]
+      - [bass_pizz, C2, 12, null, 0.50]
+      - [piano, E3, 13, 1.6, 0.36]
+      - [piano, Bb3, 13, 1.6, 0.36]
+      - [bass_pizz, E2, 14, null, 0.42]
+      - [piano, E3, 15, 1.6, 0.30]
+      - [piano, Bb3, 15, 1.6, 0.30]
+      - [bass_pizz, F2, 16, null, 0.50]
+      - [saxophone, G3, 16.5, 1.5, 0.24]
+      - [piano, A3, 17, 1.6, 0.36]
+      - [piano, Eb4, 17, 1.6, 0.36]
+      - [bass_pizz, C2, 18, null, 0.42]
+      - [saxophone, F3, 18, 1, 0.22]
+      - [piano, A3, 19, 1.6, 0.30]
+      - [piano, Eb4, 19, 1.6, 0.30]
+      - [saxophone, Eb3, 19, 1.5, 0.23]
+      - [bass_pizz, F2, 20, null, 0.50]
+      - [saxophone, C3, 20.5, 3, 0.24]
+      - [piano, A3, 21, 1.6, 0.36]
+      - [piano, Eb4, 21, 1.6, 0.36]
+      - [bass_pizz, C2, 22, null, 0.42]
+      - [piano, A3, 23, 1.6, 0.30]
+      - [piano, Eb4, 23, 1.6, 0.30]
+      - [bass_pizz, C2, 24, null, 0.50]
+      - [piano, E3, 25, 1.6, 0.36]
+      - [piano, Bb3, 25, 1.6, 0.36]
+      - [bass_pizz, G2, 26, null, 0.42]
+      - [piano, E3, 27, 1.6, 0.30]
+      - [piano, Bb3, 27, 1.6, 0.30]
+      - [bass_pizz, C2, 28, null, 0.50]
+      - [piano, E3, 29, 1.6, 0.36]
+      - [piano, Bb3, 29, 1.6, 0.36]
+      - [bass_pizz, E2, 30, null, 0.42]
+      - [piano, E3, 31, 1.6, 0.30]
+      - [piano, Bb3, 31, 1.6, 0.30]
+      - [bass_pizz, G2, 32, null, 0.50]
+      - [piano, B3, 33, 1.6, 0.36]
+      - [piano, F4, 33, 1.6, 0.36]
+      - [bass_pizz, D2, 34, null, 0.42]
+      - [saxophone, A3, 34, 2, 0.24]
+      - [piano, B3, 35, 1.6, 0.30]
+      - [piano, F4, 35, 1.6, 0.30]
+      - [bass_pizz, F2, 36, null, 0.50]
+      - [saxophone, G3, 36, 1.5, 0.23]
+      - [piano, A3, 37, 1.6, 0.36]
+      - [piano, Eb4, 37, 1.6, 0.36]
+      - [saxophone, F3, 37.5, 1.5, 0.22]
+      - [bass_pizz, C2, 38, null, 0.42]
+      - [piano, A3, 39, 1.6, 0.30]
+      - [piano, Eb4, 39, 1.6, 0.30]
+      - [saxophone, Eb3, 39, 2.5, 0.23]
+      - [bass_pizz, C2, 40, null, 0.50]
+      - [piano, E3, 41, 1.6, 0.36]
+      - [piano, Bb3, 41, 1.6, 0.36]
+      - [bass_pizz, G2, 42, null, 0.42]
+      - [saxophone, C3, 42, 4.5, 0.24]
+      - [piano, E3, 43, 1.6, 0.30]
+      - [piano, Bb3, 43, 1.6, 0.30]
+      - [bass_pizz, G2, 44, null, 0.50]
+      - [piano, E4, 44, 0.6, 0.38]
+      - [piano, Eb4, 44.67, 0.6, 0.34]
+      - [piano, C4, 45.33, 0.9, 0.34]
+      - [bass_pizz, D2, 46, null, 0.42]
+      - [piano, B3, 46.5, 1.4, 0.33]
+      - [piano, F4, 46.5, 1.4, 0.33]
+      - [bass_pizz, C2, 48, null, 0.50]
+      - [piano, E3, 49, 1.6, 0.36]
+      - [piano, Bb3, 49, 1.6, 0.36]
+      - [bass_pizz, G2, 50, null, 0.42]
+      - [saxophone, Eb3, 50, 1, 0.22]
+      - [piano, E3, 51, 1.6, 0.30]
+      - [piano, Bb3, 51, 1.6, 0.30]
+      - [saxophone, F3, 51, 1, 0.22]
+      - [bass_pizz, C2, 52, null, 0.50]
+      - [saxophone, G3, 52, 2.5, 0.24]
+      - [piano, E3, 53, 1.6, 0.36]
+      - [piano, Bb3, 53, 1.6, 0.36]
+      - [bass_pizz, E2, 54, null, 0.42]
+      - [saxophone, A3, 54.5, 3, 0.25]
+      - [piano, E3, 55, 1.6, 0.30]
+      - [piano, Bb3, 55, 1.6, 0.30]
+      - [bass_pizz, C2, 56, null, 0.50]
+      - [piano, E3, 57, 1.6, 0.36]
+      - [piano, Bb3, 57, 1.6, 0.36]
+      - [bass_pizz, G2, 58, null, 0.42]
+      - [saxophone, G3, 58, 2, 0.23]
+      - [piano, E3, 59, 1.6, 0.30]
+      - [piano, Bb3, 59, 1.6, 0.30]
+      - [bass_pizz, C2, 60, null, 0.50]
+      - [saxophone, E3, 60, 3, 0.24]
+      - [piano, E3, 61, 1.6, 0.36]
+      - [piano, Bb3, 61, 1.6, 0.36]
+      - [bass_pizz, E2, 62, null, 0.42]
+      - [piano, E3, 63, 1.6, 0.30]
+      - [piano, Bb3, 63, 1.6, 0.30]
+      - [bass_pizz, F2, 64, null, 0.50]
+      - [piano, A3, 65, 1.6, 0.36]
+      - [piano, Eb4, 65, 1.6, 0.36]
+      - [bass_pizz, C2, 66, null, 0.42]
+      - [piano, A3, 67, 1.6, 0.30]
+      - [piano, Eb4, 67, 1.6, 0.30]
+      - [bass_pizz, F2, 68, null, 0.50]
+      - [piano, A3, 69, 1.6, 0.36]
+      - [piano, Eb4, 69, 1.6, 0.36]
+      - [bass_pizz, C2, 70, null, 0.42]
+      - [piano, A3, 71, 1.6, 0.30]
+      - [piano, Eb4, 71, 1.6, 0.30]
+      - [bass_pizz, C2, 72, null, 0.50]
+      - [piano, E3, 73, 1.6, 0.36]
+      - [piano, Bb3, 73, 1.6, 0.36]
+      - [bass_pizz, G2, 74, null, 0.42]
+      - [piano, E3, 75, 1.6, 0.30]
+      - [piano, Bb3, 75, 1.6, 0.30]
+      - [saxophone, G3, 75.5, 1.5, 0.23]
+      - [bass_pizz, C2, 76, null, 0.50]
+      - [piano, E3, 77, 1.6, 0.36]
+      - [piano, Bb3, 77, 1.6, 0.36]
+      - [saxophone, A3, 77, 2.5, 0.25]
+      - [bass_pizz, E2, 78, null, 0.42]
+      - [piano, E3, 79, 1.6, 0.30]
+      - [piano, Bb3, 79, 1.6, 0.30]
+      - [saxophone, G3, 79.5, 1, 0.23]
+      - [bass_pizz, G2, 80, null, 0.50]
+      - [saxophone, F3, 80.5, 1.5, 0.22]
+      - [piano, B3, 81, 1.6, 0.36]
+      - [piano, F4, 81, 1.6, 0.36]
+      - [bass_pizz, D2, 82, null, 0.42]
+      - [saxophone, Eb3, 82, 2, 0.23]
+      - [piano, B3, 83, 1.6, 0.30]
+      - [piano, F4, 83, 1.6, 0.30]
+      - [bass_pizz, F2, 84, null, 0.50]
+      - [saxophone, C3, 84, 6, 0.24]
+      - [piano, A3, 85, 1.6, 0.36]
+      - [piano, Eb4, 85, 1.6, 0.36]
+      - [bass_pizz, C2, 86, null, 0.42]
+      - [piano, A3, 87, 1.6, 0.30]
+      - [piano, Eb4, 87, 1.6, 0.30]
+      - [bass_pizz, C2, 88, null, 0.50]
+      - [piano, E3, 88, null, 0.40]
+      - [piano, G3, 88, null, 0.36]
+      - [piano, C4, 88, null, 0.38]
+      - [piano, E4, 88, null, 0.34]
+      - [bass_pizz, C2, 92, null, 0.30]
+
+  # The theme proper (a statement, as void-history defines one): bars 1 to 8
+  # of the same music, the saxophone's first call inside them.
+  theme:
+    claims: []
+    length_s: 28.5
+    peak_dbfs: -13.0
+    room_wet: 0.5
+    fade_out_ms: 2500
+    notes:
+      - [bass_pizz, C2, 0, null, 0.50]
+      - [piano, E3, 1, 1.6, 0.36]
+      - [piano, Bb3, 1, 1.6, 0.36]
+      - [bass_pizz, G2, 2, null, 0.42]
+      - [piano, E3, 3, 1.6, 0.30]
+      - [piano, Bb3, 3, 1.6, 0.30]
+      - [bass_pizz, C2, 4, null, 0.50]
+      - [piano, E3, 5, 1.6, 0.36]
+      - [piano, Bb3, 5, 1.6, 0.36]
+      - [bass_pizz, E2, 6, null, 0.42]
+      - [piano, E3, 7, 1.6, 0.30]
+      - [piano, Bb3, 7, 1.6, 0.30]
+      - [bass_pizz, C2, 8, null, 0.50]
+      - [piano, E3, 9, 1.6, 0.36]
+      - [piano, Bb3, 9, 1.6, 0.36]
+      - [bass_pizz, G2, 10, null, 0.42]
+      - [piano, E3, 11, 1.6, 0.30]
+      - [piano, Bb3, 11, 1.6, 0.30]
+      - [bass_pizz, C2, 12, null, 0.50]
+      - [piano, E3, 13, 1.6, 0.36]
+      - [piano, Bb3, 13, 1.6, 0.36]
+      - [bass_pizz, E2, 14, null, 0.42]
+      - [piano, E3, 15, 1.6, 0.30]
+      - [piano, Bb3, 15, 1.6, 0.30]
+      - [bass_pizz, F2, 16, null, 0.50]
+      - [saxophone, G3, 16.5, 1.5, 0.24]
+      - [piano, A3, 17, 1.6, 0.36]
+      - [piano, Eb4, 17, 1.6, 0.36]
+      - [bass_pizz, C2, 18, null, 0.42]
+      - [saxophone, F3, 18, 1, 0.22]
+      - [piano, A3, 19, 1.6, 0.30]
+      - [piano, Eb4, 19, 1.6, 0.30]
+      - [saxophone, Eb3, 19, 1.5, 0.23]
+      - [bass_pizz, F2, 20, null, 0.50]
+      - [saxophone, C3, 20.5, 3, 0.24]
+      - [piano, A3, 21, 1.6, 0.36]
+      - [piano, Eb4, 21, 1.6, 0.36]
+      - [bass_pizz, C2, 22, null, 0.42]
+      - [piano, A3, 23, 1.6, 0.30]
+      - [piano, Eb4, 23, 1.6, 0.30]
+      - [bass_pizz, C2, 24, null, 0.50]
+      - [piano, E3, 25, 1.6, 0.36]
+      - [piano, Bb3, 25, 1.6, 0.36]
+      - [bass_pizz, G2, 26, null, 0.42]
+      - [piano, E3, 27, 1.6, 0.30]
+      - [piano, Bb3, 27, 1.6, 0.30]
+      - [bass_pizz, C2, 28, null, 0.50]
+      - [piano, E3, 29, 1.6, 0.36]
+      - [piano, Bb3, 29, 1.6, 0.36]
+      - [bass_pizz, E2, 30, null, 0.42]
+      - [piano, E3, 31, 1.6, 0.30]
+      - [piano, Bb3, 31, 1.6, 0.30]
+
+  # The producer's other mandatory keys, declared silent: this film has one cue.
+  outro:
+    claims: []
+    silent: true
+  rupture_entry:
+    claims: []
+    silent: true
+  sting:from_clip:
+    claims: []
+    silent: true

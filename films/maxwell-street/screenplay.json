@@ -1,0 +1,242 @@
+{
+  "title": "Maxwell Street",
+  "logline": "Chicago's open-air market on Maxwell Street in photographs from 1941 to 1958: the crowd, the goods, the hands that paid, the faces that sold, and the music that plugged in to be heard over all of it.",
+  "voice": "am_michael",
+  "speed": 0.92,
+  "fade_in_s": 1.5,
+  "fade_out_s": 2.5,
+  "tail_s": 2.0,
+  "poster_at": 44.5,
+  "shots": [
+    {
+      "id": "S01",
+      "asset": "A-003",
+      "dur": 7.5,
+      "dissolve": 0,
+      "move": {
+        "from": {
+          "z": 1.35,
+          "x": 0.42,
+          "y": 0.37
+        },
+        "to": {
+          "z": 1.3,
+          "x": 0.42,
+          "y": 0.63
+        }
+      },
+      "treatment": "Open on the sky, the wires and the telephone pole above the stall roofs, then tilt slowly down the frame until the men walking away from camera under the wooden roofs fill the bottom of the picture.",
+      "why": "The film opens with no words, on the top of a photograph most people never look at: wires, roofs, weather. The tilt brings the viewer down into the street the way you would arrive on foot."
+    },
+    {
+      "id": "S02",
+      "asset": "A-001",
+      "dur": 9.0,
+      "dissolve": 1.0,
+      "move": {
+        "from": {
+          "z": 1.0,
+          "x": 0.5,
+          "y": 0.5
+        },
+        "to": {
+          "z": 1.15,
+          "x": 0.52,
+          "y": 0.56
+        }
+      },
+      "treatment": "The whole frame of the Maxwell and Halsted corner, awnings and the VICTORY sign, then a slow push toward the shoppers in the middle of the cobbled street.",
+      "why": "The establishing view. The first spoken line names the place and the month under this frame, so the viewer has the where and the when before anything is asked of them."
+    },
+    {
+      "id": "S03",
+      "asset": "A-001",
+      "dur": 7.0,
+      "dissolve": 0,
+      "move": {
+        "from": {
+          "z": 1.9,
+          "x": 0.36,
+          "y": 0.66
+        },
+        "to": {
+          "z": 1.9,
+          "x": 0.64,
+          "y": 0.67
+        }
+      },
+      "treatment": "A cut into the same negative, close: a slow lateral drift across the people in the street, from the stall tables at left to the women walking toward camera and the boy with the bag at right.",
+      "why": "Burns's cut from the wide to the detail of the same photograph. The crowd stops being a crowd and becomes people, each in their own hat and coat, with a direction of their own."
+    },
+    {
+      "id": "S04",
+      "asset": "A-005",
+      "dur": 9.0,
+      "dissolve": 1.0,
+      "move": {
+        "from": {
+          "z": 1.6,
+          "x": 0.45,
+          "y": 0.69
+        },
+        "to": {
+          "z": 1.0,
+          "x": 0.5,
+          "y": 0.5
+        }
+      },
+      "treatment": "Start tight on the heap of loose secondhand shoes on the plank table, then pull out slowly until the two people sorting through it and the storefront signs behind (HARDWARE, KLING'S MILLINERY, WATCH REPAIRING) are revealed.",
+      "why": "A reveal in reverse: the goods first, then the people and the block that sold them. The line about what the market sold lands here, over a pile the frame cannot explain by itself."
+    },
+    {
+      "id": "S05",
+      "asset": "A-006",
+      "dur": 10.0,
+      "dissolve": 1.0,
+      "move": {
+        "from": {
+          "z": 1.1,
+          "x": 0.5,
+          "y": 0.33
+        },
+        "to": {
+          "z": 1.55,
+          "x": 0.49,
+          "y": 0.505
+        }
+      },
+      "treatment": "Vertical move on the portrait-format negative: begin high on the brick wall, the boards and the hanging coats and dresses, and travel down the frame while pushing in, to settle on the two people and the coins passing from his hand into her open palm.",
+      "why": "The longest hold on hands. The film has shown the goods; this is the exchange itself, held in silence with only the music. Nothing is said over it."
+    },
+    {
+      "id": "S06",
+      "asset": "A-008",
+      "dur": 8.5,
+      "dissolve": 0,
+      "move": {
+        "from": {
+          "z": 1.0,
+          "x": 0.5,
+          "y": 0.5
+        },
+        "to": {
+          "z": 1.45,
+          "x": 0.4,
+          "y": 0.47
+        }
+      },
+      "treatment": "Hard cut to the razor-blade stall: the full frame with the woman's back, the man in the pale fedora and the parked cars behind, then a push toward the vendor, who looks straight at the camera while handing an item across the table.",
+      "why": "From hands to a face. The cut, not a dissolve, makes his look land. He is the first person in the film who sees the photographer, and so sees us. This is the poster frame."
+    },
+    {
+      "id": "S07",
+      "asset": "A-009",
+      "dur": 8.0,
+      "dissolve": 1.2,
+      "move": {
+        "from": {
+          "z": 1.4,
+          "x": 0.36,
+          "y": 0.5
+        },
+        "to": {
+          "z": 1.4,
+          "x": 0.64,
+          "y": 0.48
+        }
+      },
+      "treatment": "A slow lateral drift along the row of jackets hanging from the wire, settling on the man in the light fedora and striped shirt at the end of the stall, hands in his pockets, looking off to his right.",
+      "why": "A second face, the opposite of the first: he is not looking at us. The drift along the jackets gives him time to arrive. Silence continues; the saxophone carries this stretch."
+    },
+    {
+      "id": "S08",
+      "asset": "A-011",
+      "dur": 13.0,
+      "dissolve": 0,
+      "move": {
+        "from": {
+          "z": 1.0,
+          "x": 0.5,
+          "y": 0.5
+        },
+        "to": {
+          "z": 1.06,
+          "x": 0.48,
+          "y": 0.54
+        }
+      },
+      "treatment": "Hard cut from black and white into colour: the two seated guitarists with their small amplifiers, the harmonica player standing at the microphone, and the crowd on the sidewalk and the stairs behind. The gentlest push toward the players; the 600 px source can take no more.",
+      "why": "The turn of the film. Nine years and a change of medium in one cut. The longest shot, and the one fact the viewer most needs: these amplifiers were how musicians got heard over the market, and that is part of how Chicago blues went electric."
+    },
+    {
+      "id": "S09",
+      "asset": "A-004",
+      "dur": 8.0,
+      "dissolve": 1.5,
+      "move": {
+        "from": {
+          "z": 1.0,
+          "x": 0.5,
+          "y": 0.56
+        },
+        "to": {
+          "z": 1.07,
+          "x": 0.47,
+          "y": 0.47
+        }
+      },
+      "treatment": "The Sunday crowd at the sidewalk stall of boxed hubcaps and small toys under the LEAVITT'S DELICATESSEN sign: a slight push from the sign down toward the faces of the people browsing.",
+      "why": "Colour stays, the crowd returns. The faces of the late fifties answer the faces of 1941; the stall is different and the posture is the same."
+    },
+    {
+      "id": "S10",
+      "asset": "A-002",
+      "dur": 11.0,
+      "dissolve": 1.5,
+      "move": {
+        "from": {
+          "z": 1.07,
+          "x": 0.5,
+          "y": 0.5
+        },
+        "to": {
+          "z": 1.0,
+          "x": 0.5,
+          "y": 0.5
+        }
+      },
+      "treatment": "Halsted Street looking south on a Sunday: the packed street, the car parked nose-on among the people, the lit signs. A slow pull out to the full frame, the only move in the film that gets wider, and then the fade.",
+      "why": "The widest view and the latest date, and the last fact: what the city did with the market in 1994. The pull-out lets the street go on past the edge of the frame as the picture fades."
+    }
+  ],
+  "narration": [
+    {
+      "at": 8.5,
+      "text": "Maxwell Street, Chicago. April, nineteen forty one.",
+      "source": "A-001 (Russell Lee, FSA/OWI, dated 1941 Apr.; https://www.loc.gov/item/2017743575/)"
+    },
+    {
+      "at": 23.0,
+      "text": "The city recognized the market in nineteen twelve. It sold almost anything, legal and illegal.",
+      "source": "https://en.wikipedia.org/wiki/Maxwell_Street (context_facts: officially recognized by the City of Chicago in 1912; vendors sold almost anything, new or secondhand, legal and illegal)"
+    },
+    {
+      "at": 57.3,
+      "text": "By the forties, African American musicians here used amplifiers to be heard over the market. Chicago blues was going electric.",
+      "source": "https://en.wikipedia.org/wiki/Maxwell_Street (context_facts: from the 1930s-40s, African American musicians on Maxwell Street began using amplifiers and electric instruments to be heard over the market noise, a key step in the development of electrified Chicago blues)"
+    },
+    {
+      "at": 75.0,
+      "text": "The city moved the market in nineteen ninety four, for the university's expansion.",
+      "source": "https://en.wikipedia.org/wiki/Maxwell_Street (context_facts: in 1994 the City of Chicago moved the market to accommodate the expansion of the University of Illinois at Chicago)"
+    }
+  ],
+  "score": {
+    "cue": "sting:to_document",
+    "era": "modern",
+    "at": 0.0,
+    "gain_db": -8,
+    "credit": "Score: a slow blues in C on sampled instruments. Double bass (plucked) and upright piano: Versilian Studios and Sam Gossner, and Simon Dalzell of Ivy Audio, VSCO 2 Community Edition (CC0). Tenor saxophone: Versilian Studios, Versilian Community Sample Library (CC0).",
+    "note": "The film-length cue is keyed sting:to_document because void-history's validator caps a cue named theme at 32 s and the sketch renderer asserts that validator. The manifest also carries a true 28 s theme (the first eight bars of the same music)."
+  }
+}
