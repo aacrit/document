@@ -327,3 +327,45 @@ def test_a_spans_geonameid_needs_geonames_credited():
     s["layers"][3]["span"] = {"from": [12.0, 10.1], "to": [11.8, 13.0], "basis": {"geonameid": 1}}
     with pytest.raises(maps.MapRefused, match="GeoNames"):
         maps.render_map(s, GEO)
+
+
+def test_a_solid_bengal_award_line_is_refused():
+    s = spec()
+    s["layers"].append({"file": "river.geojson", "style": "line",
+                        "where": {"FEATURECLA": "International boundary (verify)", "ADM0_A3_L": "BGD", "ADM0_A3_R": "IND"}})
+    with pytest.raises(maps.MapRefused, match="Bengal award"):
+        maps.check_spec(s)
+    s["layers"][-1]["style"] = "border_today"
+    maps.check_spec(s)
+
+
+EPISODE_SPECS = Path.home() / "document-work" / "episode" / "drawn" / "specs"
+
+
+@pytest.mark.skipif(not EPISODE_SPECS.exists(), reason="the episode's specs live outside the repo")
+def test_no_episode_spec_draws_a_bengal_line_solid():
+    for f in sorted(EPISODE_SPECS.glob("D*.json")):
+        s = json.loads(f.read_text(encoding="utf-8"))
+        maps.check_spec(s)
+        for v in s.get("views") or [s]:
+            for ly in v.get("layers", []):
+                w = ly.get("where") or {}
+                if {w.get("ADM0_A3_L"), w.get("ADM0_A3_R")} == {"BGD", "IND"}:
+                    assert ly["style"] not in maps.SOLID, f.name
+
+
+def test_the_source_line_zone_carries_no_map_strokes():
+    """Lines and outlines stop short of the source line: the zone is identical with
+    and without every stroked layer."""
+    base = spec()
+    base["frame"] = [0.04, 0.35, 0.68, 1.12]   # push the land down under the source line
+    base["labels"], base["places"] = [], []
+    fills_only = copy.deepcopy(base)
+    fills_only["layers"] = [ly for ly in base["layers"] if ly["style"] in maps.POLY]
+    a, info = maps.render_map(base, GEO)
+    b, _ = maps.render_map(fills_only, GEO)
+    x0, y0, x1, y1 = (int(round(v)) for v in [b_ for b_ in info["boxes"] if b_["kind"] == "source"][0]["box"])
+    za, zb = np.asarray(a)[y0 - 6:1080, max(0, x0 - 6):x1 + 6], np.asarray(b)[y0 - 6:1080, max(0, x0 - 6):x1 + 6]
+    assert np.array_equal(za, zb)
+    # and the strokes are really there, outside the zone
+    assert not np.array_equal(np.asarray(a), np.asarray(b))

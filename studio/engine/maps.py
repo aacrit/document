@@ -180,6 +180,7 @@ LINE = {
     "coast": ("faint", 0.6, 1.4, None),
     "border": ("faint", 1.0, 2.0, None),
     "border_today": ("muted", 0.9, 2.4, (10, 7)),
+    "working": ("muted", 1.0, 2.2, (3, 5)),
     "river": ("cold_text", 0.85, 2.2, None),
     "road": ("muted", 1.0, 2.6, (6, 6)),
     "line": ("line", 1.0, 5.0, None),
@@ -220,6 +221,10 @@ FULL_FRAME = (0.04, 0.08, 0.96, 0.92)     # when there is no panel
 # --------------------------------------------------------------------------
 
 GEONAMES = "GeoNames (CC BY 4.0)"
+# Lines no open dataset places, which no spec may draw solid: (pair of ADM0_A3 codes, why).
+UNPLACED = [({"BGD", "IND"}, "the Bengal award's line: no open dataset places it, so it is drawn only as "
+                             "today's border, dashed")]
+SOLID = ("line", "line_dashed")
 SOURCE_SHORT_MAX = 40
 _COLOUR_VALUE = re.compile(r"#[0-9a-fA-F]{3,8}\b|\b(?:rgb|rgba|hsl|hsla|oklch)\(")
 _COLOUR_KEYS = {"color", "colour", "fill", "stroke", "rgb", "hex"}
@@ -281,6 +286,11 @@ def check_spec(spec: dict) -> None:
             if pth.get("style") not in LINE or len(pth.get("points", [])) < 2:
                 raise MapRefused(f"{spec['id']}: a path needs a line style and two points")
     for ly in [ly for v in views for ly in v.get("layers", [])]:
+        where = ly.get("where") or {}
+        pair = {where.get("ADM0_A3_L"), where.get("ADM0_A3_R")}
+        for codes, why in UNPLACED:
+            if ly.get("style") in SOLID and pair == codes:
+                raise MapRefused(f"{spec['id']}: a solid line on {sorted(codes)} is refused: {why}")
         st = ly.get("style")
         if st not in POLY and st not in LINE:
             raise MapRefused(f"{spec['id']}: unknown layer style {st}")
@@ -572,6 +582,7 @@ class Canvas:
         self.img = Image.new("RGBA", (W * SS, H * SS), pal["sea"][:3] + (255,))
         self.d = ImageDraw.Draw(self.img, "RGBA")
         self.boxes: list[dict] = []
+        self.keepout = None  # 2x rect kept clear of map strokes (the source line's zone)
 
     def font(self, which: str, pct_h: float):
         return M._font(_font_path(self.fonts, which), max(1, round(pct_h / 100.0 * H * SS)))
@@ -620,10 +631,14 @@ class Canvas:
         m = Image.new("L", self.img.size, 0)
         return m, ImageDraw.Draw(m)
 
-    def composite(self, mask: Image.Image, role: str, alpha: float) -> None:
+    def composite(self, mask: Image.Image, role: str, alpha: float, *, stroke: bool = False) -> None:
         """Lay a role's colour through a coverage mask, once. Strokes are drawn opaque
         into the mask first, so a dense coastline's overlapping joints never stack
-        their alpha into a brighter line than its style."""
+        their alpha into a brighter line than its style. A map stroke never enters the
+        keep-out zone (the source line's)."""
+        if stroke and self.keepout is not None:
+            mask = mask.copy()
+            ImageDraw.Draw(mask).rectangle(self.keepout, fill=0)
         bbox = mask.getbbox()
         if bbox is None:
             return
@@ -725,11 +740,12 @@ def _draw_layers(cv: Canvas, spec: dict, proj: Projection, geodata: Path, used: 
         if fmask is not None:
             cv.composite(fmask, POLY[style][0], POLY[style][1])
             if POLY[style][4] is not None:
-                cv.composite(ImageChops.multiply(fmask, _hatch(cv.img.size, POLY[style][4])), HATCH["role"], HATCH["alpha"])
+                cv.composite(ImageChops.multiply(fmask, _hatch(cv.img.size, POLY[style][4])), HATCH["role"], HATCH["alpha"],
+                             stroke=True)
         if omask is not None:
-            cv.composite(omask, POLY[style][2], 0.9)
+            cv.composite(omask, POLY[style][2], 0.9, stroke=True)
         if lmask is not None:
-            cv.composite(lmask, LINE[style][0], LINE[style][1])
+            cv.composite(lmask, LINE[style][0], LINE[style][1], stroke=True)
         if n == 0:
             raise MapRefused(f"{spec['id']}: layer {ly['file']} {ly.get('where') or ''} matched nothing in view")
 
@@ -925,7 +941,7 @@ def _draw_paths(cv: Canvas, spec: dict, proj: Projection) -> None:
             pts[-1] = (x1 - (x1 - x0) * back / L, y1 - (y1 - y0) * back / L)
         m, md = cv.mask()
         _line_on(md, [(x * SS, y * SS) for x, y in pts], 255, px, dash)
-        cv.composite(m, role, a)
+        cv.composite(m, role, a, stroke=True)
         if pth.get("arrow"):
             (x0, y0), (x1, y1) = pts[-2], pts[-1]
             ang = math.atan2(y1 - y0, x1 - x0)
@@ -940,6 +956,20 @@ def _draw_view(cv: Canvas, view: dict, proj: Projection, geodata: Path, used: di
     _draw_paths(cv, view, proj)
     _draw_labels(cv, view, proj)
     _draw_places(cv, view, proj)
+
+
+KEEPOUT_PAD = 14  # px at 1080p around the source line
+
+
+def _source_keepout(cv: Canvas, src: str) -> list:
+    """The 2x rectangle around the source line that no map stroke may cross."""
+    f = cv.font("structure", SIZES["source"])
+    asc, _ = f.getmetrics()
+    x = SOURCE_LINE["x"] * W * SS
+    base = SOURCE_LINE["baseline"] * H * SS
+    w = cv.measure(src, "structure", SIZES["source"])
+    pad = KEEPOUT_PAD * SS
+    return [x - pad, base - asc - pad, x + w + pad, H * SS]
 
 
 def _intersects(a, b) -> bool:
@@ -966,6 +996,8 @@ def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
     panel = bool((show_title and spec.get("title")) or spec.get("legend") or spec.get("notes") or spec.get("figures"))
     frame = tuple(spec.get("frame") or (DEFAULT_FRAME if panel else FULL_FRAME))
     used: dict[str, str] = {}
+    src = source_line(spec)
+    cv.keepout = _source_keepout(cv, src)
     views = spec.get("views")
     if not views:
         proj = Projection(spec["extent"], frame, (W, H))
@@ -975,6 +1007,7 @@ def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
             vf = tuple(v["frame"])
             sub = Canvas(pal, fonts)
             sub.boxes = cv.boxes
+            sub.keepout = cv.keepout
             before = len(cv.boxes)
             _draw_view(sub, {**v, "id": f"{spec['id']}/{v.get('name', '')}"}, Projection(v["extent"], vf, (W, H)),
                        Path(geodata), used)
@@ -991,7 +1024,6 @@ def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
             cv.shape("faint", 1.0, lambda md, rect=rect: md.rectangle(rect, outline=255, width=SS))
     if panel:
         _draw_panel(cv, spec)
-    src = source_line(spec)
     cv.text((SOURCE_LINE["x"] * W * SS, SOURCE_LINE["baseline"] * H * SS), src, "structure", SIZES["source"],
             "muted", halo=True, kind="source")
     if cv.boxes[-1]["box"][2] > 0.96 * W:
