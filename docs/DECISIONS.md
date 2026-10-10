@@ -85,3 +85,6 @@ A text that reports what someone said in the third person ("X stated that ...") 
 
 ## 2026-10-10: The Trailer, and two picture and sound rules (founder, in chat)
 A first public piece, "The Partition of India · Trailer", about 5 minutes: one calm, continuous film (not a collage) that breathes between scenes and lingers where needed, made by the same engine under the same rules; it is hosted on document.voidvision.org after the founder has watched it. Black is black: every black field (cards, black under a voice, pillarbox and letterbox, the hold of a dip) is RGB 0,0,0, and a dip's black hold carries no overlay. Voices never overlap: timing comes from measured audio durations, consecutive voice lines are at least 0.8 s apart, and the engine refuses an overlap.
+
+## 2026-10-10: Full episode; male voice blends; newsreel colour cast (founder, in chat)
+Generate the whole Partition episode next, written by Fable from the treatment under the lessons of the teaser and trailer (C:/Users/aacri/document-work/partition/LESSONS-from-teaser-trailer.md). Extra South Asian men's voices are made as fixed blends of Kokoro voices and auditioned by the founder before casting. The 1946 United News reel's magenta transfer cast is neutralised to black and white, and those shots are marked RECONSTRUCTED "colour cast removed".
