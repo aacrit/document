@@ -38,6 +38,40 @@ AUDIO_RATE = 48000
 LICENCES = {"public domain", "CC0", "CC-BY-2.0", "CC-BY-4.0"}  # CC BY requires the credit line, which sources.json carries
 NARRATION_CEILING = 0.35
 VOID_ROOT = Path(os.environ.get("VOID_ROOT", "C:/Users/aacri/claudeprojects/voidnews"))
+# Every unit of work is timed into this ledger; the Director's Lens predicts
+# from it (design/spec.md, "timing ledger"). Data, never committed.
+TIMINGS = Path(os.environ.get("DOCUMENT_TIMINGS", Path.home() / "document-work" / "timings.jsonl"))
+
+
+def machine() -> dict:
+    """Conditions at the moment a unit finishes: GPU load, VRAM, temperature."""
+    import platform
+    m = {"cpu": platform.processor(), "cpus": os.cpu_count()}
+    try:
+        q = subprocess.run(["nvidia-smi", "--query-gpu=name,utilization.gpu,memory.used,temperature.gpu,clocks_throttle_reasons.active",
+                            "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=5).stdout.strip()
+        name, util, mem, temp, thr = [x.strip() for x in q.split(",")]
+        m.update(gpu=name, gpu_util=int(util), vram_mb=int(mem), gpu_temp_c=int(temp), throttle=thr)
+    except Exception:
+        pass
+    return m
+
+
+class Timer:
+    """Appends one JSON record per unit of work to TIMINGS."""
+
+    def __init__(self, film: Path):
+        import time, uuid
+        self.run = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:4]
+        self.film = film.name
+        TIMINGS.parent.mkdir(parents=True, exist_ok=True)
+
+    def record(self, stage: str, unit: str, seconds: float, size: dict, **extra) -> None:
+        import time
+        rec = {"run": self.run, "film": self.film, "stage": stage, "unit": unit, "wall_s": round(seconds, 3),
+               "size": size, "at": time.strftime("%Y-%m-%dT%H:%M:%S"), "renderer": "sketch.py", **machine(), **extra}
+        with TIMINGS.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec) + "\n")
 
 
 def fail(msg: str) -> None:
@@ -111,13 +145,19 @@ def check(dossier: dict, play: dict) -> dict:
     return assets
 
 
-def narrate(lines: list[dict], voice: str, speed: float, work: Path) -> list[tuple[float, np.ndarray]]:
+def narrate(lines: list[dict], voice: str, speed: float, work: Path, timer: "Timer") -> list[tuple[float, np.ndarray]]:
+    import time
     from kokoro_onnx import Kokoro
     kdir = Path.home() / ".cache/void-kokoro/model-files-v1.0"
+    t0 = time.perf_counter()
     k = Kokoro(str(kdir / "kokoro-v1.0.int8.onnx"), str(kdir / "voices-v1.0.bin"))
+    timer.record("narration", "model_load", time.perf_counter() - t0, {}, engine="kokoro-82m-int8-cpu")
     out = []
-    for ln in lines:
+    for i, ln in enumerate(lines):
+        t0 = time.perf_counter()
         samples, rate = k.create(ln["text"], voice=ln.get("voice", voice), speed=speed, lang="en-us")
+        timer.record("narration", f"line:{i}", time.perf_counter() - t0,
+                     {"words": len(ln["text"].split()), "audio_s": round(len(samples) / rate, 3)}, engine="kokoro-82m-int8-cpu")
         out.append((float(ln["at"]), resample(np.asarray(samples, dtype=np.float32), rate)))
     return out
 
@@ -178,6 +218,9 @@ def mix(total: float, voice: list[tuple[float, np.ndarray]], music: np.ndarray |
 
 
 def render(film: Path) -> None:
+    import time
+    timer = Timer(film)
+    run_t0 = time.perf_counter()
     dossier = json.loads((film / "dossier.json").read_text(encoding="utf-8"))
     play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
     assets = check(dossier, play)
@@ -188,16 +231,27 @@ def render(film: Path) -> None:
 
     with tempfile.TemporaryDirectory(dir=film) as tmp:
         work = Path(tmp)
-        voice = narrate(play.get("narration", []), play.get("voice", "am_michael"), float(play.get("speed", 1.0)), work)
+        voice = narrate(play.get("narration", []), play.get("voice", "am_michael"), float(play.get("speed", 1.0)), work, timer)
         spoken = sum(len(x) for _, x in voice) / AUDIO_RATE
         if spoken > NARRATION_CEILING * total:
             fail(f"narration is {spoken:.1f}s of {total:.1f}s ({spoken / total:.0%}), over the {NARRATION_CEILING:.0%} ceiling")
-        audio = mix(total, voice, score_cue(film, play.get("score", {}), work), play.get("score", {}))
+        t0 = time.perf_counter()
+        cue = score_cue(film, play.get("score", {}), work)
+        if cue is not None:
+            timer.record("score", "cue", time.perf_counter() - t0, {"audio_s": round(len(cue) / AUDIO_RATE, 3)})
+        t0 = time.perf_counter()
+        audio = mix(total, voice, cue, play.get("score", {}))
+        timer.record("mix", "film", time.perf_counter() - t0, {"audio_s": round(total, 3)})
         import soundfile as sf
         wav = work / "mix.wav"
         sf.write(str(wav), audio, AUDIO_RATE, subtype="PCM_16")
 
+        t0 = time.perf_counter()
         stills = {s["asset"]: load_still(film / assets[s["asset"]]["file"]) for s in play["shots"]}
+        timer.record("motion", "load_stills", time.perf_counter() - t0, {"stills": len(stills)})
+        shot_s: dict[str, float] = {}
+        shot_f: dict[str, int] = {}
+        motion_t0 = time.perf_counter()
         enc = subprocess.Popen(
             [ffmpeg(), "-y", "-hide_banner", "-loglevel", "error",
              "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
@@ -210,7 +264,9 @@ def render(film: Path) -> None:
         fade_in, fade_out = float(play.get("fade_in_s", 1.5)), float(play.get("fade_out_s", 2.0))
         poster_at = float(play.get("poster_at", total * 0.3))
         for f in range(frames):
+            ft0 = time.perf_counter()
             t = f / FPS
+            active = [s["id"] for s, (a, b) in zip(play["shots"], spans) if a <= t < b]
             acc, wsum = np.zeros((H, W, 3), np.float32), 0.0
             for s, (a, b) in zip(play["shots"], spans):
                 if a <= t < b:
@@ -221,13 +277,23 @@ def render(film: Path) -> None:
             lvl = min(1.0, t / fade_in if fade_in else 1.0, (total - t) / fade_out if fade_out else 1.0)
             frame = np.clip(acc * max(0.0, lvl), 0, 255).astype(np.uint8)
             enc.stdin.write(frame.tobytes())
+            dt = time.perf_counter() - ft0
+            for sid in active or ["tail"]:
+                shot_s[sid] = shot_s.get(sid, 0.0) + dt / max(1, len(active))
+                shot_f[sid] = shot_f.get(sid, 0) + 1
             if abs(t - poster_at) < 0.5 / FPS:
                 Image.fromarray(frame).save(out_dir / "poster.jpg", quality=88)
             if f % (FPS * 5) == 0:
                 print(f"  frame {f}/{frames}", flush=True)
         enc.stdin.close()
+        t0 = time.perf_counter()
         if enc.wait():
             fail("ffmpeg encode failed")
+        for sid, secs in shot_s.items():
+            timer.record("motion", f"shot:{sid}", secs, {"frames": shot_f[sid], "width": W, "height": H},
+                         method="ken-burns-pil-bicubic+x264-pipe")
+        timer.record("motion", "all_frames", time.perf_counter() - motion_t0, {"frames": frames, "width": W, "height": H})
+        timer.record("assembly", "encode_tail", time.perf_counter() - t0, {"frames": frames})
 
     sources = {
         "place": dossier["place"], "title": play.get("title", dossier["place"]),
@@ -243,6 +309,7 @@ def render(film: Path) -> None:
         "score_credit": play.get("score", {}).get("credit"),
     }
     (out_dir / "sources.json").write_text(json.dumps(sources, indent=2, ensure_ascii=False), encoding="utf-8")
+    timer.record("run", "total", time.perf_counter() - run_t0, {"film_s": round(total, 3), "shots": len(play["shots"])})
     print(f"sketch: {total:.1f}s, narration {spoken / total:.0%} -> {out_dir / 'film.mp4'}")
 
 
