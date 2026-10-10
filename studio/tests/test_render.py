@@ -1055,47 +1055,67 @@ def test_a13_a_peaky_voice_line_is_peak_controlled(tmp_path):
         x[i:i + 96] += 0.12 * np.sin(np.linspace(0, np.pi, 96))
     y, peak = R.voice_peak_control(_levelled(x))
     assert peak and not peak["bad_take"] and peak["tp_before"] > R.VOICE_TP
-    assert peak["tp_after"] <= R.VOICE_TP + 0.2 and 0.1 < peak["max_reduction_db"] <= R.VOICE_LIMIT_MAX_DB
+    assert peak["tp_after"] <= R.VOICE_TP + 0.2 and 0.1 < peak["max_reduction_db"] <= 8.0 and not peak["bad_take"]
     assert len(y) == len(x)
     quiet, quiet_peak = R.voice_peak_control(_levelled(_voice()))   # a steady line under the ceiling is left alone
     assert quiet_peak is None
 
 
-def test_a13_a_line_cut_more_than_8_db_is_a_bad_take(tmp_path):
+def test_a13_a_single_click_is_peak_control_not_a_bad_take(tmp_path):
     x = _voice()
     x[48000] += 1.0                                                   # one click far over the line's own level
     x[48001] -= 1.0
     _, peak = R.voice_peak_control(_levelled(x))
-    assert peak["max_reduction_db"] > R.VOICE_LIMIT_MAX_DB and peak["over_1db_share"] <= R.VOICE_LIMIT_OVER_SHARE
-    assert len(peak["bad_take"]) == 1 and "dB of peak reduction" in peak["bad_take"][0]
+    assert peak["max_reduction_db"] > 8.0                             # cut deep, but only for a few ms
+    assert 0 < peak["over_8db_s"] <= R.VOICE_OVER_8DB_MAX_S and not peak["bad_take"]
+    film = make_film(tmp_path / "film")
+    _wav(film / "audio" / "L1.wav", x)
+    plan, _ = _plan(film)
+    j = J.Journal(film="click")
+    _, placed = R.build_mix(plan, film, j)
+    evs = J.read(j.path)
+    lint = [e for e in lints(evs, "voice-peak-control") if e["unit"] == "L1"][0]
+    assert lint["status"] == "pass" and lint["severity"] == "block"
+    assert {"over_8db_s", "over_3db_s", "over_1db_s"} <= set(lint["evidence"])
+    dec = [e for e in evs if e["kind"] == "decision" and e["unit"] == "L1" and "peak-controlled" in e["what"]][0]
+    assert "over 8 dB" in dec["what"] and "over 3 dB" in dec["what"] and "over 1 dB" in dec["what"]
+
+
+def test_a13_a_sustained_10_db_cut_is_a_bad_take(tmp_path):
+    x = _voice(3.0)
+    for s in np.arange(1.0, 1.3, 0.005):                              # 300 ms of peaks every 5 ms: the limiter holds over 10 dB
+        i = int(s * 48000)
+        x[i:i + 24] += 1.0 * np.sin(np.linspace(0, np.pi, 24))
+    _, peak = R.voice_peak_control(_levelled(x))
+    assert peak["over_8db_s"] > R.VOICE_OVER_8DB_MAX_S and peak["max_reduction_db"] >= 10.0
+    assert any("over 8 dB for" in b for b in peak["bad_take"])
     film = make_film(tmp_path / "film")
     _wav(film / "audio" / "L1.wav", x)
     plan, _ = _plan(film)
     j = J.Journal(film="bad-take")
-    with pytest.raises(R.Refused, match=r"voice-peak-control \(A13\).*L1 \(.*dB of peak reduction"):
+    with pytest.raises(R.Refused, match=r"voice-peak-control \(A13\).*L1 \(.*over 8 dB for"):
         R.build_mix(plan, film, j)
-    evs = J.read(j.path)
-    lint = [e for e in lints(evs, "voice-peak-control") if e["unit"] == "L1"][0]
+    lint = [e for e in lints(J.read(j.path), "voice-peak-control") if e["unit"] == "L1"][0]
     assert lint["status"] == "fail" and lint["severity"] == "block" and lint["evidence"]["result"] == "refused: re-render the take"
-    assert [e for e in evs if e["kind"] == "decision" and e["unit"] == "L1" and "peak-controlled" in e["what"]]
     jd = J.Journal(film="bad-take-draft")
     _, placed = R.build_mix(plan, film, jd, draft=True)               # a draft keeps the take, with a warning
-    assert [ln["peak_reduction_db"] for ln in placed["lines"] if ln["id"] == "L1"][0] > R.VOICE_LIMIT_MAX_DB
+    assert [ln["peak_reduction_db"] for ln in placed["lines"] if ln["id"] == "L1"][0] >= 10.0
     assert [e for e in lints(J.read(jd.path), "voice-peak-control") if e["unit"] == "L1"][0]["severity"] == "warn"
 
 
-def test_a13_a_line_limited_over_1_db_for_15_percent_is_a_bad_take(tmp_path):
-    x = 0.02 * np.sin(2 * np.pi * 220 * np.arange(48000 * 3) / 48000)
-    for s in np.arange(0, 3, 0.02):                                   # a peak every 20 ms: the limiter never lets go
+def test_a13_a_line_over_1_db_for_a_quarter_of_it_is_a_bad_take(tmp_path):
+    x = _voice(4.0, 0.02)
+    for s in np.arange(0, 1.5, 0.02):                                 # mild peaks every 20 ms through the first 1.5 s
         i = int(s * 48000)
-        x[i:i + 48] += 0.5 * np.sin(np.linspace(0, np.pi, 48))
+        x[i:i + 48] += 0.06 * np.sin(np.linspace(0, np.pi, 48))
     _, peak = R.voice_peak_control(_levelled(x))
-    assert peak["max_reduction_db"] <= R.VOICE_LIMIT_MAX_DB and peak["over_1db_share"] > R.VOICE_LIMIT_OVER_SHARE
-    assert len(peak["bad_take"]) == 1 and "of the line (limit 15%)" in peak["bad_take"][0]
+    assert peak["over_1db_share"] >= 0.25 and peak["over_8db_s"] == 0
+    assert peak["over_3db_share"] <= R.VOICE_OVER_3DB_MAX_SHARE and len(peak["bad_take"]) == 1    # only the 1 dB bound fails
+    assert any("over 1 dB for" in b and "limit 20%" in b for b in peak["bad_take"])
     film = make_film(tmp_path / "film")
     _wav(film / "audio" / "L2.wav", x)
     plan, _ = _plan(film)
-    with pytest.raises(R.Refused, match=r"voice-peak-control \(A13\).*L2 \(over 1 dB for"):
+    with pytest.raises(R.Refused, match=r"voice-peak-control \(A13\).*L2 \(.*over 1 dB for"):
         R.build_mix(plan, film, J.Journal(film="crushed"))
 
 

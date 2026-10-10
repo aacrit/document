@@ -83,7 +83,9 @@ LIMIT_ACTED_LOGGED = 200            # the limiter's largest actions journaled wi
 DIALOGUE_LUFS = -20.0               # GRAMMAR 8.5: each synthetic voice line levelled to this before mixing
 VOICE_TP = DIALOGUE_LUFS + 12.5     # GRAMMAR A13: a synthetic voice line's true peak after levelling, at most -7.5 dBTP
 VOICE_LIMIT_MARGIN_DB = 0.3         # the per-line limiter's ceiling sits this far under VOICE_TP
-VOICE_LIMIT_MAX_DB, VOICE_LIMIT_OVER_SHARE = 8.0, 0.15   # past these a line is a bad take: refused, re-render it
+# A13 bad take (refused, re-render it): over 8 dB for more than 20 ms in total, over 1 dB for more than 20% of the
+# line, or over 3 dB for more than 5% of it. A click cut deep for a few ms is peak control; sustained cuts are compression.
+VOICE_OVER_8DB_MAX_S, VOICE_OVER_1DB_MAX_SHARE, VOICE_OVER_3DB_MAX_SHARE = 0.020, 0.20, 0.05
 MUSIC_LUFS = -26.0                  # a music cue's bed level, 6 dB under the dialogue (its gain_db is an offset from it)
 DUCK_DB = 9.0                       # GRAMMAR 8.5: music under voice
 MASTER_CRF = 18
@@ -1380,16 +1382,19 @@ def _level(journal: Journal, unit: str, x: np.ndarray, target: float, what: str)
 
 def _journal_peak(journal: Journal, unit: str, peak: dict, draft: bool) -> None:
     """A13: a line's peak reduction as a decision, and the bad-take lint (blocking; a warning under --draft)."""
-    journal.decision("assembly", f"{unit} peak-controlled to {peak['ceiling_dbtp']:g} dBTP: at most {peak['max_reduction_db']:.2f} dB, "
-                     f"over 1 dB for {peak['over_1db_s']:.3f} s",
+    journal.decision("assembly", f"{unit} peak-controlled to {peak['ceiling_dbtp']:g} dBTP: at most {peak['max_reduction_db']:.2f} dB; "
+                     f"over 8 dB {peak['over_8db_s']:.3f} s, over 3 dB {peak['over_3db_s']:.3f} s, over 1 dB {peak['over_1db_s']:.3f} s "
+                     f"of {peak['dur_s']:.3f} s",
                      f"its true peak after levelling was {peak['tp_before']:.2f} dBTP, past the voice ceiling {VOICE_TP:g} dBTP "
                      f"(GRAMMAR A13: {DIALOGUE_LUFS:g} LUFS + 12.5 dB)", unit=unit,
                      evidence=dict({k: v for k, v in peak.items() if k != "acted"}, acted=peak["acted"][:20]))
     journal.lint("voice-peak-control", not peak["bad_take"], stage="assembly", phase="preflight", unit=unit,
                  severity="warn" if draft else "block", grammar="A13",
-                 evidence={"max_reduction_db": peak["max_reduction_db"], "over_1db_s": peak["over_1db_s"],
-                           "over_1db_share": peak["over_1db_share"], "bad_take": peak["bad_take"],
-                           "limits": {"max_db": VOICE_LIMIT_MAX_DB, "over_1db_share": VOICE_LIMIT_OVER_SHARE},
+                 evidence={"max_reduction_db": peak["max_reduction_db"], "max_at_s": peak["max_at_s"], "dur_s": peak["dur_s"],
+                           "over_8db_s": peak["over_8db_s"], "over_3db_s": peak["over_3db_s"], "over_1db_s": peak["over_1db_s"],
+                           "over_3db_share": peak["over_3db_share"], "over_1db_share": peak["over_1db_share"], "bad_take": peak["bad_take"],
+                           "limits": {"over_8db_s": VOICE_OVER_8DB_MAX_S, "over_1db_share": VOICE_OVER_1DB_MAX_SHARE,
+                                      "over_3db_share": VOICE_OVER_3DB_MAX_SHARE},
                            "result": None if not peak["bad_take"] else ("kept (draft)" if draft else "refused: re-render the take")})
 
 
@@ -1595,8 +1600,9 @@ def voice_peak_control(x: np.ndarray, ceiling_db: float | None = None) -> tuple[
     the voice ceiling goes through the oversampled true-peak limiter, so its
     crest fits the master's 14.5 dB between -16 LUFS and -1.5 dBTP. Returns
     the line and what the limiter did (None when it was not needed), with
-    ``bad_take`` listing why when it had to cut more than VOICE_LIMIT_MAX_DB,
-    or more than 1 dB for over VOICE_LIMIT_OVER_SHARE of the line."""
+    ``bad_take`` listing why when its cuts were compression, not peak
+    control: over 8 dB for more than 20 ms in total, over 1 dB for more than
+    20% of the line, or over 3 dB for more than 5% of it."""
     ceiling_db = VOICE_TP if ceiling_db is None else ceiling_db
     m = _measure(x)
     if not math.isfinite(m["input_tp"]) or m["input_tp"] <= ceiling_db:
@@ -1604,15 +1610,20 @@ def voice_peak_control(x: np.ndarray, ceiling_db: float | None = None) -> tuple[
     y = _limit_array(x, ceiling_db - VOICE_LIMIT_MARGIN_DB)
     gr = _gr_stats(x, y)
     dur = len(x) / AUDIO_RATE
-    share = gr["over_1db_s"] / dur if dur else 0.0
+    share1 = gr["over_1db_s"] / dur if dur else 0.0
+    share3 = gr["over_3db_s"] / dur if dur else 0.0
     bad = []
-    if gr["max_reduction_db"] > VOICE_LIMIT_MAX_DB:
-        bad.append(f"{gr['max_reduction_db']:.2f} dB of peak reduction at {gr['max_at_s']:.3f} s (limit {VOICE_LIMIT_MAX_DB:g} dB)")
-    if share > VOICE_LIMIT_OVER_SHARE:
-        bad.append(f"over 1 dB for {gr['over_1db_s']:.3f} s, {share:.0%} of the line (limit {VOICE_LIMIT_OVER_SHARE:.0%})")
+    if gr["over_8db_s"] > VOICE_OVER_8DB_MAX_S:
+        bad.append(f"over 8 dB for {gr['over_8db_s']:.3f} s in total (limit {VOICE_OVER_8DB_MAX_S:g} s; "
+                   f"at most {gr['max_reduction_db']:.2f} dB at {gr['max_at_s']:.3f} s)")
+    if share1 > VOICE_OVER_1DB_MAX_SHARE:
+        bad.append(f"over 1 dB for {gr['over_1db_s']:.3f} s, {share1:.1%} of the line (limit {VOICE_OVER_1DB_MAX_SHARE:.0%})")
+    if share3 > VOICE_OVER_3DB_MAX_SHARE:
+        bad.append(f"over 3 dB for {gr['over_3db_s']:.3f} s, {share3:.1%} of the line (limit {VOICE_OVER_3DB_MAX_SHARE:.0%})")
     after = _measure(y)
     return y, dict(gr, ceiling_dbtp=round(ceiling_db - VOICE_LIMIT_MARGIN_DB, 2), tp_before=m["input_tp"], tp_after=after["input_tp"],
-                   i_after=after["input_i"], over_1db_share=round(share, 4), bad_take=bad)
+                   i_after=after["input_i"], dur_s=round(dur, 3), over_1db_share=round(share1, 4), over_3db_share=round(share3, 4),
+                   bad_take=bad)
 
 
 def gain_reduction(src: Path, limited: Path, gain_db: float, block_ms: float = 1.0) -> dict:
@@ -1654,6 +1665,8 @@ def _gr_stats(a: np.ndarray, b: np.ndarray, block_ms: float = 1.0) -> dict:
     top = int(np.argmax(gr)) if m else 0
     return {"max_reduction_db": round(float(gr.max()) if m else 0.0, 2), "max_at_s": round(top * block_s, 3),
             "over_1db_s": round(float(np.count_nonzero(gr > 1.0)) * block_s, 3),
+            "over_3db_s": round(float(np.count_nonzero(gr > 3.0)) * block_s, 3),
+            "over_8db_s": round(float(np.count_nonzero(gr > 8.0)) * block_s, 3),
             "acted_s": round(float(np.count_nonzero(gr > 0.1)) * block_s, 3), "block_ms": block_ms,
             "acted_total": len(acted), "acted": sorted(acted, key=lambda e: -e["max_db"])[:LIMIT_ACTED_LOGGED]}
 

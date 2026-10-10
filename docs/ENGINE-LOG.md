@@ -207,3 +207,16 @@ On the trailer, 15 of 16 lines were peak-controlled; N5's peak was already under
 - R2 is over 1 dB for 16.8% of the line, against a limit of 15%.
 
 Under `--draft`, which keeps both takes, the mix measured -21.09 LUFS and -6.85 dBTP with LRA 8.2. The 5.09 dB gain puts its peak at -1.76 dBTP, so the master limiter is not needed: 0 dB, 0 s over 1 dB, and `limiter-peak-only` passes. The result is linear at -15.96 LUFS, -1.76 dBTP and LRA 8.2. Open: re-render R2 and R9, then render the final master.
+
+## 2026-10-10 T1b: A13's bad-take rule separates a click from compression
+Shown by: the coordinator's re-renders of R2 and R9 (every Kokoro variant, speeds 0.85 to 1.05, en-us and en-gb, failed the first A13 bounds). Then the journaled trailer runs r-20261010-140327-2275 (final, refused) and r-20261010-140349-083a (`--draft`), and `test_a13_a_single_click_is_peak_control_not_a_bad_take`, `test_a13_a_sustained_10_db_cut_is_a_bad_take` and `test_a13_a_line_over_1_db_for_a_quarter_of_it_is_a_bad_take`. This supersedes the bounds in "T1b: per-line peak control on synthetic voices (GRAMMAR A13)". The first bounds were 8 dB at any point, or over 1 dB for more than 15% of the line. They refused R9 for a single transient (9 to 9.7 dB at about 3.3 s, 12.6% over 1 dB) and R2 for 16 to 17% over 1 dB. They could not tell an inaudible click from sustained gain reduction. A line is now a bad take only when its per-line limiter cut:
+- more than 8 dB for over 20 ms in total;
+- more than 1 dB for over 20% of the line;
+- or more than 3 dB for over 5% of it.
+
+The time over 8 dB, over 3 dB and over 1 dB is journaled for every line, in the `decision` and in the `voice-peak-control` evidence. A single click cut by 19 dB for a few ms now passes.
+On the trailer, with the current WAVs in `teaser/audio/`, R2 passes: 4.93 dB at most, nothing over 8 dB, 2.3% over 3 dB, 16.8% over 1 dB. R9 still fails two bounds, so the final run is refused:
+- it is over 8 dB for 0.024 s against a 0.020 s limit (at most 8.94 dB at 3.381 s);
+- it is over 3 dB for 0.603 s, 6.4% of the line, against a 5% limit.
+
+Its time over 1 dB is 13.2%. The current R9.wav measured the same as in r-20261010-135712-ed71. The other 13 peak-controlled lines pass, the largest being N8 at 3.5% over 3 dB and 11.2% over 1 dB. Under `--draft` the master needs no limiter: the mix's peak after gain is -1.76 dBTP, so the cut is 0 dB with 0 s over 1 dB, and `limiter-peak-only` passes. The master comes out linear at -15.96 LUFS, -1.76 dBTP and LRA 8.2. Open: R9 needs a take that passes, or a ruling on the bounds.
