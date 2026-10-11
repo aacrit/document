@@ -20,7 +20,7 @@
         </div>
         <div class="stage">
           <div class="frame-box field" id="frame">
-            <video id="film" playsinline preload="metadata" poster="/media/partition-of-india/poster.jpg" aria-label="The Partition of India">
+            <video id="film" playsinline preload="metadata" aria-label="The Partition of India">
               <source src="/media/partition-of-india/film.mp4" type="video/mp4" />
               <track kind="captions" srclang="en" label="English captions" src="/media/partition-of-india/captions-en.vtt" />
             </video>
@@ -54,7 +54,7 @@
           <span class="time tc" id="time" aria-hidden="true">0:00 <span class="of">/ 0:00</span></span>
           <button class="subs" type="button" id="subs" aria-haspopup="menu" aria-expanded="false" aria-controls="subs-menu" aria-label="Subtitles" data-label="Subtitles"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2" /><path d="M7 14.5h4M13 14.5h4M7 11h10" /></svg></button>
           <button class="marks" type="button" id="marks" aria-haspopup="dialog" aria-expanded="false" aria-controls="legend" aria-label="Marks" data-label="Marks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h6v4H4zM4 15h6v4H4z" /><path d="M13 7h7M13 17h7" /></svg></button>
-          <a class="ic list" href="#chapters" id="chapters-link" aria-label="Chapters" data-label="Chapters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 7h10M9 12h10M9 17h10M5 7h.01M5 12h.01M5 17h.01" /></svg></a>
+          <a class="ic list" href="#chapters" id="chapters-link" hidden aria-label="Chapters" data-label="Chapters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 7h10M9 12h10M9 17h10M5 7h.01M5 12h.01M5 17h.01" /></svg></a>
           <button class="vol" type="button" id="vol" aria-pressed="true" aria-label="Sound" data-label="Sound"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4zM15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10" /></svg></button>
           <button class="full" type="button" id="full" aria-label="Full screen" data-label="Full screen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" /></svg></button>
           <div class="popover" id="subs-menu" hidden>
@@ -69,9 +69,9 @@
           <div class="popover" id="legend" role="dialog" aria-labelledby="legend-h" hidden>
             <div class="menu legend-menu">
               <p class="mh" id="legend-h">What the marks mean</p>
-              <p class="lead">The mark in the corner says what you see. No AI-generated images in this film. Voices are read by a computer; no recording is imitated.</p>
+              <p class="lead">The mark in the corner says what you see. <span id="ai-sentence-legend"></span> <span id="voice-sentence-legend"></span></p>
               <div class="legend">
-                <div class="row"><span class="mark" data-class="archive"><span class="cls">ARCHIVE</span><span class="det">Wikimedia Commons <span class="num">1947</span></span></span><p data-none-for="ARCHIVE">Real film or photograph from the archive, unaltered beyond trims, crops and slow moves.</p></div>
+                <div class="row"><span class="mark" data-class="archive"><span class="cls">ARCHIVE</span><span class="det">the archive and year</span></span><p data-none-for="ARCHIVE">Real film or photograph from the archive, unaltered beyond trims, crops and slow moves.</p></div>
                 <div class="row"><span class="mark" data-class="reconstructed"><span class="cls">RECONSTRUCTED</span><span class="det">archive <span class="num">1947</span> upscaled</span></span><p data-none-for="RECONSTRUCTED">Archive film or photographs changed in a way that matters: colourised, re-timed, stabilised, or enlarged by a computer model. The mark names the change.</p></div>
                 <div class="row"><span class="mark" data-class="generated"><span class="cls">AI-GENERATED</span><span class="det">context</span></span><p data-none-for="AI-GENERATED">Made by a computer model: places, weather, objects. Never people, never a recorded event.</p></div>
                 <div class="row"><span class="mark" data-class="drawn"><span class="cls">DRAWN</span><span class="det">from a census table</span></span><p data-none-for="DRAWN">A map or diagram drawn by us from named data.</p></div>
@@ -81,7 +81,7 @@
             </div>
           </div>
         </div>
-        <p class="provenance"><strong>No AI-generated images in this film.</strong> Voices are read by a computer; no recording is imitated. <a href="#legend" id="legend-link">What the marks mean</a></p>
+        <p class="provenance"><strong id="ai-sentence"></strong> <span id="voice-sentence"></span> <a href="#legend" id="legend-link">What the marks mean</a></p>
       </section>
 
       <div class="after-wrap">
@@ -90,18 +90,18 @@
             <p class="eyebrow">void document</p>
             <h1 class="title">The Partition of India</h1>
             <p class="place"><span class="num">1946</span> to <span class="num">1948</span>, told with the public record</p>
-            <p class="note"><span id="accounts">Accounts from Britain, India, Pakistan and the Sikh community.</span> Every reading is word for word from its source, sometimes in part (marked <span class="num">...</span>). Voices are read by a computer; no recording is imitated. This film shows no bodies or killing. <span id="silent-note"></span></p>
+            <p class="note"><span id="derived-notes" hidden><span id="accounts"></span> </span>Every reading is word for word from its source, sometimes in part (marked <span class="num">...</span>). <span id="voice-note"></span> This film shows no bodies or killing. <span id="silent-note"></span></p>
           </div>
           <nav class="onward" aria-label="About this film">
             <a href="/f/partition-of-india/sources/"><span class="t">Sources</span><span class="m">Every shot with its mark, archive and licence; every reading with its speaker and source</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 16 16 8M10 8h6v6" /></svg></a>
             <a href="/f/partition-of-india/correct/"><span class="t">Correct something</span><span class="m">Tell us what the film gets wrong.</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 16 16 8M10 8h6v6" /></svg></a>
             <a href="https://news.voidvision.org/history/partition-of-india/" rel="noopener"><span class="t">Listen to void history's audio documentary on the Partition of India</span><span class="m">On void history, part of the void family.</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 16 16 8M10 8h6v6" /></svg></a>
           </nav>
-          <details class="drill" id="chapters" open>
+          <details class="drill" id="chapters" open hidden>
             <summary><span class="t">Chapters</span><span class="s" id="chapters-count"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></summary>
             <ol class="chapters" id="chapter-list"></ol>
           </details>
-          <details class="drill" id="transcript-drill">
+          <details class="drill" id="transcript-drill" hidden>
             <summary><span class="t">Transcript</span><span class="s">English</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></summary>
             <p class="lede">The readings, word for word, each with its speaker. Hindi and Urdu subtitles are being reviewed.</p>
             <ol class="transcript" id="transcript"></ol>

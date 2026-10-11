@@ -4,6 +4,7 @@
 // `npm run contract`, by CI's verify-production.yml, and by the /release and
 // /launch skills. No dependencies beyond Node and the `yaml` package.
 
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -191,7 +192,31 @@ async function runCheck(check, baseUrl, originalBase = baseUrl) {
 
     const response = await contractFetch(target);
 
+    // `sources` names a JSON file on the site (a film's sources.json) and `field` a dotted path in it.
+    const sourcesField = async () => {
+      const r = await contractFetch(joinUrl(baseUrl, check.sources));
+      if (!r.ok) throw new Error(`${check.sources} answered ${r.status}`);
+      const doc = await r.json();
+      return { doc, value: String(check.field).split(".").reduce((o, k) => (o == null ? undefined : o[k]), doc) };
+    };
+
     switch (check.type) {
+      case "sha256_matches": {
+        // The served bytes at `path` hash to what sources.json recorded for them.
+        if (!response.ok) return { label, pass: false, detail: `${target} answered ${response.status}` };
+        const actual = createHash("sha256").update(Buffer.from(await response.arrayBuffer())).digest("hex");
+        const { value } = await sourcesField();
+        const pass = typeof value === "string" && value === actual;
+        return { label, pass, detail: pass ? undefined : `${check.path} hashes to ${actual}, ${check.sources} records ${value}` };
+      }
+      case "duration_matches": {
+        // A duration recorded in sources.json agrees with the film's own within one frame.
+        await response.arrayBuffer();
+        const { doc, value } = await sourcesField();
+        const fps = Number(doc.fps) || 24;
+        const pass = typeof value === "number" && Math.abs(value - Number(doc.duration_s)) <= 1 / fps + 1e-6;
+        return { label, pass, detail: pass ? undefined : `${check.field} is ${value}, duration_s is ${doc.duration_s}: more than one frame apart` };
+      }
       case "status": {
         const pass = response.status === check.expect;
         return { label, pass, detail: pass ? undefined : `expected ${check.expect}, got ${response.status}` };

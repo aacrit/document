@@ -1,21 +1,36 @@
 // The screening room: the current film on the marquee. The page is static
 // and complete without script; this adds the runtime to Watch (from the
 // film's own sources.json) and plays the trailer in a dialog.
-import { formatTime } from "./film-data";
-import { byId, loadSources, mediaUrl } from "./site";
+import { creditsLine, formatTime, posterCredit } from "./film-data";
+import { byId, loadSources, mediaUrl, numerals } from "./site";
 import { sendEvent } from "./telemetry";
 
 const SLUG = "partition-of-india";
 
-function setupRuntime(): void {
+/**
+ * Everything the marquee prints about the film comes from its sources.json:
+ * the runtime, the archives and publications credited, and the poster with
+ * its own credit. The poster is shown only when the release recorded which
+ * still it is (studio/engine/publish.py), so its credit is always its own.
+ */
+function setupFromSources(): void {
   const runtime = byId("runtime");
   loadSources(SLUG)
     .then((data) => {
       runtime.textContent = formatTime(data.duration_s);
       runtime.hidden = false;
+      byId("credits-line").replaceChildren(numerals(creditsLine(data)));
+      if (data.poster) {
+        const img = byId<HTMLImageElement>("poster");
+        img.alt = data.poster.description ?? data.poster.title;
+        img.src = mediaUrl(SLUG, "poster.jpg");
+        img.hidden = false;
+        byId("poster-credit").replaceChildren(numerals(posterCredit(data.poster)));
+        byId<HTMLVideoElement>("trailer-video").poster = mediaUrl(SLUG, "poster.jpg");
+      }
     })
     .catch(() => {
-      // The runtime is a courtesy; Watch works without it.
+      // Without the sources file the marquee prints no credits rather than guess them; Watch still works.
     });
 }
 
@@ -44,5 +59,5 @@ function setupTrailer(): void {
 }
 
 sendEvent("page_view");
-setupRuntime();
+setupFromSources();
 setupTrailer();

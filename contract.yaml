@@ -64,7 +64,7 @@ checks:
   - name: film page says what the marks mean
     type: contains
     path: /f/partition-of-india/
-    text: "No AI-generated images in this film."
+    text: "What the marks mean"
 
   - name: film page links to void history's documentary
     type: contains
@@ -118,6 +118,27 @@ checks:
     type: status
     path: /media/partition-of-india/poster.jpg
     expect: 200
+    requires: deployed
+
+  - name: the film served is the encode sources.json records (deployed only)
+    type: sha256_matches
+    path: /media/partition-of-india/film.mp4
+    sources: /media/partition-of-india/sources.json
+    field: web.film_sha256
+    requires: deployed
+
+  - name: the web encode runs as long as the film, within a frame (deployed only)
+    type: duration_matches
+    path: /media/partition-of-india/sources.json
+    sources: /media/partition-of-india/sources.json
+    field: web.film_duration_s
+    requires: deployed
+
+  - name: the poster served is the still sources.json credits (deployed only)
+    type: sha256_matches
+    path: /media/partition-of-india/poster.jpg
+    sources: /media/partition-of-india/sources.json
+    field: poster.sha256
     requires: deployed
 
   - name: the trailer is served (deployed only)

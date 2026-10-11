@@ -30,13 +30,15 @@ export function reportCoreSuccess(): void {
 
 /**
  * Counts a film as completed the first time it reaches its last frame
- * (`ended`), and never again for this page load: watching it again, or
- * seeking back to the end, does not count twice. Returns a detach function.
+ * (`ended`) with `watched()` true (the film page asks for 90% of it
+ * actually played), and never again for this page load: watching it
+ * again, or seeking back to the end, does not count twice. Returns a
+ * detach function.
  */
-export function countCompletionOnce(film: EventTarget, report: () => void): () => void {
+export function countCompletionOnce(film: EventTarget, report: () => void, watched: () => boolean = () => true): () => void {
   let reported = false;
   const onEnded = () => {
-    if (reported) return;
+    if (reported || !watched()) return;
     reported = true;
     report();
   };

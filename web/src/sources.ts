@@ -6,7 +6,7 @@ import {
   MARK_CLASSES,
   SIDE_BAND,
   WOMEN_FLOOR,
-  balanceFor,
+  computeBalance,
   cardTitle,
   chapterAt,
   chapters as chaptersOf,
@@ -16,6 +16,7 @@ import {
   readingFlag,
   readingSource,
   secondsByMark,
+  seekTime,
   shotTreatment,
   shotWhat,
   silentRecord,
@@ -32,6 +33,7 @@ import { countSourceOpens, sendEvent } from "./telemetry";
 const root = byId("sources-page");
 const SLUG = root.dataset.slug ?? "partition-of-india";
 const FILM = filmPath(SLUG);
+let fps = 24;
 
 const NONE: Record<MarkClass, string> = {
   ARCHIVE: "No shot in this film is from the archive.",
@@ -87,7 +89,7 @@ function shotEntry(shot: Shot): HTMLLIElement {
       "div",
       { class: "ehead" },
       markPlate(shot.mark),
-      el("a", { class: "tc", href: `${FILM}#t=${t}`, "aria-label": `Watch from ${formatTime(shot.start_s)}` }, formatTime(shot.start_s)),
+      el("a", { class: "tc", href: `${FILM}#t=${seekTime(shot.start_s, fps).toFixed(3)}`, "aria-label": `Watch from ${formatTime(shot.start_s)}` }, formatTime(shot.start_s)),
     ),
     el("h2", {}, numerals(title)),
     dl(rows),
@@ -132,7 +134,7 @@ function renderReadings(d: FilmSources, list: Chapter[]): void {
           ["Year", r.year !== null ? numerals(String(r.year)) : null],
           ["Length", r.dur_s !== null ? numerals(`${Math.round(r.dur_s)} s`) : null],
           ["Source", source ? numerals(source) : null],
-          ["Heard at", el("a", { class: "tc", href: `${FILM}#t=${Math.floor(r.start_s)}` }, formatTime(r.start_s))],
+          ["Heard at", el("a", { class: "tc", href: `${FILM}#t=${seekTime(r.start_s, fps).toFixed(3)}` }, formatTime(r.start_s))],
           ["Voice", r.credit],
         ]),
       ),
@@ -152,10 +154,11 @@ function bar(share: number, kind: "band" | "floor"): HTMLElement {
   return el("span", { class: "bar", "aria-hidden": "true" }, fill, marker);
 }
 
+/** "Whose words, and how long": only figures computed from this film's readings, or one plain sentence. */
 function renderBalance(d: FilmSources, b: Balance | null): void {
   const box = byId("balance");
   if (!b) {
-    box.append(el("p", { class: "muted small" }, "This film has no readings to weigh."));
+    box.append(el("p", { class: "muted small" }, "Balance figures are not available for this cut."));
     return;
   }
   const s = (n: number) => `${Math.round(n)} s`;
@@ -164,9 +167,7 @@ function renderBalance(d: FilmSources, b: Balance | null): void {
       "p",
       { class: "muted small" },
       numerals(
-        `Seconds of testimony by side: words read by a computer voice, and any archival recording; narration is not counted. ${
-          b.from === "film" ? `All ${s(b.total_s)} are listed under Readings.` : `${s(b.total_s)} in all.`
-        } Each side should hold ${pct(SIDE_BAND.min).replace(".0", "")} to ${pct(SIDE_BAND.max).replace(".0", "")}.`,
+        `Seconds of testimony by side: words read by a computer voice, and any archival recording; narration is not counted. All ${s(b.total_s)} are listed under Readings. Each side should hold ${pct(SIDE_BAND.min).replace(".0", "")} to ${pct(SIDE_BAND.max).replace(".0", "")}.`,
       ),
     ),
   );
@@ -175,11 +176,6 @@ function renderBalance(d: FilmSources, b: Balance | null): void {
     table.append(el("span", {}, side.label), bar(side.share, "band"), el("span", { class: "num small" }, `${s(side.seconds)} · ${pct(side.share)}`));
   }
   box.append(table);
-  if (b.sought) {
-    box.append(
-      el("p", { class: "muted small" }, numerals(`Readings we are still seeking permission to use would bring Bangladesh to ${pct(b.sought.bangladesh)} and Britain down to ${pct(b.sought.britain)}.`)),
-    );
-  }
   box.append(
     el(
       "div",
@@ -190,24 +186,16 @@ function renderBalance(d: FilmSources, b: Balance | null): void {
     ),
   );
   const names = b.women.names.map((w) => `${w.name} ${s(w.seconds)}`).join(", ");
-  const short = b.women.share < WOMEN_FLOOR;
   box.append(
     el(
       "p",
       { class: "muted small" },
-      numerals(
-        `Floor ${pct(WOMEN_FLOOR).replace(".0", "")}.${names ? ` ${names}.` : ""}${
-          b.sought ? ` With the readings still being sought, ${pct(b.sought.women)}${b.sought.women < WOMEN_FLOOR ? ": still short." : "."}` : short ? " Short of the floor." : ""
-        }`,
-      ),
+      numerals(`Floor ${pct(WOMEN_FLOOR).replace(".0", "")}.${names ? ` ${names}.` : ""}${b.women.share < WOMEN_FLOOR ? " Short of the floor." : ""}`),
     ),
   );
   const silent = silentRecord(d.shots);
   if (silent) {
     box.append(el("div", { class: "short" }, el("p", {}, silent.says), silent.searched ? el("p", { class: "muted small" }, numerals(silent.searched)) : null));
-  }
-  if (b.from === "plan") {
-    box.append(el("p", { class: "muted small" }, "These seconds are the film's planned figures; the finished film's own figures replace them."));
   }
   const marks = secondsByMark(d.shots)
     .filter((m) => m.seconds > 0 || m.key === "generated")
@@ -240,12 +228,18 @@ countSourceOpens(root);
 
 loadSources(SLUG)
   .then((d) => {
+    fps = d.fps;
     const list = chaptersOf(d);
     renderEntries(d, list);
     renderReadings(d, list);
-    renderBalance(d, balanceFor(SLUG, d.readings));
+    renderBalance(d, computeBalance(d.readings));
     setupFilters(d);
-    const target = location.hash ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null;
+    let target: HTMLElement | null = null;
+    try {
+      target = location.hash ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null;
+    } catch {
+      // A malformed #fragment: stay at the top.
+    }
     target?.scrollIntoView();
   })
   .catch(() => {

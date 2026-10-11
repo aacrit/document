@@ -40,7 +40,7 @@ function showMoment(d: FilmSources, params: URLSearchParams): void {
   const t = params.get("t");
   const secs = t !== null && /^\d+(\.\d+)?$/.test(t) ? Number(t) : null;
   const sid = params.get("s");
-  const shot = sid ? (d.shots.find((s) => s.id === sid) ?? null) : secs !== null ? shotAt(d.shots, secs) : null;
+  const shot = sid ? (d.shots.find((s) => s.id === sid) ?? null) : secs !== null ? shotAt(d.shots, secs, d.fps) : null;
   if (!shot && secs === null) return;
   const at = secs ?? shot?.start_s ?? 0;
   if (!when.value) when.value = formatTime(at);

@@ -1,0 +1,118 @@
+"""The release step's web packet: what goes to R2 for one film, with the facts
+the site prints about it recorded beside them.
+
+From a render folder (``master.mp4``, ``sources.json`` with ``master_sha256``,
+and the screenplay the render used), the web encode of the master and the
+poster still, it writes to ``--out``:
+
+- ``sources.json``: the render's file plus ``web`` (the web encode's file
+  name, sha256 and measured duration) and ``poster`` (the still's ledger id,
+  title, creator, date, archive, licence, item link, description and
+  sha256), so the site prints only what is tied to the bytes it serves;
+- ``captions-en.vtt`` (studio/engine/captions.py).
+
+It refuses when the web encode's duration differs from the film's by more
+than one frame, when ``sources.json`` does not record the master's hash, or
+when the master's bytes no longer match it. The film, poster and trailer
+are not copied: the printed upload list names them with their hashes.
+
+    python -m studio.engine.publish <render dir> --film <web encode.mp4> --poster <poster.jpg>
+        --poster-id S-020 --stills-ledger <stills-ledger.json> --out <packet dir> [--screenplay <file or dir>]
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from pathlib import Path
+
+from studio.engine import captions as C
+from studio.engine.journal import sha256_file
+from studio.engine.render import Refused, probe_video
+
+UPLOAD = ("film.mp4", "poster.jpg", "trailer.mp4", "sources.json", "captions-en.vtt")
+
+
+def _creator(text: str | None) -> str | None:
+    """The stills ledger sometimes doubles a creator ("Unknown authorUnknown author")."""
+    if not text:
+        return None
+    m = re.fullmatch(r"(.+?)\1", text.strip())
+    return m.group(1) if m else text.strip()
+
+
+def poster_record(ledger: Path, poster_id: str, poster: Path) -> dict:
+    data = json.loads(ledger.read_text(encoding="utf-8"))
+    items = data.get("items", data) if isinstance(data, dict) else data
+    item = next((x for x in items if isinstance(x, dict) and x.get("id") == poster_id), None)
+    if item is None:
+        raise Refused(f"{poster_id} is not in {ledger}")
+    if item.get("shows_violence_or_bodies"):
+        raise Refused(f"{poster_id} shows violence or bodies: never a poster")
+    if not item.get("licence"):
+        raise Refused(f"{poster_id} has no licence in the ledger")
+    return {
+        "ledger_id": poster_id,
+        "title": item.get("title"),
+        "creator": _creator(item.get("creator")),
+        "date": item.get("date"),
+        "archive": item.get("archive"),
+        "licence": item.get("licence"),
+        "item_url": item.get("item_url"),
+        "description": item.get("seen"),
+        "file": "poster.jpg",
+        "sha256": sha256_file(poster),
+    }
+
+
+def packet(render_dir: Path, *, film: Path, poster: Path, poster_id: str, stills_ledger: Path, out: Path,
+           screenplay: Path | None = None) -> dict:
+    render_dir, out = Path(render_dir), Path(out)
+    doc = json.loads((render_dir / "sources.json").read_text(encoding="utf-8"))
+    if not doc.get("master_sha256"):
+        raise Refused("sources.json records no master_sha256: run python -m studio.engine.render <film> --out <render dir> --sources-only")
+    master = render_dir / str(doc.get("master") or "master.mp4")
+    if master.exists() and sha256_file(master) != doc["master_sha256"]:
+        raise Refused(f"{master.name} is not the master this sources.json describes: run --sources-only again")
+    fps = float(doc.get("fps") or 24)
+    pr = probe_video(film)
+    # A browser reports the container's duration; the picture's own is checked too.
+    web_dur = float(pr["container_duration_s"] or pr["duration_s"])
+    for what, d in (("container", web_dur), ("picture", float(pr["duration_s"]))):
+        if abs(d - float(doc["duration_s"])) > 1.0 / fps + 1e-6:
+            raise Refused(f"the web encode's {what} runs {d:.3f} s and the film {doc['duration_s']} s: more than one frame apart")
+    doc["web"] = {"film": "film.mp4", "film_sha256": sha256_file(film), "film_duration_s": round(web_dur, 4)}
+    doc["poster"] = poster_record(stills_ledger, poster_id, poster)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "sources.json").write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
+    vtt = C.captions(Path(screenplay) if screenplay else render_dir)
+    (out / "captions-en.vtt").write_text(vtt, encoding="utf-8", newline="\n")
+    return {"sources": out / "sources.json", "captions": out / "captions-en.vtt", "web": doc["web"], "poster": doc["poster"]}
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="python -m studio.engine.publish", description=__doc__.split("\n\n")[0])
+    ap.add_argument("render_dir", type=Path)
+    ap.add_argument("--film", type=Path, required=True, help="the 720p web encode of master.mp4")
+    ap.add_argument("--poster", type=Path, required=True, help="the poster still as served (poster.jpg)")
+    ap.add_argument("--poster-id", required=True, help="the poster's stills-ledger id, e.g. S-020")
+    ap.add_argument("--stills-ledger", type=Path, required=True)
+    ap.add_argument("--out", type=Path, required=True, help="where sources.json and captions-en.vtt are written")
+    ap.add_argument("--screenplay", type=Path, default=None, help="the screenplay the render used (default: the render folder's fitted one)")
+    a = ap.parse_args(argv)
+    try:
+        r = packet(a.render_dir, film=a.film, poster=a.poster, poster_id=a.poster_id, stills_ledger=a.stills_ledger,
+                   out=a.out, screenplay=a.screenplay)
+    except (Refused, C.CaptionError, OSError, KeyError, ValueError) as e:
+        print(f"publish: refused: {e}", file=sys.stderr)
+        return 2
+    print(f"publish: wrote {r['sources']} and {r['captions']}")
+    print(f"publish: upload to R2 under <slug>/: {', '.join(UPLOAD)}")
+    print(f"publish: film.mp4 sha256 {r['web']['film_sha256']} ({r['web']['film_duration_s']} s); poster.jpg sha256 {r['poster']['sha256']}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

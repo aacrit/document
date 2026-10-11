@@ -5,8 +5,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
-  PLAN_BALANCE,
-  balanceFor,
+  aiSentence,
+  archivesOnScreen,
+  creditsLine,
+  durationsAgree,
+  frameAt,
+  playedShare,
+  posterCredit,
+  readingPublications,
+  seekTime,
+  voiceSentence,
   chapterAt,
   chapters,
   computeBalance,
@@ -40,7 +48,7 @@ describe("parseSources", () => {
     expect(film.duration_s).toBe(297.625);
     expect(film.shots).toHaveLength(24);
     expect(film.shots.every((s, i) => i === 0 || s.start_s >= film.shots[i - 1].start_s)).toBe(true);
-    expect(film.marks[0]).toEqual({ from_s: 0, to_s: 18, class: "ARCHIVE", detail: "Wikimedia Commons 1947" });
+    expect(film.marks[0]).toEqual({ from_s: 0, to_s: 18, from_frame: 0, class: "ARCHIVE", detail: "Wikimedia Commons 1947" });
     expect(film.lowerThirds).toHaveLength(8);
     expect(film.readings.map((r) => r.id)).toEqual(["R1", "R5", "R6", "R2", "R9", "R7", "R8"]);
     expect(film.readings[0]).toMatchObject({ name: "Arthur Henderson", side: "britain", year: 1947, start_s: 62, dur_s: null, gender: null });
@@ -72,7 +80,7 @@ describe("parseSources", () => {
     delete noTrack.marks;
     const f = parseSources(noTrack);
     expect(f.marks).toHaveLength(24);
-    expect(markAt(f.marks, 20)?.class).toBe("CARD");
+    expect(markAt(f.marks, 20, 24)?.class).toBe("CARD");
   });
 
   it("renders only https item links; anything else is dropped", () => {
@@ -96,24 +104,24 @@ describe("parseSources", () => {
 
 describe("the mark at a time", () => {
   it("is the span holding the time, changing exactly at the cut", () => {
-    expect(markAt(film.marks, 0)).toMatchObject({ class: "ARCHIVE", detail: "Wikimedia Commons 1947" });
-    expect(markAt(film.marks, 17.999)?.class).toBe("ARCHIVE");
-    expect(markAt(film.marks, 18)?.class).toBe("CARD");
-    expect(markAt(film.marks, 27)).toMatchObject({ class: "ARCHIVE", detail: "NARA / Internet Archive 1946" });
-    expect(markAt(film.marks, 52.49)?.detail).toBe("NARA / Internet Archive 1946");
-    expect(markAt(film.marks, 52.5)?.class).toBe("CARD");
-    expect(markAt(film.marks, 80)?.detail).toBe("Wikimedia Commons 1950");
+    expect(markAt(film.marks, 0, 24)).toMatchObject({ class: "ARCHIVE", detail: "Wikimedia Commons 1947" });
+    expect(markAt(film.marks, 17.999, 24)?.class).toBe("ARCHIVE");
+    expect(markAt(film.marks, 18, 24)?.class).toBe("CARD");
+    expect(markAt(film.marks, 27, 24)).toMatchObject({ class: "ARCHIVE", detail: "NARA / Internet Archive 1946" });
+    expect(markAt(film.marks, 52.49, 24)?.detail).toBe("NARA / Internet Archive 1946");
+    expect(markAt(film.marks, 52.5, 24)?.class).toBe("CARD");
+    expect(markAt(film.marks, 80, 24)?.detail).toBe("Wikimedia Commons 1950");
   });
 
   it("holds the first mark before 0 and the last past the end", () => {
-    expect(markAt(film.marks, -3)?.from_s).toBe(0);
-    expect(markAt(film.marks, 400)?.class).toBe("CARD");
-    expect(markAt([], 10)).toBeNull();
+    expect(markAt(film.marks, -3, 24)?.from_s).toBe(0);
+    expect(markAt(film.marks, 400, 24)?.class).toBe("CARD");
+    expect(markAt([], 10, 24)).toBeNull();
   });
 
   it("agrees with the shot on screen at every second of the film", () => {
     for (let t = 0; t < film.duration_s; t += 0.5) {
-      expect(markAt(film.marks, t)?.class, `t=${t}`).toBe(shotAt(film.shots, t)?.mark.class);
+      expect(markAt(film.marks, t, 24)?.class, `t=${t}`).toBe(shotAt(film.shots, t, 24)?.mark.class);
     }
   });
 
@@ -213,17 +221,12 @@ describe("the balance: whose words, and how long", () => {
     expect(b.women).toEqual({ seconds: 30, share: 0.3, names: [{ name: "B", seconds: 30 }] });
   });
 
-  it("falls back to the treatment's figures when sources.json lacks durations or genders (the trailer's file does)", () => {
+  it("gives no figures when sources.json lacks a length, a gender or a known side (the trailer's file lacks lengths)", () => {
     expect(computeBalance(film.readings)).toBeNull();
-    const b = balanceFor("partition-of-india", film.readings)!;
-    expect(b).toBe(PLAN_BALANCE["partition-of-india"]);
-    expect(b.from).toBe("plan");
-    // TREATMENT.md section 5: cleared testimony 396 s; Britain 34.3%, Pakistan 16.7%, Sikh 14.6%, women 11.6%.
-    expect(b.sides.reduce((s, x) => s + x.seconds, 0)).toBe(b.total_s);
-    expect(b.sides.map((s) => pct(s.share))).toEqual(["34.3%", "34.3%", "16.7%", "14.6%", "0.0%"]);
-    expect(pct(b.women.share)).toBe("11.6%");
-    expect(b.women.names.reduce((s, w) => s + w.seconds, 0)).toBe(b.women.seconds);
-    expect(balanceFor("another-film", film.readings)).toBeNull();
+    expect(computeBalance([r({ dur_s: null })])).toBeNull();
+    expect(computeBalance([r({ gender: null })])).toBeNull();
+    expect(computeBalance([r({ side: "elsewhere" })])).toBeNull();
+    expect(computeBalance([])).toBeNull();
   });
 
   it("splits the film's seconds by mark, ARCHIVE film apart from photographs", () => {
@@ -245,5 +248,119 @@ describe("time", () => {
     expect(parseTimecode(" 1:02:03 ")).toBe(3723);
     expect(parseTimecode("7:61")).toBeNull();
     expect(parseTimecode("Refugees")).toBeNull();
+  });
+});
+
+describe("frames: the mark changes on the cut frame, not a frame early or late", () => {
+  // S05 starts at frame 648 (27 s at 24 fps); before it, S04 is a CARD.
+  const s05 = film.shots.find((s) => s.id === "S05")!;
+  const f0 = s05.start_frame;
+  const mid = (f: number) => (f + 0.5) / film.fps;
+
+  it("reads the engine's frame numbers", () => {
+    expect(f0).toBe(648);
+    expect(film.fps).toBe(24);
+    expect(frameAt(27, 24)).toBe(648);
+    expect(frameAt(27 - 1e-9, 24)).toBe(648);
+    expect(frameAt(26.99, 24)).toBe(647);
+    expect(frameAt(26.95, 24)).toBe(646);
+  });
+
+  it("at f0-1, f0 and f0+1", () => {
+    expect(markAt(film.marks, mid(f0 - 1), 24)?.class).toBe("CARD");
+    expect(markAt(film.marks, mid(f0), 24)).toMatchObject({ class: "ARCHIVE", detail: "NARA / Internet Archive 1946" });
+    expect(markAt(film.marks, mid(f0 + 1), 24)?.class).toBe("ARCHIVE");
+    expect(shotAt(film.shots, mid(f0 - 1), 24)?.id).toBe("S04");
+    expect(shotAt(film.shots, mid(f0), 24)?.id).toBe("S05");
+    expect(shotAt(film.shots, mid(f0 + 1), 24)?.id).toBe("S05");
+  });
+
+  it("survives the 4-decimal rounding of start_s (a 186.6387 s boundary is frame 4479)", () => {
+    const raw2 = raw();
+    raw2.marks = [{ from_s: 0, to_s: 186.6387, class: "CARD", detail: "" }, { from_s: 186.6387, to_s: 297.625, class: "ARCHIVE", detail: "X 1947" }];
+    const f = parseSources(raw2);
+    expect(f.marks[1].from_frame).toBe(4479);
+    expect(markAt(f.marks, mid(4478), 24)?.class).toBe("CARD");
+    expect(markAt(f.marks, mid(4479), 24)?.class).toBe("ARCHIVE");
+  });
+
+  it("seeks into the middle of a shot's first frame", () => {
+    expect(frameAt(seekTime(s05.start_s, 24), 24)).toBe(f0);
+    expect(seekTime(27, 24)).toBeCloseTo(27 + 1 / 48);
+  });
+});
+
+describe("the served film against its sources.json", () => {
+  it("agree within one frame and no more", () => {
+    expect(durationsAgree(297.625, film)).toBe(true);
+    expect(durationsAgree(297.625 + 1 / 24, film)).toBe(true);
+    expect(durationsAgree(297.625 + 2 / 24, film)).toBe(false);
+    expect(durationsAgree(120, film)).toBe(false);
+    expect(durationsAgree(Number.NaN, film)).toBe(false);
+  });
+
+  it("measure what was actually played", () => {
+    const ranges = (pairs: [number, number][]) => ({ length: pairs.length, start: (i: number) => pairs[i][0], end: (i: number) => pairs[i][1] });
+    expect(playedShare(ranges([[0, 90]]), 100)).toBe(0.9);
+    expect(playedShare(ranges([[0, 10], [95, 100]]), 100)).toBe(0.15);
+    expect(playedShare(ranges([]), 0)).toBe(0);
+  });
+});
+
+describe("parsing guards", () => {
+  it("normalises gender and refuses unknown values", () => {
+    const g = (gender: unknown) => {
+      const x = raw();
+      x.readings[0].gender = gender;
+      return parseSources(x).readings[0].gender;
+    };
+    expect(g("f")).toBe("f");
+    expect(g("F")).toBe("f");
+    expect(g("female")).toBe("f");
+    expect(g("Male")).toBe("m");
+    expect(g(undefined)).toBeNull();
+    expect(() => g("x")).toThrow(/unknown gender/);
+    expect(() => g(3)).toThrow(/unknown gender/);
+  });
+
+  it("reads the poster and the web encode only when complete, with a real sha256", () => {
+    const sha = "a".repeat(64);
+    const x = raw();
+    x.poster = { ledger_id: "S-020", title: "Indian Independence Day at the Red Fort", creator: "Unknown author", date: "1947", archive: "Wikimedia Commons", licence: "Public domain", sha256: sha, item_url: "https://commons.wikimedia.org/wiki/File:X.jpg" };
+    x.web = { film_sha256: sha, film_duration_s: 297.6 };
+    const f = parseSources(x);
+    expect(f.poster?.ledger_id).toBe("S-020");
+    expect(posterCredit(f.poster!)).toBe("Indian Independence Day at the Red Fort. Unknown author, 1947. Wikimedia Commons, public domain.");
+    expect(f.web).toEqual({ film_sha256: sha, film_duration_s: 297.6 });
+    expect(film.poster).toBeNull();
+    expect(film.web).toBeNull();
+    const y = raw();
+    y.poster = { ledger_id: "S-020", title: "T", licence: "Public domain", sha256: "nothex" };
+    expect(parseSources(y).poster).toBeNull();
+  });
+});
+
+describe("printed claims are derived from the film", () => {
+  it("says no AI-generated images only when none are, and how many otherwise", () => {
+    expect(aiSentence(film.shots)).toBe("No AI-generated images in this film.");
+    const one = film.shots.map((s, i) => (i === 3 ? { ...s, mark: { class: "AI-GENERATED" as const, detail: "context" } } : s));
+    expect(aiSentence(one)).toBe("One shot in this film is AI-generated, each marked AI-GENERATED.");
+    const many = film.shots.map((s) => ({ ...s, mark: { class: "AI-GENERATED" as const, detail: "context" } }));
+    expect(aiSentence(many)).toBe("24 shots in this film are AI-generated, each marked AI-GENERATED.");
+  });
+
+  it("says how voices are read from the readings' credits", () => {
+    expect(voiceSentence(film.readings)).toBe("Voices are read by a computer; no recording is imitated.");
+    const own = film.readings.map((r, i) => (i === 0 ? { ...r, credit: "original recording" } : r));
+    expect(voiceSentence(own)).toBe("Voices are read by a computer, except one original recording; no recording is imitated.");
+    expect(voiceSentence([])).toBeNull();
+  });
+
+  it("builds the credit line from the shots' archives and the readings' sources", () => {
+    expect(archivesOnScreen(film.shots)).toEqual(["Wikimedia Commons", "US National Archives, via Internet Archive"]);
+    expect(readingPublications(film.readings, film.lowerThirds)).toContain("Hansard");
+    const line = creditsLine(film);
+    expect(line).toMatch(/^Film and photographs from Wikimedia Commons and US National Archives, via Internet Archive\. Words from Hansard, Broadcast on All India Radio, Constituent Assembly of Pakistan Debates and 2 other sources\. /);
+    expect(line).toMatch(/Sources lists every one\.$/);
   });
 });

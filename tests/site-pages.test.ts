@@ -79,9 +79,25 @@ describe("the public pages", () => {
     expect(tracks[0]).toContain('srclang="en"');
     expect(film).not.toMatch(/lang="(hi|ur)"|captions-(hi|ur)/);
     expect(visible(film)).toContain("Hindi and Urdu subtitles are being reviewed.");
-    expect(visible(film)).toContain("No AI-generated images in this film. Voices are read by a computer; no recording is imitated.");
     expect(film).toContain('href="https://news.voidvision.org/history/partition-of-india/"');
     expect(visible(film)).toContain("Listen to void history's audio documentary on the Partition of India");
+  });
+
+  it("prints no claim about the film that is not derived from its sources.json", () => {
+    const film = read("web/f/partition-of-india/index.html");
+    const home = read("web/index.html");
+    // The AI and voice sentences, the accounts and the credits are filled by script from sources.json (film-data.ts).
+    for (const id of ["ai-sentence", "ai-sentence-legend", "voice-sentence", "voice-sentence-legend", "voice-note", "accounts"]) {
+      expect(film, id).toMatch(new RegExp(`id="${id}"></`));
+    }
+    expect(visible(film)).not.toMatch(/AI-generated images|Accounts from/);
+    expect(home).toMatch(/<p class="credits safe" id="credits-line"><\/p>/);
+    expect(home).toMatch(/<p class="frame-credit" id="poster-credit"><\/p>/);
+    for (const page of [film, home]) {
+      expect(page).not.toMatch(/Wikimedia Commons|National Archives|Internet Archive|Hansard|Boundary Commission/);
+      // The poster appears only once sources.json records which still it is (its hash is checked in contract.yaml).
+      expect(page).not.toContain("poster.jpg");
+    }
   });
 
   it("every player control is a real, labelled button or link", () => {

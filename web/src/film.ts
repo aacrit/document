@@ -3,7 +3,12 @@
 // captions placed above a lower third, chapters, the transcript and the end
 // card. Everything about the film comes from its sources.json.
 import {
+  aiSentence,
   chapterAt,
+  durationsAgree,
+  playedShare,
+  seekTime,
+  voiceSentence,
   chapters as chaptersOf,
   formatTime,
   lowerThirdAt,
@@ -18,7 +23,7 @@ import {
   type FilmSources,
   type MarkClass,
 } from "./film-data";
-import { byId, el, filmPath, loadSources, numerals } from "./site";
+import { byId, el, filmPath, loadSources, mediaUrl, numerals } from "./site";
 import { countCompletionOnce, reportCoreSuccess, sendEvent } from "./telemetry";
 
 const screen = byId("screen");
@@ -49,6 +54,10 @@ const correctTop = byId<HTMLAnchorElement>("correct-top");
 const PLAY_PATH = "M8 5.5v13l10.5-6.5z";
 const PAUSE_PATH = "M8 5.5v13M16 5.5v13";
 
+// `loaded` is the sources.json as fetched; `data` is set from it only once the
+// served film is known to be the cut it describes (durations within a frame).
+// Until then, and if they differ, nothing on the page is drawn from it.
+let loaded: FilmSources | null = null;
 let data: FilmSources | null = null;
 let chapterList: Chapter[] = [];
 let started = false;
@@ -64,7 +73,7 @@ function drawMark(t: number): void {
     shownMark = "";
     return;
   }
-  const m = markAt(data.marks, t);
+  const m = markAt(data.marks, t, data.fps);
   if (!m) return;
   const key = `${m.class}|${m.detail}`;
   markEl.hidden = false;
@@ -81,7 +90,8 @@ let track: TextTrack | null = null;
 function drawCue(t: number): void {
   const cues = track && track.mode !== "disabled" && captionsOn ? track.activeCues : null;
   const text = cues && cues.length ? Array.from(cues, (c) => ((c as VTTCue).text ?? "").replace(/<[^>]*>/g, "")).join("\n") : "";
-  if (!text || !endcard.hidden) {
+  // Captions belong to one cut: shown only once the film is known to be the cut sources.json describes.
+  if (!text || !data || !endcard.hidden) {
     cueEl.hidden = true;
     return;
   }
@@ -102,7 +112,7 @@ function drawCredit(): void {
     credit.hidden = true;
     return;
   }
-  const shot = shotAt(data.shots, t);
+  const shot = shotAt(data.shots, t, data.fps);
   if (!shot || shot.mark.class === "CARD" || !shot.title) {
     credit.hidden = true;
     return;
@@ -200,6 +210,9 @@ function setupScrubber(): void {
   });
 }
 
+/** A seek target inside the first frame at `start_s`, never on its boundary. */
+const at = (start_s: number) => seekTime(start_s, data?.fps ?? 24).toFixed(3);
+
 function renderChapters(list: Chapter[]): void {
   const ol = byId("chapter-list");
   byId("chapters-count").textContent = `${list.filter((c) => c.n !== null).length} chapters`;
@@ -208,7 +221,7 @@ function renderChapters(list: Chapter[]): void {
       el(
         "li",
         { "data-id": c.id },
-        el("a", { class: "tc", href: `#t=${Math.floor(c.start_s)}`, "data-seek": String(c.start_s), "aria-label": `Play from ${formatTime(c.start_s)}, ${c.title}` }, formatTime(c.start_s)),
+        el("a", { class: "tc", href: `#t=${at(c.start_s)}`, "data-seek": at(c.start_s), "aria-label": `Play from ${formatTime(c.start_s)}, ${c.title}` }, formatTime(c.start_s)),
         el("span", {}, c.n !== null ? numerals(`${c.n}  `) : "", c.title, c.dates ? " " : "", c.dates ? el("span", { class: "muted" }, numerals(c.dates)) : ""),
       ),
     ),
@@ -229,7 +242,7 @@ function renderTranscript(d: FilmSources): void {
       el(
         "li",
         {},
-        el("a", { class: "tc", href: `#t=${Math.floor(e.start_s)}`, "data-seek": String(e.start_s), "aria-label": `Play from ${formatTime(e.start_s)}` }, formatTime(e.start_s)),
+        el("a", { class: "tc", href: `#t=${at(e.start_s)}`, "data-seek": at(e.start_s), "aria-label": `Play from ${formatTime(e.start_s)}` }, formatTime(e.start_s)),
         el("span", { class: "who" }, e.who),
         el("span", { class: "said" }, numerals(e.text)),
       ),
@@ -246,6 +259,10 @@ function renderNotes(d: FilmSources): void {
     const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0];
     byId("accounts").textContent = `Accounts from ${list}.`;
   }
+  const ai = aiSentence(d.shots);
+  const voice = voiceSentence(d.readings);
+  for (const id of ["ai-sentence", "ai-sentence-legend"]) byId(id).textContent = ai;
+  for (const id of ["voice-sentence", "voice-sentence-legend", "voice-note"]) byId(id).textContent = voice ?? "";
   const silent = silentRecord(d.shots);
   if (silent) {
     byId("silent-note").textContent = `${silent.says} The film says so on screen.`;
@@ -424,6 +441,7 @@ function setupVideoEvents(): void {
     if (video.paused) draw();
   });
   video.addEventListener("loadedmetadata", () => {
+    trust();
     applyHash();
     draw();
   });
@@ -431,7 +449,15 @@ function setupVideoEvents(): void {
   video.addEventListener("playing", () => frame.removeAttribute("aria-busy"));
   video.addEventListener("ended", showEnd);
   // The unit of value is a film watched to its last frame, counted once.
-  countCompletionOnce(video, reportCoreSuccess);
+  // Only when at least 90% of it was actually played, so a seek to the end does not count.
+  countCompletionOnce(video, reportCoreSuccess, () => playedShare(video.played, duration()) >= 0.9);
+  // iOS plays full screen in its own player, which draws only "showing" tracks.
+  video.addEventListener("webkitbeginfullscreen", () => {
+    if (track && captionsOn) track.mode = "showing";
+  });
+  video.addEventListener("webkitendfullscreen", () => {
+    if (track && captionsOn) track.mode = "hidden";
+  });
   const fail = () => {
     byId("film-error").hidden = false;
     bigplay.hidden = true;
@@ -455,7 +481,7 @@ function setupSeekLinks(): void {
     const a = (e.target as Element).closest<HTMLAnchorElement>("a[data-seek]");
     if (!a) return;
     e.preventDefault();
-    history.replaceState(null, "", `#t=${Math.floor(Number(a.dataset.seek))}`);
+    history.replaceState(null, "", `#t=${a.dataset.seek}`);
     seek(Number(a.dataset.seek), true);
     screen.scrollIntoView({ block: "start" });
     playBtn.focus({ preventScroll: true });
@@ -508,7 +534,7 @@ function setupKeys(): void {
         const to = stepChapter(chapterList, video.currentTime, e.key === "]" ? 1 : -1);
         if (to) {
           started = true;
-          seek(to.start_s);
+          seek(seekTime(to.start_s, data?.fps ?? 24));
         }
         break;
       }
@@ -547,17 +573,32 @@ setupKeys();
 for (const ev of ["pointermove", "pointerdown", "keydown", "focusin"]) screen.addEventListener(ev, lightsSoon);
 draw();
 
+/**
+ * Uses the sources file only once the film's metadata is in and the two
+ * agree. A film and a sources.json from different cuts would put marks,
+ * credits and chapters on the wrong frames, so then nothing is drawn: the
+ * burned-in marks still say what each frame is.
+ */
+function trust(): void {
+  if (!loaded || data || video.readyState < 1) return;
+  if (!durationsAgree(video.duration, loaded)) return;
+  data = loaded;
+  chapterList = chaptersOf(data);
+  renderChapters(chapterList);
+  renderTranscript(data);
+  renderNotes(data);
+  for (const id of ["chapters", "transcript-drill", "chapters-link", "derived-notes"]) byId(id).hidden = false;
+  draw();
+  drawCredit();
+}
+
 loadSources(SLUG)
   .then((d) => {
-    data = d;
-    chapterList = chaptersOf(d);
-    renderChapters(chapterList);
-    renderTranscript(d);
-    renderNotes(d);
-    draw();
-    drawCredit();
+    loaded = d;
+    // The poster is shown only when the release recorded which still it is (its credit lives in Sources).
+    if (d.poster && !video.getAttribute("poster")) video.poster = mediaUrl(SLUG, "poster.jpg");
+    trust();
   })
   .catch(() => {
-    // The film still plays without its sources file; the mark stays burned into the picture.
-    byId("chapters-count").textContent = "Could not load";
+    // The film still plays without its sources file; the marks stay burned into the picture.
   });

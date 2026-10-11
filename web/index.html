@@ -13,7 +13,7 @@
   </head>
   <body>
     <main class="marquee">
-      <figure class="poster"><img src="/media/partition-of-india/poster.jpg" alt="A large crowd before the walls of the Red Fort in Delhi, Independence Day 1947." /></figure>
+      <figure class="poster"><img id="poster" alt="" hidden /></figure>
       <header class="marquee-bar">
         <a class="wordmark" href="/"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16" /><circle cx="12" cy="12" r="4.2" /><circle class="ember" cx="18.6" cy="17.6" r="1.25" /></svg><span class="wm"><span class="wm-void">void</span> <span class="wm-doc">document</span></span></a>
       </header>
@@ -27,9 +27,9 @@
           <button class="btn quiet" type="button" id="trailer-open" aria-haspopup="dialog">Trailer</button>
           <a href="/f/partition-of-india/sources/">Sources</a>
         </div>
-        <p class="credits safe">Film and photographs from the National Archives, the Internet Archive and Wikimedia Commons. Words from Hansard and the Punjab Boundary Commission papers.</p>
+        <p class="credits safe" id="credits-line"></p>
       </section>
-      <p class="frame-credit">Indian Independence Day at the Red Fort. Unknown author, <span class="num">1947.</span> Wikimedia Commons, public domain.</p>
+      <p class="frame-credit" id="poster-credit"></p>
     </main>
 
     <section class="family" aria-labelledby="family-h">
@@ -43,7 +43,7 @@
 
     <dialog class="trailer" id="trailer" aria-labelledby="trailer-h">
       <div class="bar"><p id="trailer-h">The Partition of India · Trailer</p><button class="close" type="button" id="trailer-close">Close</button></div>
-      <video id="trailer-video" controls playsinline preload="none" poster="/media/partition-of-india/poster.jpg"></video>
+      <video id="trailer-video" controls playsinline preload="none"></video>
       <p class="note">About five minutes, made under the same rules as the film. No AI-generated images; voices are read by a computer.</p>
     </dialog>
 

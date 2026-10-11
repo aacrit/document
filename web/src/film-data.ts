@@ -18,6 +18,9 @@ export interface Shot {
   kind: string;
   start_s: number;
   end_s: number;
+  /** The shot's first frame and the frame after its last, as the engine counted them. */
+  start_frame: number;
+  end_frame: number;
   mark: Mark;
   title: string | null;
   archive: string | null;
@@ -36,6 +39,7 @@ export interface Shot {
 export interface MarkSpan {
   from_s: number;
   to_s: number;
+  from_frame: number;
   class: MarkClass;
   detail: string;
 }
@@ -67,10 +71,27 @@ export interface Narration {
   text: string;
 }
 
+/** The poster still, as the release step recorded it beside the bytes it uploaded (studio/engine/publish.py). */
+export interface Poster {
+  ledger_id: string;
+  title: string;
+  creator: string | null;
+  date: string | null;
+  archive: string | null;
+  licence: string;
+  item_url: string | null;
+  description: string | null;
+  sha256: string;
+}
+
 export interface FilmSources {
   title: string;
   slug: string;
+  fps: number;
   duration_s: number;
+  /** The web encode the release uploaded, when recorded: its sha256 and measured duration. */
+  web: { film_sha256: string; film_duration_s: number } | null;
+  poster: Poster | null;
   shots: Shot[];
   marks: MarkSpan[];
   lowerThirds: LowerThird[];
@@ -96,7 +117,16 @@ function markClass(x: unknown, where: string): MarkClass {
   throw new Error(`sources.json: ${where} has an unknown mark class ${JSON.stringify(x)}`);
 }
 
-function parseShot(x: unknown, i: number): Shot {
+/** "f", "female", "F", "woman" are a woman's words; "m", "male", "man" a man's; anything else is refused. */
+export function normaliseGender(x: unknown, where: string): "f" | "m" | null {
+  if (x === null || x === undefined || x === "") return null;
+  const g = typeof x === "string" ? x.trim().toLowerCase() : "";
+  if (["f", "female", "woman"].includes(g)) return "f";
+  if (["m", "male", "man"].includes(g)) return "m";
+  throw new Error(`sources.json: ${where} has an unknown gender ${JSON.stringify(x)}`);
+}
+
+function parseShot(x: unknown, i: number, fps: number): Shot {
   if (!isObj(x)) throw new Error(`sources.json: shot ${i} is not an object`);
   const id = need(str(x.id), `shot ${i} id`);
   const mark = isObj(x.mark) ? x.mark : {};
@@ -109,6 +139,8 @@ function parseShot(x: unknown, i: number): Shot {
     kind: str(x.kind) ?? "",
     start_s,
     end_s,
+    start_frame: num(x.start_frame) ?? Math.round(start_s * fps),
+    end_frame: num(x.end_frame) ?? Math.round(end_s * fps),
     mark: { class: markClass(mark.class, `shot ${id}`), detail: typeof mark.detail === "string" ? mark.detail : "" },
     title: str(x.title),
     archive: str(x.archive),
@@ -141,18 +173,25 @@ export function parseSources(json: unknown): FilmSources {
   if (!isObj(json)) throw new Error("sources.json: not an object");
   if (json.v !== 2) throw new Error(`sources.json: format ${JSON.stringify(json.v)} is not v2`);
   if (!Array.isArray(json.shots) || json.shots.length === 0) throw new Error("sources.json: no shots");
-  const shots = json.shots.map(parseShot).sort((a, b) => a.start_s - b.start_s);
+  const fps = num(json.fps) ?? 24;
+  if (fps <= 0) throw new Error("sources.json: fps must be positive");
+  const shots = json.shots.map((x, i) => parseShot(x, i, fps)).sort((a, b) => a.start_frame - b.start_frame);
   const duration_s = num(json.duration_s) ?? shots[shots.length - 1].end_s;
 
   const marks: MarkSpan[] = Array.isArray(json.marks)
-    ? json.marks.filter(isObj).map((m, i) => ({
-        from_s: need(num(m.from_s), `mark ${i} from_s`),
-        to_s: need(num(m.to_s), `mark ${i} to_s`),
-        class: markClass(m.class, `mark ${i}`),
-        detail: typeof m.detail === "string" ? m.detail : "",
-      }))
-    : shots.map((s) => ({ from_s: s.start_s, to_s: s.end_s, class: s.mark.class, detail: s.mark.detail }));
-  marks.sort((a, b) => a.from_s - b.from_s);
+    ? json.marks.filter(isObj).map((m, i) => {
+        const from_s = need(num(m.from_s), `mark ${i} from_s`);
+        // The track's times are the engine's frame boundaries rounded to 4 decimals: rounding recovers the frame.
+        return {
+          from_s,
+          to_s: need(num(m.to_s), `mark ${i} to_s`),
+          from_frame: Math.round(from_s * fps),
+          class: markClass(m.class, `mark ${i}`),
+          detail: typeof m.detail === "string" ? m.detail : "",
+        };
+      })
+    : shots.map((s) => ({ from_s: s.start_s, to_s: s.end_s, from_frame: s.start_frame, class: s.mark.class, detail: s.mark.detail }));
+  marks.sort((a, b) => a.from_frame - b.from_frame);
 
   const lowerThirds: LowerThird[] = (Array.isArray(json.lower_thirds) ? json.lower_thirds : []).filter(isObj).map((t, i) => ({
     id: str(t.id) ?? `T${i + 1}`,
@@ -173,7 +212,7 @@ export function parseSources(json: unknown): FilmSources {
       year: num(r.year),
       start_s,
       dur_s: dur !== null && dur > 0 ? dur : null,
-      gender: str(r.gender),
+      gender: normaliseGender(r.gender, `reading ${str(r.id) ?? i}`),
       text: str(r.text) ?? "",
       credit: str(r.credit) ?? "",
     };
@@ -186,10 +225,18 @@ export function parseSources(json: unknown): FilmSources {
     .filter((n) => n.text)
     .sort((a, b) => a.start_s - b.start_s);
 
+  const web =
+    isObj(json.web) && num(json.web.film_duration_s) !== null && str(json.web.film_sha256)
+      ? { film_sha256: str(json.web.film_sha256) as string, film_duration_s: num(json.web.film_duration_s) as number }
+      : null;
+
   return {
     title: str(json.title) ?? "",
     slug: str(json.slug) ?? "",
+    fps,
     duration_s,
+    web,
+    poster: parsePoster(json.poster),
     shots,
     marks,
     lowerThirds,
@@ -198,7 +245,51 @@ export function parseSources(json: unknown): FilmSources {
   };
 }
 
+/** The poster record, only when it names its still, licence and hash; otherwise null and no credit is printed. */
+function parsePoster(x: unknown): Poster | null {
+  if (!isObj(x)) return null;
+  const ledger_id = str(x.ledger_id);
+  const title = str(x.title);
+  const licence = str(x.licence);
+  const sha256 = str(x.sha256);
+  if (!ledger_id || !title || !licence || !sha256 || !/^[0-9a-f]{64}$/.test(sha256)) return null;
+  return {
+    ledger_id,
+    title,
+    creator: str(x.creator),
+    date: str(x.date),
+    archive: str(x.archive),
+    licence,
+    item_url: safeUrl(x.item_url),
+    description: str(x.description),
+    sha256,
+  };
+}
+
 // ---- Time lookups ----------------------------------------------------------
+
+/** The frame on screen at time t: the engine's frames are [f/fps, (f+1)/fps). */
+export function frameAt(t: number, fps: number): number {
+  return Math.floor(t * fps + 1e-6);
+}
+
+/** Where to seek to land inside a shot's first frame, not on its boundary. */
+export function seekTime(start_s: number, fps: number): number {
+  return start_s + 0.5 / fps;
+}
+
+/** True when the served film and its sources.json describe the same cut: durations within one frame. */
+export function durationsAgree(videoDuration: number, data: Pick<FilmSources, "duration_s" | "fps">): boolean {
+  return Number.isFinite(videoDuration) && Math.abs(videoDuration - data.duration_s) <= 1 / data.fps + 1e-6;
+}
+
+/** Seconds of the film actually played (a TimeRanges-like list), as a share of its duration. */
+export function playedShare(ranges: { length: number; start(i: number): number; end(i: number): number }, duration: number): number {
+  if (!(duration > 0)) return 0;
+  let sum = 0;
+  for (let i = 0; i < ranges.length; i++) sum += Math.max(0, ranges.end(i) - ranges.start(i));
+  return Math.min(1, sum / duration);
+}
 
 /** Index of the last span whose start is at or before t (binary search); -1 before the first. */
 function lastStartingBy<T>(items: T[], t: number, start: (x: T) => number): number {
@@ -215,17 +306,17 @@ function lastStartingBy<T>(items: T[], t: number, start: (x: T) => number): numb
   return found;
 }
 
-/** The mark on screen at time t: the span holding t. Past the end, the last mark; before 0, the first. */
-export function markAt(marks: MarkSpan[], t: number): MarkSpan | null {
+/** The mark on the frame shown at time t, looked up by frame. Past the end, the last mark; before 0, the first. */
+export function markAt(marks: MarkSpan[], t: number, fps: number): MarkSpan | null {
   if (marks.length === 0) return null;
-  const i = lastStartingBy(marks, t, (m) => m.from_s);
+  const i = lastStartingBy(marks, frameAt(t, fps), (m) => m.from_frame);
   return marks[Math.max(0, i)];
 }
 
-/** The shot on screen at time t (same rule as markAt). */
-export function shotAt(shots: Shot[], t: number): Shot | null {
+/** The shot on the frame shown at time t (same rule as markAt). */
+export function shotAt(shots: Shot[], t: number, fps: number): Shot | null {
   if (shots.length === 0) return null;
-  const i = lastStartingBy(shots, t, (s) => s.start_s);
+  const i = lastStartingBy(shots, frameAt(t, fps), (s) => s.start_frame);
   return shots[Math.max(0, i)];
 }
 
@@ -377,13 +468,11 @@ export interface SideBalance {
 }
 
 export interface Balance {
-  /** "film": computed from sources.json; "plan": the treatment's figures (sources.json lacks durations or genders). */
-  from: "film" | "plan";
+  /** Always computed from the film's own readings in sources.json: there is no planned fallback. */
+  from: "film";
   total_s: number;
   sides: SideBalance[];
   women: { seconds: number; share: number; names: { name: string; seconds: number }[] };
-  /** With readings still being sought (plan only). */
-  sought?: { britain: number; bangladesh: number; women: number };
 }
 
 /** The share band each side should hold (GRAMMAR 6.5), and the floor for women's words. */
@@ -392,12 +481,12 @@ export const WOMEN_FLOOR = 0.3;
 
 /**
  * The balance computed from the film's readings, or null when sources.json
- * does not say how long each reading lasts or who is a woman (an engine
- * older than the reading durations): then the page shows the plan's figures.
+ * does not say how long each reading lasts, whose side it is, or whether it
+ * is a woman's words: then the page says the figures are not available.
  */
 export function computeBalance(readings: Reading[]): Balance | null {
   if (readings.length === 0) return null;
-  if (readings.some((r) => r.dur_s === null || r.gender === null)) return null;
+  if (readings.some((r) => r.dur_s === null || r.gender === null || !SIDES.includes(r.side))) return null;
   const total = readings.reduce((sum, r) => sum + (r.dur_s ?? 0), 0);
   if (total <= 0) return null;
   const sides = SIDES.map((side) => {
@@ -414,27 +503,6 @@ export function computeBalance(readings: Reading[]): Balance | null {
     sides,
     women: { seconds: womenS, share: womenS / total, names: [...byWoman].map(([name, seconds]) => ({ name, seconds })) },
   };
-}
-
-/** films/partition-of-india/TREATMENT.md section 5, cleared readings: used only when sources.json cannot give the balance. */
-export const PLAN_BALANCE: Record<string, Balance> = {
-  "partition-of-india": {
-    from: "plan",
-    total_s: 396,
-    sides: [
-      { side: "britain", label: "Britain", seconds: 136, share: 136 / 396, speakers: ["Cyril Radcliffe", "Lord Mountbatten", "Lord Ismay", "Sir Evan Jenkins", "Philip Noel-Baker"] },
-      { side: "india", label: "India", seconds: 136, share: 136 / 396, speakers: ["Mehr Chand Mahajan", "Jawaharlal Nehru", "Renuka Ray", "Mohandas K. Gandhi", "Begum Aizaz Rasul", "G. D. Khosla"] },
-      { side: "pakistan", label: "Pakistan", seconds: 66, share: 66 / 396, speakers: ["Muhammad Ali Jinnah", "Din Mohammad", "Fatima Jinnah"] },
-      { side: "sikh", label: "Sikh", seconds: 58, share: 58 / 396, speakers: ["Teja Singh", "Baldev Singh", "Darshan Singh", "Gurbachan Singh Talib"] },
-      { side: "bangladesh", label: "Bangladesh", seconds: 0, share: 0, speakers: [] },
-    ],
-    women: { seconds: 46, share: 46 / 396, names: [{ name: "Fatima Jinnah", seconds: 10 }, { name: "Renuka Ray", seconds: 16 }, { name: "Begum Aizaz Rasul", seconds: 20 }] },
-    sought: { britain: 0.221, bangladesh: 0.106, women: 0.234 },
-  },
-};
-
-export function balanceFor(slug: string, readings: Reading[]): Balance | null {
-  return computeBalance(readings) ?? PLAN_BALANCE[slug] ?? null;
 }
 
 /** Seconds of picture by mark, whole film, with ARCHIVE split into film and photographs. */
@@ -517,4 +585,68 @@ export function parseTimecode(text: string): number | null {
 /** A percentage with one decimal, as the treatment writes them ("34.3%"). */
 export function pct(share: number): string {
   return `${(Math.round(share * 1000) / 10).toFixed(1)}%`;
+}
+
+// ---- Printed claims, derived (never typed) ------------------------------------------
+
+const NUMBER_WORDS = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"];
+
+/** "No AI-generated images in this film.", or how many shots are, from the shots' own marks. */
+export function aiSentence(shots: Shot[]): string {
+  const n = shots.filter((s) => s.mark.class === "AI-GENERATED").length;
+  if (n === 0) return "No AI-generated images in this film.";
+  const count = n < NUMBER_WORDS.length ? NUMBER_WORDS[n] : String(n);
+  return `${count} ${n === 1 ? "shot" : "shots"} in this film ${n === 1 ? "is" : "are"} AI-generated, each marked AI-GENERATED.`;
+}
+
+/** How the readings are voiced, from their credits. */
+export function voiceSentence(readings: Reading[]): string | null {
+  if (readings.length === 0) return null;
+  const computer = readings.filter((r) => r.credit.startsWith("Read by a computer voice")).length;
+  if (computer === readings.length) return "Voices are read by a computer; no recording is imitated.";
+  const own = readings.length - computer;
+  return `Voices are read by a computer, except ${own === 1 ? "one original recording" : `${own} original recordings`}; no recording is imitated.`;
+}
+
+function listWords(items: string[]): string {
+  return items.length > 1 ? `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}` : (items[0] ?? "");
+}
+
+/** The archives the film's pictures come from, most seconds on screen first. */
+export function archivesOnScreen(shots: Shot[]): string[] {
+  const secs = new Map<string, number>();
+  for (const s of shots) {
+    if (s.mark.class === "CARD" || !s.archive) continue;
+    for (const a of s.archive.split(/\s*\/\s*|\s*;\s*/)) if (a) secs.set(a, (secs.get(a) ?? 0) + (s.end_s - s.start_s));
+  }
+  return [...secs].sort((a, b) => b[1] - a[1]).map(([a]) => a);
+}
+
+/** The publications the readings come from: each speaker's lower-third source up to its first comma, first heard first. */
+export function readingPublications(readings: Reading[], lts: LowerThird[]): string[] {
+  const out: string[] = [];
+  for (const r of readings) {
+    const src = readingSource(r, lts);
+    const head = src ? src.split(",")[0].trim() : "";
+    if (head && !out.includes(head)) out.push(head);
+  }
+  return out;
+}
+
+/** The screening room's credit line, from the shots' archives and the readings' sources. */
+export function creditsLine(data: Pick<FilmSources, "shots" | "readings" | "lowerThirds">, maxEach = 3): string {
+  const shorten = (xs: string[]) => (xs.length > maxEach ? [...xs.slice(0, maxEach), `${xs.length - maxEach} other ${xs.length - maxEach === 1 ? "source" : "sources"}`] : xs);
+  const archives = archivesOnScreen(data.shots);
+  const pubs = readingPublications(data.readings, data.lowerThirds);
+  const parts: string[] = [];
+  if (archives.length) parts.push(`Film and photographs from ${listWords(shorten(archives))}.`);
+  if (pubs.length) parts.push(`Words from ${listWords(shorten(pubs))}.`);
+  if (parts.length) parts.push("Sources lists every one.");
+  return parts.join(" ");
+}
+
+/** The poster's credit, as printed under it. */
+export function posterCredit(p: Poster): string {
+  const who = [p.creator, p.date].filter(Boolean).join(", ");
+  return [`${p.title}.`, who ? `${who}.` : "", [p.archive, /^public domain/i.test(p.licence) ? p.licence.toLowerCase() : p.licence].filter(Boolean).join(", ") + "."].filter(Boolean).join(" ");
 }

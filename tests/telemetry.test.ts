@@ -22,6 +22,19 @@ describe("film_completed", () => {
     expect(report).toHaveBeenCalledTimes(1);
   });
 
+  it("waits until enough was watched: an end reached by seeking does not count", () => {
+    const film = new EventTarget();
+    const report = vi.fn();
+    let watched = false;
+    countCompletionOnce(film, report, () => watched);
+    film.dispatchEvent(new Event("ended"));
+    expect(report).not.toHaveBeenCalled();
+    watched = true;
+    film.dispatchEvent(new Event("ended"));
+    film.dispatchEvent(new Event("ended"));
+    expect(report).toHaveBeenCalledTimes(1);
+  });
+
   it("can be detached before the end, and then never fires", () => {
     const film = new EventTarget();
     const report = vi.fn();
