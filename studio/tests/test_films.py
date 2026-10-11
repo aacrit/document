@@ -994,6 +994,11 @@ def test_e15_the_ledger_must_list_the_speaker_the_source_names(film):
     _reel_names(film, speakers_on_screen=[REEL_NAME])                       # a name with no span
     with pytest.raises(R.Refused, match=r"archival-named-on-screen \(A1\)"):
         _plan(film, "named-no-span")
+    for bad in (_on(REEL_NAME, -1.0, 3.0), _on(REEL_NAME, 2.0, 2.0), _on(REEL_NAME, 0.5, 999.0),
+                {"name": REEL_NAME, "in_s": True, "out_s": 3.0}):
+        _reel_names(film, speakers_on_screen=[bad])                          # 0 <= in_s < out_s <= the clip's length
+        with pytest.raises(R.Refused, match=r"archival-named-on-screen \(A1\)"):
+            _plan(film, "named-bad-span")
     _reel_names(film, speakers_on_screen=None)
     with pytest.raises(R.Refused, match=r"archival-named-on-screen \(A1\)"):
         _plan(film, "named-missing")
@@ -1040,3 +1045,14 @@ def test_e15_a_filled_card_is_drawn_whole_or_refused(film, monkeypatch):
     monkeypatch.setattr(R.M, "card_layout", lambda *a, **k: dict(real(*a, **k), elements=real(*a, **k)["elements"][:1]))
     out = R.card_fill_lints(J.Journal(film="fill-cut"), plan)                 # the G2 card drew two of card D's three
     assert out and out[0].startswith("card-fills-drawn (S7)")
+
+
+@pytest.mark.parametrize("drop", ["in_s", "out_s"])
+def test_e15_an_archival_line_with_no_span_is_refused_even_when_its_source_names_the_speaker(film, drop):
+    _archival(film)
+    _no_lower_third(film)
+    _edit(film, lambda p: (p.update(names_its_speakers=["FX-REEL"]),
+                           next(x for x in p["parts"][1]["lines"] if x["id"] == "A1").pop(drop)))
+    _reel_names(film, speakers_on_screen=[_on(REEL_NAME)])
+    with pytest.raises(R.Refused, match=r"archival-span \(A1\).*archival-named-on-screen \(A1\)"):
+        _plan(film, f"named-no-{drop}")

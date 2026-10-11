@@ -1552,6 +1552,7 @@ def archival_lints(lint, film: Path, play: dict, shots: list[dict], lines: list[
         uid = ln["id"]
         item = assets.get(ln["clip"])
         in_s, out_s = float(ln.get("in_s", -1)), float(ln.get("out_s", -1))
+        clip_dur = None
         why = []
         path = (item or {}).get("_path")
         if item is None:
@@ -1565,7 +1566,7 @@ def archival_lints(lint, film: Path, play: dict, shots: list[dict], lines: list[
         if not (0 <= in_s < out_s):
             why.append(f"in_s {in_s:g} and out_s {out_s:g} are not a span")
         elif path and Path(path).exists():
-            dur = media_duration(Path(path))                                 # the header, not the reel
+            dur = clip_dur = media_duration(Path(path))                      # the header, not the reel
             if dur is None:
                 why.append("the clip's length cannot be read")
             elif out_s > dur + 1.0 / FPS:
@@ -1622,13 +1623,17 @@ def archival_lints(lint, film: Path, play: dict, shots: list[dict], lines: list[
             if declared:
                 mine = [e for e in entries if isinstance(e, dict) and bool(name) and _ws(str(e.get("name", ""))).lower()
                         == _ws(name).lower()]
+                # a span is clip time: 0 <= in_s < out_s <= the clip's length (read from its header)
                 spans = [(float(e["in_s"]), float(e["out_s"])) for e in mine
                          if isinstance(e.get("in_s"), (int, float)) and isinstance(e.get("out_s"), (int, float))
-                         and e["in_s"] < e["out_s"]]
-                over = [sp for sp in spans if sp[0] < out_s and sp[1] > in_s]
+                         and not isinstance(e.get("in_s"), bool) and not isinstance(e.get("out_s"), bool)
+                         and 0 <= e["in_s"] < e["out_s"] and clip_dur is not None and e["out_s"] <= clip_dur + 1.0 / FPS]
+                line_span = 0 <= in_s < out_s
+                over = [sp for sp in spans if line_span and sp[0] < out_s and sp[1] > in_s]
                 on_screen = bool(over)
                 lint("archival-named-on-screen", on_screen, unit=uid, grammar="6.3, 9, A26 refined",
-                     evidence={"clip": ln["clip"], "speaker_name": name, "line_span_s": [in_s, out_s],
+                     evidence={"clip": ln["clip"], "speaker_name": name, "line_span_s": [in_s, out_s] if line_span else None,
+                               "clip_s": clip_dur, "valid_spans": spans,
                                "speakers_on_screen": entries, "overlapping": over,
                                "fix": None if on_screen else "the clip's ledger item lists each speaker its picture names, "
                                       "with the clip-time span the name is on screen ({name, in_s, out_s} in "

@@ -486,6 +486,29 @@ def test_a_line_wider_than_its_measure_is_refused_at_plan_time(tmp_path, what):
             R.build_plan(film, W=640, H=360, burn_subtitles=True, journal=J.Journal(film="e15-sub-burned"))
 
 
+FACES = ("display", "display_italic", "structure", "structure_medium", "data")
+
+
+@pytest.mark.parametrize("face", FACES)
+def test_a_character_with_no_glyph_is_found_in_every_face(face):
+    f = M._font(getattr(FONTS, face), 43)
+    assert M.missing_glyphs("Smallpox 1977, the record", f) == []
+    assert M.missing_glyphs("गाँव", f) == sorted(set("गाँव"))                  # Devanagari: in no latin face
+    assert " " in M.missing_glyphs("1947 48", f)                    # a narrow no-break space is a glyph too
+    assert M.missing_glyphs("a　b", f) == ["　"]
+    assert M.missing_glyphs("a\tb", f) == ["\t"]                              # only U+0020 and a line break are skipped
+    assert M.missing_glyphs("a b\nc", f) == []
+
+
+def test_a_space_the_face_lacks_refuses_the_card():
+    data = M._font(FONTS.data, 43)
+    assert M.missing_glyphs("1947 48", data)
+    with pytest.raises(M.TextUndrawable):
+        M.card_layout(L1080, ["The record holds no account of 1947 48."], FONTS)
+    with pytest.raises(M.TextUndrawable):
+        M.card_layout(L1080, ["The record holds no account.", "Searched: the archive"], FONTS)
+
+
 def test_a_character_with_no_glyph_is_refused_never_drawn_as_a_box():
     f = M._font(FONTS.display, 43)
     assert M.missing_glyphs("Smallpox 1977", f) == []

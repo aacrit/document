@@ -470,7 +470,9 @@ def _notdef(path: str, size: int) -> tuple:
 
 @lru_cache(maxsize=4096)
 def _has_glyph(path: str, size: int, ch: str) -> bool:
-    if ch.isspace():
+    # only the plain space and a line break are never drawn; every other space (U+00A0, U+2007, U+2009, U+202F,
+    # U+205F, U+3000 ...) is a glyph the face must hold, or FreeType draws its empty box (E15 review)
+    if ch in (" ", "\n"):
         return True
     m = _font(path, size).getmask(ch)
     return (m.size, bytes(m)) != _notdef(path, size)
