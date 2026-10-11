@@ -62,7 +62,9 @@ See `CHARTER.md` for its surfaces and kill dates, and `contract.yaml` for what
 ## Commands
 
 - `npm run dev`: Vite dev server plus `wrangler dev`.
-- `npm run build`: production build to dist/, build tag injected.
+- `npm run build`: production build to dist/, build tag injected. It also writes the installable app: the manifest,
+  icons from the logomark (`scripts/lib/pwa.mjs`) and the service worker (`scripts/lib/sw.mjs`: never caches films, captions,
+  Range requests or sources.json).
 - Films: `films.json` is the registry (slug, title, status live or coming, caption tracks with their review
   status). The build writes the home page and every live film's pages from `web/templates/` (generated,
   gitignored; `scripts/lib/films.mjs`), and `contract.yaml`'s `films` block is expanded once per film.

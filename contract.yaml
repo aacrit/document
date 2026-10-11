@@ -109,6 +109,64 @@ checks:
     header: content-security-policy
     contains: "font-src 'self'"
 
+  # The installable app (T9a): the manifest, its icons and the service
+  # worker are served, and the page policy names where each may come from.
+  - name: homepage allows its own service worker only (CSP)
+    type: header
+    path: /
+    header: content-security-policy
+    contains: "worker-src 'self'"
+
+  - name: homepage allows its own manifest only (CSP)
+    type: header
+    path: /
+    header: content-security-policy
+    contains: "manifest-src 'self'"
+
+  - name: homepage links the app manifest
+    type: contains
+    path: /
+    text: '<link rel="manifest" href="/manifest.webmanifest"'
+
+  - name: the app manifest is served as a manifest and has what an install needs
+    type: app_manifest
+    path: /manifest.webmanifest
+
+  - name: the service worker is served
+    type: status
+    path: /sw.js
+    expect: 200
+
+  - name: the service worker is served as JavaScript
+    type: header
+    path: /sw.js
+    header: content-type
+    contains: javascript
+
+  - name: the 192 px app icon is served
+    type: header
+    path: /icons/icon-192.png
+    header: content-type
+    expect: image/png
+
+  - name: the 512 px app icon is served
+    type: header
+    path: /icons/icon-512.png
+    header: content-type
+    expect: image/png
+
+  - name: the 192 px maskable app icon is served
+    type: header
+    path: /icons/maskable-192.png
+    header: content-type
+    expect: image/png
+
+  - name: the 512 px maskable app icon is served
+    type: header
+    path: /icons/maskable-512.png
+    header: content-type
+    expect: image/png
+
   - name: healthz carries the API policy
     type: header
     path: /healthz

@@ -1,6 +1,6 @@
 /* Film page: from design/mocks/film.html (G2). */
 .screen { position: relative; display: grid; background: var(--color-letterbox); }
-.topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 4px 16px; }
+.topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: max(4px, env(safe-area-inset-top)) 16px 4px; }
 .topbar .wordmark { font-size: 17px; color: var(--color-cream-muted); }
 .top-links { display: flex; gap: 18px; }
 .top-links a { font-size: 14px; color: var(--color-cream-muted); min-height: 44px; display: inline-flex; align-items: center; }
@@ -99,7 +99,7 @@
   .screen.lights-down .topbar, .screen.lights-down .controls, .screen.lights-down .provenance { opacity: 1; }
 }
 .top-links a { white-space: nowrap; }
-@media (max-width: 400px) { .topbar { padding: 4px 12px; } .top-links { gap: 12px; } .top-links a { font-size: 13px; } .topbar .wordmark { font-size: 16px; gap: 8px; } }
+@media (max-width: 400px) { .topbar { padding: max(4px, env(safe-area-inset-top)) 12px 4px; } .top-links { gap: 12px; } .top-links a { font-size: 13px; } .topbar .wordmark { font-size: 16px; gap: 8px; } }
 .legend a.source { font-size: 13px; min-height: 36px; display: inline-flex; align-items: center; justify-self: start; }
 
 /* ---- Phones (one-tap player) ---- */

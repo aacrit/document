@@ -8,6 +8,7 @@
 // and with it the browser's leave to play sound and go full screen. From the
 // landing page to the film playing is one tap. A modified click (a new tab)
 // and a page without script still open the film page.
+import "./app";
 import { aiSentence, creditsLine, formatTime, posterCredit, trailerNote, voiceSentence } from "./film-data";
 import { tapPlay } from "./player";
 import { byId, loadSources, mediaUrl, numerals, slugOf } from "./site";

@@ -202,7 +202,7 @@ describe("the contract, expanded from films.json", () => {
   const forFilm = (slug: string) => contract.checks.filter((c: { film?: string }) => c.film === slug);
 
   it("gives Partition every check it had, and Nought only what a film in production can answer", () => {
-    expect(contract.checks).toHaveLength(41);
+    expect(contract.checks).toHaveLength(51);
     expect(forFilm("partition-of-india")).toHaveLength(22);
     const nought = forFilm("smallpox-eradication");
     expect(nought.map((c: { name: string }) => c.name)).toEqual(["homepage names Nought", "Nought has no page until it is live"]);

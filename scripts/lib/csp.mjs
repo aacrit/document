@@ -14,6 +14,9 @@
 //   page (V3, privacy by construction).
 // - Images: this origin and data: (the favicon is a data: SVG).
 // - Fetches: this origin only (/e, /feedback, /api).
+// - The installable app: its service worker (/sw.js) and its manifest
+//   (/manifest.webmanifest) from this origin only, said explicitly rather
+//   than left to default-src.
 
 export const CSP = [
   "default-src 'self'",
@@ -22,6 +25,8 @@ export const CSP = [
   "font-src 'self'",
   "img-src 'self' data:",
   "connect-src 'self'",
+  "worker-src 'self'",
+  "manifest-src 'self'",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -47,7 +52,14 @@ export const SECURITY_HEADERS = {
  * scripts/build.mjs, never by hand, so it always matches this module.
  */
 export function headersFile() {
-  const lines = ["/*", ...Object.entries(SECURITY_HEADERS).map(([k, v]) => `  ${k}: ${v}`), `  Content-Security-Policy: ${PAGE_CSP_HEADER}`];
+  const lines = [
+    "/*",
+    ...Object.entries(SECURITY_HEADERS).map(([k, v]) => `  ${k}: ${v}`),
+    `  Content-Security-Policy: ${PAGE_CSP_HEADER}`,
+    // The app manifest's type never depends on an extension table (scripts/lib/pwa.mjs).
+    "/manifest.webmanifest",
+    "  Content-Type: application/manifest+json",
+  ];
   return lines.join("\n") + "\n";
 }
 

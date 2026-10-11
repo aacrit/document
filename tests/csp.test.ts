@@ -7,7 +7,8 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { CSP, cspViolations, injectCsp } from "../scripts/lib/csp.mjs";
+import { CSP, PAGE_CSP_HEADER, cspViolations, headersFile, injectCsp } from "../scripts/lib/csp.mjs";
+import { API_CSP } from "../worker/src/headers";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // Every source page under web/, at any depth (the film's pages live under web/f/).
@@ -23,6 +24,17 @@ describe("CSP policy", () => {
     expect(CSP).toContain("style-src 'self';");
     expect(CSP).toContain("font-src 'self';");
     expect(CSP).not.toMatch(/https?:|unsafe-inline|unsafe-eval|\*/);
+  });
+
+  it("the installable app: the service worker and the manifest from this origin only, said explicitly", () => {
+    expect(CSP).toContain("worker-src 'self';");
+    expect(CSP).toContain("manifest-src 'self';");
+    // Static files (the page, sw.js, the manifest) get the same policy through dist/_headers,
+    // and the manifest its type; the Worker's own API responses keep their narrower policy.
+    const file = headersFile();
+    expect(file).toContain(`  Content-Security-Policy: ${PAGE_CSP_HEADER}\n`);
+    expect(file).toContain("/manifest.webmanifest\n  Content-Type: application/manifest+json\n");
+    expect(API_CSP).toBe("default-src 'none'; frame-ancestors 'none'");
   });
 
   it("injectCsp puts the meta first in <head>, once", () => {

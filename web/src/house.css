@@ -274,3 +274,32 @@ a.source:hover { text-decoration-color: currentColor; }
 [hidden] { display: none !important; }
 /* Footer: the void family, the licence, privacy. */
 .house-foot a { min-height: 24px; display: inline-flex; align-items: center; }
+
+/* ---- installable app (T9a) ---- */
+/* Installed, the site runs full screen (manifest display: fullscreen) with
+   viewport-fit=cover: the top bars clear the status area and any display
+   cutout, and the footer clears the gesture bar. */
+.house-bar { padding-top: max(12px, env(safe-area-inset-top)); }
+.house-foot { padding-bottom: max(48px, calc(env(safe-area-inset-bottom) + 24px)); }
+/* The footer's "Install the app": a button set as one of the footer's links. */
+.foot-install {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--color-cream-muted);
+  text-decoration: underline;
+  text-decoration-color: var(--color-cream-faint);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+.foot-install:hover { color: var(--color-cream); text-decoration-color: currentColor; }
+/* The offer after a watch: one quiet button and its line, arriving on the house spring. */
+.install-offer { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin-top: 16px; animation: line-in var(--settle-dur) var(--spring-settle) both; }
+.install-offer .m { font-size: 13px; color: var(--color-cream-muted); }
+@media (prefers-reduced-motion: reduce) { .install-offer { animation: none; } }
