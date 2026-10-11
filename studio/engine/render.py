@@ -125,6 +125,16 @@ VOICE_LIMIT_MARGIN_DB = 0.3         # the per-line limiter's ceiling sits this f
 VOICE_OVER_8DB_MAX_S, VOICE_OVER_1DB_MAX_SHARE, VOICE_OVER_3DB_MAX_SHARE = 0.020, 0.20, 0.05
 MUSIC_LUFS = -26.0                  # a music cue's bed level, 6 dB under the dialogue (its gain_db is an offset from it)
 DUCK_DB = 9.0                       # GRAMMAR 8.5: music under voice
+DUCK_SMOOTH_S = 0.250               # GRAMMAR 8.5: 250 ms smoothing, a centred ramp (it starts 125 ms before the voice)
+DUCK_BRIDGE_S = 1.2                 # voice gaps shorter than this stay ducked (between words and between lines 0.8 s apart),
+                                    # so a long bed never pumps; across a 1.5 s scene breath (A10) it comes back up
+DUCK_VOICE_THRESHOLD = 1e-3         # a voice sample over -60 dBFS counts as voice for ducking
+SILENCE_DBFS = -120.0               # A19: a mix sample at or under this is true digital silence
+SILENCE_WARN_S = 4.0                # digital-silence: a run longer than this outside an intended silence is a warning
+VOICELESS_FLOOR = 0.10              # GRAMMAR 6.1, A18: at least 10% of the runtime carries no voice
+READINGS_FLOOR = 0.30               # GRAMMAR 6.1: readings (read-by and archival testimony) carry at least 30%
+EVENT_FILM_MIN_S = 600.0            # the shares bind a GRAMMAR 3 event film (runtime target 10 min or more); shorter
+                                    # pieces (teaser, trailer, the test fixture) journal them as warnings
 MASTER_CRF = 18
 MASTER_THREADS = 4
 
@@ -493,6 +503,24 @@ def mark_detail(shot: dict, item: dict | None) -> str:
     return detail
 
 
+def mark_label(shot: dict, item: dict | None) -> str:
+    """A16: the quiet provenance label, class and year in sentence case
+    ("Archive · 1947"); a RECONSTRUCTED shot names its alterations, a DRAWN
+    one its data source. The archive's name stays in the credits, the
+    Sources page and sources.json. A CARD has none (it carries the glyph)."""
+    cls = shot["mark"]
+    if cls == "CARD":
+        return ""
+    if cls == "AI-GENERATED":
+        return M.mark_label(cls, None, "context")
+    if cls == "DRAWN":
+        src = (shot.get("data_source") or (item or {}).get("source_short") or (item or {}).get("data_source")
+               or (item or {}).get("mark_detail_source") or "")
+        return M.mark_label(cls, None, f"from {src}" if src else "")
+    extra = ", ".join(shot.get("alterations") or []) if cls == "RECONSTRUCTED" else ""
+    return M.mark_label(cls, year_of(item or {}), extra)
+
+
 def is_synthetic(item: dict | None) -> bool:
     """A ledger item a program made (a test pattern or fixture image) rather
     than an archive: it may only ever be marked DRAWN."""
@@ -833,6 +861,8 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         lines += [dict(x, _part=part["id"]) for x in part.get("lines", [])]
         cues += [dict(x, _part=part["id"]) for x in part.get("cues", [])]
         texts += [dict(x, _part=part["id"]) for x in part.get("text", [])]
+    # A19: underscore. Top-level `music` cues may span scenes and parts; a cue anywhere may fade in and out.
+    cues += [dict(x, _part=None, kind=x.get("kind", "music")) for x in play.get("music", [])]
     if not shots:
         raise Refused("the screenplay has no shots")
     ids = [s["id"] for s in shots]
@@ -894,6 +924,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             lint("duration", False, unit=s["id"], evidence={"dur_s": s["_dur"]})
         s["_item"] = {k: v for k, v in (item or {}).items()}
         s["detail"] = mark_detail(s, item)
+        s["label"] = mark_label(s, item)
         if s["mark"] in ("ARCHIVE", "RECONSTRUCTED") and item and not year_of(item):
             lint("mark-year", False, unit=s["id"], severity="warn", evidence={"date": item.get("date")}, grammar="4")
         if kind in ("card", "black"):
@@ -1060,7 +1091,9 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             if t.get("flag"):
                 ok = ok and bool(FLAG_RE.match(t["flag"]))
             lint("lower-third-format", ok, unit=t["id"], evidence={"lines": ln, "flag": t.get("flag")}, grammar="9")
-            lower_thirds.append({"id": t["id"], "start": float(t["start_s"]), "end": float(t["end_s"]), "lines": ln,
+            # A16: a lower third comes and goes; it is drawn for at most M.LT_MAX_S whatever the screenplay's end_s
+            shown = M.lower_third_span(float(t["start_s"]), float(t["end_s"]))
+            lower_thirds.append({"id": t["id"], "start": shown[0], "end": shown[1], "end_s": float(t["end_s"]), "lines": ln,
                                  "kind": kind, "flag": t.get("flag")})
         elif t["kind"] == "overlay":
             ln = list(t.get("lines") or [])
@@ -1082,7 +1115,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                 subs.append({"ref": c.get("ref"), "start": float(c["start_s"]), "end": float(c["end_s"]), "text": c["en"]})
     screen_text = [x for s in shots for x in (s.get("text") or [])] + [x for lt in lower_thirds for x in lt["lines"] + [lt["flag"] or ""]]
     screen_text += [o["text"] for o in overlays]
-    screen_text += [s["detail"] for s in shots] + [c["text"] for c in subs]
+    screen_text += [s["detail"] for s in shots] + [s["label"] for s in shots] + [c["text"] for c in subs]
     dashes = [x for x in screen_text if EM_DASH in x]
     lint("no-em-dash", not dashes, evidence=dashes[:5], grammar="9")
     subcues = sorted(((float(c["start_s"]), float(c["end_s"]), c.get("ref")) for c in play.get("subtitle_source", [])))
@@ -1090,6 +1123,13 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     # burned in, two cues would draw over each other; as tracks, a player shows them stacked
     lint("subtitle-overlap", not clash, severity="block" if burn_subtitles else "warn", grammar="10",
          evidence={"overlaps": clash, "burned": burn_subtitles})
+    for c in cues:
+        start, end = float(c.get("start_s", 0)), float(c.get("end_s", 0))
+        fi, fo = float(c.get("fade_in_s", 0) or 0), float(c.get("fade_out_s", 0) or 0)
+        ok = end > start and fi >= 0 and fo >= 0 and fi + fo <= (end - start) + 1e-9
+        lint("cue-span", ok, unit=c.get("id"), grammar="12, A19",
+             evidence={"start_s": start, "end_s": end, "fade_in_s": fi, "fade_out_s": fo,
+                       "fix": None if ok else "end_s after start_s, fades of 0 or more that fit inside the cue"})
     vl = voice_lines(play, film)
     collisions = voice_collisions(vl)
     lint("voice-overlap", not collisions, stage="scout", grammar="founder ruling 2026-10-10",
@@ -1117,15 +1157,28 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         raise Refused("lint failed: " + "; ".join(lint_fail))
 
     speakers = {sp["id"]: sp for sp in (play.get("cast") or {}).get("speakers", [])}
+    # A19: where digital silence is meant (a shot, a part, a cue or a top-level moment marked silence: intended)
+    silences = []
+    for s in shots:
+        if s.get("silence") == "intended":
+            silences.append((s["f0"] / FPS, s["f1"] / FPS))
+    for part in play["parts"]:
+        own = [s for s in shots if s["_part"] == part["id"]]
+        if part.get("silence") == "intended" and own:
+            silences.append((own[0]["f0"] / FPS, own[-1]["f1"] / FPS))
+    for x in list(cues) + list(play.get("moments", [])):
+        if x.get("silence") == "intended":
+            silences.append((float(x["start_s"]), float(x["end_s"])))
     card_spans = [(s["f0"] / FPS, s["f1"] / FPS) for s in shots if s["mark"] == "CARD"]
     imagery = [s for s in shots if s["mark"] != "CARD"]
     plan = {
         "film": str(film), "title": play.get("title", film.name), "slug": play.get("slug", film.name),
         "W": W, "H": H, "fps": FPS, "frames": total_frames, "duration_s": total_frames / FPS,
         "shots": shots, "assets": {k: {kk: vv for kk, vv in v.items()} for k, v in assets.items()},
-        "lines": lines, "cues": cues, "speakers": speakers, "narrator_voice": narrator_voice(play),
+        "lines": lines, "cues": cues, "speakers": speakers, "narrator_voice": narrator_voice(play), "silences": sorted(silences),
+        "runtime_target_s": play.get("runtime_target_s"),
         "lower_thirds": lower_thirds, "overlays": overlays, "subtitles": subs, "burn_subtitles": burn_subtitles,
-        "marks": [{"start": s["f0"] / FPS, "cls": s["mark"], "detail": s["detail"]} for s in shots],
+        "marks": [{"start": s["f0"] / FPS, "cls": s["mark"], "detail": s["detail"], "label": s["label"]} for s in shots],
         "card_spans": card_spans, "wm_start": (imagery[0]["f0"] / FPS) if imagery else None,
     }
     plan["credits"] = credits_blocks(plan)
@@ -1350,7 +1403,7 @@ def picture_level(plan: dict, f: int, i: int) -> float:
 
 def compose(plan: dict, pics: Pictures, f: int, i: int) -> Image.Image:
     """Frame f (owned by shot i): picture with its transition, then the lower
-    thirds, burned subtitles, watermark and mark plate."""
+    thirds, burned subtitles, watermark and the provenance mark (A16)."""
     shots = plan["shots"]
     t = f / FPS
     s = shots[i]
@@ -1383,14 +1436,14 @@ def compose(plan: dict, pics: Pictures, f: int, i: int) -> Image.Image:
             rgba = M.subtitle_frame(rgba, c["text"], pics.fonts.structure_medium, raise_above=lt_top)
     if plan["wm_start"] is not None:
         rgba = M.watermark(rgba, t, start=plan["wm_start"], card_spans=plan["card_spans"])
-    rgba = M.mark_plate_frame(rgba, t, plan["marks"], pics.fonts)
+    rgba = M.mark_frame(rgba, t, plan["marks"], pics.fonts)
     return rgba.convert("RGB")
 
 
 def mark_probe(plan: dict) -> tuple[int, int]:
-    """The pixel on the mark plate's colour bar (BRAND-KIT 5)."""
-    L = M.Layout(plan["W"], plan["H"])
-    return int(round(L.w(M.MARK["x"]))), int(round(L.h(M.MARK["y"]))) + 2
+    """The pixel at the centre of the class glyph (A16, BRAND-KIT 11), solid in
+    every glyph shape: the glyph is the mark on every frame, label or not."""
+    return M.glyph_centre(M.Layout(plan["W"], plan["H"]))
 
 
 def between_hues(px, a, b, tol: float = 3.0) -> bool:
@@ -1402,8 +1455,8 @@ def between_hues(px, a, b, tol: float = 3.0) -> bool:
 
 
 def check_mark(plan: dict, arr: np.ndarray, f: int, i: int) -> str:
-    """'ok' when the bar shows the owning shot's class hue; 'fade' inside the
-    4-frame class crossfade when the bar shows a mix of the outgoing and
+    """'ok' when the glyph's centre shows the owning shot's class hue; 'fade'
+    inside the 4-frame class crossfade when it shows a mix of the outgoing and
     incoming hues; 'dip' on a dip's black hold (all pixels off, A11, checked as
     all zero); else 'fail'."""
     x, y = mark_probe(plan)
@@ -1411,7 +1464,7 @@ def check_mark(plan: dict, arr: np.ndarray, f: int, i: int) -> str:
     if picture_level(plan, f, i) <= 0.0:
         return "dip" if not arr.any() else "fail"
     px = arr[y, x, :3].astype(int)
-    if i > 0 and plan["shots"][i - 1]["mark"] != s["mark"] and f - s["f0"] < round(M.MARK["fade"] * FPS):
+    if i > 0 and plan["shots"][i - 1]["mark"] != s["mark"] and f - s["f0"] < round(M.LABEL["fade"] * FPS):
         return "fade" if between_hues(px, M.MARK_HUE[plan["shots"][i - 1]["mark"]], M.MARK_HUE[s["mark"]]) else "fail"
     return "ok" if np.max(np.abs(px - np.array(M.MARK_HUE[s["mark"]]))) <= 2 else "fail"
 
@@ -1460,7 +1513,7 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
     pics = Pictures(plan)
     err = tempfile.TemporaryFile()
     enc = subprocess.Popen(encoder_cmd(plan, part), stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=err)
-    stats = {"ok": 0, "fade": 0, "dip": 0, "fail": 0, "fail_frames": []}
+    stats = {"ok": 0, "fade": 0, "dip": 0, "fail": 0, "fail_frames": [], "label": 0, "glyph_only": 0}
     first_whole, first_detail = None, None
     ms = []
     try:
@@ -1469,6 +1522,9 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
             arr = np.asarray(compose(plan, pics, f, i))
             res = check_mark(plan, arr, f, i)
             stats[res] += 1
+            if res in ("ok", "fade"):           # A16: which of the two carried the provenance on this frame
+                st = M.mark_state(f / FPS, plan["marks"])
+                stats["label" if st and st["label_alpha"] > 0 else "glyph_only"] += 1
             if res == "fail" and len(stats["fail_frames"]) < 10:
                 stats["fail_frames"].append(f)
             if f == s["f0"] and s["kind"] == "archive_still":
@@ -1484,7 +1540,7 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
             if sink is not None and (k % FPS == 0 or f == s["f1"] - 1):
                 sink.put({"lens": "frame", "stage": "motion", "unit": s["id"], "frame": f, "frames": plan["frames"],
                           "tc_s": round(f / FPS, 3), "ms": round(ms[-1], 1),
-                          "mark": {"class": s["mark"], "detail": s["detail"]}, "preview": None})
+                          "mark": {"class": s["mark"], "detail": s["detail"], "label": s["label"]}, "preview": None})
         held_by = pics.held()                                  # before close() clears the readers
         enc.stdin.close()
         if enc.wait():
@@ -1678,6 +1734,169 @@ def moving_average(x: np.ndarray, k: int) -> np.ndarray:
     return ((c[hi] - c[lo]) / k).astype(np.float32)
 
 
+# --------------------------------------------------------------------------
+# A19: synthetic voice cleanup, before levelling. A synthetic take carries a
+# faint broadband hiss (Tara's Orpheus takes about -66 dBFS, Kokoro's bm_fable
+# about -49) that levelling lifts and digital silence around it exposes. Each
+# line gets a gentle spectral denoise against its own measured noise, then a
+# downward gate between words with lookahead, hold and release so word tails
+# are kept. Archival audio is never cleaned.
+# --------------------------------------------------------------------------
+
+CLEAN_FRAME_S = 0.020               # floor and speech are measured over 20 ms frames
+CLEAN_NOISE_PCT = 10.0              # the floor frames: the quietest 10% of frames; the floor is their median power
+CLEAN_SPEECH_ABOVE_DB = 20.0        # speech frames: at least this far above the floor
+CLEAN_MIN_SNR_DB = 15.0             # a take with less separation than this has no clean pause to learn from: left alone
+CLEAN_NFFT, CLEAN_HOP = 2048, 512   # denoise STFT (43 ms Hann, 75% overlap)
+CLEAN_OVERSUB = 2.0                 # spectral subtraction factor on the noise power
+CLEAN_MAX_REDUCTION_DB = 18.0       # "gentle": no bin is cut by more than this
+CLEAN_GATE_WIN_S = 0.010            # gate detector: RMS over 10 ms
+CLEAN_GATE_OPEN_DB = 12.0           # opens 12 dB over the denoised floor ...
+CLEAN_GATE_SPEECH_DB = 30.0         # ... or 30 dB under the speech level, whichever is higher (a take's breathy lead-in)
+CLEAN_ATTACK_S = 0.025              # lookahead: the gate opens on a 25 ms raised cosine that ends where a word starts
+CLEAN_HOLD_S = 0.060                # and stays open 60 ms after the detector falls
+CLEAN_RELEASE_S = 0.100             # then closes on a 100 ms raised cosine, so a word's tail fades, never clicks
+CLEAN_RANGE_DB = 80.0               # closed, the gate takes the floor down by this much
+CLEAN_FLOOR_MAX_DBFS = -80.0        # the inter-word floor a cleaned line must reach (journaled lint)
+CLEAN_SPEECH_TOL_DB = 0.5           # and its speech energy must stay within this
+
+
+def _db(p: float) -> float:
+    return 10.0 * math.log10(max(float(p), 1e-30))
+
+
+def voice_floor(x: np.ndarray, gaps: np.ndarray | None = None, speech: np.ndarray | None = None) -> dict:
+    """Measure a voice line over 20 ms frames: the noise floor (dBFS, the
+    median power of the quietest 10% of frames, or of ``gaps`` frames when
+    given; ``floor_p90_dbfs`` is their 90th percentile),
+    the speech level (dBFS, the mean power of frames 20 dB or more above that
+    floor, or of ``speech`` frames when given) and their difference, the SNR.
+    Passing the frame sets measured on the raw take measures a cleaned take on
+    the same frames, so before and after compare like with like."""
+    n = int(round(CLEAN_FRAME_S * AUDIO_RATE))
+    k = len(x) // n
+    if k < 4:
+        return {"frames": k, "floor_dbfs": None, "speech_dbfs": None, "snr_db": None}
+    p = (x[: k * n].astype(np.float64).reshape(k, n) ** 2).mean(axis=1)
+    if gaps is None:
+        q = max(1, int(round(k * CLEAN_NOISE_PCT / 100.0)))
+        gaps = np.zeros(k, bool)
+        gaps[np.argsort(p, kind="stable")[:q]] = True
+    floor = _db(float(np.median(p[gaps]))) if gaps.any() else None
+    p90 = _db(float(np.percentile(p[gaps], 90))) if gaps.any() else None
+    if speech is None:
+        speech = p > (10 ** ((floor if floor is not None else -300) / 10)) * 10 ** (CLEAN_SPEECH_ABOVE_DB / 10)
+    sp = _db(p[speech].mean()) if speech.any() else None
+    return {"frames": k, "floor_dbfs": None if floor is None else round(floor, 2),
+            "floor_p90_dbfs": None if p90 is None else round(p90, 2),
+            "speech_dbfs": None if sp is None else round(sp, 2),
+            "snr_db": None if floor is None or sp is None else round(sp - floor, 2),
+            "_gaps": gaps, "_speech": speech}
+
+
+def _stft(x: np.ndarray, n: int, hop: int) -> tuple[np.ndarray, int]:
+    pad = np.concatenate([np.zeros(n, np.float64), x.astype(np.float64), np.zeros(n + hop, np.float64)])
+    k = 1 + (len(pad) - n) // hop
+    w = np.hanning(n + 1)[:n]
+    frames = pad[np.arange(n)[None, :] + hop * np.arange(k)[:, None]] * w
+    return np.fft.rfft(frames, axis=1), len(pad)
+
+
+def _istft(X: np.ndarray, n: int, hop: int, length: int, out_len: int) -> np.ndarray:
+    w = np.hanning(n + 1)[:n]
+    frames = np.fft.irfft(X, n=n, axis=1) * w
+    y = np.zeros(length, np.float64)
+    norm = np.zeros(length, np.float64)
+    for i in range(frames.shape[0]):
+        y[i * hop: i * hop + n] += frames[i]
+        norm[i * hop: i * hop + n] += w * w
+    y = y / np.maximum(norm, 1e-12)
+    return y[n: n + out_len]
+
+
+def spectral_denoise(x: np.ndarray, noise_frames: np.ndarray | None = None) -> tuple[np.ndarray, dict]:
+    """A gentle spectral subtraction against the take's own noise: the noise
+    power per bin is the mean over the quietest 10% of STFT frames, each bin's
+    gain is sqrt(1 - 2 N / P), floored at -18 dB and smoothed over 3 frames so
+    the residue never warbles. Returns the cleaned line and what was done."""
+    X, length = _stft(x, CLEAN_NFFT, CLEAN_HOP)
+    P = np.abs(X) ** 2
+    e = P.sum(axis=1)
+    q = max(1, int(round(len(e) * CLEAN_NOISE_PCT / 100.0)))
+    quiet = np.argsort(e, kind="stable")[:q]
+    N = P[quiet].mean(axis=0)
+    gmin = 10 ** (-CLEAN_MAX_REDUCTION_DB / 20)
+    g = np.sqrt(np.clip(1.0 - CLEAN_OVERSUB * N[None, :] / np.maximum(P, 1e-30), gmin * gmin, 1.0))
+    if g.shape[0] >= 3:                                   # 3-frame moving average in time
+        gp = np.pad(g, ((1, 1), (0, 0)), mode="edge")
+        g = (gp[:-2] + gp[1:-1] + gp[2:]) / 3.0
+    y = _istft(X * g, CLEAN_NFFT, CLEAN_HOP, length, len(x))
+    return y.astype(np.float32), {"method": "spectral subtraction (numpy STFT)", "nfft": CLEAN_NFFT, "hop": CLEAN_HOP,
+                                  "oversubtraction": CLEAN_OVERSUB, "max_reduction_db": CLEAN_MAX_REDUCTION_DB,
+                                  "noise_frames": int(q), "time_smoothing_frames": 3}
+
+
+def word_gate(x: np.ndarray, floor_dbfs: float, speech_dbfs: float) -> tuple[np.ndarray, dict]:
+    """A downward gate between words. The detector is the RMS over 10 ms; the
+    gate opens above max(floor + 12 dB, speech - 30 dB), 25 ms early
+    (lookahead), holds 60 ms after the detector falls, then closes on a
+    100 ms raised cosine to -80 dB. Measured on the episode's takes
+    (T1e), no speech frame (20 dB over the floor) loses more than 3 dB.
+    Returns the gated line and its settings."""
+    n = len(x)
+    thr = max(floor_dbfs + CLEAN_GATE_OPEN_DB, speech_dbfs - CLEAN_GATE_SPEECH_DB)
+    win = max(1, int(round(CLEAN_GATE_WIN_S * AUDIO_RATE)))
+    rms = np.sqrt(np.maximum(moving_average((x.astype(np.float64) ** 2).astype(np.float32), win), 0.0))
+    is_open = rms > 10 ** (thr / 20)
+    idx = np.arange(n)
+    att, hold, rel = (int(round(v * AUDIO_RATE)) for v in (CLEAN_ATTACK_S, CLEAN_HOLD_S, CLEAN_RELEASE_S))
+    last = np.maximum.accumulate(np.where(is_open, idx, -10 ** 12))                  # the last open sample at or before i
+    nxt = np.minimum.accumulate(np.where(is_open, idx, 10 ** 12)[::-1])[::-1]        # the next open sample at or after i
+    since, until = idx - last, nxt - idx
+    lo = 10 ** (-CLEAN_RANGE_DB / 20)
+    up_rel = np.where(since <= hold, 1.0, np.where(since <= hold + rel,
+                      0.5 + 0.5 * np.cos(np.pi * np.clip((since - hold) / max(rel, 1), 0, 1)), 0.0))
+    up_att = np.where(until <= att, 0.5 + 0.5 * np.cos(np.pi * np.clip(until / max(att, 1), 0, 1)), 0.0)
+    up = np.maximum(up_rel, up_att)
+    gain = lo + (1.0 - lo) * up
+    y = (x * gain).astype(np.float32)
+    return y, {"threshold_dbfs": round(thr, 2), "detector_ms": CLEAN_GATE_WIN_S * 1000, "attack_ms": CLEAN_ATTACK_S * 1000,
+               "hold_ms": CLEAN_HOLD_S * 1000, "release_ms": CLEAN_RELEASE_S * 1000, "range_db": CLEAN_RANGE_DB,
+               "open_share": round(float(is_open.mean()), 4) if n else 0.0}
+
+
+def clean_voice(x: np.ndarray) -> tuple[np.ndarray, dict]:
+    """A19: clean one synthetic voice line before levelling: measure its floor
+    and speech, denoise, gate between words, and measure again on the same
+    frames. Returns the cleaned line and the report the journal carries. A
+    take with no clean pause (SNR under 15 dB) or too short to measure is
+    returned untouched, and the report says why."""
+    before = voice_floor(x)
+    rep = {"before": {k: v for k, v in before.items() if not k.startswith("_")}}
+    if before["snr_db"] is None or before["snr_db"] < CLEAN_MIN_SNR_DB:
+        rep.update(cleaned=False, why=("too short to measure" if before["frames"] < 4 else
+                                       "no frame stands 20 dB over the quietest: no pause to learn the noise from"
+                                       if before["snr_db"] is None else
+                                       f"SNR {before['snr_db']:.1f} dB: no pause clean enough to learn the noise from"))
+        return x, rep
+    y, den = spectral_denoise(x)
+    mid = voice_floor(y, before["_gaps"], before["_speech"])
+    y, gate = word_gate(y, mid["floor_dbfs"], mid["speech_dbfs"])
+    after = voice_floor(y, before["_gaps"], before["_speech"])
+    sp = before["_speech"]                       # speech frames the cleanup cut by more than 3 dB: chopped words
+    n = int(round(CLEAN_FRAME_S * AUDIO_RATE))
+    k = len(sp)
+    px = (x[: k * n].astype(np.float64).reshape(k, n) ** 2).mean(axis=1)[sp]
+    py = (y[: k * n].astype(np.float64).reshape(k, n) ** 2).mean(axis=1)[sp]
+    chopped = int(np.sum(px > py * 10 ** 0.3))
+    rep.update(cleaned=True, denoise=den, gate=gate, speech_frames=int(sp.sum()), chopped_frames=chopped,
+               after_denoise={k: v for k, v in mid.items() if not k.startswith("_")},
+               after={k: v for k, v in after.items() if not k.startswith("_")},
+               floor_drop_db=round(before["floor_dbfs"] - after["floor_dbfs"], 2),
+               speech_change_db=round(after["speech_dbfs"] - before["speech_dbfs"], 3))
+    return y, rep
+
+
 def _level(journal: Journal, unit: str, x: np.ndarray, target: float, what: str) -> float | None:
     """Level one synthetic voice line or music cue to its target by a measured
     linear gain (never archival audio, which keeps its own level and
@@ -1699,6 +1918,34 @@ def _level(journal: Journal, unit: str, x: np.ndarray, target: float, what: str)
                      unit=unit, evidence={"measured_i": m["input_i"], "measured_tp": m["input_tp"], "target": target, "gain_db": round(g, 2),
                                           "measured_looped": looped})
     return g
+
+
+def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None) -> None:
+    """A19: a line's cleanup as a decision (the floor and SNR before and after,
+    and after levelling) and the voice-clean lint: the inter-word floor after
+    levelling under -80 dBFS and the speech energy within 0.5 dB. A warning:
+    the numbers are the evidence, and a take that could not be cleaned is said."""
+    lift = level or 0.0
+    b = rep["before"]
+    if not rep["cleaned"]:
+        journal.decision("assembly", f"{unit} not cleaned: {rep['why']}", "GRAMMAR A19 cleans synthetic voice lines before levelling",
+                         unit=unit, evidence=rep)
+        journal.lint("voice-clean", False, stage="assembly", phase="preflight", unit=unit, severity="warn", grammar="A19",
+                     evidence={"cleaned": False, "why": rep["why"], "before": b})
+        return
+    a = rep["after"]
+    floor_levelled = None if a["floor_dbfs"] is None else round(a["floor_dbfs"] + lift, 2)
+    journal.decision("assembly", f"{unit} cleaned: floor {b['floor_dbfs']:.1f} to {a['floor_dbfs']:.1f} dBFS, SNR {b['snr_db']:.1f} to "
+                     f"{a['snr_db']:.1f} dB, speech {rep['speech_change_db']:+.2f} dB",
+                     "GRAMMAR A19: gentle spectral denoise, then a downward gate between words (lookahead, hold, release), "
+                     "before levelling; measured on the same 20 ms frames before and after", unit=unit,
+                     evidence=dict(rep, level_gain_db=None if level is None else round(level, 2), floor_after_level_dbfs=floor_levelled,
+                                   floor_raw_after_level_dbfs=None if b["floor_dbfs"] is None else round(b["floor_dbfs"] + lift, 2)))
+    ok = floor_levelled is not None and floor_levelled < CLEAN_FLOOR_MAX_DBFS and abs(rep["speech_change_db"]) <= CLEAN_SPEECH_TOL_DB
+    journal.lint("voice-clean", ok, stage="assembly", phase="preflight", unit=unit, severity="warn", grammar="A19",
+                 evidence={"floor_after_level_dbfs": floor_levelled, "max_dbfs": CLEAN_FLOOR_MAX_DBFS,
+                           "speech_change_db": rep["speech_change_db"], "tolerance_db": CLEAN_SPEECH_TOL_DB,
+                           "snr_before_db": b["snr_db"], "snr_after_db": a["snr_db"]})
 
 
 def _journal_peak(journal: Journal, unit: str, peak: dict, draft: bool) -> None:
@@ -2028,7 +2275,12 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
         synthetic = not ln.get("archival_audio")
         if synthetic and "gain_db" in ln:        # build_plan refuses it (voice-gain-db); a hand-made plan is refused here too
             raise Refused(f"voice-gain-db (A13, A14): {ln['id']} carries gain_db; a synthetic line's level is set by the engine")
+        cleaned = None
+        if synthetic:                            # A19: cleaned before levelling; archival audio never is
+            x, cleaned = clean_voice(x)
         level = _level(journal, ln["id"], x, DIALOGUE_LUFS, "dialogue") if synthetic else None
+        if cleaned is not None:
+            _journal_clean(journal, ln["id"], cleaned, level)
         peak = None
         if level is not None:                    # A13: peak control on a synthetic line, after its levelling
             x = x * np.float32(10 ** (level / 20))
@@ -2048,6 +2300,9 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
                                 "at_s": float(ln["start_s"]), "dur_s": round(k / AUDIO_RATE, 3),
                                 "level_db": None if level is None else round(level, 2),
                                 "mood_offset_db": offset if synthetic else None,
+                                "cleaned": None if cleaned is None else cleaned["cleaned"],
+                                "floor_before_dbfs": None if cleaned is None else cleaned["before"]["floor_dbfs"],
+                                "floor_after_dbfs": None if not (cleaned and cleaned["cleaned"]) else cleaned["after"]["floor_dbfs"],
                                 "peak_reduction_db": peak["max_reduction_db"] if peak else None})
     narrator_off = narrator_consistency_lints(journal, narr, draft, plan.get("narrator_voice")) if narr else []
     for c in plan["cues"]:
@@ -2063,9 +2318,12 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
         if c.get("kind") == "music":            # levelled over the part that plays
             span = x[: max(0, int(round((float(c["end_s"]) - float(c["start_s"])) * AUDIO_RATE)))]
             level = _level(journal, c["id"], span, MUSIC_LUFS, "music bed")
+        x = cue_fades(x, float(c["end_s"]) - float(c["start_s"]), float(c.get("fade_in_s", 0) or 0),
+                      float(c.get("fade_out_s", 0) or 0))
         k = _place(target, x, float(c["start_s"]), (level or 0.0) + float(c.get("gain_db", 0.0)), float(c["end_s"]))
         placed["cues"].append({"id": c["id"], "kind": c.get("kind"), "at_s": float(c["start_s"]), "dur_s": round(k / AUDIO_RATE, 3),
-                               "level_db": None if level is None else round(level, 2)})
+                               "level_db": None if level is None else round(level, 2), "part": c.get("_part"),
+                               "fade_in_s": float(c.get("fade_in_s", 0) or 0), "fade_out_s": float(c.get("fade_out_s", 0) or 0)})
     for s in plan["shots"]:
         if s["kind"] == "archive_video" and (s.get("sound") or {}).get("mode", "own") == "own" and s["_video"]["probe"]["has_audio"]:
             x = clip_audio(s)
@@ -2080,11 +2338,96 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
         raise Refused(f"voice-peak-control (A13): bad takes, re-render them instead of crushing them: {'; '.join(bad_takes)}")
     if narrator_off and not draft:
         raise Refused(f"narrator-consistency and narrator-drift (A14): not the narrator's voice: {'; '.join(narrator_off)}")
-    env = (np.abs(voice) > 1e-3).astype(np.float32)
-    env = np.clip(moving_average(env, int(0.25 * AUDIO_RATE)) * 4, 0, 1)
-    duck = 1 - env * (1 - 10 ** (-DUCK_DB / 20))
-    mix = voice + clips + music * duck + amb
+    mix = voice + clips + music * duck_gain(voice) + amb
     return mix.astype(np.float32), placed
+
+
+def cue_fades(x: np.ndarray, span_s: float, fade_in_s: float, fade_out_s: float) -> np.ndarray:
+    """A19: a cue's fade in at its start and fade out at the end of what plays
+    (its end_s, or the WAV's end if sooner), each a raised cosine. The cue is
+    levelled before (over the part that plays), so a fade never moves the bed."""
+    n = min(len(x), max(0, int(round(span_s * AUDIO_RATE))))
+    y = x[:n].astype(np.float32).copy()
+    fi, fo = min(n, int(round(fade_in_s * AUDIO_RATE))), min(n, int(round(fade_out_s * AUDIO_RATE)))
+    if fi > 0:
+        y[:fi] *= (0.5 - 0.5 * np.cos(np.pi * (np.arange(fi) + 0.5) / fi)).astype(np.float32)
+    if fo > 0:
+        y[n - fo:] *= (0.5 + 0.5 * np.cos(np.pi * (np.arange(fo) + 0.5) / fo)).astype(np.float32)
+    return y
+
+
+def duck_gain(voice: np.ndarray) -> np.ndarray:
+    """Music gain under voice (GRAMMAR 8.5): -9 dB wherever a voice speaks,
+    with gaps shorter than DUCK_BRIDGE_S closed (a morphological closing of
+    the voice activity), so the bed holds still between words and between
+    lines instead of pumping, and a 250 ms centred ramp in and out."""
+    active = (np.abs(voice) > DUCK_VOICE_THRESHOLD).astype(np.float32)
+    k = int(round(DUCK_BRIDGE_S * AUDIO_RATE)) | 1
+    grown = (moving_average(active, k) > 1e-6).astype(np.float32)          # dilate by half the bridge on each side
+    closed = (moving_average(grown, k) > 1 - 1e-6).astype(np.float32)       # erode back: only the short gaps stay filled
+    closed = np.maximum(closed, active)
+    env = np.clip(moving_average(closed, int(round(DUCK_SMOOTH_S * AUDIO_RATE))), 0.0, 1.0)
+    return (1.0 - env * (1.0 - 10 ** (-DUCK_DB / 20))).astype(np.float32)
+
+
+def digital_silence(mix: np.ndarray, intended: list, min_s: float = SILENCE_WARN_S) -> list[dict]:
+    """A19: runs of true digital silence (|x| at or under -120 dBFS) longer
+    than ``min_s`` once the intended silences are taken out."""
+    quiet = np.abs(mix) <= 10 ** (SILENCE_DBFS / 20)
+    for a, b in intended:
+        quiet[int(round(a * AUDIO_RATE)): int(round(b * AUDIO_RATE))] = False
+    if not quiet.any():
+        return []
+    d = np.diff(np.concatenate(([0], quiet.astype(np.int8), [0])))
+    starts, ends = np.flatnonzero(d == 1), np.flatnonzero(d == -1)
+    n = int(round(min_s * AUDIO_RATE))
+    return [{"from_s": round(a / AUDIO_RATE, 3), "to_s": round(b / AUDIO_RATE, 3), "dur_s": round((b - a) / AUDIO_RATE, 3)}
+            for a, b in zip(starts, ends) if b - a > n]
+
+
+def voice_shares(plan: dict, placed: dict) -> dict:
+    """Shares of the runtime carried by narration, by readings (read-by and
+    archival testimony) and by no voice at all, from the placed lines."""
+    n = max(1, int(round(plan["duration_s"] * 100)))
+    any_voice = np.zeros(n, bool)
+    by = {"narration": np.zeros(n, bool), "reading": np.zeros(n, bool)}
+    for ln in placed["lines"]:
+        a, b = int(round(ln["at_s"] * 100)), int(round((ln["at_s"] + ln["dur_s"]) * 100))
+        any_voice[a:b] = True
+        by["narration" if ln["kind"] == "narration" else "reading"][a:b] = True
+    return {"narration": round(by["narration"].sum() / n, 4), "readings": round(by["reading"].sum() / n, 4),
+            "voiceless": round(1.0 - any_voice.sum() / n, 4)}
+
+
+def sound_lints(journal: Journal, plan: dict, mix: np.ndarray, placed: dict, *, draft: bool = False) -> list[str]:
+    """A17, A18 and A19 on the mix. digital-silence (a warning): true digital
+    silence over 4 s outside an intended silence. voiceless-floor and
+    readings-floor (GRAMMAR 6.1): at least 10% of the runtime has no voice
+    and readings carry at least 30%; blocking on a full, final render of an
+    event film, a warning on a draft, a check render (--until) or a short
+    piece. The narration ceiling is lifted (A17): narration is reported, never
+    capped. Returns the reasons to refuse."""
+    runs = digital_silence(mix, plan.get("silences", []))
+    journal.lint("digital-silence", not runs, stage="assembly", phase="preflight", severity="warn", grammar="8.4, A19",
+                 evidence={"runs": runs[:20], "count": len(runs), "max_s": SILENCE_WARN_S, "threshold_dbfs": SILENCE_DBFS,
+                           "intended": plan.get("silences", []),
+                           "fix": "carry underscore (a music cue) through it, or mark the moment silence: intended" if runs else None})
+    sh = voice_shares(plan, placed)
+    target = float(plan.get("runtime_target_s") or plan["duration_s"])
+    binding = not draft and not plan.get("until_s") and target >= EVENT_FILM_MIN_S
+    sev = "block" if binding else "warn"
+    why = None if binding else ("draft" if draft else "check render (--until)" if plan.get("until_s") else
+                                f"runtime target {target:g} s is under {EVENT_FILM_MIN_S:g} s (not an event film)")
+    out = []
+    for rule, ok, ev in (("voiceless-floor", sh["voiceless"] >= VOICELESS_FLOOR, {"voiceless": sh["voiceless"], "min": VOICELESS_FLOOR}),
+                         ("readings-floor", sh["readings"] >= READINGS_FLOOR, {"readings": sh["readings"], "min": READINGS_FLOOR})):
+        journal.lint(rule, ok, stage="assembly", phase="preflight", severity=sev, grammar="6.1, A17, A18",
+                     evidence=dict(ev, shares=sh, binding=binding, warning_because=why))
+        if not ok and binding:
+            out.append(f"{rule}: {ev}")
+    journal.event("unit", "assembly", "mix", lens="shares", status="info", shares=sh, narration_ceiling=None,
+                  note="A17 lifts the 25% narration ceiling; narration is reported, not capped")
+    return out
 
 
 def loudness_lints(journal: Journal, loud: dict, *, draft: bool = False) -> list[str]:
@@ -2401,7 +2744,7 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             "id": s["id"], "part": s["_part"], "kind": s["kind"],
             "start_s": round(s["f0"] / FPS, 4), "end_s": round(s["f1"] / FPS, 4),
             "start_frame": s["f0"], "end_frame": s["f1"],
-            "mark": {"class": s["mark"], "detail": s["detail"]},
+            "mark": {"class": s["mark"], "detail": s["detail"], "label": s.get("label", "")},
             "ledger": it.get("_ledger"), "ledger_id": s.get("asset"),
             "title": it.get("title"), "archive": it.get("archive"), "item_url": it.get("item_url"), "date": it.get("date"),
             "creator": it.get("creator"), "credit": it.get("credit"), "licence": it.get("licence"), "basis": it.get("basis"),
@@ -2418,7 +2761,8 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
         if track and track[-1]["class"] == s["mark"]["class"] and track[-1]["detail"] == s["mark"]["detail"]:
             track[-1]["to_s"] = s["end_s"]
         else:
-            track.append({"from_s": s["start_s"], "to_s": s["end_s"], "class": s["mark"]["class"], "detail": s["mark"]["detail"]})
+            track.append({"from_s": s["start_s"], "to_s": s["end_s"], "class": s["mark"]["class"], "detail": s["mark"]["detail"],
+                          "label": s["mark"]["label"]})
     total = plan["frames"]
     share = {c: round(sum(s["end_frame"] - s["start_frame"] for s in shots if s["mark"]["class"] == c) / total, 4) for c in CLASSES}
     readings = []
@@ -2615,6 +2959,9 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
             sf.write(str(work / "mix.wav"), mix, AUDIO_RATE, subtype="FLOAT")
             u.extra.update(placed=placed)
         journal.artifact("assembly", work / "mix.wav", unit="mix", role="mix")
+        share_refusals = sound_lints(journal, plan, mix, placed, draft=draft)
+        if share_refusals:
+            raise Refused(f"voice shares (pre-flight): {'; '.join(share_refusals)} (GRAMMAR 6.1; render with --draft to accept it)")
         journal.event("unit", "assembly", "mix", lens="narration", status="info", lines=placed["lines"], peaks=None)
         with journal.unit("assembly", "loudness", size={"driver": "seconds", "value": round(plan["duration_s"], 3)},
                           settings={"I": TARGET_LUFS, "TP": TARGET_TP, "LRA_min": TARGET_LRA, "linear": True,
@@ -2736,6 +3083,9 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         checked = sum(r["mark"]["ok"] + r["mark"]["fade"] + r["mark"].get("dip", 0) + r["mark"]["fail"] for r in results.values())
         journal.lint("mark-coverage", not fails and checked == plan["frames"], stage="marks", grammar="1.3, 4, A11", phase="post-render",
                      evidence={"frames": plan["frames"], "checked": checked, "ok": sum(r["mark"]["ok"] for r in results.values()),
+                               "probe": "the class glyph's centre (A16): the glyph is the mark on every frame",
+                               "label_frames": sum(r["mark"].get("label", 0) for r in results.values()),
+                               "glyph_only_frames": sum(r["mark"].get("glyph_only", 0) for r in results.values()),
                                "crossfade": sum(r["mark"]["fade"] for r in results.values()),
                                "dip_black": sum(r["mark"].get("dip", 0) for r in results.values()), "failed": fails})
         stills_bad = [plan["shots"][i]["id"] for i, r in results.items() if r.get("first_frame_whole") is False]
