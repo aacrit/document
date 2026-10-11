@@ -80,6 +80,10 @@ describe("films.json", () => {
     expect(bad((r) => (r.films[0].related[0].href = "http://x"))).toMatch(/https href/);
     // A film in production needs no poster, shows or legend.
     expect(bad((r) => delete r.films[1].poster)).toBe("");
+    // screenplay_path (the engine's bed-reuse lint reads it) is optional, and a screenplay.json when given.
+    expect(bad((r) => delete (r.films[1] as Film).screenplay_path)).toBe("");
+    expect(bad((r) => ((r.films[1] as Film).screenplay_path = "~/document-work/smallpox/"))).toMatch(/screenplay_path must be/);
+    expect(bad((r) => ((r.films[1] as Film).screenplay_path = 3))).toMatch(/screenplay_path must be/);
   });
 });
 

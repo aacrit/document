@@ -41,8 +41,10 @@ DUCK_DB = 9.0                       # GRAMMAR 8.5 (render.DUCK_DB)
 
 STANDARD = {
     "bed_under_dialogue_db": 12.0,      # a bed in the voice's gaps sits this far under the -20 LUFS dialogue: -32 LUFS
-    "bed_highpass_hz": 300.0,           # 12 dB an octave on every bed, so nothing of the bed sits under the voice
-    "bed_low_end_max_share": 0.10,      # a bed's energy under LOW_END_HZ, after its high-pass, at most this share
+    "bed_lowmid_hz": 400.0,             # a bed's shaping passes over this (24 dB an octave) and keeps the sub-bass under
+                                        # SUB_BASS_HZ: the voice-competing low-mids between are cut (A29 refined)
+    "bed_lowmid_max_share": 0.10,       # a bed's (or regional cue's) share of its energy over 100 Hz in LOW_MID_HZ, shaped
+    "music_treble_max_share": 0.02,     # any scored cue's share of its energy over 100 Hz above TREBLE_HZ
     "bed_breath_db": 6.0,               # a bed's 100 ms level spread (p90 minus p10) at least this: a drone breathes
     "transition_over_bed_max_db": 0.0,  # a transition's or sting's loudest 400 ms never above the bed it leads into
     "entry_fade_min_s": 1.5,            # an underscore cue that enters from no music fades in at least this long
@@ -51,8 +53,9 @@ STANDARD = {
 }
 BOUNDS = {                              # what A29 lets a film set: (lowest, highest)
     "bed_under_dialogue_db": (12.0, 20.0),      # quieter, never louder
-    "bed_highpass_hz": (300.0, 400.0),
-    "bed_low_end_max_share": (0.0, 0.10),
+    "bed_lowmid_hz": (400.0, 500.0),
+    "bed_lowmid_max_share": (0.0, 0.10),
+    "music_treble_max_share": (0.0, 0.02),
     "bed_breath_db": (6.0, 12.0),
     "transition_over_bed_max_db": (-6.0, 0.0),
     "entry_fade_min_s": (1.5, 4.0),
@@ -73,13 +76,18 @@ ORPHAN_HEADROOM_DB = 4.0            # a transition with no bed in the film is he
 HOP_S = 0.1                         # the analysis grid: 100 ms windows (momentary loudness is 4 of them, 400 ms)
 DUCK_GRID_S = 0.01                  # duck-pumping is judged on a 10 ms grid
 
-ROLES = ("bed", "transition", "sting", "outro", "motif", "palette")
-UNDERSCORE = ("bed", "transition", "sting", "outro")     # levelled to the bed target; under the score standard
+ROLES = ("bed", "transition", "sting", "outro", "regional", "motif", "brand_pulse", "palette")
+UNDERSCORE = ("bed", "transition", "sting", "outro", "regional")   # levelled to the bed target; under the score standard
 TRANSITIONS = ("transition", "sting", "outro")            # linted against the bed they lead into (or follow)
-MUSIC_ROLES = ("underscore", "house_motif", "palette")    # a music cue's `role`; absent is underscore
-RULES = ("bed-under-voice", "bed-low-end", "bed-breathing", "underscore-level", "ambience-level", "ambience-low-end",
-         "transition-ceiling",
-         "music-entry", "music-exit", "music-holes", "duck-pumping")
+SHAPED = ("bed", "regional")                              # band-shaped (bed_shape) before they are levelled
+FILM_LAYER = ("bed", "transition", "sting", "outro")      # the film's own score: never another film's (bed-reuse)
+BRAND = ("motif", "brand_pulse")                          # the house's signature: recurs by design (score-repetition)
+TREBLE_LIMITED = UNDERSCORE + BRAND                       # music-treble: every scored cue (a palette recording is a source)
+FEATURED = ("motif", "brand_pulse", "palette")            # heard for itself, levelled to FEATURE_LUFS
+MUSIC_ROLES = ("underscore", "house_motif", "brand_pulse", "palette")    # a music cue's `role`; absent is underscore
+RULES = ("bed-under-voice", "bed-low-end", "music-treble", "bed-breathing", "underscore-level", "ambience-level",
+         "ambience-low-end", "transition-ceiling", "regional-density", "brand-pulse-place", "bed-reuse",
+         "score-repetition", "phone-check", "music-entry", "music-exit", "music-holes", "duck-pumping")
 CUE_KINDS = ("music", "ambience")                          # a cue's `kind`, stated on every cue; nothing else is placed
 # Ambience under the voice (A29(1)): at most this share of its energy may be tonal and under LOW_END_HZ (spectral
 # lines standing 10x over their neighbourhood on a 1 Hz Welch spectrum, 20 to 230 Hz). Calibrated (R1 review): two real
@@ -90,6 +98,38 @@ CUE_KINDS = ("music", "ambience")                          # a cue's `kind`, sta
 AMB_TONAL_LOW_MAX_SHARE = 0.15
 TONAL_PEAK_X = 10.0                                         # a line stands this many times over its neighbours' median
 TONAL_HALF_HZ = 12                                          # the neighbours: up to 12 Hz either side (2 Hz guard)
+
+# A29 refined (founder, 2026-10-11: the brand "a lot more bass heavy, a lot less treble"; the film's own score "calm,
+# almost classical"; regional "sparsely"). The bands, measured in ENGINE-LOG 2026-10-11 R10.
+SUB_BASS_HZ = 100.0                 # under this: sub-bass, allowed (the brand pulse's fundamental, a bed's floor); a phone
+                                    # speaker plays none of it and it does not cover the voice's words
+VOICE_BAND_HZ = (150.0, 4000.0)     # where the words are (a narrator's fundamental to the consonants): kept clear
+LOW_MID_HZ = (150.0, 400.0)         # the voice-competing low-mids: a bed's measured share (bed-low-end)
+TREBLE_HZ = 5000.0                  # over this: the treble, limited (music-treble) and shelved on a bed
+SHAPE_ORDER = 4                     # the bed shaping's two branches, 24 dB an octave
+TREBLE_SHELF_DB = 6.0               # a bed's gentle treble shelf: half of it at TREBLE_HZ, all of it an octave or two up
+PHONE_HP_HZ = 150.0                 # the small-speaker simulation (phone-check)
+PHONE_LP_HZ = 8000.0
+PHONE_WINDOW_S = 1.0                # the voice's margin is judged on 1 s windows, every 0.5 s, inside each spoken line
+PHONE_WINDOW_HOP_S = 0.5
+PHONE_SPEECH_DB = 10.0              # a window counts as speech when the line's band level is within 10 dB of its mean
+PHONE_VOICE_MARGIN_DB = 15.0        # on the phone, the voice's band level at least this over the score's, every window
+PULSE_PHONE_UNDER_DIALOGUE_DB = 24.0    # the brand pulse on the phone at most this under the dialogue target (-44 LUFS)
+REGIONAL_MAX_SHARE = 0.05           # regional seconds at most 5% of the runtime
+REGIONAL_MAX_S = 8.0                # no regional cue over 8 s ("a couple of blocks of the tanpura")
+REGIONAL_MIN_GAP_S = 60.0           # at least 60 s from one regional cue's end to the next one's start
+PULSE_AROUND_S = 3.0                # a brand pulse is on or around a title or chapter card: within 3 s of one
+# score-repetition (founder, 2026-10-11: "patterns are repeating and it's jarring"), calibrated in ENGINE-LOG R10
+REP_HOP_S = 0.1                     # the feature grid
+REP_NFFT = 8192                     # 171 ms windows: a semitone apart at 110 Hz
+REP_SEG_S = 4.0                     # a recurring segment is 4 s or more
+REP_LOOP_COUNT = 3                  # heard three times back to back is a tiled loop (twice is a restatement)
+REP_MIN_CROSS_S = 1.5               # two cues are compared on 4 s, or on the shorter one when it is at least this long
+REP_CHROMA_MIN = 0.97               # near-identical: the same notes,
+REP_ENV_MIN = 0.95                  # the same spectrum (register, orchestration),
+REP_ONSET_MIN = 0.90                # and the same rhythm, all three at once
+REP_ONSET_FLAT = 25.0               # an onset envelope with a variance under this (std 5; a note's attack is 100s, a
+                                    # held chord's beating 1 to 3) has no rhythm to compare
 
 
 def standard(play: dict) -> tuple[dict, dict, list[str]]:
@@ -131,14 +171,18 @@ def cue_role(c: dict) -> str:
     one of bed, transition, sting or outro, else read from the score's own
     names (the WAV stem or the `tradition` after "underscore:"): transition
     and rupture cues are transitions, stings stings, the outro the outro, and
-    any other is a bed (the strictest reading). Ambience is not music.
-    role_problem says what build_plan refuses."""
+    any other is a bed (the strictest reading). `role: brand_pulse` is the
+    brand pulse (A29 refined); a regional cue is only ever stated
+    (``score_role: regional``), never read from a name. Ambience is not
+    music. role_problem says what build_plan refuses."""
     if c.get("kind", "music") != "music":
         return "ambience"
     if c.get("role") == "house_motif":
         return "motif"
     if c.get("role") == "palette":
         return "palette"
+    if c.get("role") == "brand_pulse":
+        return "brand_pulse"
     sr = c.get("score_role")
     if isinstance(sr, str) and sr in UNDERSCORE:
         return sr
@@ -154,19 +198,27 @@ def cue_role(c: dict) -> str:
 def role_problem(c: dict) -> str | None:
     """What A29 refuses in a music cue's roles: a `role` outside MUSIC_ROLES,
     or a ``score_role`` that is not a string or contradicts it (an underscore
-    cue may state bed, transition, sting or outro; motif only with `role:
-    house_motif`, palette only with `role: palette`)."""
+    cue may state bed, transition, sting, outro or regional; motif only with
+    `role: house_motif`, palette only with `role: palette`, brand_pulse only
+    with `role: brand_pulse`); a regional cue without its ``marks_moment``
+    (a non-empty string), and a ``marks_moment`` on any other cue."""
     if c.get("kind", "music") != "music":
-        return None
+        return "marks_moment is for a regional music cue only" if "marks_moment" in c else None
     role = c.get("role")
     if role is not None and (not isinstance(role, str) or role not in MUSIC_ROLES):
         return f"role {role!r} is not one of {', '.join(MUSIC_ROLES)}"
-    if "score_role" not in c:
-        return None
-    sr = c["score_role"]
-    allowed = {"house_motif": ("motif",), "palette": ("palette",)}.get(role, UNDERSCORE)
-    if not isinstance(sr, str) or sr not in allowed:
-        return f"score_role {sr!r} with role {role or 'underscore'!r}: it may be {', '.join(allowed)}"
+    if "score_role" in c:
+        sr = c["score_role"]
+        allowed = {"house_motif": ("motif",), "palette": ("palette",), "brand_pulse": ("brand_pulse",)}.get(role, UNDERSCORE)
+        if not isinstance(sr, str) or sr not in allowed:
+            return f"score_role {sr!r} with role {role or 'underscore'!r}: it may be {', '.join(allowed)}"
+    regional = cue_role(c) == "regional"
+    mm = c.get("marks_moment")
+    if regional and not (isinstance(mm, str) and mm.strip()):
+        return ("a regional cue states marks_moment: the critical moment it lands on, in words (A29 refined: "
+                "regional music is punctuation, where critical things happen)")
+    if not regional and "marks_moment" in c:
+        return "marks_moment is for a regional cue only (score_role: regional)"
     return None
 
 
@@ -202,8 +254,66 @@ def highpass_mag(f: np.ndarray, hz: float) -> np.ndarray:
 
 
 def highpass(x: np.ndarray, hz: float) -> np.ndarray:
-    """A29: the bed high-pass, 12 dB an octave at ``hz`` (300 Hz by default)."""
+    """A second-order high-pass at ``hz`` (12 dB an octave). Before A29
+    refined it was the bed filter; a bed is now band-shaped (bed_shape)."""
     return _filtered(x, lambda f: highpass_mag(f, hz))
+
+
+def butter_mag(f: np.ndarray, hz: float, order: int, kind: str) -> np.ndarray:
+    """A Butterworth magnitude of ``order`` (6 dB an octave each): -3 dB at hz."""
+    r = (np.asarray(f, np.float64) / float(hz)) ** order
+    return r / np.sqrt(1.0 + r * r) if kind == "high" else 1.0 / np.sqrt(1.0 + r * r)
+
+
+def shelf_mag(f: np.ndarray, hz: float, cut_db: float) -> np.ndarray:
+    """A first-order high shelf: unity well under ``hz``, ``cut_db`` down well
+    over it, half the cut (in dB) at ``hz``."""
+    g = 10 ** (-float(cut_db) / 20)
+    r = (np.asarray(f, np.float64) / (float(hz) * math.sqrt(g))) ** 2      # centred so the midpoint (in dB) lands on hz
+    return np.sqrt((1.0 + g * g * r) / (1.0 + r))
+
+
+def bed_shape_mag(f: np.ndarray, lowmid_hz: float) -> np.ndarray:
+    """A29 refined: a bed's band-shaping. Two branches added in magnitude
+    (zero phase, so they sum without cancelling): the sub-bass kept (a
+    4th-order low-pass at SUB_BASS_HZ) and everything over the low-mids
+    (a 4th-order high-pass at ``lowmid_hz``), so the voice-competing
+    150 to 400 Hz is cut (-13 dB at 150 Hz, -18 dB at 200 Hz, -10 dB at
+    300 Hz with the default 400 Hz) and the sub-bass passes (-0.3 dB at
+    60 Hz); then a gentle treble shelf (TREBLE_SHELF_DB at TREBLE_HZ)."""
+    return np.minimum(1.0, butter_mag(f, SUB_BASS_HZ, SHAPE_ORDER, "low") + butter_mag(f, lowmid_hz, SHAPE_ORDER, "high")) \
+        * shelf_mag(f, TREBLE_HZ, TREBLE_SHELF_DB)
+
+
+def bed_shape(x: np.ndarray, lowmid_hz: float) -> np.ndarray:
+    """A29 refined: a bed or a regional cue through bed_shape_mag."""
+    return _filtered(x, lambda f: bed_shape_mag(f, lowmid_hz))
+
+
+def phone_mag(f: np.ndarray) -> np.ndarray:
+    """A29 refined: a small speaker, simulated: a 4th-order high-pass at
+    PHONE_HP_HZ (a micro speaker falls 12 dB an octave under its resonance and
+    the phone's protection filter adds 12 more) and a first-order roll-off at
+    PHONE_LP_HZ."""
+    return butter_mag(f, PHONE_HP_HZ, 4, "high") * butter_mag(f, PHONE_LP_HZ, 1, "low")
+
+
+def band_shares(x: np.ndarray) -> dict:
+    """Where a cue's energy sits: its shares of the energy over SUB_BASS_HZ
+    (the audible band on any speaker) in the low-mids (LOW_MID_HZ) and in the
+    treble (over TREBLE_HZ), and the sub-bass's share of all of it. Measured
+    against the energy over 100 Hz so a loud sub-bass never dilutes them."""
+    seg = np.asarray(x, np.float64)
+    if len(seg) < 2:
+        return {"lowmid_share": 0.0, "treble_share": 0.0, "sub_share": 0.0}
+    P = np.abs(np.fft.rfft(seg)) ** 2
+    f = np.fft.rfftfreq(len(seg), 1.0 / RATE)
+    P, f = P[1:], f[1:]
+    tot, over = float(P.sum()), float(P[f >= SUB_BASS_HZ].sum())
+    lm = float(P[(f >= LOW_MID_HZ[0]) & (f < LOW_MID_HZ[1])].sum())
+    tr = float(P[f >= TREBLE_HZ].sum())
+    return {"lowmid_share": round(lm / over, 4) if over > 0 else 0.0, "treble_share": round(tr / over, 4) if over > 0 else 0.0,
+            "sub_share": round(max(0.0, 1.0 - over / tot), 4) if tot > 0 else 0.0}
 
 
 # ITU-R BS.1770-4 K-weighting at 48 kHz: the pre-filter (high shelf) and the RLB high-pass
@@ -253,12 +363,16 @@ def gated_loudness(power: np.ndarray) -> float | None:
 
 
 def analyse_cue(y: np.ndarray, role: str, fade_in_s: float = 0.0, fade_out_s: float = 0.0, *,
-                low_end_hz: float = LOW_END_HZ, unfaded: np.ndarray | None = None) -> dict:
+                unfaded: np.ndarray | None = None, features: bool = True) -> dict:
     """What the standard reads of one cue as the mix places it (levelled,
     faded, gained): per 100 ms window its RMS (dBFS) and K-weighted power,
     its momentary loudness (400 ms) and their maximum, its integrated
-    loudness, over its full-level part (between its fades) the share of its
-    energy under ``low_end_hz``, and its breathing: the level spread (p90
+    loudness, over its full-level part (between its fades) where its energy
+    sits (band_shares: the low-mids, the treble, the sub-bass), for the
+    brand pulse its loudness through the small-speaker simulation
+    (``phone_lufs``), for any music but the brand's its repetition features
+    (rep_features, of ``unfaded`` when given; ``features`` false skips
+    them), and its breathing: the level spread (p90
     minus p10 of the 100 ms RMS) of ``unfaded`` (the same cue levelled and
     gained, before its fades, so a fade never passes for a breath), or of the
     full-level part when that is not given. Under BREATH_MIN_S of it, the
@@ -290,22 +404,20 @@ def analyse_cue(y: np.ndarray, role: str, fade_in_s: float = 0.0, fade_out_s: fl
         rms_db = _db(ms[full], -80.0) if b - a >= 10 else _db(ms[:0])
     judged = len(rms_db) * HOP_S >= BREATH_MIN_S - 1e-9
     spread = float(np.percentile(rms_db, 90) - np.percentile(rms_db, 10)) if judged else 0.0
-    seg = y[full.start * hop: full.stop * hop].astype(np.float64)
-    if len(seg):
-        P = np.abs(np.fft.rfft(seg)) ** 2
-        f = np.fft.rfftfreq(len(seg), 1.0 / RATE)
-        tot = float(P[1:].sum())
-        low = float(P[1:][f[1:] < low_end_hz].sum())
-        low_share = low / tot if tot > 0 else 0.0
-    else:
-        low_share = 0.0
-    tonal = tonal_low_share(unfaded if unfaded is not None else y) if role == "ambience" else None
+    shares = band_shares(y[full.start * hop: full.stop * hop])
+    src = unfaded if unfaded is not None else y
+    tonal = tonal_low_share(src) if role == "ambience" else None
+    phone = None
+    if role == "brand_pulse" and len(y):
+        pk = np.mean(_windows(_filtered(y, lambda f: k_mag(f) * phone_mag(f)), hop) ** 2, axis=1)
+        phone = gated_loudness(np.convolve(pk, np.ones(4) / 4, mode="valid") if len(pk) >= 4 else pk)
+    feat = rep_features(src) if features and role not in BRAND + ("ambience",) else None
     return {"role": role, "n": len(y), "ms": ms.astype(np.float32), "kp": kp.astype(np.float32), "tonal_low_share": tonal,
             "mom_max_lufs": round(float(-0.691 + _db(mom).max()), 2) if len(mom) else None,
             "integrated_lufs": gated_loudness(mom) if len(mom) else None,
             "integrated_unfaded_lufs": integrated_unfaded,
             "full": [full.start, full.stop],
-            "breath_db": round(spread, 2), "breath_judged": judged, "low_share": round(low_share, 4)}
+            "breath_db": round(spread, 2), "breath_judged": judged, **shares, "phone_lufs": phone, "feat": feat}
 
 
 # --------------------------------------------------------------------------
@@ -362,6 +474,163 @@ def duck_pumps(active: np.ndarray, duck: np.ndarray, spans: list[tuple[float, fl
         if peak > lim:
             out.append({"from_s": round(a * grid_s, 2), "to_s": round(b * grid_s, 2), "gap_s": round((b - a) * grid_s, 2),
                         "why_held": why, "rises_db": round(20 * math.log10(peak / floor), 1)})
+    return out
+
+
+# --------------------------------------------------------------------------
+# Repetition (A29 refined, founder 2026-10-11: "We need variance in music...
+# right now patterns are repeating and it's jarring")
+# --------------------------------------------------------------------------
+
+def rep_features(y: np.ndarray) -> dict:
+    """What score-repetition compares, per REP_HOP_S frame (REP_NFFT Hann
+    windows): ``chroma`` (12 pitch classes, 55 Hz to 5 kHz, unit length: the
+    notes), ``env`` (log energy in third-octave bands, 50 Hz to 6.4 kHz,
+    z-scored per frame: register and orchestration), ``onset`` (spectral flux
+    on the log magnitude over 100 Hz, relative to the cue's own loudest bin:
+    the rhythm) and ``live`` (a frame within 60 dB of the cue's loudest).
+    Level-free: a gain, a duck or a slow swell changes none of them."""
+    x = np.asarray(y, np.float64)
+    edges = _REP_BANDS
+    hop = int(round(REP_HOP_S * RATE))
+    n = int(math.ceil(len(x) / hop)) if len(x) else 0
+    if n == 0:
+        z = np.zeros((0, 12), np.float32)
+        return {"chroma": z, "env": np.zeros((0, len(edges) - 1), np.float32), "onset": np.zeros(0, np.float32),
+                "live": np.zeros(0, bool)}
+    pad = np.concatenate([np.zeros(REP_NFFT // 2), x, np.zeros(REP_NFFT)])
+    f = np.fft.rfftfreq(REP_NFFT, 1.0 / RATE)
+    keep = f < 8000.0
+    win = np.hanning(REP_NFFT)
+    mags = np.empty((n, int(keep.sum())), np.float32)
+    for a in range(0, n, 256):                                       # 256 frames at a time: bounded memory
+        idx = np.arange(a, min(n, a + 256))[:, None] * hop + np.arange(REP_NFFT)[None, :]
+        mags[a: a + len(idx)] = np.abs(np.fft.rfft(pad[idx] * win, axis=1))[:, keep]
+    f = f[keep]
+    peak = float(mags.max()) if mags.size else 0.0
+    if peak <= 0:
+        return {"chroma": np.zeros((n, 12), np.float32), "env": np.zeros((n, len(edges) - 1), np.float32),
+                "onset": np.zeros(n, np.float32), "live": np.zeros(n, bool)}
+    m = mags / peak
+    power = (m.astype(np.float64) ** 2).sum(axis=1)
+    live = power > power.max() * 1e-6
+    cb = (f >= 55.0) & (f < 5000.0)
+    pc = np.mod(np.round(12 * np.log2(f[cb] / 440.0)).astype(int), 12)
+    chroma = np.zeros((n, 12))
+    for k in range(12):
+        chroma[:, k] = m[:, cb][:, pc == k].sum(axis=1)
+    chroma /= np.maximum(np.linalg.norm(chroma, axis=1, keepdims=True), 1e-12)
+    band = np.digitize(f, edges) - 1
+    env = np.stack([(m[:, band == k].astype(np.float64) ** 2).sum(axis=1) for k in range(len(edges) - 1)], axis=1)
+    env = np.log10(env + 1e-10)
+    env = (env - env.mean(axis=1, keepdims=True)) / np.maximum(env.std(axis=1, keepdims=True), 1e-9)
+    lg = np.log1p(1000.0 * m[:, f >= 100.0].astype(np.float64))
+    onset = np.concatenate([lg[:1].sum(axis=1), np.maximum(0.0, np.diff(lg, axis=0)).sum(axis=1)])   # frame 0: from silence
+    chroma[~live] = 0.0
+    env[~live] = 0.0
+    return {"chroma": chroma.astype(np.float32), "env": env.astype(np.float32), "onset": onset.astype(np.float32), "live": live}
+
+
+_REP_BANDS = 50.0 * 2.0 ** (np.arange(0, 22) / 3.0)                # third-octave edges, 50 Hz to 6.4 kHz (21 bands)
+
+
+def _win_sum(v: np.ndarray, w: int) -> np.ndarray:
+    c = np.concatenate([[0.0], np.cumsum(np.asarray(v, np.float64))])
+    return c[w:] - c[:-w]
+
+
+def _pearson(sa, sb, sab, saa, sbb, w: int):
+    """Pearson's r from window sums; None where either side is flat (no rhythm to compare)."""
+    va, vb = saa - sa * sa / w, sbb - sb * sb / w
+    flat = (va <= REP_ONSET_FLAT * w) | (vb <= REP_ONSET_FLAT * w)
+    r = (sab - sa * sb / w) / np.sqrt(np.maximum(va * vb, 1e-30))
+    return np.where(flat, np.nan, r)
+
+
+def _near(c, e, o) -> np.ndarray:
+    """Near-identical: the notes, the spectrum and the rhythm all match (a flat rhythm never does: a drone is
+    judged by bed-breathing, not here)."""
+    return (c >= REP_CHROMA_MIN) & (e >= REP_ENV_MIN) & (np.nan_to_num(o, nan=-1.0) >= REP_ONSET_MIN)
+
+
+def _score(c, e, o) -> np.ndarray:
+    """One number per comparison for the journal: the weakest of the three similarities, each over its threshold
+    as a ratio (1.0 or more on all three is near-identical)."""
+    return np.minimum(np.minimum(c / REP_CHROMA_MIN, e / REP_ENV_MIN), np.nan_to_num(o, nan=0.0) / REP_ONSET_MIN)
+
+
+def self_repetition(feat: dict) -> dict:
+    """score-repetition within a cue: the strongest back-to-back recurrence.
+    For every period P of at least REP_SEG_S (and at most a third of the
+    cue), a segment of length P at t is compared with the one at t + P and
+    that one with the one at t + 2P (frame by frame: chroma cosine, band
+    correlation; over the window: the onsets' Pearson r). A tiled loop is
+    a segment heard three times in a row (twice is a restatement), each
+    pair near-identical. Returns the loop (if any) and the best match."""
+    C, E, O = feat["chroma"].astype(np.float64), feat["env"].astype(np.float64), feat["onset"].astype(np.float64)
+    n, d = len(O), max(1, E.shape[1] if E.ndim == 2 else 1)
+    best = {"score": None, "period_s": None, "at_s": None, "chroma": None, "env": None, "onset": None}
+    loop = None
+    w0 = int(round(REP_SEG_S / REP_HOP_S))
+    for p in range(w0, n // REP_LOOP_COUNT + 1):
+        sc = _win_sum((C[:-p] * C[p:]).sum(axis=1), p) / p
+        se = _win_sum((E[:-p] * E[p:]).sum(axis=1) / d, p) / p
+        sa = _win_sum(O, p)
+        sq = _win_sum(O * O, p)
+        so = _pearson(sa[:-p], sa[p:], _win_sum(O[:-p] * O[p:], p), sq[:-p], sq[p:], p)
+        k = len(sc) - p                                          # windows t with a third copy at t + 2P
+        if k <= 0:
+            continue
+        s = _score(sc, se, so)
+        both = np.minimum(s[:k], s[p:p + k])
+        i = int(np.argmax(both))
+        if best["score"] is None or both[i] > best["score"]:
+            j = i if s[i] <= s[i + p] else i + p
+            best = {"score": round(float(both[i]), 3), "period_s": round(p * REP_HOP_S, 1), "at_s": round(i * REP_HOP_S, 1),
+                    "chroma": round(float(sc[j]), 3), "env": round(float(se[j]), 3),
+                    "onset": None if np.isnan(so[j]) else round(float(so[j]), 3)}
+        nr = _near(sc, se, so)
+        hit = np.flatnonzero(nr[:k] & nr[p:p + k])
+        if len(hit) and loop is None:
+            loop = {"period_s": round(p * REP_HOP_S, 1), "at_s": round(int(hit[0]) * REP_HOP_S, 1),
+                    "copies": REP_LOOP_COUNT}
+    return {"loop": loop, "best": best}
+
+
+def _diag_window_sums(M: np.ndarray, w: int) -> np.ndarray:
+    """Out[i, j] = sum of M[i + k, j + k] for k < w (w consecutive frames of A against w of B, in step)."""
+    na, nb = M.shape
+    C = np.zeros((na + 1, nb + 1), np.float64)
+    for i in range(na):
+        C[i + 1, 1:] = M[i] + C[i, :-1]
+    return C[w:, w:] - C[: na + 1 - w, : nb + 1 - w]
+
+
+def cross_repetition(fa: dict, fb: dict) -> dict:
+    """score-repetition across two cues: the best match of any window of
+    REP_SEG_S (or the shorter cue, at least REP_MIN_CROSS_S) of one against
+    the other at any offset. Near-identical on all three measures is a
+    duplicate."""
+    na, nb = len(fa["onset"]), len(fb["onset"])
+    w = min(int(round(REP_SEG_S / REP_HOP_S)), na, nb)
+    out = {"duplicate": False, "score": None, "window_s": round(w * REP_HOP_S, 1), "a_at_s": None, "b_at_s": None,
+           "chroma": None, "env": None, "onset": None}
+    if w * REP_HOP_S < REP_MIN_CROSS_S - 1e-9:
+        out["judged"] = False
+        return out
+    d = max(1, fa["env"].shape[1])
+    sc = _diag_window_sums(fa["chroma"].astype(np.float64) @ fb["chroma"].astype(np.float64).T, w) / w
+    se = _diag_window_sums(fa["env"].astype(np.float64) @ fb["env"].astype(np.float64).T / d, w) / w
+    oa, ob = fa["onset"].astype(np.float64), fb["onset"].astype(np.float64)
+    sab = _diag_window_sums(np.outer(oa, ob), w)
+    sa, sb = _win_sum(oa, w)[:, None], _win_sum(ob, w)[None, :]
+    saa, sbb = _win_sum(oa * oa, w)[:, None], _win_sum(ob * ob, w)[None, :]
+    so = _pearson(sa, sb, sab, saa, sbb, w)
+    s = _score(sc, se, so)
+    i, j = np.unravel_index(int(np.argmax(s)), s.shape)
+    out.update(judged=True, duplicate=bool(_near(sc, se, so).any()), score=round(float(s[i, j]), 3),
+               a_at_s=round(i * REP_HOP_S, 1), b_at_s=round(j * REP_HOP_S, 1), chroma=round(float(sc[i, j]), 3),
+               env=round(float(se[i, j]), 3), onset=None if np.isnan(so[i, j]) else round(float(so[i, j]), 3))
     return out
 
 
@@ -488,6 +757,301 @@ def _leads_into(t: dict, beds: list[dict]) -> tuple[dict | None, str]:
     return None, "fallback: no bed within 10 s"
 
 
+def _span(c: dict) -> tuple[float, float]:
+    return c["start_s"], c["start_s"] + c["an"]["n"] / RATE
+
+
+def regional_checks(cues: list[dict], duration_s: float) -> list[dict]:
+    """regional-density (A29 refined): regional music is punctuation. Each
+    regional cue at most REGIONAL_MAX_S long and at least REGIONAL_MIN_GAP_S
+    after the one before it ends; all of them together at most
+    REGIONAL_MAX_SHARE of the runtime. Nothing when the film has none."""
+    regs = sorted((c for c in cues if c["role"] == "regional"), key=lambda c: c["start_s"])
+    out, prev = [], None
+    for c in regs:
+        a, b = _span(c)
+        gap = None if prev is None else round(a - _span(prev)[1], 2)
+        ok = b - a <= REGIONAL_MAX_S + 1e-9 and (gap is None or gap >= REGIONAL_MIN_GAP_S - 1e-9)
+        out.append({"rule": "regional-density", "ok": ok, "unit": c["id"], "evidence": {
+            "dur_s": round(b - a, 2), "max_s": REGIONAL_MAX_S, "after": None if prev is None else prev["id"], "gap_s": gap,
+            "min_gap_s": REGIONAL_MIN_GAP_S, "marks_moment": c.get("marks_moment"),
+            "fix": None if ok else f"a regional cue is a block of at most {REGIONAL_MAX_S:g} s, at least "
+                                   f"{REGIONAL_MIN_GAP_S:g} s from the last: keep the one on the most critical moment"}})
+        prev = c
+    if regs:
+        total = sum(_span(c)[1] - _span(c)[0] for c in regs)
+        share = total / duration_s if duration_s > 0 else 1.0
+        ok = share <= REGIONAL_MAX_SHARE + 1e-9
+        out.append({"rule": "regional-density", "ok": ok, "unit": "regional", "evidence": {
+            "count": len(regs), "total_s": round(total, 2), "runtime_s": round(duration_s, 2), "share": round(share, 4),
+            "max_share": REGIONAL_MAX_SHARE,
+            "fix": None if ok else f"regional music at most {REGIONAL_MAX_SHARE:.0%} of the runtime: sparsely, where critical "
+                                   "things happen"}})
+    return out
+
+
+def pulse_floor_lufs() -> float:
+    """The brand pulse's floor through the small-speaker simulation: PULSE_PHONE_UNDER_DIALOGUE_DB under the dialogue."""
+    return DIALOGUE_LUFS - PULSE_PHONE_UNDER_DIALOGUE_DB
+
+
+def pulse_checks(cues: list[dict], cards, voice100: np.ndarray | None) -> list[dict]:
+    """brand-pulse-place: a brand pulse plays on or around a title or
+    chapter card (within PULSE_AROUND_S of one) or where no voice speaks
+    (``voice100``; offline without voices, only a card can place it). And
+    phone-check for the pulse: its loudness through the small-speaker
+    simulation at least pulse_floor_lufs, so its soft upper harmonic carries
+    it where a phone plays no sub-bass."""
+    out = []
+    floor = pulse_floor_lufs()
+    for c in (c for c in cues if c["role"] == "brand_pulse"):
+        a, b = _span(c)
+        card = next(((x, y) for x, y in cards if a >= x - PULSE_AROUND_S - 1e-6 and b <= y + PULSE_AROUND_S + 1e-6), None)
+        voiced = None
+        if voice100 is not None:
+            v = np.asarray(voice100, bool)
+            voiced = round(float(v[max(0, int(math.floor(a / HOP_S))): max(0, int(math.ceil(b / HOP_S)))].sum()) * HOP_S, 1)
+        ok = card is not None or voiced == 0.0
+        out.append({"rule": "brand-pulse-place", "ok": ok, "unit": c["id"], "evidence": {
+            "from_s": round(a, 2), "to_s": round(b, 2), "card": None if card is None else [round(card[0], 2), round(card[1], 2)],
+            "around_s": PULSE_AROUND_S, "voice_s": voiced, "voice_measured": voice100 is not None,
+            "fix": None if ok else "the brand pulse is the house's signature at the title and chapter cards and in "
+                                   "voiceless stretches, not under the narration: move it to a card or a stretch with no voice"}})
+        pl = c["an"].get("phone_lufs")
+        ok = pl is not None and pl >= floor - 1e-9
+        out.append({"rule": "phone-check", "ok": ok, "unit": c["id"], "evidence": {
+            "what": "the brand pulse, perceptible on a small speaker", "phone_lufs": pl, "floor_lufs": floor,
+            "full_band_lufs": c["an"].get("integrated_unfaded_lufs") or c["an"].get("integrated_lufs"),
+            "sub_share": c["an"].get("sub_share"),
+            "simulation": f"mono, {PHONE_HP_HZ:g} Hz high-pass (24 dB an octave), {PHONE_LP_HZ:g} Hz roll-off (6 dB an octave)",
+            "fix": None if ok else f"give the pulse a soft upper harmonic (an octave or a twelfth over its fundamental, over "
+                                   f"{PHONE_HP_HZ:g} Hz): a phone plays nothing of a sub-bass alone"}})
+    return out
+
+
+def repetition_checks(cues: list[dict]) -> list[dict]:
+    """score-repetition (founder, 2026-10-11: "We need variance in music...
+    right now patterns are repeating and it's jarring"): within each music
+    cue but the brand's, no segment of REP_SEG_S or more heard
+    REP_LOOP_COUNT times back to back near-identically (self_repetition: a
+    tiled loop); across the film, no two music cues near-duplicates
+    (cross_repetition), the brand's motif and pulse exempt (they recur by
+    design). Near-identical is the notes, the spectrum and the rhythm all
+    matching at once, so a theme restated in another key, register,
+    orchestration or rhythm passes. The largest similarities are journaled."""
+    out = []
+    mus = [c for c in cues if c["role"] not in BRAND + ("ambience",) and c["an"].get("feat") is not None]
+    for c in mus:
+        r = self_repetition(c["an"]["feat"])
+        ok = r["loop"] is None
+        out.append({"rule": "score-repetition", "ok": ok, "unit": c["id"], "evidence": {
+            "within": True, "loop": r["loop"], "max_self_similarity": r["best"], "min_segment_s": REP_SEG_S,
+            "thresholds": {"chroma": REP_CHROMA_MIN, "env": REP_ENV_MIN, "onset": REP_ONSET_MIN},
+            "fix": None if ok else f"a {r['loop']['period_s']:g} s segment is heard {REP_LOOP_COUNT} times back to back: "
+                                   "write the bed through (vary the voicing, the register, the rhythm), never tile it"}})
+    dups, best = [], None
+    for i, a in enumerate(mus):
+        for b in mus[i + 1:]:
+            r = cross_repetition(a["an"]["feat"], b["an"]["feat"])
+            if not r.get("judged"):
+                continue
+            rec = {"a": a["id"], "b": b["id"], **{k: r[k] for k in ("score", "chroma", "env", "onset", "window_s", "a_at_s",
+                                                                    "b_at_s")}}
+            if best is None or r["score"] > best["score"]:
+                best = rec
+            if r["duplicate"]:
+                dups.append(rec)
+    if len(mus) > 1:
+        out.append({"rule": "score-repetition", "ok": not dups, "unit": "music", "evidence": {
+            "within": False, "duplicates": dups[:30], "count": len(dups), "max_cross_similarity": best,
+            "exempt": list(BRAND), "thresholds": {"chroma": REP_CHROMA_MIN, "env": REP_ENV_MIN, "onset": REP_ONSET_MIN},
+            "fix": None if not dups else "two cues play the same music: write the second one new, or restate the theme "
+                                         "transformed (another key, register, orchestration or rhythm)"}})
+    return out
+
+
+def phone_check(voice: np.ndarray, background: np.ndarray, spans) -> dict:
+    """phone-check for the dialogue: the mix as a small speaker plays it
+    (phone_mag, mono), in the voice band (VOICE_BAND_HZ). Inside each spoken
+    line, on PHONE_WINDOW_S windows every PHONE_WINDOW_HOP_S that hold speech
+    (within PHONE_SPEECH_DB of the line's mean band level), the voice's band
+    level is at least PHONE_VOICE_MARGIN_DB over the score's (``background``:
+    the music as ducked, and the ambience). Returns the margins and the check."""
+    lo, hi = VOICE_BAND_HZ
+    win, hop = int(PHONE_WINDOW_S * RATE), int(PHONE_WINDOW_HOP_S * RATE)
+    margins, worst, lines = [], [], 0
+    for a, b in spans or []:
+        i0, i1 = max(0, int(round(a * RATE))), min(len(voice), int(round(b * RATE)))
+        if i1 - i0 < RATE // 10:
+            continue
+        p0, p1 = max(0, i0 - RATE // 4), min(len(voice), i1 + RATE // 4)
+        band = lambda f: phone_mag(f) * ((f >= lo) & (f <= hi))      # noqa: E731
+        v = _filtered(voice[p0:p1], band)[i0 - p0: i1 - p0].astype(np.float64)
+        m = _filtered(background[p0:p1], band)[i0 - p0: i1 - p0].astype(np.float64)
+        starts = list(range(0, max(1, len(v) - win + 1), hop)) if len(v) >= win else [0]
+        pv = np.array([np.mean(v[s: s + win] ** 2) for s in starts])
+        pm = np.array([np.mean(m[s: s + win] ** 2) for s in starts])
+        if not len(pv) or pv.max() <= 0:
+            continue
+        lines += 1
+        speech = pv >= np.mean(pv) * 10 ** (-PHONE_SPEECH_DB / 10)
+        mg = 10 * np.log10(np.maximum(pv[speech], 1e-20) / np.maximum(pm[speech], 1e-20))
+        mg = np.minimum(mg, 99.0)
+        margins += mg.tolist()
+        worst += [(round(float(x), 1), round(a + s / RATE, 1)) for x, s in zip(mg, np.array(starts)[speech])]
+    worst.sort()
+    bad = [w for w in worst if w[0] < PHONE_VOICE_MARGIN_DB - 1e-9]
+    ev = {"what": "the dialogue, intelligible on a small speaker", "lines": lines, "windows": len(margins),
+          "min_margin_db": worst[0][0] if worst else None,
+          "p10_margin_db": round(float(np.percentile(margins, 10)), 1) if margins else None,
+          "median_margin_db": round(float(np.median(margins)), 1) if margins else None,
+          "min_margin_required_db": PHONE_VOICE_MARGIN_DB, "under": len(bad),
+          "worst": [{"margin_db": m, "at_s": t} for m, t in worst[:10]], "band_hz": list(VOICE_BAND_HZ),
+          "simulation": f"mono, {PHONE_HP_HZ:g} Hz high-pass (24 dB an octave), {PHONE_LP_HZ:g} Hz roll-off (6 dB an octave)",
+          "fix": None if not bad else "the score covers the words on a phone: lower or thin what plays under these "
+                                      "windows in the voice band (150 Hz to 4 kHz)"}
+    return {"margins": margins, "checks": [{"rule": "phone-check", "ok": not bad, "unit": "voice", "evidence": ev}]}
+
+
+# --------------------------------------------------------------------------
+# bed-reuse: a film's own score is its own (founder, 2026-10-11)
+# --------------------------------------------------------------------------
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+HEAD_S = 5.0                        # bed-reuse also matches the first 5 s of sound (a fold or a cut of the same WAV)
+_HASHES: dict = {}
+
+
+def audio_hashes(path: Path) -> tuple[str, str | None]:
+    """A WAV's content hashes: sha256 of its decoded samples (float32, with
+    its rate and channels), so a copy re-wrapped or re-encoded losslessly
+    still matches; and of its first HEAD_S of sound (after any leading
+    digital silence), so a fold or a cut of it matches too (None when it
+    holds under HEAD_S of sound)."""
+    import hashlib
+    import soundfile as sf
+    st = path.stat()
+    key = (str(path.resolve()), st.st_mtime_ns, st.st_size)
+    if key not in _HASHES:
+        x, rate = sf.read(str(path), dtype="float32", always_2d=True)
+        x = np.ascontiguousarray(x)
+        tag = f"{rate}:{x.shape[1]}:".encode()
+        whole = hashlib.sha256(tag + x.tobytes()).hexdigest()
+        on = np.flatnonzero(np.abs(x).max(axis=1) > 1e-6)
+        k = int(HEAD_S * rate)
+        head = None
+        if len(on) and len(x) - on[0] >= k:
+            head = hashlib.sha256(tag + np.ascontiguousarray(x[on[0]: on[0] + k]).tobytes()).hexdigest()
+        _HASHES[key] = (whole, head)
+    return _HASHES[key]
+
+
+def film_registry(root: Path = REPO_ROOT) -> list[dict]:
+    """The other films bed-reuse reads: DOCUMENT_FILMS when it is set (film
+    folders or screenplay.json paths, separated by os.pathsep; set and empty
+    means none), else films.json's ``screenplay_path`` per film (``~`` is the
+    home folder; a relative path is from the repo root). A film with no path
+    is listed as not located."""
+    import os
+    env = os.environ.get("DOCUMENT_FILMS")
+    out = []
+    if env is not None:
+        for p in (x.strip() for x in env.split(os.pathsep)):
+            if p:
+                q = Path(p).expanduser()
+                out.append({"slug": None, "screenplay": q if q.suffix == ".json" else q / "screenplay.json",
+                            "from": "DOCUMENT_FILMS"})
+        return out
+    reg = root / "films.json"
+    if not reg.exists():
+        return out
+    for f in json.loads(reg.read_text(encoding="utf-8")).get("films", []):
+        sp = f.get("screenplay_path")
+        q = None
+        if isinstance(sp, str) and sp.strip():
+            q = Path(sp).expanduser()
+            q = q if q.is_absolute() else root / q
+        out.append({"slug": f.get("slug"), "screenplay": q, "from": "films.json"})
+    return out
+
+
+def _film_layer_wavs(film: Path, play: dict) -> list[tuple[str, Path]]:
+    return [(c["id"], film / (c.get("wav") or f"audio/{c['id']}.wav")) for c in film_cues(play)
+            if c.get("kind") == "music" and cue_role(c) in FILM_LAYER and c.get("silence") != "intended"]
+
+
+def reuse_check(film: Path, play: dict, registry: list[dict] | None = None,
+                mine: list[tuple[str, Path]] | None = None) -> dict:
+    """bed-reuse: no cue of this film's own score (FILM_LAYER: a bed, a
+    transition, a sting, the outro) plays a WAV another registered film's
+    own score already plays, by content (audio_hashes: the whole of it, or
+    its first HEAD_S of sound). The brand's motif and pulse are shared by
+    design; a palette or regional recording may recur. A registered film
+    whose screenplay is declared and not found is refused (its reuse cannot
+    be checked); one with no path is listed as not located. ``mine`` gives
+    this film's (cue id, WAV) when they are not the screenplay's own (the
+    offline checker's --wavs)."""
+    registry = film_registry() if registry is None else registry
+    me = (film / "screenplay.json").resolve()
+    slug = play.get("slug")
+    theirs: dict = {}
+    checked, unlocated, problems = [], [], []
+    for r in registry:
+        sp = r["screenplay"]
+        if sp is None:
+            if r.get("slug") != slug:
+                unlocated.append(r.get("slug"))
+            continue
+        if not sp.exists():
+            problems.append({"film": r.get("slug"), "screenplay": str(sp), "from": r["from"]})
+            continue
+        if sp.resolve() == me:
+            continue
+        other = json.loads(sp.read_text(encoding="utf-8"))
+        if other.get("slug") == slug:
+            continue
+        checked.append(other.get("slug"))
+        for cid, p in _film_layer_wavs(sp.parent, other):
+            if p.exists():
+                w, h = audio_hashes(p)
+                theirs.setdefault(w, []).append({"film": other.get("slug"), "cue": cid, "wav": p.name, "match": "whole"})
+                if h:
+                    theirs.setdefault("head:" + h, []).append({"film": other.get("slug"), "cue": cid, "wav": p.name,
+                                                               "match": "first 5 s"})
+    out = []
+    for cid, p in (_film_layer_wavs(film, play) if mine is None else mine):
+        if not p.exists():
+            continue
+        w, h = audio_hashes(p)
+        hit = theirs.get(w) or (theirs.get("head:" + h) if h else None)
+        out.append({"rule": "bed-reuse", "ok": not hit, "unit": cid, "evidence": {
+            "wav": p.name, "sha256": w[:16], "used_by": (hit or [])[:5], "films_checked": checked,
+            "fix": None if not hit else "another film's score already plays this: write this film its own (the founder: "
+                                        "no bed reused across films)"}})
+    out.append({"rule": "bed-reuse", "ok": not problems, "unit": "registry", "evidence": {
+        "films_checked": checked, "not_located": unlocated, "not_found": problems,
+        "fix": None if not problems else "a registered film's screenplay_path is not there: fix films.json's "
+                                         "screenplay_path or set DOCUMENT_FILMS to the film folders"}})
+    return {"checks": out}
+
+
+def card_spans_from_play(play: dict) -> list[tuple[float, float]]:
+    """Offline: the title and chapter cards (render.card_kind's reading of a
+    card shot: its explicit ``card``, else a title part's cards, else a
+    chapter part's first shot), as (start, end) from start_s and dur_s."""
+    out = []
+    for part in play["parts"]:
+        for k, s in enumerate(part.get("shots", [])):
+            if s.get("kind") != "card" or s.get("dur_s") is None:
+                continue
+            ck = s.get("card") or ("silent" if s.get("silent_record") else
+                                   part.get("kind") if part.get("kind") in ("title", "credits") else
+                                   "chapter" if part.get("kind") == "chapter" and k == 0 else "statement")
+            if ck in ("title", "chapter"):
+                out.append((float(s["start_s"]), float(s["start_s"]) + float(s["dur_s"])))
+    return out
+
+
 def _gap_level(c: dict, duck: np.ndarray | None) -> tuple[float | None, int, str]:
     """A bed's integrated loudness over its full-level windows where no voice
     ducks it (duck gain at least 0.99): the bed as heard in the gaps. Gaps
@@ -510,7 +1074,8 @@ def _gap_level(c: dict, duck: np.ndarray | None) -> tuple[float | None, int, str
 def score_checks(cues: list[dict], std: dict, *, duration_s: float, silences=(), own_sound=(),
                  duck100: np.ndarray | None = None, voice_grid: np.ndarray | None = None,
                  duck_grid: np.ndarray | None = None, spans: list[tuple[float, float]] | None = None,
-                 grid_s: float = DUCK_GRID_S, voice100: np.ndarray | None = None) -> list[dict]:
+                 grid_s: float = DUCK_GRID_S, voice100: np.ndarray | None = None, cards=(),
+                 phone: dict | None = None, reuse: dict | None = None) -> list[dict]:
     """Every A29 check on the placed cues, as lint results: {rule, ok, unit,
     evidence}. ``cues`` are {id, role, start_s, fade_in_s, fade_out_s,
     gain_db, an (analyse_cue)}. ``duck100`` is the duck gain on the 100 ms
@@ -518,7 +1083,10 @@ def score_checks(cues: list[dict], std: dict, *, duration_s: float, silences=(),
     ``duck_grid`` (voice activity and duck gain on ``grid_s``) and the lines'
     spoken ``spans`` feed duck-pumping, which is skipped without them;
     ``voice100`` (voice activity on the 100 ms grid) lets music-holes count a
-    stretch with voice as no hole."""
+    stretch with voice as no hole, and brand-pulse-place find a voiceless
+    stretch. ``cards`` are the title and chapter cards' (start, end);
+    ``phone`` is phone_check's result (phone-check is skipped without it)
+    and ``reuse`` is reuse_check's (bed-reuse is skipped without it)."""
     out = []
     target = bed_lufs(std)
     beds = [c for c in cues if c["role"] == "bed"]
@@ -531,12 +1099,6 @@ def score_checks(cues: list[dict], std: dict, *, duration_s: float, silences=(),
             "under_dialogue_db": None if lvl is None else round(DIALOGUE_LUFS - lvl, 2), "min_under_db": std["bed_under_dialogue_db"],
             "gain_db": c.get("gain_db"),
             "fix": None if ok else "lower the cue's gain_db (a bed's gain_db is an offset from the bed target and may not lift it)"}})
-        ok = c["an"]["low_share"] <= std["bed_low_end_max_share"] + 1e-9
-        out.append({"rule": "bed-low-end", "ok": ok, "unit": c["id"], "evidence": {
-            "share_under_hz": LOW_END_HZ, "share": c["an"]["low_share"], "max_share": std["bed_low_end_max_share"],
-            "highpass_hz": c.get("highpass_hz"),
-            "fix": None if ok else f"take the bed's low notes out of the score (nothing under {LOW_END_HZ:g} Hz: no bass "
-                                   "octave, no low tanpura); the high-pass only thins them"}})
         judged = c["an"].get("breath_judged", True)
         ok = judged and c["an"]["breath_db"] >= std["bed_breath_db"] - 1e-9
         out.append({"rule": "bed-breathing", "ok": ok, "unit": c["id"], "evidence": {
@@ -545,6 +1107,24 @@ def score_checks(cues: list[dict], std: dict, *, duration_s: float, silences=(),
             "fix": None if ok else ("let the drone breathe: rests (two beats in eight), one regional pluck a bar, not one a beat"
                                     if judged else f"not judged: under {BREATH_MIN_S:g} s of bed; a cue this short is a "
                                                    "transition or a sting (say so with score_role), or lengthen the bed")}})
+    for c in cues:
+        if c["role"] in SHAPED:
+            ok = c["an"]["lowmid_share"] <= std["bed_lowmid_max_share"] + 1e-9
+            out.append({"rule": "bed-low-end", "ok": ok, "unit": c["id"], "evidence": {
+                "role": c["role"], "band_hz": list(LOW_MID_HZ), "share": c["an"]["lowmid_share"],
+                "max_share": std["bed_lowmid_max_share"], "of": f"the energy over {SUB_BASS_HZ:g} Hz, shaped",
+                "sub_share": c["an"]["sub_share"], "shaping": c.get("shaping"),
+                "fix": None if ok else (f"take the notes out of {LOW_MID_HZ[0]:g} to {LOW_MID_HZ[1]:g} Hz (the voice's own "
+                                        f"range): voice the bass under {SUB_BASS_HZ:g} Hz and the rest over "
+                                        f"{LOW_MID_HZ[1]:g} Hz; the shaping only thins them")}})
+        if c["role"] in TREBLE_LIMITED:
+            ok = c["an"]["treble_share"] <= std["music_treble_max_share"] + 1e-9
+            out.append({"rule": "music-treble", "ok": ok, "unit": c["id"], "evidence": {
+                "role": c["role"], "over_hz": TREBLE_HZ, "share": c["an"]["treble_share"],
+                "max_share": std["music_treble_max_share"], "of": f"the energy over {SUB_BASS_HZ:g} Hz"
+                + (", shaped" if c["role"] in SHAPED else ""),
+                "fix": None if ok else f"darken it: less over {TREBLE_HZ:g} Hz (no bright attacks, no air or shimmer layer; "
+                                       "the founder: a lot less treble)"}})
     loudest_bed = max((b["an"]["mom_max_lufs"] for b in beds if b["an"]["mom_max_lufs"] is not None), default=None)
     fallback = target + ORPHAN_HEADROOM_DB if loudest_bed is None else min(target + ORPHAN_HEADROOM_DB, loudest_bed)
     for c in cues:
@@ -609,6 +1189,13 @@ def score_checks(cues: list[dict], std: dict, *, duration_s: float, silences=(),
                 "no other cue after it" if amb else "no music after it",
                 "fade_out_s": fo, "min_fade_out_s": std["entry_fade_min_s"],
                 "fix": None if ok else f"fade it out over at least {std['entry_fade_min_s']:g} s"}})
+    out += regional_checks(cues, duration_s)
+    out += pulse_checks(cues, cards, voice100)
+    out += repetition_checks(cues)
+    if phone is not None:
+        out += phone["checks"]
+    if reuse is not None:
+        out += reuse["checks"]
     holes = music_holes(cues, duration_s, silences, own_sound, std["music_hole_max_s"], voice100)
     out.append({"rule": "music-holes", "ok": not holes, "unit": "music", "evidence": {
         "holes": holes, "count": len(holes), "max_s": std["music_hole_max_s"], "present_dbfs": PRESENT_DBFS,
@@ -650,18 +1237,19 @@ def fades(x: np.ndarray, n: int, fi_s: float, fo_s: float) -> np.ndarray:
 
 
 def place_cue(c: dict, x: np.ndarray, std: dict) -> dict:
-    """One cue processed as build_mix does (the bed high-pass, levelling to
-    its target over the part that plays, fades, gain_db), offline: the level
-    is measured here by BS.1770 (the engine measures with ffmpeg's loudnorm,
-    the same standard). Returns the placed record with its analysis."""
+    """One cue processed as build_mix does (a bed's or regional cue's
+    band-shaping, levelling to its target over the part that plays, fades,
+    gain_db), offline: the level is measured here by BS.1770 (the engine
+    measures with ffmpeg's loudnorm, the same standard). Returns the placed
+    record with its analysis."""
     role = cue_role(c)
     span = int(round((float(c["end_s"]) - float(c["start_s"])) * RATE))
     x = np.asarray(x[: max(0, span)], np.float32)
-    hp = None
-    if role == "bed":
-        hp = std["bed_highpass_hz"]
-        x = highpass(x, hp)
-    target = bed_lufs(std) if role in UNDERSCORE else FEATURE_LUFS if role in ("motif", "palette") else None
+    shaping = None
+    if role in SHAPED:
+        shaping = shaping_record(std)
+        x = bed_shape(x, std["bed_lowmid_hz"])
+    target = bed_lufs(std) if role in UNDERSCORE else FEATURE_LUFS if role in FEATURED else None
     lvl = None
     if target is not None and len(x):
         kp = np.mean(_windows(k_weight(x), int(HOP_S * RATE)) ** 2, axis=1)
@@ -671,8 +1259,16 @@ def place_cue(c: dict, x: np.ndarray, std: dict) -> dict:
     gain = np.float32(10 ** (((lvl or 0.0) + float(c.get("gain_db", 0.0) or 0.0)) / 20))
     y = fades(x, span, fi, fo) * gain
     return {"id": c["id"], "role": role, "start_s": float(c["start_s"]), "fade_in_s": fi, "fade_out_s": fo,
-            "gain_db": float(c.get("gain_db", 0.0) or 0.0), "highpass_hz": hp, "level_db": None if lvl is None else round(lvl, 2),
-            "an": analyse_cue(y, role, fi, fo, unfaded=x[:span] * gain)}
+            "gain_db": float(c.get("gain_db", 0.0) or 0.0), "shaping": shaping, "level_db": None if lvl is None else round(lvl, 2),
+            "marks_moment": c.get("marks_moment"), "y": y, "an": analyse_cue(y, role, fi, fo, unfaded=x[:span] * gain)}
+
+
+def shaping_record(std: dict) -> dict:
+    """What a bed's band-shaping did, for the journal and the evidence."""
+    return {"sub_bass_kept_under_hz": SUB_BASS_HZ, "passes_over_hz": std["bed_lowmid_hz"], "order": SHAPE_ORDER,
+            "treble_shelf_db": TREBLE_SHELF_DB, "treble_shelf_hz": TREBLE_HZ,
+            "cut_db_at": {str(int(f)): round(float(20 * np.log10(bed_shape_mag(np.array([f]), std["bed_lowmid_hz"])[0])), 1)
+                          for f in (60.0, 150.0, 200.0, 300.0, 1000.0, 8000.0)}}
 
 
 def film_cues(play: dict) -> list[dict]:
@@ -697,20 +1293,28 @@ def declared_silences(play: dict) -> list[tuple[float, float]]:
     return sorted(out)
 
 
-def offline(film: Path, *, wav_dir: Path | None = None, voices: bool = True) -> dict:
+def offline(film: Path, *, wav_dir: Path | None = None, voices: bool = True, registry: list[dict] | None = None) -> dict:
     """The A29 checks on a film's score as its screenplay places it, read
     from the cue WAVs (``wav_dir`` replaces each cue's WAV with
     ``<wav_dir>/<stem>.wav`` when present, so a re-scored set can be checked
     against the same placements). With ``voices``, the voice takes are placed
-    raw (no cleanup, no levelling: activity only) for duck-pumping, judged on
-    the duck the engine now builds and on the duck it built before A29."""
+    raw (no cleanup) for duck-pumping, judged on the duck the engine now
+    builds and on the duck it built before A29, and each levelled to the
+    dialogue target (BS.1770 here; no mood offset) for phone-check, against
+    the music as ducked plus the ambience. bed-reuse reads the other films
+    from ``registry`` (film_registry when None)."""
     play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
     std, stated, problems = standard(play)
-    placed, swapped, missing, kinds = [], [], [], []
+    placed, swapped, missing, kinds, mine = [], [], [], [], []
     for c in film_cues(play):
         if c.get("kind") not in CUE_KINDS:
             kinds.append({"rule": "cue-kind", "ok": False, "unit": c.get("id"), "evidence": {
                 "kind": c.get("kind"), "kinds": list(CUE_KINDS), "fix": "state kind: music or kind: ambience"}})
+            continue
+        why = role_problem(c)
+        if why is not None:
+            kinds.append({"rule": "score-role", "ok": False, "unit": c.get("id"), "evidence": {
+                "role": c.get("role"), "score_role": c.get("score_role"), "problem": why, "fix": why}})
             continue
         if c.get("silence") == "intended":
             continue
@@ -726,6 +1330,8 @@ def offline(film: Path, *, wav_dir: Path | None = None, voices: bool = True) -> 
         if not p.exists():
             missing.append(c["id"])
             continue
+        if c.get("kind") == "music" and cue_role(c) in FILM_LAYER:
+            mine.append((c["id"], p))
         placed.append(place_cue(c, _read(p), std))
     end = max([float(s["start_s"]) + float(s.get("dur_s") or 0) for part in play["parts"] for s in part.get("shots", [])]
               + [c["start_s"] + c["an"]["n"] / RATE for c in placed] + [0.0])
@@ -746,12 +1352,55 @@ def offline(film: Path, *, wav_dir: Path | None = None, voices: bool = True) -> 
     # (that needs its probe), so a hole under one is reported here and not by the engine.
     own = [(float(ln["start_s"]), float(ln["start_s"]) + float(ln["out_s"]) - float(ln["in_s"]))
            for part in play["parts"] for ln in part.get("lines", []) if ln.get("archival_audio") and ln.get("clip")]
+    phone = None
+    n = int(math.ceil(end * RATE)) + 1
+    if voices:
+        bg = np.zeros(n, np.float32)
+        duck = np.ones(n, np.float32)
+        dg = np.repeat(duck_grid, int(round(DUCK_GRID_S * RATE)))[:n]
+        duck[: len(dg)] = dg
+        for c in placed:
+            i0 = int(round(c["start_s"] * RATE))
+            y = c["y"][: max(0, n - i0)]
+            bg[i0: i0 + len(y)] += y if c["role"] == "ambience" else y * duck[i0: i0 + len(y)]     # ambience is not ducked
+        del duck, dg
+        phone = phone_check(levelled_voice(film, play, n), bg, spans)
+        del bg
+    for c in placed:
+        c.pop("y", None)
+    reuse = reuse_check(film, play, registry, mine=mine)
     checks = kinds + score_checks(placed, std, duration_s=end, silences=sil, own_sound=own, duck100=duck100,
-                          voice_grid=voice_grid, duck_grid=duck_grid, spans=spans, voice100=voice100)
+                                  voice_grid=voice_grid, duck_grid=duck_grid, spans=spans, voice100=voice100,
+                                  cards=card_spans_from_play(play), phone=phone, reuse=reuse)
     return dict(report, film=str(film), standard=std, stated=stated, problems=problems, swapped=swapped, missing=missing,
                 cues=[{k: v for k, v in c.items() if k != "an"} | {kk: c["an"][kk] for kk in
-                      ("mom_max_lufs", "integrated_lufs", "breath_db", "low_share")} for c in placed],
+                      ("mom_max_lufs", "integrated_lufs", "breath_db", "lowmid_share", "treble_share", "sub_share",
+                       "phone_lufs")} for c in placed],
                 checks=checks)
+
+
+def levelled_voice(film: Path, play: dict, n: int) -> np.ndarray:
+    """Offline: every synthetic voice take placed at the dialogue target (BS.1770 gated; the engine levels with
+    loudnorm, the same standard, and then applies a mood offset of 0 to -3 dB, not applied here). An archival
+    line's audio is not read offline."""
+    voice = np.zeros(n, np.float32)
+    hop = int(HOP_S * RATE)
+    for part in play["parts"]:
+        for ln in part.get("lines", []):
+            if ln.get("kind") not in ("narration", "testimony") or (ln.get("archival_audio") and ln.get("clip")):
+                continue
+            p = film / (ln.get("wav") or f"audio/{ln['id']}.wav")
+            if not p.exists():
+                continue
+            x = _read(p)
+            kp = np.mean(_windows(k_weight(x), hop) ** 2, axis=1)
+            m = gated_loudness(np.convolve(kp, np.ones(4) / 4, mode="valid") if len(kp) >= 4 else kp)
+            if m is None:
+                continue
+            i0 = int(round(float(ln["start_s"]) * RATE))
+            y = (x * np.float32(10 ** ((DIALOGUE_LUFS - m) / 20)))[: max(0, n - i0)]
+            voice[i0: i0 + len(y)] += y
+    return voice
 
 
 def voice_activity(film: Path, play: dict, duration_s: float, threshold: float = 1e-3) -> tuple[np.ndarray, list]:

@@ -15,7 +15,9 @@
 //   legend's sample details; required when live), languages { spoken,
 //   captions[]: { lang, name, kind ("captions" | "subtitles"), review
 //   ("reviewed" | "in_review" | "planned") } }, related[]: { href, name,
-//   line, where } (the void family's work on the same subject).
+//   line, where } (the void family's work on the same subject),
+//   screenplay_path (optional: the film's working screenplay.json on the render
+//   machine, ~ for the home folder; the engine's bed-reuse lint reads it).
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -70,6 +72,9 @@ export function registryProblems(reg) {
       }
       if (langs.has(c.lang)) out.push(`${at}: caption track ${c.lang} is listed twice`);
       langs.add(c.lang);
+    }
+    if (f.screenplay_path !== undefined && !(text(f.screenplay_path) && f.screenplay_path.endsWith("screenplay.json"))) {
+      out.push(`${at}: screenplay_path must be the path of the film's screenplay.json when given`);
     }
     if (!Array.isArray(f.related ?? [])) out.push(`${at}: related must be a list`);
     for (const r of f.related ?? []) {
