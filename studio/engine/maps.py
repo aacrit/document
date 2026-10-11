@@ -144,6 +144,7 @@ ROLES = {
     "cold": "--mark-generated",          # DRAWN's hue: data the spec highlights
     "cold_text": "--color-generated-text",  # rivers, and cold-blue text
     "halo": "--scrim-strong",            # the dark contact edge under a label
+    "numeral": "--mark-text",            # a count card's numeral (BRAND-KIT 7: numerals are --mark-text)
 }
 
 
@@ -173,12 +174,23 @@ POLY = {
     # two sides of one division at equal weight: the same fill, told apart by the hatch's direction
     "side_a": ("cold", 0.42, "cold_text", 2, 45),
     "side_b": ("cold", 0.42, "cold_text", 2, -45),
+    # E8, a per-country, per-year data layer: three states, each visibly distinct. A country with
+    # cases is lit in DRAWN's hue; a reported zero is dark but raised and outlined, a country the
+    # table really counted; a country with no figure for the year is the plain land, hatched faint,
+    # so "no data" can never be read as zero.
+    "cases": ("cold", 0.72, "cold_text", 1.2, None),
+    "zero": ("focus", 1.0, "faint", 1.0, None),
+    "nodata": ("land", 1.0, None, 0, 45),
 }
 HATCH = dict(role="cold_text", alpha=0.5, px=1.6, gap=14)
+# a style whose hatch is not DRAWN's blue: (role, alpha). No data is hatched in a rule colour, never a data hue.
+HATCH_ROLE = {"nodata": ("faint", 0.45)}
+DATA_STATES = ("cases", "zero", "nodata")
 # lines: (role, alpha, px, dash px or None)
 LINE = {
     "coast": ("faint", 0.6, 1.4, None),
     "border": ("faint", 1.0, 2.0, None),
+    "border_fine": ("faint", 0.8, 1.0, None),   # a world or regional extent's country borders
     "border_today": ("muted", 0.9, 2.4, (10, 7)),
     "working": ("muted", 1.0, 2.2, (3, 5)),
     "river": ("cold_text", 0.85, 2.2, None),
@@ -207,14 +219,23 @@ LABEL = {
     "figure": ("data", 2.4, "text"),
 }
 SIZES = dict(point_label=1.85, point_label_key=2.6, point_sub=1.75, title=2.9, legend=1.7,
-             note=1.55, source=1.5)
+             note=1.55, source=1.5, figure_sub=2.3)   # figure_sub: a data figure's numeral, 1.3x a sub-line
 # Zones (fractions of the frame) no map text may enter: the mark plate and the watermark.
 FORBIDDEN = {"mark": (0.0, 0.0, 0.30, 0.20), "watermark": (0.88, 0.0, 1.0, 0.12)}
 # Zones the film's own text may cover for a few seconds: labels there are warned.
 COVERED = {"lower_third": (0.04, 0.75, 0.60, 0.93), "overlay": (0.60, 0.84, 0.96, 0.93),
            "subtitle": (0.08, 0.80, 0.92, 0.93)}
 PANEL = dict(x=0.715, w=0.245, top=0.15, bottom=0.80, wash_from=0.64, wash_full=0.70, wash_alpha=0.82)
-SOURCE_LINE = dict(x=0.04, baseline=0.972)
+SOURCE_LINE = dict(x=0.04, baseline=0.972)   # film 1's frames; a spec may set `source_at` (film 2: 0.05, 0.94)
+
+
+def source_at(spec: dict) -> dict:
+    at = spec.get("source_at")
+    if at is None:
+        return SOURCE_LINE
+    if not (isinstance(at, dict) and 0.03 <= at.get("x", -1) <= 0.10 and 0.90 <= at.get("baseline", -1) <= 0.972):
+        raise MapRefused(f"{spec.get('id', '')}: source_at is {{x: 0.03 to 0.10, baseline: 0.90 to 0.972}}")
+    return at
 DEFAULT_FRAME = (0.04, 0.12, 0.68, 0.92)  # where the extent is fitted when a panel is shown
 FULL_FRAME = (0.04, 0.08, 0.96, 0.92)     # when there is no panel
 
@@ -231,6 +252,22 @@ UNPLACED = [({"BGD", "IND"}, "the Bengal award's line: no open dataset places it
 ON_UNPLACED_OK = ("border_today",)
 
 
+def unplaced_list(spec: dict) -> list:
+    """The pairs a spec may not draw solid (E8: a per-film list). A spec that states
+    `unplaced` (a list of {"pair": [A, B], "why": ...}, possibly empty) uses its own list;
+    a spec that does not keeps the engine's default, the Partition film's Bengal award line,
+    so film 1's specs read as they always did."""
+    if "unplaced" not in spec:
+        return UNPLACED
+    out = []
+    for u in spec["unplaced"] or []:
+        pair = u.get("pair") if isinstance(u, dict) else None
+        if not pair or len(pair) != 2 or not u.get("why"):
+            raise MapRefused(f"{spec.get('id', '')}: each unplaced entry is a pair of two ADM0_A3 codes and a why")
+        out.append((set(pair), u["why"]))
+    return out
+
+
 def _refused_on_unplaced(style) -> bool:
     return style in LINE and style not in ON_UNPLACED_OK
 
@@ -244,23 +281,23 @@ def _as_set(v) -> set | None:
     return set(v) if isinstance(v, (list, tuple, set)) else {v}
 
 
-def _unplaced_pair_possible(where: dict) -> str | None:
+def _unplaced_pair_possible(where: dict, unplaced=None) -> str | None:
     """Static check: a filter that names both sides and can match an unplaced pair.
     One-sided and unfiltered layers are checked on the features they match at render."""
     left, right = _as_set(where.get("ADM0_A3_L")), _as_set(where.get("ADM0_A3_R"))
     if left is None or right is None:
         return None
-    for codes, why in UNPLACED:
+    for codes, why in (UNPLACED if unplaced is None else unplaced):
         a, b = sorted(codes)
         if (a in left and b in right) or (b in left and a in right):
             return f"on {[a, b]} is refused: {why}"
     return None
 
 
-def unplaced_feature(props: dict) -> str | None:
+def unplaced_feature(props: dict, unplaced=None) -> str | None:
     """The reason a feature may not be drawn solid, from its own ADM0_A3_L/R pair."""
     pair = {props.get("ADM0_A3_L"), props.get("ADM0_A3_R")}
-    for codes, why in UNPLACED:
+    for codes, why in (UNPLACED if unplaced is None else unplaced):
         if pair == codes:
             return why
     return None
@@ -331,7 +368,7 @@ def check_spec(spec: dict) -> None:
             raise MapRefused(f"{spec['id']}: layer {ly.get('file')} where {bad_where[0]!r} is a mapping; "
                              "a where value is a value or a list of values")
         if _refused_on_unplaced(ly.get("style")):
-            why = _unplaced_pair_possible(where)
+            why = _unplaced_pair_possible(where, unplaced_list(spec))
             if why:
                 raise MapRefused(f"{spec['id']}: a {ly.get('style')!r} layer {why}")
         st = ly.get("style")
@@ -346,6 +383,51 @@ def check_spec(spec: dict) -> None:
     for e in spec.get("legend", []):
         if e.get("style") not in POLY and e.get("style") not in LINE and e.get("style") not in POINT:
             raise MapRefused(f"{spec['id']}: unknown legend style {e.get('style')}")
+    for v in views:
+        if "data" not in v:
+            continue
+        data = v["data"]
+        check_data_block(spec["id"], data, [x["id"] for x in src])
+        if data.get("territories") and data.get("territories_note") not in spec.get("notes", []):
+            raise MapRefused(f"{spec['id']}: a territory drawn with another country's figure needs its "
+                             "territories_note among the frame's notes, saying which and why")
+        for yr in re.findall(r"\b(1[5-9]\d\d|20\d\d)\b", spec.get("title", "")):
+            if int(yr) != data["year"]:
+                raise MapRefused(f"{spec['id']}: the title names {yr}; the data layer draws {data['year']}")
+        for fg in data.get("figures") or []:
+            if not ISO3.match(str(fg.get("code", ""))):
+                raise MapRefused(f"{spec['id']}: a data figure names a country by its ISO3 code")
+    if any("data" in v for v in views):
+        _lint_data_text(spec, views)
+
+
+def _lint_data_text(spec: dict, views: list) -> None:
+    """A data map's numbers come from its data. Every on-frame string is linted for digits and
+    number words: the title may name the data year, a panel figure template its {n} and the data
+    year; nothing else may carry a number, which would be uncited."""
+    years = {str(v["data"]["year"]) for v in views if "data" in v}
+    title = spec.get("title", "")
+    for y in years:
+        title = re.sub(r"(?<!\d)" + y + r"(?!\d)", "", title)
+    texts = [("title", title)]
+    texts += [(f"legend[{i}]", e.get("text", "")) for i, e in enumerate(spec.get("legend", []))]
+    texts += [(f"notes[{i}]", n) for i, n in enumerate(spec.get("notes", []))]
+    texts += [(f"figures[{i}]", f) for i, f in enumerate(spec.get("figures", []))]
+    for v in views:
+        texts += [("label", lb.get("text", "")) for lb in v.get("labels", [])]
+        texts += [("place", f"{pl.get('label') or pl.get('name', '')} {pl.get('sub', '')}") for pl in v.get("places", [])]
+        d = v.get("data") or {}
+        texts += [("data figure label", f.get("label", "")) for f in d.get("figures") or []]
+        for pf in d.get("panel_figures") or []:
+            t = pf.get("text", "").replace("{n}", "", 1)
+            for y in years:
+                t = t.replace(y, "")
+            texts.append(("panel figure", t))
+    for where, t in texts:
+        bad = uncited_numbers(t)
+        if bad:
+            raise MapRefused(f"{spec['id']}.{where}: {t!r} carries {bad} with no citation; a data map's numbers "
+                             "come from its data")
 
 
 def data_source(spec: dict) -> str:
@@ -377,6 +459,10 @@ def method(spec: dict) -> dict:
         "approximate_note": has_approximate_note(spec),
         "geonames_positions": uses_geonames(spec),
         "boundaries_not_drawn_note": any("not drawn" in n for n in spec.get("notes", [])),
+        "data_layer": [{"csv": v["data"]["csv"], "sha256": v["data"]["sha256"], "column": v["data"]["columns"]["value"],
+                        "year": v["data"]["year"], "match": "ISO3 against Natural Earth (ISO_A3, else ISO_A3_EH)",
+                        "territories": v["data"].get("territories") or {}}
+                       for v in views if "data" in v],
     }
     text = ["base geography from Natural Earth"]
     if claims["award_line"]:
@@ -387,8 +473,22 @@ def method(spec: dict) -> dict:
         text.append("named places positioned from GeoNames")
     if claims["boundaries_not_drawn_note"]:
         text.append("the frame states what is not drawn and why")
+    for d in claims["data_layer"]:
+        text.append(f"each country's state in {d['year']} from {d['csv']} column {d['column']} (sha256 {d['sha256'][:12]}), "
+                    "matched by ISO3: cases reported (over 0), zero reported, or no figure in the table; "
+                    "no year interpolated" + ("; territories drawn with a country's figure as the frame notes"
+                                              if d["territories"] else ""))
+    if claims["data_layer"]:
+        text.append("plate carree projection")
     claims["text"] = "; ".join(text)
     return claims
+
+
+# A frame the studio's engine draws (a map, a count card) shows no photographed person: its content
+# flags are false by construction, stated by the generator itself so every film's ledger carries them
+# (GRAMMAR A21's content schema; policy.asset_checks refuses an unstated flag).
+DRAWN_CONTENT = {"graphic_medical": False, "named_patient": False, "shows_violence": False, "shows_bodies": False,
+                 "people": []}
 
 
 def ledger_fields(spec: dict) -> dict:
@@ -396,13 +496,19 @@ def ledger_fields(spec: dict) -> dict:
     plate, the ledger and the frame's source line always agree."""
     ds = data_source(spec)
     geo = GEONAMES in [s["id"] for s in spec["sources"]]
+    by = [s["id"] for s in spec["sources"] if s["id"] != GEONAMES and re.match(r"(?i)cc[- ]?by\b", s["licence"])]
+    note = "Natural Earth public domain"
+    if geo:
+        note = "contains GeoNames data (CC BY 4.0); " + note
+    if by:
+        note = f"contains data under CC BY 4.0 ({'; '.join(by)}); " + note
     return {"title": spec["title"], "data_source": ds, "source_short": spec["source_short"],
             "credit": "void document studio, drawn from " + ds,
             # a canonical id the render engine's licence allowlist recognises; the why goes in licence_note
-            "licence": "CC-BY-4.0" if geo else "CC0",
-            "licence_note": ("contains GeoNames data (CC BY 4.0); Natural Earth public domain" if geo
-                             else "Natural Earth public domain"),
-            "data_sources": spec["sources"], "source_line": source_line(spec), "method": method(spec)}
+            "licence": "CC-BY-4.0" if (geo or by) else "CC0",
+            "licence_note": note,
+            "data_sources": spec["sources"], "source_line": source_line(spec), "method": method(spec),
+            **DRAWN_CONTENT}
 
 
 # --------------------------------------------------------------------------
@@ -421,8 +527,9 @@ def _load(path: str) -> tuple:
     return tuple(feats)
 
 
-@lru_cache(maxsize=32)
 def file_sha256(path: str) -> str:
+    """A file's sha256, read every time: the cited files are small, and a cache keyed on anything but
+    the bytes can go stale when a file is rewritten in place."""
     h = hashlib.sha256()
     with open(path, "rb") as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
@@ -579,6 +686,525 @@ def clip_line(line, box) -> list[list]:
 
 
 # --------------------------------------------------------------------------
+# Cited data (E8): a CSV or a text file named by path and sha256, read only
+# through a citation, so a number on a frame is always a cell of a file whose
+# bytes the spec states. Nothing is interpolated: a year with no row is "no
+# data", never a value between its neighbours.
+# --------------------------------------------------------------------------
+
+ISO3 = re.compile(r"^[A-Z]{3}$")
+NE_COUNTRIES = "naturalearth/ne_10m_admin_0_countries.geojson"
+NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+                "eleven", "twelve")
+# every English number word a frame could carry; none may stand in on-frame text outside a cited {n}
+NUMBER_WORD_RE = re.compile(
+    r"(?i)\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|"
+    r"sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|"
+    r"thousand|million|billion|dozen|dozens|hundreds|thousands|millions|billions|lakh|lakhs|crore|crores|"
+    r"nought|naught|nil|none|single|half|once|twice|handful)\b")
+# a quoted numeral's declared span: what may not follow it, stand before it, or negate it
+
+
+def uncited_numbers(text: str) -> list:
+    """Digits and number words in on-frame text (the caller removes {n} and any allowed year)."""
+    return re.findall(r"\d+", text) + [m.group(0) for m in NUMBER_WORD_RE.finditer(text)]
+
+
+def _cited_path(cite: dict, key: str, data_root) -> Path:
+    for k in (key, "sha256", "licence", "source"):
+        if not cite.get(k):
+            raise MapRefused(f"a citation needs {key}, sha256, licence and source (lacks {k}): {cite}")
+    if data_root is None:
+        raise MapRefused(f"{cite[key]}: cited data needs a data root (--data)")
+    path = Path(data_root) / cite[key]
+    if not path.exists():
+        raise MapRefused(f"{cite[key]}: not found under {data_root}")
+    sha = file_sha256(str(path))
+    if sha != cite["sha256"]:
+        raise MapRefused(f"{cite[key]}: its sha256 is {sha}; the citation says {cite['sha256']} "
+                         "(the file changed, or the citation names another copy)")
+    return path
+
+
+@lru_cache(maxsize=16)
+def _csv_rows(path: str, sha: str) -> tuple:
+    import csv
+    with open(path, encoding="utf-8", newline="") as fh:
+        rd = csv.DictReader(fh)
+        # the line a row sits on in the file (the header is line 1), so a citation can name it
+        return tuple((i + 2, dict(r)) for i, r in enumerate(rd))
+
+
+def doubts_path(csv_path: Path) -> Path:
+    return csv_path.with_name(csv_path.stem + ".doubts.json")
+
+
+@lru_cache(maxsize=16)
+def _sidecar(path: str, sha: str, csv_rel: str, csv_sha: str, data_root: str) -> tuple:
+    d = json.loads(Path(path).read_text(encoding="utf-8"))
+    if d.get("csv_sha256") != csv_sha:
+        raise MapRefused(f"{Path(path).name}: pins {csv_rel} at sha256 {d.get('csv_sha256')}; the file is {csv_sha}. "
+                         "The doubts belong to one copy of the table: re-read them against this one")
+    out = []
+    for c in d.get("conflicts") or []:
+        if not c.get("row") or not c.get("text") or not c.get("why"):
+            raise MapRefused(f"{Path(path).name}: a conflict names its row, the text that contradicts it, and why")
+        q = text_quote(c["text"], data_root)
+        out.append(("conflict", csv_rel, c["row"], f"{csv_rel} {c['row']} against {q['text']} line {q['line']}: "
+                                                   f"\"{q['quote']}\" ({c['why']})"))
+    for z in d.get("zero_suspect") or []:
+        if not z.get("row") or not z.get("why"):
+            raise MapRefused(f"{Path(path).name}: a zero_suspect entry names its row and why")
+        out.append(("zero_suspect", csv_rel, z["row"], f"{csv_rel} {z['row']} ({z['why']})"))
+    return tuple(out)
+
+
+def table_doubts(cite: dict, data_root) -> list:
+    """The doubts that travel with a cited CSV: `<name>.doubts.json` beside it, pinned to the CSV's
+    sha256, and itself pinned by every citation of the CSV (`doubts_sha256`, beside `sha256`). A
+    missing sidecar, or one whose sha256 differs from the pin, refuses: no spec can opt out of the
+    table's doubts or swap them; a spec may only add its own."""
+    path = Path(data_root) / cite["csv"]
+    side = doubts_path(path)
+    pin = cite.get("doubts_sha256")
+    if not pin:
+        raise MapRefused(f"{cite['csv']}: a citation of a table pins its doubts too (doubts_sha256 of {side.name})")
+    if not side.exists():
+        raise MapRefused(f"{cite['csv']}: its doubts file {side.name} is missing; the citation pins {pin}")
+    got = file_sha256(str(side))
+    if got != pin:
+        raise MapRefused(f"{side.name}: its sha256 is {got}; the citation pins {pin} (the table's doubts changed, "
+                         "or this is another copy)")
+    return list(_sidecar(str(side), got, cite["csv"], file_sha256(str(path)), str(data_root)))
+
+
+def cited_csv(cite: dict, data_root) -> tuple:
+    """The rows of a cited CSV as (line, row), after its sha256 is checked."""
+    path = _cited_path(cite, "csv", data_root)
+    return _csv_rows(str(path), cite["sha256"])
+
+
+def _int_cell(raw: str, where: str) -> int | None:
+    raw = (raw or "").strip()
+    if raw == "":
+        return None
+    if not re.fullmatch(r"-?\d+", raw):
+        raise MapRefused(f"{where}: the cell {raw!r} is not a whole count")
+    return int(raw)
+
+
+def _years(rows, ycol: str) -> tuple[int, int]:
+    ys = [int(r[ycol]) for _, r in rows if (r.get(ycol) or "").strip().lstrip("-").isdigit()]
+    return (min(ys), max(ys)) if ys else (0, 0)
+
+
+def csv_cell(cite: dict, data_root, extra=()) -> dict:
+    """One cell: the row whose columns equal `row` (e.g. entity and year), the `column`
+    named. Refused when no row or several rows match, when the cell is empty (no figure is
+    not zero), when the citation's `line` is not the line the row sits on, or when the table's
+    doubts (its sidecar) or the spec's added doubts name the cell."""
+    rows = cited_csv(cite, data_root)
+    col, key = cite.get("column"), cite.get("row") or {}
+    if not col or not key:
+        raise MapRefused(f"{cite['csv']}: a cell citation names a column and a row (its key columns)")
+    hit = [(ln, r) for ln, r in rows if all(str(r.get(k, "")) == str(v) for k, v in key.items())]
+    if not hit:
+        ycol = cite.get("year_column", "year")
+        span = _years(rows, ycol) if rows and ycol in rows[0][1] else None
+        rng = f"; the table's {ycol} runs {span[0]} to {span[1]}" if span else ""
+        raise MapRefused(f"{cite['csv']}: no row where {key}{rng}. A figure the table does not hold is "
+                         "never drawn from it: cite the source that does")
+    if len(hit) > 1:
+        raise MapRefused(f"{cite['csv']}: {len(hit)} rows where {key}; a cell citation must name one row")
+    ln, r = hit[0]
+    if col not in r:
+        raise MapRefused(f"{cite['csv']}: no column {col!r}")
+    if cite.get("line") is not None and int(cite["line"]) != ln:
+        raise MapRefused(f"{cite['csv']}: the row where {key} is on line {ln}; the citation says line {cite['line']}")
+    v = _int_cell(r[col], f"{cite['csv']} line {ln}")
+    if v is None:
+        raise MapRefused(f"{cite['csv']} line {ln}: the cell {col} is empty: no figure, which is not zero")
+    why = doubt_on(table_doubts(cite, data_root) + list(extra), cite["csv"], key, v)
+    if why:
+        raise MapRefused(f"{cite['csv']} line {ln}: {why}")
+    return {"kind": "cell", "csv": cite["csv"], "sha256": cite["sha256"], "doubts_sha256": cite["doubts_sha256"],
+            "line": ln, "column": col, "row": key, "value": v}
+
+
+def csv_count(cite: dict, data_root, extra=()) -> dict:
+    """A derived count: the rows matching `where` whose `column` is over zero and whose
+    `code_column` holds an ISO 3166 alpha-3 code (so regions and aggregates, whose codes are
+    empty or OWID_*, are never counted as countries)."""
+    rows = cited_csv(cite, data_root)
+    col, where = cite.get("column"), cite.get("where") or {}
+    ccol = cite.get("code_column", "code")
+    if not col or not where:
+        raise MapRefused(f"{cite['csv']}: a count citation names a column and a where")
+    hit = [(ln, r) for ln, r in rows if all(str(r.get(k, "")) == str(v) for k, v in where.items())]
+    if not hit:
+        raise MapRefused(f"{cite['csv']}: no row where {where}")
+    for kind, csv_, drow, msg in table_doubts(cite, data_root) + list(extra):
+        if (csv_ is None or csv_ == cite["csv"]) and all(str(drow.get(k)) == str(v) for k, v in where.items()
+                                                        if k in drow):
+            raise MapRefused(f"{cite['csv']}: a count where {where} takes in a doubted row ({kind}: {msg}); "
+                             "a count over a doubted cell is not drawn")
+    lines = [ln for ln, r in hit if ISO3.match(r.get(ccol) or "") and (_int_cell(r[col], cite["csv"]) or 0) > 0]
+    return {"kind": "count", "csv": cite["csv"], "sha256": cite["sha256"], "doubts_sha256": cite["doubts_sha256"],
+            "column": col, "where": where,
+            "rule": (f"rows with an ISO3 {ccol} and {col} over 0: countries as the table codes them, by today's "
+                     "ISO3 codes, so a state of the time since divided counts as its parts"),
+            "lines": lines, "value": len(lines)}
+
+
+def text_quote(cite: dict, data_root) -> dict:
+    """A quotation: `quote` must stand verbatim in lines `line` to `line + lines - 1` of the
+    cited text file, the lines joined by one space."""
+    path = _cited_path(cite, "text", data_root)
+    if not cite.get("line") or not cite.get("quote"):
+        raise MapRefused(f"{cite['text']}: a text citation names a line and a quote")
+    lines = Path(path).read_text(encoding="utf-8").split("\n")
+    a = int(cite["line"])
+    n = int(cite.get("lines", 1))
+    if a < 1 or a + n - 1 > len(lines):
+        raise MapRefused(f"{cite['text']}: line {a} is outside the file ({len(lines)} lines)")
+    span = " ".join(x.strip() for x in lines[a - 1:a - 1 + n])
+    if cite["quote"] not in span:
+        raise MapRefused(f"{cite['text']} line {a}: {cite['quote']!r} is not in the cited lines ({span!r})")
+    return {"kind": "quote", "text": cite["text"], "sha256": cite["sha256"], "line": a, "lines": n,
+            "quote": cite["quote"]}
+
+
+def resolve_cite(cite: dict, data_root, extra=()) -> dict:
+    if "text" in cite:
+        return text_quote(cite, data_root)
+    if "csv" in cite and cite.get("count"):
+        return csv_count(cite, data_root, extra)
+    if "csv" in cite:
+        return csv_cell(cite, data_root, extra)
+    raise MapRefused(f"a citation is a csv cell, a csv count or a text quote: {cite}")
+
+
+def digits(s: str) -> str:
+    return re.sub(r"[,\s]", "", s)
+
+
+def numeral_supported(numeral: str, got: dict) -> bool:
+    """A cell or count supports a numeral when it equals the value. A quote never does: a quoted
+    number is not accepted as a count (QUOTED_COUNT_REFUSED)."""
+    if got["kind"] in ("cell", "count"):
+        n = digits(numeral)
+        return n.lstrip("-").isdigit() and int(n) == got["value"]
+    return False
+
+
+QUOTED_COUNT_REFUSED = ("a quoted number is not accepted as a count (CoS 2026-10-11); cite a data cell, or set the "
+                        "sentence as typeset text")
+
+
+# ---- doubts a film states about its own table
+
+def _row_match(a: dict, b: dict) -> bool:
+    return {str(k): str(v) for k, v in a.items()} == {str(k): str(v) for k, v in b.items()}
+
+
+def check_doubts(spec: dict, data_root) -> list:
+    """A spec's `conflicts` (a cell a cited text contradicts) and `zero_suspect` (a zero the film
+    does not take as a report of no cases), resolved: each conflict's text quote must stand in its
+    file. Returns the list of doubts as (kind, csv, row, message)."""
+    out = []
+    sid = spec.get("id", "")
+    for c in spec.get("conflicts") or []:
+        if not c.get("why") or not c.get("cell") or not c.get("text"):
+            raise MapRefused(f"{sid}: a conflict names its cell, the text that contradicts it, and why")
+        cell_ = c["cell"]
+        q = text_quote(c["text"], data_root)
+        cited = (f"{cell_['csv']} {cell_.get('row')} column {cell_.get('column')} against {q['text']} line "
+                 f"{q['line']}: \"{q['quote']}\" ({c['why']})")
+        out.append(("conflict", cell_["csv"], cell_.get("row") or {}, cited))
+    for z in spec.get("zero_suspect") or []:
+        if not z.get("why") or not z.get("row"):
+            raise MapRefused(f"{sid}: a zero_suspect entry names its row and why")
+        out.append(("zero_suspect", z.get("csv"), z["row"], f"{z['row']} ({z['why']})"))
+    return out
+
+
+def doubt_on(doubts: list, csv_path: str, row: dict, value) -> str | None:
+    """The refusal for a cell the film doubts, or None."""
+    for kind, csv_, drow, msg in doubts:
+        if (csv_ is None or csv_ == csv_path) and _row_match(drow, row):
+            if kind == "conflict":
+                return f"the cell is contradicted by a cited text: {msg}"
+            if kind == "zero_suspect" and value == 0:
+                return f"the zero is suspect: {msg}"
+    return None
+
+
+# ---- the per-country, per-year layer ---------------------------------------
+
+def ne_code(props: dict) -> str | None:
+    """A Natural Earth country's ISO 3166 alpha-3: ISO_A3, or ISO_A3_EH where ISO_A3 is -99
+    (France and Norway); None where neither is a code (Somaliland, Kosovo, the bases)."""
+    for k in ("ISO_A3", "ISO_A3_EH"):
+        v = props.get(k)
+        if v and ISO3.match(v):
+            return v
+    return None
+
+
+DATA_KEYS = ("csv", "sha256", "doubts_sha256", "licence", "source", "columns", "year")
+
+
+def check_data_block(spec_id: str, data: dict, source_ids: list) -> None:
+    for k in DATA_KEYS:
+        if k not in data:
+            raise MapRefused(f"{spec_id}: a data layer needs {', '.join(DATA_KEYS)} (lacks {k})")
+    if data["source"] not in source_ids:
+        raise MapRefused(f"{spec_id}: the data layer's source {data['source']!r} is not in the spec's sources")
+    cols = data["columns"]
+    for k in ("entity", "code", "year", "value"):
+        if k not in cols:
+            raise MapRefused(f"{spec_id}: data columns name entity, code, year and value (lacks {k})")
+    if not isinstance(data["year"], int) or isinstance(data["year"], bool):
+        raise MapRefused(f"{spec_id}: the data year is one whole year (no range, no interpolation)")
+    for ent, why in (data.get("not_countries") or {}).items():
+        if not isinstance(why, dict) or not why.get("why"):
+            raise MapRefused(f"{spec_id}: not_countries[{ent!r}] states why it is not drawn")
+    for iso, extra in (data.get("territories") or {}).items():
+        if not isinstance(extra, list) or not extra:
+            raise MapRefused(f"{spec_id}: territories[{iso!r}] is a list of Natural Earth ADM0_A3 codes")
+
+
+def data_state(spec_id: str, data: dict, data_root, geodata: Path) -> dict:
+    """Every Natural Earth country's state for the data year, from the cited CSV.
+
+    Matching is by ISO3 against Natural Earth (`ne_code`). Every entity in the CSV is
+    accounted for: it matches a Natural Earth country, or `codes` gives it one (an entity
+    whose code is empty), or `not_countries` says why it is not drawn. Anything else is
+    refused, never dropped. An entity not drawn may hold a count over zero in the data year
+    only when it is marked an aggregate (a region whose countries are drawn on their own
+    rows); a country that had cases and cannot be drawn is refused.
+    State: `cases` (over 0), `zero` (0), `nodata` (no row, or an empty cell). No year is
+    ever filled from its neighbours."""
+    rows = cited_csv(data, data_root)
+    cols = data["columns"]
+    ecol, ccol, ycol, vcol = cols["entity"], cols["code"], cols["year"], cols["value"]
+    if rows and any(c not in rows[0][1] for c in (ecol, ccol, ycol, vcol)):
+        raise MapRefused(f"{spec_id}: {data['csv']} lacks a named column ({[ecol, ccol, ycol, vcol]})")
+    year = str(data["year"])
+    doubts = table_doubts(data, data_root)
+    lo, hi = _years(rows, ycol)
+    if not any(r[ycol] == year for _, r in rows):
+        raise MapRefused(f"{spec_id}: {data['csv']} has no row for any entity in {year}; its {ycol} runs {lo} to {hi}. "
+                         "A year outside the table is not drawn from it")
+    cpath = geodata / data.get("countries_file", NE_COUNTRIES)
+    if not cpath.exists():
+        raise MapRefused(f"{spec_id}: geodata {data.get('countries_file', NE_COUNTRIES)} not found under {geodata}")
+    feats = _load(str(cpath))
+    ne_iso = {ne_code(p) for p, _, _ in feats} - {None}
+    ne_adm = {p.get("ADM0_A3") for p, _, _ in feats}
+    codes = data.get("codes") or {}
+    not_c = data.get("not_countries") or {}
+    terr = data.get("territories") or {}
+    owner_of_adm = {}
+    for iso, extra in terr.items():
+        if iso not in ne_iso:
+            raise MapRefused(f"{spec_id}: territories names {iso}, which is not a Natural Earth country")
+        for adm in extra:
+            if adm not in ne_adm:
+                raise MapRefused(f"{spec_id}: territories[{iso}] names {adm}, which Natural Earth does not have")
+            owner_of_adm[adm] = iso
+    values: dict = {}
+    unmatched, line_of, row_of = [], {}, {}
+    by_entity: dict = {}
+    for ln, r in rows:
+        by_entity.setdefault((r[ecol], r[ccol]), []).append((ln, r))
+    for (ent, code), rs in sorted(by_entity.items()):
+        if ent in codes and code:
+            raise MapRefused(f"{spec_id}: codes gives {ent!r} a code, but the CSV already codes it {code}")
+        iso = codes.get(ent) or code
+        if ent in not_c:
+            if iso in ne_iso:
+                raise MapRefused(f"{spec_id}: {ent!r} ({iso}) matches a Natural Earth country; it cannot be listed "
+                                 "as not a country")
+            for ln, r in rs:
+                v = _int_cell(r[vcol], f"{data['csv']} line {ln}") if r[ycol] == year else None
+                if v and not not_c[ent].get("aggregate"):
+                    raise MapRefused(f"{spec_id}: {ent!r} reports {v} in {year} (line {ln}) and has no polygon to draw; "
+                                     "a country with cases is never left off the map")
+            continue
+        if iso not in ne_iso:
+            unmatched.append(f"{ent!r} ({code or 'no code'})")
+            continue
+        for ln, r in rs:
+            if r[ycol] != year:
+                continue
+            if iso in values:
+                raise MapRefused(f"{spec_id}: two rows for {iso} in {year} (lines {line_of[iso]} and {ln})")
+            values[iso] = _int_cell(r[vcol], f"{data['csv']} line {ln}")
+            line_of[iso] = ln
+            row_of[iso] = {ecol: ent, ycol: year}
+    if unmatched:
+        raise MapRefused(f"{spec_id}: {len(unmatched)} CSV entities match no Natural Earth country by ISO3 and are "
+                         f"not accounted for: {', '.join(unmatched[:8])}{' ...' if len(unmatched) > 8 else ''}. "
+                         "Give each a code (codes) or say why it is not drawn (not_countries); none is dropped")
+    for adm, iso in owner_of_adm.items():
+        own = {ne_code(p) for p, _, _ in feats if p.get("ADM0_A3") == adm} - {None}
+        if own & set(values):
+            raise MapRefused(f"{spec_id}: territory {adm} has its own row in {year}; it cannot take {iso}'s figure")
+    states = {}
+    for p, _, _ in feats:
+        adm = p.get("ADM0_A3")
+        iso = owner_of_adm.get(adm) or ne_code(p)
+        v = values.get(iso) if iso else None
+        states[adm] = ("nodata" if v is None else "zero" if v == 0 else "cases", iso)
+    return {"year": int(year), "values": values, "lines": line_of, "rows": row_of, "states": states,
+            "owner_of_adm": owner_of_adm, "doubts": doubts,
+            "lit": sorted(k for k, v in values.items() if v), "zero": sorted(k for k, v in values.items() if v == 0),
+            "csv": data["csv"], "sha256": data["sha256"], "column": vcol, "countries_file": str(cpath)}
+
+
+def _draw_data(cv, spec: dict, proj, geodata: Path, data_root, used: dict, record: dict) -> None:
+    """Fill each country in view by its state, then check what the spec expects to be lit."""
+    data = spec["data"]
+    sid = spec.get("id", "")
+    st = data_state(sid, data, data_root, geodata)
+    used[data.get("countries_file", NE_COUNTRIES)] = file_sha256(st["countries_file"])
+    clip = spec.get("_clip") or (0.0, 0.0, 1.0, 1.0)   # a view is clipped to its frame; a single view fills the frame
+    view = proj.box(clip)
+    doubts = st["doubts"] + check_doubts(spec, data_root)
+    masks = {}
+    in_view = {s: set() for s in DATA_STATES}
+    terr_in_view = set()
+    under = {}
+    S8 = 8
+    for props, g, bb in _load(st["countries_file"]):
+        if not _overlaps(bb, view):
+            continue
+        state, iso = st["states"][props.get("ADM0_A3")]
+        in_view[state].add(iso or props.get("ADM0_A3"))
+        if props.get("ADM0_A3") in st["owner_of_adm"] and state != "nodata":
+            terr_in_view.add(props.get("ADM0_A3"))
+        if iso in st["rows"]:
+            why = doubt_on(doubts, data["csv"], st["rows"][iso], st["values"][iso])
+            if why:
+                raise MapRefused(f"{sid}: {iso} in {st['year']} is drawn from line {st['lines'][iso]}, but {why}")
+        if state in ("cases", "zero") and spec.get("_panel"):
+            # how much of this country, inside the frame, lies under the panel's scrim
+            xs = [proj(*pt)[0] for poly in _polys_of(g) for pt in poly[0]]
+            ys = [proj(*pt)[1] for poly in _polys_of(g) for pt in poly[0]]
+            small = (max(xs) - min(xs)) < 160 or (max(ys) - min(ys)) < 160
+            sc = 1 if small else 4
+            m8 = Image.new("L", (W // sc, H // sc), 0)
+            d8 = ImageDraw.Draw(m8)
+            for poly in _polys_of(g):
+                ring = [(x / sc, y / sc) for x, y in (proj(*pt) for pt in poly[0])]
+                if len(ring) > 2:
+                    d8.polygon(ring, fill=255)
+            a8 = np.asarray(m8) > 0
+            x0, y0, x1, y1 = (int(round(c * n / sc)) for c, n in zip(clip, (W, H, W, H)))
+            a8 = a8[y0:y1, x0:x1]
+            tot = int(a8.sum())
+            if tot:
+                cut = max(0, int(round(PANEL["wash_from"] * W / sc)) - x0)
+                full = max(0, int(round(PANEL["wash_full"] * W / sc)) - x0)
+                k = under.setdefault((iso or props.get("ADM0_A3"), state), [0, 0, 0])
+                k[0] += int(a8[:, cut:].sum())
+                k[1] += tot
+                k[2] += int(a8[:, full:].sum())
+        if state not in masks:
+            masks[state] = (cv.mask(), cv.mask())
+        (fm, fmd), (om, omd) = masks[state]
+        for poly in _polys_of(g):
+            rings = [[(x * SS, y * SS) for x, y in (proj(*p) for p in ring)] for ring in poly]
+            if len(rings[0]) > 2:
+                fmd.polygon(rings[0], fill=255)
+            for hole in rings[1:]:
+                if len(hole) > 2:
+                    fmd.polygon(hole, fill=0)
+            if POLY[state][2]:
+                for r in rings:
+                    _line_on(omd, r, 255, POLY[state][3])
+    for state in DATA_STATES:
+        if state not in masks:
+            continue
+        (fm, _), (om, _) = masks[state]
+        role, a, orole, _, hatch = POLY[state]
+        cv.composite(fm, role, a)
+        if hatch is not None:
+            cv.composite(ImageChops.multiply(fm, _hatch(cv.img.size, hatch)), *_hatch_role(state), stroke=True)
+        if orole:
+            cv.composite(om, orole, 0.9, stroke=True)
+    for (iso, state), (u, tot, past) in sorted(under.items()):
+        what = "lit" if state == "cases" else "drawn as zero"
+        if past or (tot and u / tot > 0.25):
+            raise MapRefused(f"{sid}: {iso} is {what} in {st['year']} but {u / tot:.0%} of it lies under the panel's "
+                             f"scrim ({past} px past its full wash); move the extent, or draw the map in a framed "
+                             "view that stops before the panel")
+    lit_in_view = sorted(in_view["cases"])
+    exp = data.get("expect_lit")
+    if exp is not None and sorted(exp) != lit_in_view:
+        why = []
+        for iso in sorted(set(exp) - set(lit_in_view)):
+            got = "has no row" if iso not in st["values"] else f"reports {st['values'][iso]}"
+            why.append(f"{iso} {got} in {st['year']}" + (f" (line {st['lines'][iso]})" if iso in st["lines"] else ""))
+        for iso in sorted(set(lit_in_view) - set(exp)):
+            why.append(f"{iso} reports {st['values'][iso]} in {st['year']} (line {st['lines'][iso]}) and is lit")
+        raise MapRefused(f"{spec.get('id', '')}: the spec expects {sorted(exp)} lit in {st['year']}; the data lights "
+                         f"{lit_in_view}: {'; '.join(why)}")
+    record.update({"year": st["year"], "csv": st["csv"], "sha256": st["sha256"],
+                   "doubts_sha256": data["doubts_sha256"], "column": st["column"],
+                   "lit_in_view": lit_in_view, "zero_in_view": sorted(in_view["zero"]),
+                   "nodata_in_view": sorted(in_view["nodata"]), "territories_in_view": sorted(terr_in_view),
+                   "cells": {iso: {"line": st["lines"][iso], "value": st["values"][iso]}
+                             for iso in sorted(set(lit_in_view) | set(in_view["zero"])) if iso in st["lines"]}})
+    record["_values"], record["_lines"], record["_countries_file"] = st["values"], st["lines"], st["countries_file"]
+
+
+def _data_figures(spec: dict, record: dict) -> list:
+    """Figures the data layer prints beside a country (at Natural Earth's label point unless
+    the spec moves it). Every number comes from the cited CSV; a figure the table does not
+    hold is refused, never written as zero."""
+    data = spec["data"]
+    places = []
+    for fg in data.get("figures") or []:
+        iso = fg["code"]
+        v = record["_values"].get(iso)
+        if v is None:
+            raise MapRefused(f"{spec.get('id', '')}: a figure for {iso} in {record['year']}: the table has none")
+        feats = [p for p, _, _ in _load(record["_countries_file"]) if ne_code(p) == iso]
+        if not feats:
+            raise MapRefused(f"{spec.get('id', '')}: no Natural Earth country {iso} to place its figure")
+        p = feats[0]
+        lon, lat = fg.get("lon", p.get("LABEL_X")), fg.get("lat", p.get("LABEL_Y"))
+        places.append({"name": fg.get("label") or p.get("NAME"), "lon": lon, "lat": lat, "style": "hidden",
+                       "anchor": fg.get("anchor", "e"), "big": True, "sub": f"{v:,}",
+                       "sub_size": SIZES["figure_sub"]})
+        record.setdefault("figures", []).append({"code": iso, "value": v, "line": record["_lines"].get(iso)})
+    return places
+
+
+def panel_data_figures(spec: dict, data_root) -> list:
+    """Panel lines from cited cells: each `panel_figures` entry is a template with {n} and an
+    entity; the value is that entity's cell for the data year."""
+    data = spec.get("data") or {}
+    out = []
+    for pf in data.get("panel_figures") or []:
+        text = pf["text"]
+        if "{n}" not in text or re.search(r"\d", text.replace("{n}", "").replace(str(data["year"]), "")):
+            raise MapRefused(f"{spec.get('id', '')}: a panel figure is a template with {{n}} and no other number "
+                             f"but the data year: {text!r}")
+        cite = {k: data[k] for k in ("csv", "sha256", "doubts_sha256", "licence", "source")}
+        cite.update(column=data["columns"]["value"],
+                    row={data["columns"]["entity"]: pf["entity"], data["columns"]["year"]: str(data["year"])})
+        try:
+            got = csv_cell(cite, data_root, check_doubts(spec, data_root))
+        except MapRefused as e:
+            raise MapRefused(f"{spec.get('id', '')}: the panel figure for {pf['entity']}: {e}") from None
+        out.append(text.replace("{n}", f"{got['value']:,}"))
+    return out
+
+
+# --------------------------------------------------------------------------
 # Projection: a local plate carree, true to scale at the extent's centre latitude.
 # --------------------------------------------------------------------------
 
@@ -598,6 +1224,13 @@ class Projection:
 
     def __call__(self, lon: float, lat: float) -> tuple[float, float]:
         return (self.cx + (lon - self.clon) * self.k * self.s, self.cy - (lat - self.clat) * self.s)
+
+    def box(self, frame) -> tuple[float, float, float, float]:
+        """The lon/lat box a fraction-of-frame rectangle shows."""
+        Wp, Hp = self.size
+        x0, y0, x1, y1 = frame[0] * Wp, frame[1] * Hp, frame[2] * Wp, frame[3] * Hp
+        return (self.clon + (x0 - self.cx) / (self.k * self.s), self.clat - (y1 - self.cy) / self.s,
+                self.clon + (x1 - self.cx) / (self.k * self.s), self.clat - (y0 - self.cy) / self.s)
 
     def view(self) -> tuple[float, float, float, float]:
         """The lon/lat box the whole frame shows."""
@@ -731,9 +1364,18 @@ def _line_on(d: ImageDraw.ImageDraw, pts, fill, px: float, dash=None) -> None:
         d.line(seg, fill=fill, width=wpx, joint="curve")
 
 
-def _draw_layers(cv: Canvas, spec: dict, proj: Projection, geodata: Path, used: dict) -> None:
+def _draw_layers(cv: Canvas, spec: dict, proj: Projection, geodata: Path, used: dict,
+                 data_root=None, record: dict | None = None) -> None:
+    """The layers in order; a view's data layer (E8) is filled after its polygon layers and
+    before its first line layer, so borders and coasts lie over the data."""
     view = proj.view()
+    unp = unplaced_list(spec)
+    pending = "data" in spec
+    record = record if record is not None else {}
     for ly in spec.get("layers", []):
+        if pending and ly.get("style") in LINE:
+            _draw_data(cv, spec, proj, geodata, data_root, used, record)
+            pending = False
         path = geodata / ly["file"]
         if not path.exists():
             raise MapRefused(f"{spec['id']}: geodata {ly['file']} not found under {geodata}")
@@ -753,7 +1395,7 @@ def _draw_layers(cv: Canvas, spec: dict, proj: Projection, geodata: Path, used: 
                 continue
             n += 1
             if _refused_on_unplaced(style):
-                why = unplaced_feature(props)
+                why = unplaced_feature(props, unp)
                 if why:
                     raise MapRefused(f"{spec['id']}: layer {ly['file']} ({style}) matched a feature on "
                                      f"{sorted({props.get('ADM0_A3_L'), props.get('ADM0_A3_R')})}: {why}")
@@ -794,7 +1436,7 @@ def _draw_layers(cv: Canvas, spec: dict, proj: Projection, geodata: Path, used: 
         if fmask is not None:
             cv.composite(fmask, POLY[style][0], POLY[style][1])
             if POLY[style][4] is not None:
-                cv.composite(ImageChops.multiply(fmask, _hatch(cv.img.size, POLY[style][4])), HATCH["role"], HATCH["alpha"],
+                cv.composite(ImageChops.multiply(fmask, _hatch(cv.img.size, POLY[style][4])), *_hatch_role(style),
                              stroke=True)
         if omask is not None:
             cv.composite(omask, POLY[style][2], 0.9, stroke=True)
@@ -804,6 +1446,12 @@ def _draw_layers(cv: Canvas, spec: dict, proj: Projection, geodata: Path, used: 
             cv.composite(lmask, LINE[style][0], LINE[style][1], stroke=True)
         if n == 0:
             raise MapRefused(f"{spec['id']}: layer {ly['file']} {ly.get('where') or ''} matched nothing in view")
+    if pending:
+        _draw_data(cv, spec, proj, geodata, data_root, used, record)
+
+
+def _hatch_role(style: str) -> tuple[str, float]:
+    return HATCH_ROLE.get(style, (HATCH["role"], HATCH["alpha"]))
 
 
 def _hatch(size, angle: float) -> Image.Image:
@@ -858,7 +1506,7 @@ def _draw_places(cv: Canvas, spec: dict, proj: Projection) -> None:
         asc, desc = f.getmetrics()
         lines = [(name, font, size, role)]
         if p.get("sub"):
-            lines.append((p["sub"], "structure", SIZES["point_sub"],
+            lines.append((p["sub"], "structure", p.get("sub_size", SIZES["point_sub"]),
                           "cold_text" if p.get("sub_role") == "cold" else "text"))
         total = sum(cv.font(fw, sz).getmetrics()[0] + cv.font(fw, sz).getmetrics()[1] * 0.6 for _, fw, sz, _ in lines)
         if oy < 0:
@@ -915,7 +1563,7 @@ def _swatch(cv: Canvas, style: str, x: float, y: float, w: float) -> None:
         md.rectangle([x, y - h / 2, x + w, y + h / 2], fill=255)
         cv.composite(m, role, a)
         if hatch is not None:
-            cv.composite(ImageChops.multiply(m, _hatch(cv.img.size, hatch)), HATCH["role"], HATCH["alpha"])
+            cv.composite(ImageChops.multiply(m, _hatch(cv.img.size, hatch)), *_hatch_role(style))
         m, md = cv.mask()
         md.rectangle([x, y - h / 2, x + w, y + h / 2], outline=255, width=SS)
         cv.composite(m, orole or "faint", 1.0)
@@ -1030,7 +1678,7 @@ def _samples(points: list) -> list:
     return out + [tuple(points[-1])]
 
 
-def path_on_unplaced(points: list, feats) -> str | None:
+def path_on_unplaced(points: list, feats, unplaced=None) -> str | None:
     """Why a hand-drawn path may not be drawn in its style: at least PATH_UNPLACED_SHARE of it
     lies within PATH_UNPLACED_TOL of a feature whose ADM0_A3_L/R pair is unplaced. A path that
     only crosses the line (a route over the border) is not on it."""
@@ -1039,7 +1687,7 @@ def path_on_unplaced(points: list, feats) -> str | None:
     pad = PATH_UNPLACED_TOL
     near_any = None
     for props, g, fbb in feats:
-        why = unplaced_feature(props)
+        why = unplaced_feature(props, unplaced)
         if not why or not _overlaps((bb[0] - pad, bb[1] - pad, bb[2] + pad, bb[3] + pad), fbb):
             continue
         segs = [(a, b) for line in _lines_of(g) for a, b in zip(line, line[1:])]
@@ -1056,28 +1704,42 @@ def _check_paths(view: dict, spec_id: str, geodata: Path) -> None:
     for pth in view.get("paths", []):
         if pth.get("style") in ON_UNPLACED_OK:
             continue
-        why = path_on_unplaced(pth["points"], feats)
+        why = path_on_unplaced(pth["points"], feats, unplaced_list(view))
         if why:
             raise MapRefused(f"{spec_id}: a hand-drawn {pth['style']!r} path runs along {why}")
 
 
-def _draw_view(cv: Canvas, view: dict, proj: Projection, geodata: Path, used: dict) -> None:
-    _draw_layers(cv, view, proj, geodata, used)
+def _draw_view(cv: Canvas, view: dict, proj: Projection, geodata: Path, used: dict,
+               data_root=None, records: list | None = None, legend: list | None = None) -> None:
+    record: dict = {}
+    _draw_layers(cv, view, proj, geodata, used, data_root, record)
     _check_paths(view, view.get("id") or "", geodata)
     _draw_paths(cv, view, proj)
     _draw_labels(cv, view, proj)
-    _draw_places(cv, view, proj)
+    if "data" not in view:
+        _draw_places(cv, view, proj)
+        return
+    drawn = {s for s, k in (("cases", "lit_in_view"), ("zero", "zero_in_view"), ("nodata", "nodata_in_view"))
+             if record.get(k)}
+    styles = {e.get("style") for e in (legend if legend is not None else view.get("legend", []))}
+    missing = sorted(drawn - styles)
+    if missing:
+        raise MapRefused(f"{view.get('id') or ''}: the frame draws {missing} with no legend entry; a reader must "
+                         "be able to tell no figure from zero")
+    _draw_places(cv, {**view, "places": list(view.get("places", [])) + _data_figures(view, record)}, proj)
+    if records is not None:
+        records.append({k: v for k, v in record.items() if not k.startswith("_")})
 
 
 KEEPOUT_PAD = 14  # px at 1080p around the source line
 
 
-def _source_keepout(cv: Canvas, src: str) -> list:
+def _source_keepout(cv: Canvas, src: str, at: dict = SOURCE_LINE) -> list:
     """The 2x rectangle around the source line that no map stroke may cross."""
     f = cv.font("structure", SIZES["source"])
     asc, _ = f.getmetrics()
-    x = SOURCE_LINE["x"] * W * SS
-    base = SOURCE_LINE["baseline"] * H * SS
+    x = at["x"] * W * SS
+    base = at["baseline"] * H * SS
     w = cv.measure(src, "structure", SIZES["source"])
     pad = KEEPOUT_PAD * SS
     return [x - pad, base - asc - pad, x + w + pad, H * SS]
@@ -1096,10 +1758,18 @@ def _zone(z) -> tuple:
 
 
 def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
-               tokens: Path | str = TOKENS) -> tuple[Image.Image, dict]:
+               tokens: Path | str = TOKENS, data_root: Path | str | None = None) -> tuple[Image.Image, dict]:
     """Render one spec. Returns the 1920x1080 RGB frame and what it drew (text
-    boxes, geodata files with their sha256, warnings, the source line)."""
+    boxes, geodata files with their sha256, warnings, the source line, and for a
+    data layer the year, the CSV's sha256 and the cells each country was drawn from).
+    A `count_card` spec is drawn by studio/engine/counts.py."""
+    if spec.get("kind") == "count_card":
+        from . import counts
+        return counts.render_card(spec, data_root, fonts=fonts, tokens=tokens)
     check_spec(spec)
+    records: list[dict] = []
+    if spec.get("data"):
+        spec = {**spec, "figures": list(spec.get("figures", [])) + panel_data_figures(spec, data_root)}
     fonts = fonts or M.Fonts()
     pal = palette(tokens)
     cv = Canvas(pal, fonts)
@@ -1108,11 +1778,12 @@ def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
     frame = tuple(spec.get("frame") or (DEFAULT_FRAME if panel else FULL_FRAME))
     used: dict[str, str] = {}
     src = source_line(spec)
-    cv.keepout = _source_keepout(cv, src)
+    at = source_at(spec)
+    cv.keepout = _source_keepout(cv, src, at)
     views = spec.get("views")
     if not views:
         proj = Projection(spec["extent"], frame, (W, H))
-        _draw_view(cv, spec, proj, Path(geodata), used)
+        _draw_view(cv, {**spec, "_panel": panel}, proj, Path(geodata), used, data_root, records)
     else:
         for v in views:
             vf = tuple(v["frame"])
@@ -1120,8 +1791,12 @@ def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
             sub.boxes = cv.boxes
             sub.keepout = cv.keepout
             before = len(cv.boxes)
-            _draw_view(sub, {**v, "id": f"{spec['id']}/{v.get('name', '')}"}, Projection(v["extent"], vf, (W, H)),
-                       Path(geodata), used)
+            vv = {**v, "id": f"{spec['id']}/{v.get('name', '')}", "_panel": panel, "_clip": vf}
+            for k in ("unplaced", "conflicts", "zero_suspect"):
+                if k in spec and k not in v:
+                    vv[k] = spec[k]
+            _draw_view(sub, vv, Projection(v["extent"], vf, (W, H)),
+                       Path(geodata), used, data_root, records, spec.get("legend", []))
             fx0, fy0, fx1, fy1 = vf[0] * W, vf[1] * H, vf[2] * W, vf[3] * H
             for b in cv.boxes[before:]:
                 bx = b["box"]
@@ -1133,9 +1808,13 @@ def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
             cv.d = ImageDraw.Draw(cv.img, "RGBA")
             rect = [vf[0] * W * SS, vf[1] * H * SS, vf[2] * W * SS, vf[3] * H * SS]
             cv.shape("faint", 1.0, lambda md, rect=rect: md.rectangle(rect, outline=255, width=SS))
+    terr_notes = {v["data"].get("territories_note") for v in (views or [spec]) if "data" in v} - {None}
+    if terr_notes and not any(r.get("territories_in_view") for r in records):
+        # a territory note is printed only when a territory it names takes a figure in view
+        spec = {**spec, "notes": [n for n in spec.get("notes", []) if n not in terr_notes]}
     if panel:
         _draw_panel(cv, spec)
-    cv.text((SOURCE_LINE["x"] * W * SS, SOURCE_LINE["baseline"] * H * SS), src, "structure", SIZES["source"],
+    cv.text((at["x"] * W * SS, at["baseline"] * H * SS), src, "structure", SIZES["source"],
             "muted", halo=True, kind="source")
     if cv.boxes[-1]["box"][2] > 0.96 * W:
         raise MapRefused(f"{spec['id']}: the source line is wider than the frame's safe width")
@@ -1158,8 +1837,13 @@ def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
                 raise MapRefused(f"{spec['id']}: labels {a['text']!r} and {b['text']!r} overlap")
     img = cv.img.resize((W, H), Image.LANCZOS).convert("RGB")
     info = {"id": spec["id"], "source_line": src, "boxes": cv.boxes, "geodata": used, "warnings": warnings,
-            "size": [W, H]}
+            "size": [W, H], "data": records}
     return img, info
+
+
+def pixels_sha256(img: Image.Image) -> str:
+    """The sha256 of the raw RGB pixels: stable where PNG bytes vary with the zlib build."""
+    return hashlib.sha256(img.convert("RGB").tobytes()).hexdigest()
 
 
 def png_bytes(img: Image.Image) -> bytes:
@@ -1186,16 +1870,63 @@ def contact_sheet(paths: list[Path], out: Path, cols: int = 3, thumb_w: int = 64
     sheet.save(out)
 
 
-def check_specs(folder: Path | str) -> list[str]:
-    """Every rule check_spec enforces, over every D*.json in a folder, without rendering:
-    one line per violation (an empty list is a pass)."""
+def check_any(spec: dict, data_root=None, geodata=None) -> None:
+    """The checks a spec must pass, without drawing. A count card is checked against its
+    cited files (it needs the data root). A map's static rules always; with a data root and
+    geodata, its data layer too (the CSV's sha256, the ISO3 matching, the year's rows)."""
+    if spec.get("kind") == "count_card":
+        from . import counts
+        counts.check_card(spec, data_root)
+        return
+    check_spec(spec)
+    if data_root is not None and geodata is not None:
+        for v in spec.get("views") or [spec]:
+            if "data" in v:
+                data_state(spec["id"], v["data"], data_root, Path(geodata))
+        if spec.get("data"):
+            panel_data_figures(spec, data_root)
+
+
+def doubts_pins(spec) -> list:
+    """Every table-doubts sha256 a spec pins (its CSV citations and data blocks)."""
+    out = set()
+
+    def walk(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k == "doubts_sha256" and isinstance(v, str):
+                    out.add(v)
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+    walk(spec)
+    return sorted(out)
+
+
+def ledger_for(spec: dict, info: dict) -> dict:
+    """The ledger fields of a rendered spec: a map's from its spec, a count card's with the
+    citations its render resolved."""
+    if spec.get("kind") == "count_card":
+        from . import counts
+        return counts.ledger_fields(spec, info.get("cites"))
+    out = ledger_fields(spec)
+    if info.get("data"):
+        out["method"] = {**out["method"], "data_drawn": info["data"]}
+    return out
+
+
+def check_specs(folder: Path | str, data_root=None, geodata=None) -> list[str]:
+    """Every rule check_spec enforces, over every *.json spec in a folder, without rendering:
+    one line per violation (an empty list is a pass). Count cards are checked against their
+    cited files when a data root is given, and refused without one."""
     problems = []
-    files = sorted(Path(folder).glob("*.json"))
+    files = sorted(f for f in Path(folder).glob("*.json") if not f.name.startswith("_"))
     if not files:
         return [f"{folder}: no specs found"]
     for f in files:
         try:
-            check_spec(json.loads(f.read_text(encoding="utf-8")))
+            check_any(json.loads(f.read_text(encoding="utf-8")), data_root, geodata)
         except MapRefused as e:
             problems.append(f"{f.name}: {e}")
         except Exception as e:  # a malformed spec is a violation to report, never a crash
@@ -1206,10 +1937,15 @@ def check_specs(folder: Path | str) -> list[str]:
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv[:1] == ["check-specs"]:
-        if len(argv) != 2:
-            print("usage: python -m studio.engine.maps check-specs <spec folder>")
+        cp = argparse.ArgumentParser(prog="python -m studio.engine.maps check-specs")
+        cp.add_argument("folder")
+        cp.add_argument("--data", help="root the specs' cited CSV and text paths are relative to")
+        cp.add_argument("--geodata", help="with --data, also check each map's data layer against Natural Earth")
+        try:
+            ca = cp.parse_args(argv[1:])
+        except SystemExit:
             return 2
-        problems = check_specs(argv[1])
+        problems = check_specs(ca.folder, ca.data, ca.geodata)
         for line in problems:
             print("VIOLATION", line)
         print(f"check-specs: {len(problems)} violation(s)")
@@ -1217,6 +1953,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Render map specs to 1920x1080 DRAWN frames.")
     ap.add_argument("specs", nargs="+")
     ap.add_argument("--geodata", required=True)
+    ap.add_argument("--data", help="root the specs' cited CSV and text paths are relative to (E8)")
     ap.add_argument("--out", required=True)
     ap.add_argument("--sheet")
     a = ap.parse_args(argv)
@@ -1226,7 +1963,7 @@ def main(argv=None) -> int:
     for sp in a.specs:
         spec = json.loads(Path(sp).read_text(encoding="utf-8"))
         try:
-            img, info = render_map(spec, a.geodata)
+            img, info = render_map(spec, a.geodata, data_root=a.data)
         except MapRefused as e:
             print(f"REFUSED {sp}: {e}")
             failed += 1
@@ -1235,8 +1972,11 @@ def main(argv=None) -> int:
         dst = out / f"{spec['id']}.png"
         dst.write_bytes(data)
         written.append(dst)
-        report.append({"id": spec["id"], "file": str(dst), "sha256": hashlib.sha256(data).hexdigest(),
-                       "geodata": info["geodata"], "warnings": info["warnings"], "ledger": ledger_fields(spec)})
+        report.append({"id": spec["id"], "kind": spec.get("kind", "map"), "file": str(dst),
+                       "sha256": hashlib.sha256(data).hexdigest(), "pixels_sha256": pixels_sha256(img),
+                       "doubts_sha256": doubts_pins(spec),
+                       "geodata": info["geodata"],
+                       "warnings": info["warnings"], "ledger": ledger_for(spec, info)})
         print(f"{spec['id']}: {dst} sha256 {report[-1]['sha256'][:16]}"
               + (f"  warnings: {'; '.join(info['warnings'])}" if info["warnings"] else ""))
     (out / "maps-render.json").write_text(json.dumps(report, indent=1, ensure_ascii=False), encoding="utf-8")
