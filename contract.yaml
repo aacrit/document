@@ -31,133 +31,9 @@ checks:
     path: /
     meta_name: build
 
-  - name: homepage names the film
-    type: contains
-    path: /
-    text: "The Partition of India"
-
-  - name: homepage links to the film
-    type: contains
-    path: /
-    text: "/f/partition-of-india/"
-
-  - name: homepage says what the film does not show
-    type: contains
-    path: /
-    text: "This film shows no bodies or killing."
-
-  - name: film page responds
-    type: status
-    path: /f/partition-of-india/
-    expect: 200
-
-  - name: film page carries the player and its media
-    type: contains
-    path: /f/partition-of-india/
-    text: "/media/partition-of-india/film.mp4"
-
-  - name: film page carries the English captions
-    type: contains
-    path: /f/partition-of-india/
-    text: "/media/partition-of-india/captions-en.vtt"
-
-  - name: film page says what the marks mean
-    type: contains
-    path: /f/partition-of-india/
-    text: "What the marks mean"
-
-  - name: film page links to void history's documentary
-    type: contains
-    path: /f/partition-of-india/
-    text: "https://news.voidvision.org/history/partition-of-india/"
-
-  - name: sources page responds
-    type: status
-    path: /f/partition-of-india/sources/
-    expect: 200
-
-  - name: sources page carries the balance
-    type: contains
-    path: /f/partition-of-india/sources/
-    text: "Whose words, and how long"
-
-  - name: corrections page responds
-    type: status
-    path: /f/partition-of-india/correct/
-    expect: 200
-
-  - name: corrections page carries the form
-    type: contains
-    path: /f/partition-of-india/correct/
-    text: "Correct something in"
-
-  - name: every page names the void family
-    type: contains
-    path: /f/partition-of-india/sources/
-    text: "void document is part of void, with"
-
-  - name: the film is served (deployed only)
-    type: status
-    path: /media/partition-of-india/film.mp4
-    expect: 200
-    requires: deployed
-
-  - name: the sources timeline is served (deployed only)
-    type: status
-    path: /media/partition-of-india/sources.json
-    expect: 200
-    requires: deployed
-
-  - name: the English captions are served (deployed only)
-    type: status
-    path: /media/partition-of-india/captions-en.vtt
-    expect: 200
-    requires: deployed
-
-  - name: the poster is served (deployed only)
-    type: status
-    path: /media/partition-of-india/poster.jpg
-    expect: 200
-    requires: deployed
-
-  - name: the film served is the encode sources.json records (deployed only)
-    type: sha256_matches
-    path: /media/partition-of-india/film.mp4
-    sources: /media/partition-of-india/sources.json
-    field: web.film_sha256
-    # verify-production runs every 6 hours: compare size and the first and last MiB (two byte ranges), not the whole film.
-    max_bytes: 1048576
-    requires: deployed
-
-  - name: sources.json's recorded web encode runs as long as the film, within a frame (deployed only)
-    type: sources_duration_consistent
-    path: /media/partition-of-india/sources.json
-    sources: /media/partition-of-india/sources.json
-    field: web.film_duration_s
-    requires: deployed
-
-  - name: the poster served is the still sources.json credits (deployed only)
-    type: sha256_matches
-    path: /media/partition-of-india/poster.jpg
-    sources: /media/partition-of-india/sources.json
-    field: poster.sha256
-    requires: deployed
-
-  # The trailer is optional: the old trailer does not ship with the revamped
-  # film (CoS, 2026-10-10), and the revamp trailer brings it back. When the
-  # film's sources.json declares one (publish.py --trailer), it must be served
-  # and be those bytes; when it declares none, the path must answer 404, so no
-  # stale trailer stays public (release-film.mjs deletes it). Without
-  # undeclared_status, an undeclared record would report n/a (not declared).
-  - name: the trailer is the one sources.json declares, or not served at all (deployed only)
-    type: sha256_matches
-    path: /media/partition-of-india/trailer.mp4
-    sources: /media/partition-of-india/sources.json
-    field: trailer.sha256
-    when_declared: trailer
-    undeclared_status: 404
-    max_bytes: 1048576
-    requires: deployed
+  # Every registered film's checks, from the films block below (one set per
+  # film in films.json), go here.
+  - expand: films
 
   - name: privacy page responds
     type: status
@@ -185,14 +61,6 @@ checks:
       - "TODO"
       - "__"
       - "core_success_event"
-
-  - name: the film page carries no studio words
-    type: forbidden
-    path: /f/partition-of-india/
-    strings:
-      - "/studio"
-      - "render"
-      - "pipeline"
 
   - name: homepage carries no anonymous-id telemetry
     type: forbidden
@@ -268,6 +136,176 @@ checks:
     expect_error: rate_limited
     pause_before_seconds: 11
     requires: deployed
+
+# The film checks, once per film in films.json (scripts/contract.mjs expands
+# them where `checks` says `expand: films`). In each string, {slug}, {title}
+# and {shows} are the film's; {lang} and {label} a published caption track's;
+# {href} a related link's; {poster} the film's poster file. `for` says which
+# films a check is for: live (the default), in_production, or marquee (the
+# live film on the home marquee). `each: caption` repeats a check for every caption
+# track whose review is done; `each: related` for every related link; `if:
+# poster` keeps it only when the film names a poster; `if: declares_balance`
+# only for a film that must declare its balance (every film but the Partition
+# pilot). A film in production is listed on the home page and has no page and
+# no media: nothing here requires its media until films.json says it is live.
+films:
+  registry: films.json
+  checks:
+    - name: homepage names {title}
+      for: [live, in_production]
+      type: contains
+      path: /
+      text: "{title}"
+
+    - name: homepage links to {title}
+      type: contains
+      path: /
+      text: "/f/{slug}/"
+
+    - name: homepage says what {title} does not show
+      for: [marquee]
+      type: contains
+      path: /
+      text: "{shows}"
+
+    - name: "{title} has no page until it is live"
+      for: [in_production]
+      type: status
+      path: /f/{slug}/
+      expect: 404
+
+    - name: "{title}: film page responds"
+      type: status
+      path: /f/{slug}/
+      expect: 200
+
+    - name: "{title}: film page carries the player and its media"
+      type: contains
+      path: /f/{slug}/
+      text: "/media/{slug}/film.mp4"
+
+    - name: "{title}: film page carries the {label}"
+      each: caption
+      type: contains
+      path: /f/{slug}/
+      text: "/media/{slug}/captions-{lang}.vtt"
+
+    - name: "{title}: film page says what the marks mean"
+      type: contains
+      path: /f/{slug}/
+      text: "What the marks mean"
+
+    - name: "{title}: film page links to {href}"
+      each: related
+      type: contains
+      path: /f/{slug}/
+      text: "{href}"
+
+    - name: "{title}: sources page responds"
+      type: status
+      path: /f/{slug}/sources/
+      expect: 200
+
+    - name: "{title}: sources page carries the balance"
+      type: contains
+      path: /f/{slug}/sources/
+      text: "Whose words, and how long"
+
+    - name: "{title}: corrections page responds"
+      type: status
+      path: /f/{slug}/correct/
+      expect: 200
+
+    - name: "{title}: corrections page carries the form"
+      type: contains
+      path: /f/{slug}/correct/
+      text: "Correct something in"
+
+    - name: "{title}: every page names the void family"
+      type: contains
+      path: /f/{slug}/sources/
+      text: "void document is part of void, with"
+
+    - name: "{title}: the film page carries no studio words"
+      type: forbidden
+      path: /f/{slug}/
+      strings:
+        - "/studio"
+        - "render"
+        - "pipeline"
+
+    - name: "{title}: the film is served (deployed only)"
+      type: status
+      path: /media/{slug}/film.mp4
+      expect: 200
+      requires: deployed
+
+    - name: "{title}: the sources timeline is served (deployed only)"
+      type: status
+      path: /media/{slug}/sources.json
+      expect: 200
+      requires: deployed
+
+    - name: "{title}: the {label} are served (deployed only)"
+      each: caption
+      type: status
+      path: /media/{slug}/captions-{lang}.vtt
+      expect: 200
+      requires: deployed
+
+    - name: "{title}: sources.json declares the film's balance (deployed only)"
+      if: declares_balance
+      type: json_has
+      path: /media/{slug}/sources.json
+      field: balance.sides
+      requires: deployed
+
+    - name: "{title}: the poster is served (deployed only)"
+      if: poster
+      type: status
+      path: /media/{slug}/{poster}
+      expect: 200
+      requires: deployed
+
+    - name: "{title}: the film served is the encode sources.json records (deployed only)"
+      type: sha256_matches
+      path: /media/{slug}/film.mp4
+      sources: /media/{slug}/sources.json
+      field: web.film_sha256
+      # verify-production runs every 6 hours: compare size and the first and last MiB (two byte ranges), not the whole film.
+      max_bytes: 1048576
+      requires: deployed
+
+    - name: "{title}: sources.json's recorded web encode runs as long as the film, within a frame (deployed only)"
+      type: sources_duration_consistent
+      path: /media/{slug}/sources.json
+      sources: /media/{slug}/sources.json
+      field: web.film_duration_s
+      requires: deployed
+
+    - name: "{title}: the poster served is the still sources.json credits (deployed only)"
+      if: poster
+      type: sha256_matches
+      path: /media/{slug}/{poster}
+      sources: /media/{slug}/sources.json
+      field: poster.sha256
+      requires: deployed
+
+    # The trailer is optional: the old trailer does not ship with the revamped
+    # film (CoS, 2026-10-10), and the revamp trailer brings it back. When the
+    # film's sources.json declares one (publish.py --trailer), it must be served
+    # and be those bytes; when it declares none, the path must answer 404, so no
+    # stale trailer stays public (release-film.mjs deletes it). Without
+    # undeclared_status, an undeclared record would report n/a (not declared).
+    - name: "{title}: the trailer is the one sources.json declares, or not served at all (deployed only)"
+      type: sha256_matches
+      path: /media/{slug}/trailer.mp4
+      sources: /media/{slug}/sources.json
+      field: trailer.sha256
+      when_declared: trailer
+      undeclared_status: 404
+      max_bytes: 1048576
+      requires: deployed
 
 # The zone's one free WAF rate-limiting rule, shared by every product on
 # voidvision.org. Not a check: the /release skill confirms the live rule

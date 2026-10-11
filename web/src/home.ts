@@ -10,10 +10,11 @@
 // and a page without script still open the film page.
 import { aiSentence, creditsLine, formatTime, posterCredit, trailerNote, voiceSentence } from "./film-data";
 import { tapPlay } from "./player";
-import { byId, loadSources, mediaUrl, numerals } from "./site";
+import { byId, loadSources, mediaUrl, numerals, slugOf } from "./site";
 import { sendEvent } from "./telemetry";
 
-const SLUG = "partition-of-india";
+// The marquee film, from the page (the build writes it from films.json).
+const SLUG = slugOf(byId("marquee"));
 
 /**
  * Everything the marquee prints about the film comes from its sources.json:

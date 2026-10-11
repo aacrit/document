@@ -39,6 +39,8 @@
 .short p { padding-left: 10px; border-left: 2px solid var(--color-border); }
 h2.sec { font: 400 26px/1.2 var(--font-display); margin: 40px 0 8px; }
 @media (min-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr) 340px; align-items: start; } .side { position: sticky; top: 72px; } }
+/* A film's imagery rule (sources.json imagery_rule), stated above the balance when the film has one. */
+.side { display: grid; gap: 16px; align-content: start; }
 
 /* ---- site (T7) ---- */
 .small { font-size: 12px; }

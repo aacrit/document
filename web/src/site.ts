@@ -6,6 +6,16 @@ import { parseSources, type FilmSources, type MarkSpan, markHook, markWords } fr
 export const mediaUrl = (slug: string, file: string): string => `/media/${slug}/${file}`;
 export const filmPath = (slug: string): string => `/f/${slug}/`;
 
+/**
+ * The film a page is about, from its data-slug (written by the build from
+ * films.json). A page without one is a build fault, never a guess at a film.
+ */
+export function slugOf(node: HTMLElement): string {
+  const slug = node.dataset.slug;
+  if (!slug || !/^[a-z0-9-]+$/.test(slug)) throw new Error(`#${node.id || node.tagName} names no film`);
+  return slug;
+}
+
 const loading = new Map<string, Promise<FilmSources>>();
 
 /** A film's sources.json, fetched once per page however many parts of it ask (the home page's marquee and its theatre). */

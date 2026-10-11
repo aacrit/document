@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
+import { BALANCE_FALLBACK_SLUG, loadRegistry, marqueeFilm, publishedTracks, trackLabel } from "./lib/films.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CONTRACT_PATH = path.join(__dirname, "..", "contract.yaml");
@@ -32,11 +33,78 @@ export function loadContract(contractPath) {
   if (!contract || !Array.isArray(contract.checks)) {
     throw new Error(`${contractPath} has no \`checks\` list`);
   }
+  if (contract.films) {
+    const registry = loadRegistry(path.resolve(path.dirname(contractPath), contract.films.registry ?? "films.json"));
+    contract.checks = expandFilmChecks(contract, registry);
+  } else if (contract.checks.some((c) => c && c.expand)) {
+    throw new Error(`${contractPath}: checks say expand: films but there is no films block`);
+  }
   for (const check of contract.checks) {
     const problem = whenDeclaredProblem(check);
     if (problem) throw new Error(`${contractPath}: ${check.name ?? check.type}: ${problem}`);
   }
   return contract;
+}
+
+// ---- Film checks, once per registered film --------------------------------------------------
+
+const FOR = ["live", "in_production", "marquee"];
+const IF = ["poster", "declares_balance"];
+const EACH = ["caption", "related"];
+const VARS = ["slug", "title", "shows", "lang", "label", "href", "poster"];
+
+/** Fills {name} in every string of a check; a name the film does not give is a contract error. */
+function fillCheck(value, vars, where) {
+  if (typeof value === "string") {
+    return value.replace(/\{([a-z_]+)\}/g, (all, key) => {
+      if (!VARS.includes(key)) throw new Error(`${where}: unknown placeholder {${key}}`);
+      if (vars[key] === undefined || vars[key] === null) throw new Error(`${where}: {${key}} has no value for this film`);
+      return String(vars[key]);
+    });
+  }
+  if (Array.isArray(value)) return value.map((v) => fillCheck(v, vars, where));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, fillCheck(v, vars, where)]));
+  return value;
+}
+
+/**
+ * The contract's checks with `expand: films` replaced by the films block's
+ * checks, once per film in films.json (in registry order): `for` picks the
+ * films (live by default; coming; marquee, the home page's film), `each`
+ * repeats a check per published caption track or related link, and `if:
+ * poster` keeps it only for a film that names a poster. A coming film gets
+ * only the checks written for it, so its media is never required.
+ */
+export function expandFilmChecks(contract, registry) {
+  const templates = contract.films?.checks;
+  if (!Array.isArray(templates)) throw new Error("contract.yaml: films.checks must be a list");
+  const markers = contract.checks.filter((c) => c && c.expand);
+  if (markers.length !== 1 || markers[0].expand !== "films") throw new Error("contract.yaml: checks must say `expand: films` exactly once");
+  const marquee = marqueeFilm(registry);
+  const out = [];
+  for (const film of registry.films) {
+    for (const t of templates) {
+      const { for: forList = ["live"], each, if: cond, ...check } = t;
+      const where = `films.checks ${t.name ?? t.type}`;
+      if (!Array.isArray(forList) || forList.some((f) => !FOR.includes(f))) throw new Error(`${where}: for must list ${FOR.join(", ")}`);
+      if (each !== undefined && !EACH.includes(each)) throw new Error(`${where}: each must be ${EACH.join(" or ")}`);
+      if (cond !== undefined && !IF.includes(cond)) throw new Error(`${where}: if must be ${IF.join(" or ")}`);
+      const applies = forList.includes(film.status) || (forList.includes("marquee") && film === marquee);
+      if (!applies) continue;
+      if (cond === "poster" && !film.poster) continue;
+      // Only the pilot's live file may lack a balance block (its figures are the site's fallback); every other live film declares one.
+      if (cond === "declares_balance" && film.slug === BALANCE_FALLBACK_SLUG && film.balance_fallback === true) continue;
+      const base = { slug: film.slug, title: film.title, shows: film.shows, poster: film.poster };
+      const rows =
+        each === "caption"
+          ? publishedTracks(film).map((c) => ({ ...base, lang: c.lang, label: trackLabel(c) }))
+          : each === "related"
+            ? (film.related ?? []).map((r) => ({ ...base, href: r.href }))
+            : [base];
+      for (const vars of rows) out.push({ ...fillCheck(check, vars, where), film: film.slug });
+    }
+  }
+  return contract.checks.flatMap((c) => (c && c.expand ? out : [c]));
 }
 
 /**
@@ -419,6 +487,14 @@ async function runCheck(check, baseUrl, originalBase = baseUrl) {
         const actual = data?.[check.field];
         const pass = actual === check.expect;
         return { label, pass, detail: pass ? undefined : `expected ${check.field}=${check.expect}, got ${actual}` };
+      }
+      case "json_has": {
+        // A dotted field of a JSON file is present and not null (a film's sources.json declares its balance).
+        if (!response.ok) return { label, pass: false, detail: `${target} answered ${response.status}` };
+        const data = await response.json();
+        const value = String(check.field).split(".").reduce((o, k) => (o == null ? undefined : o[k]), data);
+        const pass = value !== undefined && value !== null && !(Array.isArray(value) && value.length === 0);
+        return { label, pass, detail: pass ? undefined : `${check.path} has no ${check.field}` };
       }
       case "forbidden": {
         const body = await response.text();

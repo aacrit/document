@@ -44,3 +44,7 @@ studio/tests/fixture/stills/
 studio/tests/fixture/footage/
 studio/tests/fixture/audio/
 studio/tests/fixture/out/
+
+# Generated from films.json and web/templates/ by scripts/lib/films.mjs (build and dev)
+web/index.html
+web/f/
