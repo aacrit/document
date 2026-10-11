@@ -6,10 +6,21 @@ import { parseSources, type FilmSources, type MarkSpan, markHook, markWords } fr
 export const mediaUrl = (slug: string, file: string): string => `/media/${slug}/${file}`;
 export const filmPath = (slug: string): string => `/f/${slug}/`;
 
-export async function loadSources(slug: string): Promise<FilmSources> {
-  const res = await fetch(mediaUrl(slug, "sources.json"));
-  if (!res.ok) throw new Error(`sources.json: status ${res.status}`);
-  return parseSources(await res.json());
+const loading = new Map<string, Promise<FilmSources>>();
+
+/** A film's sources.json, fetched once per page however many parts of it ask (the home page's marquee and its theatre). */
+export function loadSources(slug: string): Promise<FilmSources> {
+  let p = loading.get(slug);
+  if (!p) {
+    p = fetch(mediaUrl(slug, "sources.json")).then(async (res) => {
+      if (!res.ok) throw new Error(`sources.json: status ${res.status}`);
+      return parseSources(await res.json());
+    });
+    // A failed load is not kept: a later ask tries again.
+    p.catch(() => loading.delete(slug));
+    loading.set(slug, p);
+  }
+  return p;
 }
 
 type Child = Node | string | null | undefined | false;

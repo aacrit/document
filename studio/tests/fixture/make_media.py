@@ -71,6 +71,18 @@ def slow(dest: Path, seconds: float = 4.0, fps: int = 10) -> Path:
     return dest
 
 
+def reel(dest: Path, seconds: float = 8.0) -> Path:
+    """A small stand-in for a long reel with its own soundtrack (A26): a moving
+    24 fps pattern and a steady 440 Hz tone (about -27 dBFS peak) as its "narration",
+    so a span cut from it can be measured and compared frame for frame."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    _run(["-f", "lavfi", "-i", f"testsrc2=size=320x240:rate=24:duration={seconds}",
+          "-f", "lavfi", "-i", f"sine=frequency=440:sample_rate=48000:duration={seconds}",
+          "-af", "volume=-9dB", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-g", "48", "-pix_fmt", "yuv420p",
+          "-c:a", "aac", "-b:a", "128k", "-shortest", str(dest)])
+    return dest
+
+
 def magenta(dest: Path, seconds: float = 4.0) -> Path:
     """A moving 24 fps pattern with a magenta cast (green cut to 55%), the
     shape of the 1946 newsreel's transfer cast, for the A14 neutralise test."""

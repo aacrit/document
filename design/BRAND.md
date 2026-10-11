@@ -67,3 +67,8 @@ With `prefers-reduced-motion`, every preset renders its end state at once. The b
 | Subtitles | Noto Sans Devanagari (Hindi), Noto Nastaliq Urdu (Urdu, `dir="rtl"`, taller line) | subtitle tracks and the subtitle menu only |
 
 All faces are self-hosted from `@fontsource` packages (`design/fonts.css`). The two subtitle faces still have to be added: `@fontsource/noto-sans-devanagari` and `@fontsource/noto-nastaliq-urdu`, both OFL. No font CDN.
+
+## Player on phones (2026-10-11)
+
+- **Full screen letterbox is true black.** In full screen only, the ground around the picture is `--color-fullscreen` (pure black, so the letterbox disappears into the glass); everywhere else, including the theatre's backdrop, the theatre stays `--doc-black` and `--color-letterbox`.
+- **Icon-only controls at 520 px and below** (and in landscape full screen): Play, Subtitles, Marks, Chapters, Sound and Full screen show their icons without the word under them, each keeping its `aria-label` and a 44 px target. Marks stays icon-only too (CoS decision): its menu's first line explains the marks ("What the marks mean", then "The mark in the corner says what you see."), and the menu is reachable in full screen.

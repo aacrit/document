@@ -12,6 +12,9 @@ body {
   isolation: isolate;
   position: relative;
   overflow-x: hidden;
+  /* viewport-fit=cover: nothing sits under a display cutout or the rounded corners in landscape. */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 /* Film grain lives in the dark around the pictures, behind every element,
    so it never touches a photograph. */
