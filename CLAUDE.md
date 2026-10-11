@@ -63,6 +63,9 @@ See `CHARTER.md` for its surfaces and kill dates, and `contract.yaml` for what
 
 - `npm run dev`: Vite dev server plus `wrangler dev`.
 - `npm run build`: production build to dist/, build tag injected.
+- Films: `films.json` is the registry (slug, title, status live or coming, caption tracks with their review
+  status). The build writes the home page and every live film's pages from `web/templates/` (generated,
+  gitignored; `scripts/lib/films.mjs`), and `contract.yaml`'s `films` block is expanded once per film.
 - `npm run gate`: the full gate (typecheck, build, tests, studio-test, lint-size,
   lint-workflows, lint-design, lint-docs, lint-events, gate-selftest). Must pass before
   any merge. studio-test runs pytest on `studio/tests` and needs Python 3.12 with

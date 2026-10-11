@@ -6,6 +6,8 @@
 // time: dist/build-tag.txt (read by the /healthz handler via env.ASSETS) and
 // the <meta name="build"> placeholder in dist/*.html. It also injects the
 // CSP meta into every page and writes dist/_headers (scripts/lib/csp.mjs).
+// Before Vite runs, the home page and every live film's pages are written
+// from films.json and web/templates/ (scripts/lib/films.mjs).
 
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, readdirSync } from "node:fs";
@@ -13,6 +15,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runBin } from "./lib/run-bin.mjs";
 import { cspViolations, headersFile, injectCsp } from "./lib/csp.mjs";
+import { writeSite } from "./lib/films.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const webDir = path.join(repoRoot, "web");
@@ -37,6 +40,8 @@ export function stampHtml(text, tag) {
 }
 
 function main() {
+  const site = writeSite(repoRoot);
+  console.log(`build: wrote ${site.pages.length} pages from films.json`);
   const result = runBin("vite", "vite", ["build"], { cwd: webDir });
   if (result.error || result.status !== 0) {
     console.error("build: vite build failed");

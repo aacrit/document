@@ -5,10 +5,14 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { writeSite } from "./lib/films.mjs";
 import { resolveBinPath } from "./lib/run-bin.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const webDir = path.join(repoRoot, "web");
+
+// The pages are generated from films.json; a template edit needs a restart.
+writeSite(repoRoot);
 
 const children = [
   spawn(process.execPath, [resolveBinPath("vite", "vite")], { cwd: webDir, stdio: "inherit", shell: false }),

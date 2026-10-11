@@ -9,6 +9,7 @@
 // One tap plays: tapPlay() starts the film unmuted and, on a phone, takes it
 // full screen and landscape, all inside the tap (fullscreen.ts).
 import {
+  accountsSentence,
   aiSentence,
   chapterAt,
   durationsAgree,
@@ -32,7 +33,7 @@ import {
 } from "./film-data";
 import { enterFullscreen, exitFullscreen, fullscreenPath, playFromTap, playsFullscreen, restoreInline, type FsOrientation, type FullscreenPath } from "./fullscreen";
 import { cssTimeMs } from "./fullscreen";
-import { byId, el, filmPath, loadSources, mediaUrl, numerals } from "./site";
+import { byId, el, filmPath, loadSources, mediaUrl, numerals, slugOf } from "./site";
 import { countCompletionOnce, reportCoreSuccess } from "./telemetry";
 
 /** An element the film page has below the player, absent in the home page's theatre. */
@@ -41,7 +42,7 @@ const maybe = (id: string): HTMLElement | null => document.getElementById(id);
 const playerRoot = byId("screen");
 /** The player is off screen in the home page's theatre while the theatre is closed: then no key, hash or seek link may drive it. */
 export const playerOffScreen = (): boolean => Boolean(playerRoot.closest("dialog:not([open])"));
-const SLUG = playerRoot.dataset.slug ?? "partition-of-india";
+const SLUG = slugOf(playerRoot);
 const FILM = filmPath(SLUG);
 
 const video = byId<HTMLVideoElement>("film");
@@ -316,16 +317,11 @@ function renderTranscript(d: FilmSources): void {
   );
 }
 
-const SIDE_PHRASE: Record<string, string> = { britain: "Britain", india: "India", pakistan: "Pakistan", bangladesh: "Bangladesh", sikh: "the Sikh community" };
-
 function renderNotes(d: FilmSources): void {
-  const sides = Object.keys(SIDE_PHRASE).filter((s) => d.readings.some((r) => r.side === s));
-  if (sides.length) {
-    const names = sides.map((s) => SIDE_PHRASE[s]);
-    const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0];
-    const accounts = maybe("accounts");
-    if (accounts) accounts.textContent = `Accounts from ${list}.`;
-  }
+  // The sides and how each is named come from the film's own balance block (or Partition's, before films declared one).
+  const said = accountsSentence(d.balance, d.readings);
+  const accounts = maybe("accounts");
+  if (said && accounts) accounts.textContent = said;
   const ai = aiSentence(d.shots);
   const voice = voiceSentence(d.readings, d.narrator);
   for (const id of ["ai-sentence", "ai-sentence-legend"]) byId(id).textContent = ai;
@@ -356,14 +352,33 @@ function renderNotes(d: FilmSources): void {
 
 // ---- Menus: subtitles and the marks legend -------------------------------------------
 
+// The caption tracks are the film's reviewed ones, one <track> each, written
+// into the page from films.json (scripts/lib/films.mjs): a track still in
+// review is never in the page, so it can never be chosen.
 let captionsOn = false;
-function setCaptions(on: boolean): void {
-  captionsOn = on && Boolean(track);
-  if (track) track.mode = captionsOn ? "hidden" : "disabled";
+/** The track last chosen, so C turns that one back on. */
+let chosen = "";
+const trackFor = (lang: string): TextTrack | null => Array.from(video.textTracks).find((t) => t.language === lang) ?? null;
+
+function setCaptions(lang: string | null): void {
+  const next = lang ? trackFor(lang) : null;
+  for (const t of Array.from(video.textTracks)) if (t !== next) t.mode = "disabled";
+  track = next;
+  captionsOn = Boolean(next);
+  if (next && lang) {
+    next.mode = "hidden";
+    chosen = lang;
+  }
   for (const b of subsMenu.querySelectorAll<HTMLButtonElement>("[data-track]")) {
-    b.setAttribute("aria-checked", String((b.dataset.track === "en") === captionsOn));
+    b.setAttribute("aria-checked", String(captionsOn ? b.dataset.track === lang : b.dataset.track === "off"));
   }
   draw();
+}
+
+/** The language C turns on: the last one chosen, else the first offered. */
+function defaultTrack(): string | null {
+  if (chosen) return chosen;
+  return subsMenu.querySelector<HTMLButtonElement>("[data-track]:not([data-track=off]):not([disabled])")?.dataset.track ?? null;
 }
 
 function closeMenus(except?: HTMLElement): void {
@@ -393,16 +408,20 @@ function toggleMenu(menu: HTMLElement, btn: HTMLButtonElement, focus: boolean): 
 }
 
 function setupMenus(): void {
-  const tracks = video.textTracks;
-  track = tracks.length ? tracks[0] : null;
-  if (track) track.mode = "disabled";
-  const trackEl = video.querySelector("track");
-  trackEl?.addEventListener("error", () => {
-    byId("captions-error").hidden = false;
-    subsMenu.querySelector<HTMLButtonElement>('[data-track="en"]')?.setAttribute("disabled", "");
-    setCaptions(false);
-  });
-  track?.addEventListener("cuechange", () => drawCue(video.currentTime));
+  for (const t of Array.from(video.textTracks)) {
+    t.mode = "disabled";
+    t.addEventListener("cuechange", () => drawCue(video.currentTime));
+  }
+  for (const trackEl of video.querySelectorAll("track")) {
+    trackEl.addEventListener("error", () => {
+      const msg = byId("captions-error");
+      msg.textContent = `The ${trackEl.label} could not load. Reload the page to try again.`;
+      msg.hidden = false;
+      subsMenu.querySelector<HTMLButtonElement>(`[data-track="${trackEl.srclang}"]`)?.setAttribute("disabled", "");
+      if (chosen === trackEl.srclang) chosen = "";
+      if (track === trackEl.track) setCaptions(null);
+    });
+  }
 
   subsBtn.addEventListener("click", (e) => toggleMenu(subsMenu, subsBtn, e.detail === 0));
   marksBtn.addEventListener("click", (e) => toggleMenu(legend, marksBtn, e.detail === 0));
@@ -413,7 +432,7 @@ function setupMenus(): void {
   });
   for (const b of subsMenu.querySelectorAll<HTMLButtonElement>("[data-track]")) {
     b.addEventListener("click", () => {
-      setCaptions(b.dataset.track === "en");
+      setCaptions(b.dataset.track === "off" ? null : (b.dataset.track ?? null));
       closeMenus();
       subsBtn.focus();
     });
@@ -605,7 +624,7 @@ function setupKeys(): void {
         break;
       case "c":
       case "C":
-        setCaptions(!captionsOn);
+        setCaptions(captionsOn ? null : defaultTrack());
         break;
       case "f":
       case "F":

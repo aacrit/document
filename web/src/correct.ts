@@ -3,11 +3,11 @@
 // email. A send is confirmed in place ("Sent."), with no page jump.
 import { correctionText, whereIsValid } from "./correction";
 import { formatTime, shotAt, type FilmSources } from "./film-data";
-import { byId, el, loadSources, numerals } from "./site";
+import { byId, el, loadSources, numerals, slugOf } from "./site";
 import { sendEvent } from "./telemetry";
 
 const root = byId("correct");
-const SLUG = root.dataset.slug ?? "partition-of-india";
+const SLUG = slugOf(root);
 
 const form = byId<HTMLFormElement>("form");
 const sent = byId("sent");

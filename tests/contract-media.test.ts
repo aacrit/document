@@ -69,7 +69,10 @@ describe("media checks", () => {
 
   it("are in contract.yaml for the pilot, deployed only", () => {
     const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-    const c = parseYaml(readFileSync(path.join(root, "contract.yaml"), "utf8"));
+    // The film checks are expanded from films.json: the pilot's are the ones for its slug.
+    const all = loadContract(path.join(root, "contract.yaml"));
+    const c = { checks: all.checks.filter((x: { film?: string }) => x.film === "partition-of-india") };
+    expect(parseYaml(readFileSync(path.join(root, "contract.yaml"), "utf8")).checks.some((x: { expand?: string }) => x.expand === "films")).toBe(true);
     const media = c.checks.filter((x: { type: string }) => x.type === "sha256_matches" || x.type === "sources_duration_consistent");
     expect(media.map((x: { field: string }) => x.field).sort()).toEqual(["poster.sha256", "trailer.sha256", "web.film_duration_s", "web.film_sha256"]);
     // The trailer is optional: checked only when sources.json declares one, never required by status alone.

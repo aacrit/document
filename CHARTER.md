@@ -4,12 +4,14 @@ At most 5 surfaces for v1. Any surface added later needs a charter amendment.
 
 | Surface | Why | Justifying user event | Kill date |
 |---|---|---|---|
-| Screening room `/` | The current film, poster and past films. Until the Partition pilot ships it serves the Spark sketch | `film_completed` | 2027-05-31 |
+| Screening room `/` | The current film, poster, films in production and past films | `film_completed` | 2027-05-31 |
 | Film `/f/<slug>` | Our own HLS player (R2), chapters, captions, transcript; no YouTube embed, no cookies | `film_completed` | 2027-05-31 |
 | Sources `/f/<slug>/sources` | Every shot → archive, item, licence, credit, and what we did to it (pan, crop, animated) | `source_opened` | 2027-05-31 |
 | Corrections `/f/<slug>/correct` | People who know the place flag errors; fixes are listed in the credits | `correction_submitted` | 2027-05-31 |
 | Studio (local CLI `doc`, `studio/`) + Director's Lens | Dossier → Fable screenplay → narration → score → motion → assembly → publish packet; the Director's Lens is the founder's private render view: live on localhost, and at `/studio` behind a single admin login fed by ~5 s pushes from the laptop; never linked from the public site | `film_published` | 2027-04-30 |
 | `/privacy.html` | Disclosure for the aggregate-count telemetry, the feedback form and the rate limit; linked from the home page | `page_view` (same page load as home) | tied to the product's own kill date |
+
+Amended 2026-10-11: the screening room also lists the films in production, by title, dates and status, after the founder asked for the second film to go live end to end ("Lets finish the live version end to end for this as well.", in chat; docs/DECISIONS.md). It remains one surface.
 
 ## Kill criteria
 
