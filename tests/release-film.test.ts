@@ -18,6 +18,9 @@ describe("release-film", () => {
     expect(steps[2].args).toEqual(expect.arrayContaining(["-maxrate", `${videoKbps(120)}k`]));
     expect(steps[1].args?.join(" ")).toContain("scale=1280:720");
     expect(steps[4].args).toEqual(expect.arrayContaining(["-m", "studio.engine.publish", "--poster-id", "S-020", "--stills-ledger", "L.json"]));
+    // publish reads the screenplay the render used from the film folder, not the render folder (release 2026-10-10: it refused without it)
+    const args = steps[4].args ?? [];
+    expect(args[args.indexOf("--screenplay") + 1].replace(/\\/g, "/")).toMatch(/\/screenplay\.json$/);
     expect(steps[5].check).toBe("captions");
   });
 
