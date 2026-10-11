@@ -139,7 +139,7 @@ def packet(render_dir: Path, *, film: Path, poster: Path, poster_id: str, stills
                           "duration_s": round(float(tp["container_duration_s"] or tp["duration_s"]), 4), **edge_hashes(trailer, "sha256")}
     out.mkdir(parents=True, exist_ok=True)
     (out / "sources.json").write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
-    vtt = C.captions(Path(screenplay) if screenplay else render_dir)
+    vtt = C.captions(Path(screenplay) if screenplay else render_dir, fills=(doc.get("card_fills") or {}).get("values"))
     (out / "captions-en.vtt").write_text(vtt, encoding="utf-8", newline="\n")
     return {"sources": out / "sources.json", "captions": out / "captions-en.vtt", "web": doc["web"], "poster": doc["poster"],
             "trailer": doc.get("trailer")}

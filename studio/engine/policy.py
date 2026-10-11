@@ -14,10 +14,11 @@ these were settings:
   ``women_floor`` (0.30, GRAMMAR 6.5; never under 0.30) and
   ``ai_generated_share_max`` (0.0, the pilots' decision; never over 0.15,
   GRAMMAR 2.6).
-- ``shortfalls``: ``[{what, measured, floor, stated_on, stated_as?}]``. A share
-  under its floor passes as a journaled review item only when it is declared
-  here and the card named by ``stated_on`` states it in words a viewer reads,
-  and every share that card prints is one the film measures.
+- ``shortfalls``: ``[{what, floor, stated_on, measured?}]``. A share under its
+  floor passes as a journaled review item only when it is declared here and
+  the card named by ``stated_on`` prints it through ``{<what>_share}``, which
+  the engine fills from the film's own measurement; the card holds no other
+  number. ``measured`` is advisory.
 """
 
 from __future__ import annotations
@@ -101,6 +102,11 @@ def imagery_rule(play: dict) -> tuple[dict, list[str]]:
     return dict(rule, declared=True), problems
 
 
+def flag(v) -> bool:
+    """A content flag stated true or false: a real bool, never 1, 0 or "true"."""
+    return type(v) is bool
+
+
 def is_patient(item: dict | None) -> bool:
     """A frame of a person with the disease: graphic_medical or a named patient."""
     return bool(item) and (item.get("graphic_medical") is True or item.get("named_patient") is True)
@@ -128,9 +134,10 @@ def _norm(text: str) -> str:
 
 
 def says_name(text: str, name: str) -> bool:
-    """The name, as whole words, in the text (case and spacing set aside)."""
+    """The name, as whole words, in the text (case and spacing set aside); a
+    hyphen is part of a name, so "Paul" is not found in "Jean-Paul"."""
     n = _norm(name)
-    return bool(n) and re.search(rf"(?<!\w){re.escape(n)}(?!\w)", _norm(text)) is not None
+    return bool(n) and re.search(rf"(?<![\w-]){re.escape(n)}(?![\w-])", _norm(text)) is not None
 
 
 def bodies_value(item: dict):
@@ -149,14 +156,14 @@ def asset_checks(item: dict, rule: dict) -> list[dict]:
     out = []
     bodies = bodies_value(item)
     if rule["show_bodies"]:
-        out.append({"rule": "no-bodies", "ok": bodies in (True, False), "severity": "block",
+        out.append({"rule": "no-bodies", "ok": flag(bodies), "severity": "block",
                     "evidence": {"shows_bodies": bodies, "imagery_rule": "show_bodies: true (the film's rule)",
-                                 "why": None if bodies in (True, False) else "shows_bodies must be stated true or false"}})
+                                 "why": None if flag(bodies) else "shows_bodies must be stated true or false"}})
     else:
         out.append({"rule": "no-bodies", "ok": bodies is False, "severity": "block", "evidence": {"shows_bodies": bodies}})
     if not (rule.get("declared") or carries_content_fields(item)):
         return out
-    unstated = {k: item.get(k, "(absent)") for k in REQUIRED_FLAGS if item.get(k) not in (True, False)}
+    unstated = {k: item.get(k, "(absent)") for k in REQUIRED_FLAGS if not flag(item.get(k))}
     out.append({"rule": "content-flags", "ok": not unstated, "severity": "block",
                 "evidence": {"unstated": unstated, "why": None if not unstated else
                              "stated true or false on every cited asset once checked; missing or unknown is never read as false"}})
@@ -288,16 +295,83 @@ SETTING_BOUNDS = {                        # what GRAMMAR allows a film to set
     "ai_generated_share_max": (0.0, 0.15),   # 2.6 and A2: at most 15% of runtime
 }
 SHORTFALL_WHAT = {"readings": "readings_floor", "voiceless": "voiceless_floor", "women": "women_floor"}
-SHORTFALL_TOL = 0.03                      # a printed share within 3 points of the measured one
-FLOOR_EXACT = 0.005                       # a printed share that is the floor itself ("under the fifth the grammar asks")
-SHORTFALL_WORDS = {
-    "readings": ("reading", "recording", "testimony", "first-person", "first person", "own words"),
-    "voiceless": ("silence", "silent", "voiceless", "no voice", "without a voice"),
-    "women": ("woman", "women"),
-}
-SHORT_WORDS = ("under", "short", "below", "less than", "fewer", "only")
-FRACTIONS = {"half": 1 / 2, "third": 1 / 3, "quarter": 1 / 4, "fifth": 1 / 5, "sixth": 1 / 6, "seventh": 1 / 7,
-             "eighth": 1 / 8, "ninth": 1 / 9, "tenth": 1 / 10}
+# A25 refined (CoS design reset): a shortfall card prints its numbers only through placeholders, filled from
+# the film's own measurement at the mix; the card may hold no other number of any kind.
+PLACEHOLDER = re.compile(r"\{(readings|women|voiceless)_(share|floor)(?::(pct|words|fraction))?\}")
+ANY_BRACE = re.compile(r"\{[^{}]*\}")
+FRACTION_FORMS = ((1 / 2, "a half"), (1 / 3, "a third"), (1 / 4, "a quarter"), (1 / 5, "a fifth"), (1 / 10, "a tenth"))
+FRACTION_EXACT = 0.005                    # a share within half a point of a fraction is written as that fraction
+_ONES = ("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen "
+         "seventeen eighteen nineteen").split()
+_TENS = "twenty thirty forty fifty sixty seventy eighty ninety".split()
+_STRAY_WORDS = (_ONES + _TENS + ["hundred", "hundreds", "thousand", "thousands", "million", "dozen", "half", "halves",
+                                 "third", "thirds", "quarter", "quarters", "fifth", "fifths", "sixth", "sixths", "seventh",
+                                 "sevenths", "eighth", "eighths", "ninth", "ninths", "tenth", "tenths", "percent",
+                                 "percentage", "per cent"])
+# digits in any script, number and fraction words, percent signs, vulgar fractions: none may stand on a shortfall card
+STRAY_NUMBER = re.compile(r"\d|[%\uff05\u2030\u00bc-\u00be\u2150-\u215e]|(?<![\w-])(?:"
+                          + "|".join(re.escape(w).replace("\\ ", "\\s+") for w in sorted(_STRAY_WORDS, key=len, reverse=True))
+                          + r")s?(?![\w])", re.I)
+
+
+def number_words(n: int) -> str:
+    """0 to 100 in words ("twelve", "twenty-one", "one hundred")."""
+    if n == 100:
+        return "one hundred"
+    if n < 20:
+        return _ONES[n]
+    tens, ones = divmod(n, 10)
+    return _TENS[tens - 2] + (f"-{_ONES[ones]}" if ones else "")
+
+
+def format_share(v: float, fmt: str | None) -> str:
+    """The fixed formatter table: ``pct`` "12 percent" (the default),
+    ``words`` "twelve percent", ``fraction`` "a fifth" for a half, a third,
+    a quarter, a fifth or a tenth within half a point, else pct."""
+    n = int(math.floor(float(v) * 100 + 0.5))
+    if fmt == "words":
+        return f"{number_words(max(0, min(100, n)))} percent"
+    if fmt == "fraction":
+        for f, words in FRACTION_FORMS:
+            if abs(float(v) - f) <= FRACTION_EXACT:
+                return words
+    return f"{n} percent"
+
+
+def fill_placeholders(text: str, values: dict) -> str:
+    """Every placeholder filled from ``values`` ({what: {"share", "floor"}})."""
+    def one(m):
+        what, kind, fmt = m.group(1), m.group(2), m.group(3)
+        return format_share(values[what][kind], fmt)
+    return PLACEHOLDER.sub(one, str(text or ""))
+
+
+def has_placeholder(text: str) -> bool:
+    return bool(ANY_BRACE.search(str(text or "")))
+
+
+def template_problems(text: str, whats: set | list, *, needs_share: bool) -> tuple[list[str], dict]:
+    """What is wrong with a shortfall card's text (or a subtitle or text
+    element shown with it): an unknown placeholder, a placeholder for a
+    shortfall the card does not state, any digit, number word, fraction or
+    percent sign outside a placeholder, and, on the card itself, a stated
+    shortfall without its ``{<what>_share}``."""
+    t = str(text or "")
+    probs = []
+    unknown = [m.group(0) for m in ANY_BRACE.finditer(t) if not PLACEHOLDER.fullmatch(m.group(0))]
+    if unknown:
+        probs.append(f"unknown placeholders {unknown} (known: {{<readings|women|voiceless>_<share|floor>[:pct|words|fraction]}})")
+    used = {m.group(1) for m in PLACEHOLDER.finditer(t)}
+    others = sorted(used - set(whats))
+    if others:
+        probs.append(f"placeholders for {', '.join(others)}, which no shortfall stated on this card declares")
+    stray = [m.group(0) for m in STRAY_NUMBER.finditer(ANY_BRACE.sub(" ", t))]
+    if stray:
+        probs.append(f"numbers outside a placeholder: {stray}; a shortfall card prints numbers only through placeholders")
+    missing = sorted(w for w in whats if needs_share and not re.search(rf"\{{{w}_share(?::\w+)?\}}", t))
+    if missing:
+        probs.append(f"no {{<what>_share}} for {', '.join(missing)}: a card that states a shortfall prints the film's measured share")
+    return probs, {"placeholders": sorted({m.group(0) for m in PLACEHOLDER.finditer(t)}), "stray": stray}
 
 
 def film_settings(play: dict) -> tuple[dict, dict, list[str]]:
@@ -328,90 +402,14 @@ def film_settings(play: dict) -> tuple[dict, dict, list[str]]:
     return settings, stated, problems
 
 
-FLOOR_WORDS = ("asks", "floor", "rule", "grammar", "requires", "at least", "the standard")
-BEFORE_FLOOR = ("under", "below", "short of", "less than")
-CLAUSE = re.compile(r"[^,;:.!?]+")
-
-
-def printed_share_spans(text: str) -> list[tuple[float, int, int]]:
-    """Each share a text prints, with where it stands: '16 percent', '16%',
-    '16 per cent', and fractions ('one sixth', 'a fifth'), in text order."""
-    t = str(text or "").lower()
-    out = [(float(m.group(1)) / 100, m.start(), m.end())
-           for m in re.finditer(r"(\d+(?:\.\d+)?)\s*(?:%|per\s*cent|percent)", t)]
-    for word, v in FRACTIONS.items():
-        out += [(v, m.start(), m.end()) for m in re.finditer(rf"\b{word}s?\b", t)]
-    return sorted(out, key=lambda x: x[1])
-
-
-def printed_shares(text: str) -> list[float]:
-    """Shares a text prints (printed_share_spans without positions)."""
-    return [v for v, _, _ in printed_share_spans(text)]
-
-
-def phrased_as_floor(text: str, start: int, end: int) -> bool:
-    """A printed share stands as the rule's floor, not as a measured fact,
-    only when its clause (between , ; : . ! ?) holds a floor word (asks,
-    floor, rule, grammar, requires, at least, the standard) and a shortfall
-    word (under, below, short of, less than) comes before it in that clause:
-    "under the fifth the grammar asks", "under the 30 percent floor"."""
-    t = str(text or "").lower()
-    for m in CLAUSE.finditer(t):
-        if m.start() <= start and end <= m.end():
-            clause, before = m.group(0), t[m.start(): start]
-            return (any(re.search(rf"\b{re.escape(w)}\b", clause) for w in FLOOR_WORDS)
-                    and any(re.search(rf"\b{re.escape(w)}\b", before) for w in BEFORE_FLOOR))
-    return False
-
-
 def _share(x) -> float | None:
     return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) else None
 
 
-def _states(sf: dict, text: str, siblings: list[dict]) -> tuple[bool, dict]:
-    """The word-and-number test on one text: it names what is short, says it
-    is short (a share within 3 points of the measured one, or a word of
-    shortfall), and every share it prints is within 3 points of a measured
-    share stated on this card, or is exactly one of their floors phrased as
-    the rule's floor (phrased_as_floor). A floor printed as a fact ("Women
-    carry 30 percent of the testimony.") is a false number."""
-    t = _norm(text)
-    measured = [m for m in (_share(s.get("measured")) for s in siblings) if m is not None]
-    floors = [f for f in (_share(s.get("floor")) for s in siblings) if f is not None]
-    spans = printed_share_spans(t)
-    nums = [n for n, _, _ in spans]
-    stray = [n for n, a, b in spans if not any(abs(n - m) <= SHORTFALL_TOL for m in measured)
-             and not (any(abs(n - f) <= FLOOR_EXACT for f in floors) and phrased_as_floor(t, a, b))]
-    m0 = _share(sf.get("measured"))
-    mine = [n for n, a, b in spans if m0 is not None and abs(n - m0) <= SHORTFALL_TOL
-            and not (any(abs(n - f) <= FLOOR_EXACT for f in floors) and phrased_as_floor(t, a, b))]
-    names = [w for w in SHORTFALL_WORDS.get(sf.get("what"), ()) if w in t]
-    short = [w for w in SHORT_WORDS if re.search(rf"\b{w}\b", t)]
-    ok = bool(names) and bool(mine or short) and not stray
-    return ok, {"names_it": names, "numbers_on_card": [round(n, 4) for n in nums], "numbers_of_it": [round(n, 4) for n in mine],
-                "stray_numbers": [round(n, 4) for n in stray], "shortfall_words": short}
-
-
-def shortfall_stated(sf: dict, card_text: str, siblings: list[dict] | None = None) -> tuple[bool, dict]:
-    """Does the card's text state this shortfall truthfully? The card names
-    what is short and says it is short, and every share it prints is the
-    measured share of a shortfall it states (within 3 points) or that
-    shortfall's floor. With ``stated_as``, that phrase is on the card and
-    passes the same test on its own. ``how["numbers_of_it"]`` are the card's
-    shares for this shortfall, which the mix checks against the film."""
-    siblings = siblings or [sf]
-    ok, how = _states(sf, card_text, siblings)
-    if sf.get("stated_as"):
-        phrase = _norm(sf["stated_as"])
-        own_ok, own = _states(sf, phrase, siblings)
-        on_card = phrase in _norm(card_text)
-        how = dict(how, stated_as=sf["stated_as"], stated_as_on_card=on_card, stated_as_test=own)
-        ok = ok and on_card and own_ok
-    return ok, how
-
-
 def shortfall_problems(sf: dict, settings: dict) -> list[str]:
-    """What is wrong with one declared shortfall, before its card is read."""
+    """What is wrong with one declared shortfall, before its card is read.
+    ``measured`` is advisory (the card prints the film's own measurement);
+    if given it must be a share."""
     out = []
     if not isinstance(sf, dict):
         return [f"a shortfall must be an object, not {sf!r}"]
@@ -419,15 +417,14 @@ def shortfall_problems(sf: dict, settings: dict) -> list[str]:
     if what not in SHORTFALL_WHAT:
         out.append(f"what must be one of {', '.join(sorted(SHORTFALL_WHAT))}, not {what!r}")
         return out
-    for k in ("measured", "floor"):
-        v = sf.get(k)
-        if _share(v) is None or not 0 <= float(v) <= 1:
-            out.append(f"{k} must be a share from 0 to 1, not {v!r}")
+    v = sf.get("floor")
+    if _share(v) is None or not 0 <= float(v) <= 1:
+        out.append(f"floor must be a share from 0 to 1, not {v!r}")
+    if "measured" in sf and (_share(sf["measured"]) is None or not 0 <= float(sf["measured"]) <= 1):
+        out.append(f"measured (advisory) must be a share from 0 to 1, not {sf['measured']!r}")
     floor = settings[SHORTFALL_WHAT[what]]
     if _share(sf.get("floor")) is not None and abs(float(sf["floor"]) - floor) > 1e-6:
         out.append(f"floor {sf['floor']:g} is not the film's {SHORTFALL_WHAT[what]} ({floor:g})")
-    if _share(sf.get("measured")) is not None and _share(sf.get("floor")) is not None and sf["measured"] >= sf["floor"]:
-        out.append(f"measured {sf['measured']:g} is not under the floor {sf['floor']:g}: nothing is short")
     if not sf.get("stated_on"):
         out.append("stated_on must name the card shot that states it")
     return out

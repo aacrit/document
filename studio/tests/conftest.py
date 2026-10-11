@@ -24,17 +24,20 @@ WORKERS = 2
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):
-    """Each worktree's suite gets its own temp root. Under the shared
-    ``pytest-of-<user>`` root, pytest keeps only the 3 newest sessions, so with
+    """Each worktree's suite gets its own temp root, and pytest keeps its
+    numbered, pruned sessions inside it. Under the shared root
+    ``pytest-of-<user>``, pytest keeps only the 3 newest sessions, so with
     builders testing in parallel worktrees one session pruned another's live
     folder mid-run (ENGINE-LOG 2026-10-11: test_a_synthetic_still_cannot_be_marked_archive
-    lost its stills, FileNotFoundError). A ``--basetemp`` given on the
-    command line still wins."""
-    if config.option.basetemp is None:
+    lost its stills, FileNotFoundError). PYTEST_DEBUG_TEMPROOT set by the
+    caller, or a ``--basetemp``, still wins."""
+    if not os.environ.get("PYTEST_DEBUG_TEMPROOT"):
         import hashlib
         import tempfile
         key = hashlib.sha256(str(ROOT).lower().encode()).hexdigest()[:10]
-        config.option.basetemp = str(Path(tempfile.gettempdir()) / f"document-studio-tests-{key}")
+        root = Path(tempfile.gettempdir()) / f"document-studio-tests-{key}"
+        root.mkdir(parents=True, exist_ok=True)
+        os.environ["PYTEST_DEBUG_TEMPROOT"] = str(root)
 
 
 @pytest.fixture(scope="session", autouse=True)

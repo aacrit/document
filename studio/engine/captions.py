@@ -221,9 +221,36 @@ def to_vtt(cues: list[Cue]) -> str:
     return "\n".join(blocks)
 
 
-def captions(path: Path) -> str:
+def fill_play(play: dict, values: dict | None) -> dict:
+    """GRAMMAR A25 refined: a shortfall card's subtitle carries placeholders
+    (``{women_share:pct}``) that the render filled from its measurement; the
+    captions take the same values (sources.json ``card_fills.values``). A
+    placeholder left unfilled is refused, never published as written."""
+    from studio.engine import policy as POL
+    out = dict(play, subtitle_source=[dict(c) for c in play.get("subtitle_source", [])])
+    for c in out["subtitle_source"]:
+        if POL.has_placeholder(c.get("en")):
+            if not values:
+                raise CaptionError(f"cue {c.get('ref')} holds a placeholder and no filled values were given "
+                                   "(the render's sources.json card_fills)")
+            c["en"] = POL.fill_placeholders(c["en"], values)
+            if POL.has_placeholder(c["en"]):
+                raise CaptionError(f"cue {c.get('ref')} holds an unknown placeholder: {c['en']}")
+    return out
+
+
+def render_fills(path: Path) -> dict | None:
+    """The filled values a render recorded beside its screenplay, if any."""
+    folder = path if path.is_dir() else path.parent
+    src = folder / "sources.json"
+    if not src.is_file():
+        return None
+    return (json.loads(src.read_text(encoding="utf-8")).get("card_fills") or {}).get("values")
+
+
+def captions(path: Path, fills: dict | None = None) -> str:
     play = json.loads(find_screenplay(path).read_text(encoding="utf-8"))
-    return to_vtt(build_cues(play))
+    return to_vtt(build_cues(fill_play(play, fills if fills is not None else render_fills(path))))
 
 
 def main(argv: list[str] | None = None) -> int:
