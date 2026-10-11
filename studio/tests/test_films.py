@@ -634,7 +634,7 @@ def test_e11_an_audio_only_clip_is_measured_too(film):
     tone(film / "footage" / "fx-audio.wav", 3.0)
     _edit(film, lambda d: d["items"].append({"id": "FX-AUDIO", "file": "fx-audio.wav", "title": "Test tone, test fixture",
                                              "date": "2026", "archive": "studio test fixture", "licence": "CC0", "synthetic": True,
-                                             "transcript_file": "transcripts/fx-reel.txt"}), "footage-ledger.json")
+                                             "test_fixture": True, "transcript_file": "transcripts/fx-reel.txt"}), "footage-ledger.json")
     _archival(film, line={"clip": "FX-AUDIO", "in_s": 1.0, "out_s": 4.0})
     with pytest.raises(R.Refused, match=r"archival-span \(A1\).*past the clip's end"):
         _plan(film, "audio-past-end")

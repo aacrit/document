@@ -10,6 +10,23 @@ Document is a single-purpose web product served at `https://document.voidvision.
 See `CHARTER.md` for its surfaces and kill dates, and `contract.yaml` for what
 "serving correctly" means in a script.
 
+## Founding principle: show as was, not as is, and never tell (A0)
+
+`films/GRAMMAR.md` A0 outranks every other rule, in the films and on the site.
+- **Show as was:** the period's own footage, photographs, maps, documents,
+  recordings, place names (Dacca, Bombay, Ceylon) and terms, quoted, never modernised.
+- **Not as is:** each screenplay declares `as_of`, its story's horizon. Nothing
+  said, shown or heard postdates it: no present-day facts, footage, maps, names or
+  "would later"/"today". Ledger items are dated (`date`; a studio-made one
+  `content_date` with `content_basis`); facts carry `facts: [<id>]` with
+  `known_by` and `known_by_basis` in the film's `facts_ledger`.
+- **Never tell:** the narrator gives no opinion, verdict or editorial adjective;
+  the thesis lives in selection and order. Period quotes may judge (`quote: true`
+  on a card, double quotes in narration). The film ends on one question asked from
+  inside the time.
+- Enforced by `studio/engine/aswas.py` at plan time and by the site's copy lint
+  (`scripts/lib/show-as-was.mjs`), both reading `studio/show-as-was.json`.
+
 ## Fixed constraints
 
 - **$0 running cost.** Everything fits the free tiers declared in `budget.yaml`.
