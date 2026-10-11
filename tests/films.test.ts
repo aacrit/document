@@ -8,7 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parse as yamlParse } from "yaml";
-import { expandFilmChecks, loadContract } from "../scripts/contract.mjs";
+import { expandFilmChecks, loadContract, runContract } from "../scripts/contract.mjs";
 import {
   fill,
   listedFilms,
@@ -45,18 +45,18 @@ const rawFilms = () => yamlParse(read("contract.yaml")).films;
 const partition = () => clone(registry.films.find((f: Film) => f.slug === "partition-of-india"));
 
 describe("films.json", () => {
-  it("is a sound registry: Partition live on the marquee, Nought coming, in order", () => {
+  it("is a sound registry: Partition live on the marquee, Nought in production, in order", () => {
     expect(registryProblems(registry)).toEqual([]);
     expect(listedFilms(registry).map((f: Film) => [f.slug, f.status])).toEqual([
       ["partition-of-india", "live"],
-      ["smallpox-eradication", "coming"],
+      ["smallpox-eradication", "in_production"],
     ]);
     expect(marqueeFilm(registry).slug).toBe("partition-of-india");
     const nought = registry.films.find((f: Film) => f.slug === "smallpox-eradication");
     expect(nought.title).toBe("Nought");
     expect(nought.poster).toBeNull();
-    // Its only copy is THEMES.md theme C's spine line, as written there.
-    expect(read("films.json")).toContain("A number that had never been zero in human history was made zero, one case at a time.");
+    // A film in production says nothing it cannot yet source: title, dates and status only (CoS, 2026-10-11).
+    for (const k of ["synopsis", "logline", "content_note", "shows"]) expect(nought[k], k).toBeUndefined();
   });
 
   it("refuses a registry that would publish something wrong", () => {
@@ -66,23 +66,27 @@ describe("films.json", () => {
       return registryProblems(r).join("\n");
     };
     expect(bad((r) => r.films.push(clone(r.films[0])))).toMatch(/slug is listed twice/);
-    expect(bad((r) => (r.films[1].status = "soon"))).toMatch(/status must be one of live, coming/);
+    expect(bad((r) => (r.films[1].status = "soon"))).toMatch(/status must be one of live, in_production/);
+    expect(bad((r) => (r.films[1].status = "paused"))).toMatch(/a paused film is taken off films\.json, not listed: remove the entry/);
+    expect(bad((r) => ((r.films[1] as Film).synopsis = "Unsourced words."))).toMatch(/in production shows title, dates and status only: remove synopsis/);
+    expect(bad((r) => ((r.films[1] as Film).logline = "x"))).toMatch(/remove logline/);
+    expect(bad((r) => ((r.films[1] as Film).balance_fallback = true))).toMatch(/only partition-of-india may fall back/);
     expect(bad((r) => delete r.films[0].shows)).toMatch(/must say what it shows/);
     expect(bad((r) => delete r.films[0].synopsis)).toMatch(/needs a synopsis/);
     expect(bad((r) => delete r.films[0].legend)).toMatch(/legend/);
     expect(bad((r) => (r.films[0].languages.captions[1].review = "ok"))).toMatch(/review \(reviewed, in_review, planned\)/);
     expect(bad((r) => (r.films[0].slug = "Partition Of India"))).toMatch(/lowercase words/);
-    expect(bad((r) => (r.films[0].status = "coming"))).toMatch(/no live film for the marquee/);
+    expect(bad((r) => (r.films[0].status = "in_production"))).toMatch(/no live film for the marquee/);
     expect(bad((r) => (r.films[0].related[0].href = "http://x"))).toMatch(/https href/);
-    // A coming film needs no synopsis, poster, shows or legend.
-    expect(bad((r) => delete r.films[1].synopsis)).toBe("");
+    // A film in production needs no poster, shows or legend.
+    expect(bad((r) => delete r.films[1].poster)).toBe("");
   });
 });
 
 describe("the generated pages", () => {
   const pages = sitePages(registry, templates);
 
-  it("are the home page and each live film's three pages; a coming film has none", () => {
+  it("are the home page and each live film's three pages; a film in production has none", () => {
     expect(Object.keys(pages).sort()).toEqual(["f/partition-of-india/correct/index.html", "f/partition-of-india/index.html", "f/partition-of-india/sources/index.html", "index.html"]);
     // Vite builds exactly those pages (web/vite.config.ts reads films.json the same way).
     const input = (viteConfig as { build: { rollupOptions: { input: Record<string, string> } } }).build.rollupOptions.input;
@@ -100,11 +104,11 @@ describe("the generated pages", () => {
     expect(section(pages["index.html"])).toBe(section(pages["f/partition-of-india/index.html"]).replace('preload="metadata"', 'preload="none"'));
   });
 
-  it("the home page lists every film: the marquee film linked as now showing, Nought as coming and not linked", () => {
+  it("the home page lists every film: the marquee film linked as now showing, Nought as in production, by title, dates and status only", () => {
     const home = pages["index.html"];
     expect(home).toContain('<main class="marquee" id="marquee" data-slug="partition-of-india">');
     expect(home).toContain('<li><a href="/f/partition-of-india/"><span class="t">The Partition of India</span>');
-    expect(home).toMatch(/<li class="coming"><div><span class="t">Nought<\/span><span class="m"><span class="num">1967<\/span> to <span class="num">1980<\/span><\/span><span class="s">Coming<\/span>/);
+    expect(home).toContain('<li class="in-production"><div><span class="t">Nought</span><span class="m"><span class="num">1967</span> to <span class="num">1980</span></span><span class="s">In production</span></div></li>');
     expect(home).not.toContain("/f/smallpox-eradication/");
     expect(home).not.toContain("/media/smallpox-eradication/");
   });
@@ -166,6 +170,18 @@ describe("caption tracks: only reviewed ones are offered", () => {
     expect(reviewNote(f)).toBe("Bengali subtitles are planned.");
   });
 
+  it("names each track by its own kind: captions and subtitles are said apart", () => {
+    const f = partition();
+    f.languages.captions = [
+      { lang: "en", name: "English", kind: "captions", review: "in_review" },
+      { lang: "hi", name: "Hindi", kind: "subtitles", review: "in_review" },
+      { lang: "ur", name: "Urdu", kind: "subtitles", review: "in_review" },
+      { lang: "bn", name: "Bengali", kind: "subtitles", review: "planned" },
+      { lang: "fr", name: "French", kind: "captions", review: "planned" },
+    ];
+    expect(reviewNote(f)).toBe("English captions are being reviewed. Hindi and Urdu subtitles are being reviewed. French captions are planned. Bengali subtitles are planned.");
+  });
+
   it("with every track reviewed, nothing is said about review", () => {
     const f = partition();
     for (const c of f.languages.captions) c.review = "reviewed";
@@ -185,7 +201,7 @@ describe("the contract, expanded from films.json", () => {
   const contract = loadContract(path.join(root, "contract.yaml"));
   const forFilm = (slug: string) => contract.checks.filter((c: { film?: string }) => c.film === slug);
 
-  it("gives Partition every check it had, and Nought only what a coming film can answer", () => {
+  it("gives Partition every check it had, and Nought only what a film in production can answer", () => {
     expect(contract.checks).toHaveLength(41);
     expect(forFilm("partition-of-india")).toHaveLength(22);
     const nought = forFilm("smallpox-eradication");
@@ -197,6 +213,27 @@ describe("the contract, expanded from films.json", () => {
   it("keeps when_declared and undeclared_status on each film's trailer check", () => {
     const trailer = forFilm("partition-of-india").find((c: { field?: string }) => c.field === "trailer.sha256");
     expect(trailer).toMatchObject({ path: "/media/partition-of-india/trailer.mp4", sources: "/media/partition-of-india/sources.json", when_declared: "trailer", undeclared_status: 404, requires: "deployed" });
+  });
+
+  it("requires every live film but the pilot to declare its balance", () => {
+    expect(forFilm("partition-of-india").some((c: { type: string }) => c.type === "json_has")).toBe(false);
+    const r = clone(registry);
+    Object.assign(r.films[1], { status: "live", synopsis: "x", shows: "y", legend: { reconstructed: "a", drawn: "b" } });
+    const out = expandFilmChecks({ checks: [{ expand: "films" }], films: rawFilms() }, r);
+    expect(out.find((c: { film?: string; type: string }) => c.film === "smallpox-eradication" && c.type === "json_has")).toMatchObject({
+      path: "/media/smallpox-eradication/sources.json",
+      field: "balance.sides",
+      requires: "deployed",
+    });
+  });
+
+  it("json_has passes on a declared field, and fails on a missing or empty one", async () => {
+    const answer = (doc: unknown) => async () => new Response(JSON.stringify(doc), { status: 200, headers: { "content-type": "application/json" } });
+    const check = { checks: [{ name: "b", type: "json_has", path: "/media/x/sources.json", field: "balance.sides" }] };
+    const opts = (doc: unknown) => ({ fetch: answer(doc), sleep: async () => undefined });
+    expect((await runContract(check, "https://example.test", opts({ balance: { sides: ["uk"] } })))[0].pass).toBe(true);
+    expect((await runContract(check, "https://example.test", opts({ balance: { sides: [] } })))[0].pass).toBe(false);
+    expect((await runContract(check, "https://example.test", opts({ sides: ["uk"] })))[0].pass).toBe(false);
   });
 
   it("checks a caption track per reviewed track, and a poster only when the film names one", () => {
@@ -238,7 +275,7 @@ describe("the balance: per film, from its sources.json", () => {
   };
 
   it("a sources.json without a balance block (Partition's live file) keeps Partition's figures, so its page is unchanged", () => {
-    const base = { v: 2, shots: [{ id: "S1", start_s: 0, end_s: 1, mark: { class: "CARD" } }] };
+    const base = { v: 2, slug: "partition-of-india", shots: [{ id: "S1", start_s: 0, end_s: 1, mark: { class: "CARD" } }] };
     const d = parseSources(base);
     expect(d.balance).toBe(PARTITION_BALANCE);
     expect(PARTITION_BALANCE).toEqual({
@@ -293,6 +330,12 @@ describe("the balance: per film, from its sources.json", () => {
     const partial = computeBalance([r({ role: "doubter" })], c)!;
     expect(partial.roles).toBeNull();
     expect(partial.sides[0].seconds).toBe(10);
+  });
+
+  it("only the pilot falls back: another film with neither a balance nor sides shows no figures", () => {
+    const other = parseSources({ v: 2, slug: "smallpox-eradication", shots: [{ id: "S1", start_s: 0, end_s: 1, mark: { class: "CARD" } }] });
+    expect(other.balance).toBeNull();
+    expect(computeBalance([r({})], other.balance)).toBeNull();
   });
 
   it("a malformed declared block shows no figures rather than guessed ones", () => {

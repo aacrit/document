@@ -579,6 +579,9 @@ export interface BalanceConfig {
  * their own: its live sources.json has no balance block, and must keep
  * rendering exactly as it did with no re-upload.
  */
+/** The pilot, the one film whose live sources.json predates the balance block (films.json balance_fallback). */
+export const PARTITION_SLUG = "partition-of-india";
+
 export const PARTITION_BALANCE: BalanceConfig = {
   sides: [
     { id: "britain", label: "Britain", phrase: "Britain" },
@@ -657,13 +660,14 @@ export function parseBalance(x: unknown, settings?: unknown): BalanceConfig | nu
 /**
  * Which balance a sources.json gives: its declared `balance`; else its
  * `sides` (the cast's sides, which the engine always writes) with Partition's
- * band and floor; else, for a file written before films declared either
- * (Partition's live one), Partition's own figures.
+ * band and floor; else, only for the Partition pilot (its live file predates
+ * both), Partition's own figures; any other film, none.
  */
 export function balanceOf(json: Record<string, unknown>): BalanceConfig | null {
   if (json.balance !== undefined && json.balance !== null) return parseBalance(json.balance, json.settings);
   if (Array.isArray(json.sides) && json.sides.length) return parseBalance({ sides: json.sides }, json.settings);
-  return PARTITION_BALANCE;
+  // Only the pilot's live file predates the block; any other film without one shows no figures (contract.yaml requires it declared).
+  return json.slug === PARTITION_SLUG ? PARTITION_BALANCE : null;
 }
 
 /** The label a side prints under (the declared one), or the side's own id when the film declares none. */

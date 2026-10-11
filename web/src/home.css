@@ -41,4 +41,6 @@
 /* Every film in films.json, after the marquee: a live film links to its page; a coming film is listed, not linked. */
 .films li > div { display: grid; gap: 2px; padding: 14px 0; border-bottom: 1px solid var(--color-border); min-height: 56px; }
 .films li .s { font-family: var(--font-data); font-size: 11px; line-height: 1.4; letter-spacing: var(--track-eyebrow); text-transform: uppercase; color: var(--color-cream-muted); }
-.films li.coming .t { color: var(--color-cream-muted); }
+.films li.in-production .t { color: var(--color-cream-muted); }
+/* Every entry the same three rows (title, dates, status), so the status sits on one line across the row on wide screens. */
+.films li > a, .films li > div { grid-template-rows: auto auto auto; align-content: start; }

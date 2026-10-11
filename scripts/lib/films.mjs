@@ -5,9 +5,10 @@
 // build and the dev server. The generated pages are gitignored (R-08).
 //
 // films.json, v1:
-//   films[]: slug, title, dates, status ("live" | "coming"), order (the home
+//   films[]: slug, title, dates, status ("live" | "in_production"; a paused
+//   film is removed), balance_fallback (the Partition pilot only), order (the home
 //   marquee shows the live film with the lowest order), synopsis (required
-//   when live; a coming film may have none),
+//   when live; a film in production has none, nor logline, content_note or shows),
 //   logline (optional), content_note (optional), shows (what the film does
 //   and does not show; required when live), poster (the media file the
 //   contract checks, or null), legend { reconstructed, drawn } (the marks
@@ -19,7 +20,9 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-export const STATUSES = ["live", "coming"];
+export const STATUSES = ["live", "in_production"];
+/** The one film whose live sources.json predates the balance block (web/src/film-data.ts PARTITION_BALANCE). */
+export const BALANCE_FALLBACK_SLUG = "partition-of-india";
 export const REVIEWS = ["reviewed", "in_review", "planned"];
 export const PAGE_TYPES = ["home", "film", "sources", "correct", "player"];
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -43,7 +46,15 @@ export function registryProblems(reg) {
     if (slugs.has(f.slug)) out.push(`${at}: slug is listed twice`);
     slugs.add(f.slug);
     for (const k of ["title", "dates"]) if (!text(f[k])) out.push(`${at}: ${k} is missing`);
-    if (!STATUSES.includes(f.status)) out.push(`${at}: status must be one of ${STATUSES.join(", ")}`);
+    if (f.status === "paused") out.push(`${at}: a paused film is taken off films.json, not listed: remove the entry`);
+    else if (!STATUSES.includes(f.status)) out.push(`${at}: status must be one of ${STATUSES.join(", ")}`);
+    if (f.status === "in_production") {
+      // A film in production shows its title, dates and status only: nothing it says can be checked yet (CoS, 2026-10-11).
+      for (const k of ["synopsis", "logline", "content_note", "shows"]) if (f[k] !== undefined) out.push(`${at}: a film in production shows title, dates and status only: remove ${k}`);
+    }
+    if (f.balance_fallback !== undefined && !(f.balance_fallback === true && f.slug === BALANCE_FALLBACK_SLUG)) {
+      out.push(`${at}: only ${BALANCE_FALLBACK_SLUG} may fall back on its own balance figures; every other film declares its balance in sources.json`);
+    }
     if (!Number.isInteger(f.order)) out.push(`${at}: order must be a whole number`);
     for (const k of ["synopsis", "logline", "content_note", "shows"]) {
       if (f[k] !== undefined && f[k] !== null && !text(f[k])) out.push(`${at}: ${k} must be text when given`);
@@ -96,18 +107,20 @@ function listWords(items) {
 }
 
 /**
- * What the page says about tracks not yet offered, from their review status:
- * "Hindi and Urdu subtitles are being reviewed." Planned tracks are named as
- * planned. Empty when every listed track is offered.
+ * What the page says about tracks not yet offered, from their review status
+ * and their kind: "Hindi and Urdu subtitles are being reviewed.", "English
+ * captions are planned." One sentence per status and kind. Empty when every
+ * listed track is offered.
  */
 export function reviewNote(film) {
   const caps = film.languages?.captions ?? [];
-  const words = (status) => caps.filter((c) => c.review === status).map((c) => c.name);
   const out = [];
-  const inReview = words("in_review");
-  const planned = words("planned");
-  if (inReview.length) out.push(`${listWords(inReview)} subtitles are being reviewed.`);
-  if (planned.length) out.push(`${listWords(planned)} subtitles are planned.`);
+  for (const [status, verb] of [["in_review", "are being reviewed"], ["planned", "are planned"]]) {
+    for (const kind of ["captions", "subtitles"]) {
+      const names = caps.filter((c) => c.review === status && c.kind === kind).map((c) => c.name);
+      if (names.length) out.push(`${listWords(names)} ${kind} ${verb}.`);
+    }
+  }
   return out.join(" ");
 }
 
@@ -175,12 +188,12 @@ function filmVars(film) {
 function homeVars(reg) {
   const film = marqueeFilm(reg);
   const v = filmVars(film);
-  const status = (f) => (f === film ? "Now showing" : f.status === "live" ? "Showing" : "Coming");
+  const status = (f) => (f === film ? "Now showing" : f.status === "live" ? "Showing" : "In production");
   const entry = (f) => {
     const inner = `<span class="t">${esc(f.title)}</span><span class="m">${numHtml(f.dates)}</span><span class="s">${status(f)}</span>`;
     return f.status === "live"
       ? `        <li><a href="/f/${f.slug}/">${inner}</a></li>`
-      : `        <li class="coming"><div>${inner}${f.synopsis ? `<span class="m">${numHtml(f.synopsis)}</span>` : ""}</div></li>`;
+      : `        <li class="in-production"><div>${inner}</div></li>`;
   };
   return {
     ...v,

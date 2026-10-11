@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
-import { loadRegistry, marqueeFilm, publishedTracks, trackLabel } from "./lib/films.mjs";
+import { BALANCE_FALLBACK_SLUG, loadRegistry, marqueeFilm, publishedTracks, trackLabel } from "./lib/films.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CONTRACT_PATH = path.join(__dirname, "..", "contract.yaml");
@@ -48,7 +48,8 @@ export function loadContract(contractPath) {
 
 // ---- Film checks, once per registered film --------------------------------------------------
 
-const FOR = ["live", "coming", "marquee"];
+const FOR = ["live", "in_production", "marquee"];
+const IF = ["poster", "declares_balance"];
 const EACH = ["caption", "related"];
 const VARS = ["slug", "title", "shows", "lang", "label", "href", "poster"];
 
@@ -87,10 +88,12 @@ export function expandFilmChecks(contract, registry) {
       const where = `films.checks ${t.name ?? t.type}`;
       if (!Array.isArray(forList) || forList.some((f) => !FOR.includes(f))) throw new Error(`${where}: for must list ${FOR.join(", ")}`);
       if (each !== undefined && !EACH.includes(each)) throw new Error(`${where}: each must be ${EACH.join(" or ")}`);
-      if (cond !== undefined && cond !== "poster") throw new Error(`${where}: if must be poster`);
+      if (cond !== undefined && !IF.includes(cond)) throw new Error(`${where}: if must be ${IF.join(" or ")}`);
       const applies = forList.includes(film.status) || (forList.includes("marquee") && film === marquee);
       if (!applies) continue;
       if (cond === "poster" && !film.poster) continue;
+      // Only the pilot's live file may lack a balance block (its figures are the site's fallback); every other live film declares one.
+      if (cond === "declares_balance" && film.slug === BALANCE_FALLBACK_SLUG && film.balance_fallback === true) continue;
       const base = { slug: film.slug, title: film.title, shows: film.shows, poster: film.poster };
       const rows =
         each === "caption"
@@ -484,6 +487,14 @@ async function runCheck(check, baseUrl, originalBase = baseUrl) {
         const actual = data?.[check.field];
         const pass = actual === check.expect;
         return { label, pass, detail: pass ? undefined : `expected ${check.field}=${check.expect}, got ${actual}` };
+      }
+      case "json_has": {
+        // A dotted field of a JSON file is present and not null (a film's sources.json declares its balance).
+        if (!response.ok) return { label, pass: false, detail: `${target} answered ${response.status}` };
+        const data = await response.json();
+        const value = String(check.field).split(".").reduce((o, k) => (o == null ? undefined : o[k]), data);
+        const pass = value !== undefined && value !== null && !(Array.isArray(value) && value.length === 0);
+        return { label, pass, detail: pass ? undefined : `${check.path} has no ${check.field}` };
       }
       case "forbidden": {
         const body = await response.text();

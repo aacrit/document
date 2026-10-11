@@ -141,17 +141,18 @@ checks:
 # them where `checks` says `expand: films`). In each string, {slug}, {title}
 # and {shows} are the film's; {lang} and {label} a published caption track's;
 # {href} a related link's; {poster} the film's poster file. `for` says which
-# films a check is for: live (the default), coming, or marquee (the live film
-# on the home marquee). `each: caption` repeats a check for every caption
+# films a check is for: live (the default), in_production, or marquee (the
+# live film on the home marquee). `each: caption` repeats a check for every caption
 # track whose review is done; `each: related` for every related link; `if:
-# poster` keeps it only when the film names a poster. A coming film is
-# listed on the home page and has no page and no media: nothing here
-# requires its media until films.json says it is live.
+# poster` keeps it only when the film names a poster; `if: declares_balance`
+# only for a film that must declare its balance (every film but the Partition
+# pilot). A film in production is listed on the home page and has no page and
+# no media: nothing here requires its media until films.json says it is live.
 films:
   registry: films.json
   checks:
     - name: homepage names {title}
-      for: [live, coming]
+      for: [live, in_production]
       type: contains
       path: /
       text: "{title}"
@@ -168,7 +169,7 @@ films:
       text: "{shows}"
 
     - name: "{title} has no page until it is live"
-      for: [coming]
+      for: [in_production]
       type: status
       path: /f/{slug}/
       expect: 404
@@ -250,6 +251,13 @@ films:
       type: status
       path: /media/{slug}/captions-{lang}.vtt
       expect: 200
+      requires: deployed
+
+    - name: "{title}: sources.json declares the film's balance (deployed only)"
+      if: declares_balance
+      type: json_has
+      path: /media/{slug}/sources.json
+      field: balance.sides
       requires: deployed
 
     - name: "{title}: the poster is served (deployed only)"
