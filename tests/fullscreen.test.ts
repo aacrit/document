@@ -227,3 +227,14 @@ describe("the house lights' delay", () => {
     expect(read("web/src/player.ts")).toMatch(/cssTimeMs\(getComputedStyle\(document\.documentElement\)\.getPropertyValue\("--house-lights-idle"\)\)/);
   });
 });
+
+describe("the phone controls", () => {
+  it("fit one row from 360 px: icons only with their labels kept for assistive tech, the total time dropped below 380 px", () => {
+    const css = read("web/src/film.css");
+    expect(css).toMatch(/@media \(max-width: 520px\) \{[^@]*\.controls > button::after, \.controls > a\.ic::after \{ content: none; \}/);
+    expect(css).toMatch(/@media \(max-width: 520px\) \{[^@]*min-width: 44px/);
+    expect(css).toMatch(/@media \(max-width: 379\.98px\) \{ \.controls \.time \.of \{ display: none; \} \}/);
+    const film = read("web/f/partition-of-india/index.html");
+    for (const label of ["Play", "Subtitles", "Marks", "Chapters", "Sound", "Full screen"]) expect(film).toMatch(new RegExp(`aria-label="${label}"`));
+  });
+});

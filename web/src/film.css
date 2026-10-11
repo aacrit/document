@@ -168,3 +168,11 @@
 .theatre .topbar .wordmark { display: none; }
 /* Full screen keeps the frame's top-left mark zone clear: the page links wait until the viewer leaves it. */
 .screen:fullscreen .topbar { display: none; }
+/* Phones: the controls fit one row from 360 px. Icons only (each keeps its aria-label), 44 px targets;
+   below 380 px the time shows the current time alone. */
+@media (max-width: 520px) {
+  .controls > button, .controls > a.ic { min-width: 44px; padding: 0; }
+  .controls > button::after, .controls > a.ic::after { content: none; }
+  .controls .time { min-width: 0; white-space: nowrap; }
+}
+@media (max-width: 379.98px) { .controls .time .of { display: none; } }
