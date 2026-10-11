@@ -61,6 +61,7 @@ import numpy as np
 from PIL import Image
 
 from studio.engine import aswas as AW
+from studio.engine import clips as CL
 from studio.engine import motion as M
 from studio.engine import overlays as OV
 from studio.engine import policy as POL
@@ -202,7 +203,7 @@ LT_SUFFIXES = ("  ·  read by a computer voice", "  ·  original recording")
 EM_DASH = "—"
 
 _HERE = Path(__file__).resolve().parent
-ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py", "score.py", "overlays.py", "georef.py"))).hexdigest()[:12]
+ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py", "score.py", "overlays.py", "georef.py", "clips.py"))).hexdigest()[:12]
 ENGINE_MODEL = {"name": "studio.engine.render", "version": f"{ENGINE_VERSION}+{ENGINE_HASH}"}
 
 
@@ -905,9 +906,23 @@ def voice_collisions(lines: list[dict], gap: float = VOICE_GAP_S) -> list[dict]:
 
 def fit_voices(play: dict, film: Path, journal: Journal, gap: float = VOICE_GAP_S) -> dict:
     """--fit-voices: move each voice line to max(its start, the previous
-    voice's end + gap). Time is inserted at the line's start: the shot the line
-    sits in grows by that much and everything that starts at or after that
-    point moves later by the same amount. Audio is never shortened or sped up.
+    voice's end + gap). Time is inserted and everything after it moves later
+    by the same amount. Audio is never shortened or sped up.
+
+    Where the time goes in (A33(1): a line heard over its own clip's picture
+    keeps its offset into the shot equal to its offset into the source):
+    - by default at the line's start: the shot holding it grows (a clip's out
+      point moves later, any other shot's dur_s grows);
+    - when that shot is a clip with an archival line of its own at or after
+      the insertion (growing it there would slide the line off its picture):
+      at the shot's start, so the whole shot moves and the shot before it
+      grows ("lengthens the previous shot"), when the voice it collides with
+      starts before the shot; otherwise, with no archival line of the clip
+      before the insertion, the shot's in point moves earlier by the inserted
+      time ("shifts the in point") so the picture after it keeps its place.
+      When neither is possible (two archival lines of one take inside one
+      shot, or no source before the in point) the line is not moved and the
+      voice-overlap lint refuses it: split the shot.
 
     What moves, and by how much (``shift(t)`` is the time inserted at or
     before the original time t):
@@ -918,45 +933,101 @@ def fit_voices(play: dict, film: Path, journal: Journal, gap: float = VOICE_GAP_
     - each ``subtitle_source`` cue by exactly the shift of the element its
       ``ref`` names, never stretched, so a caption stays with its words even
       when it starts a few frames before them;
-    - shots: the one holding an insertion point grows, later ones move.
+    - shots: the grown one stays, later ones move (a shot-start insertion
+      moves the shot it starts).
     Every move is journaled as a decision."""
     import copy
     play = copy.deepcopy(play)
     shots = [sh for part in play["parts"] for sh in part.get("shots", [])]
+    assets: dict | None = None
+
+    def inout(sh):                                      # derive a clip's in and out points the way build_plan does
+        nonlocal assets
+        if "in_s" not in sh or "out_s" not in sh:
+            if assets is None:
+                assets = load_ledgers(film, play)
+            item = assets.get(sh.get("asset"), {})
+            in_s = float(sh.get("in_s", item.get("in_s", 0.0)))
+            sh["in_s"] = in_s
+            sh["out_s"] = float(sh.get("out_s", item.get("out_s", in_s + float(sh.get("dur_s", 0.0)))))
+
+    def grow(sh, d):
+        if sh["kind"] == "archive_video":
+            inout(sh)
+            sh["out_s"] = round(float(sh["out_s"]) + d, 4)
+        else:
+            sh["dur_s"] = round(float(sh["dur_s"]) + d, 4)
+
+    def owner_of(t):
+        cands = [sh for sh in shots if float(sh["start_s"]) <= t + 1e-9]
+        return max(cands, key=lambda sh: float(sh["start_s"])) if cands else None
+
+    def shot_end(sh):
+        if sh["kind"] == "archive_video":
+            inout(sh)
+            return float(sh["start_s"]) + float(sh["out_s"]) - float(sh["in_s"])
+        return float(sh["start_s"]) + float(sh.get("dur_s", 0.0))
+
+    vl = voice_lines(play, film)
+
+    def mode_for(v, d, prev):
+        """How time is inserted for line v delayed by d after voice prev (original timeline), or None."""
+        p, owner = v["start"], owner_of(v["start"])
+        if owner is None or owner["kind"] != "archive_video":
+            return {"mode": "grow", "at": p, "owner": owner}
+        S, end = float(owner["start_s"]), shot_end(owner)
+        mine = [x for x in vl if archival_span(x["ref"]) and x["ref"]["clip"] == owner.get("asset") and S - 1e-9 <= x["start"] < end]
+        if not any(x["start"] >= p - 1e-9 for x in mine):
+            return {"mode": "grow", "at": p, "owner": owner}
+        k = shots.index(owner)
+        if prev["start"] < S - 1e-9 and k > 0:
+            return {"mode": "shift", "at": S, "owner": owner, "grown": shots[k - 1]}
+        inout(owner)
+        if not any(x["start"] < p - 1e-9 for x in mine) and float(owner["in_s"]) >= d - 1e-9:
+            return {"mode": "in", "at": p, "owner": owner}
+        return None
+
     # 1. Where time is inserted, on the original timeline.
-    points: list[tuple[float, float, dict]] = []          # (original start, seconds inserted, line)
-    acc, prev_end = 0.0, None
-    for v in voice_lines(play, film):
+    points: list[dict] = []
+    acc, prev_end, prev = 0.0, None, None
+    for v in vl:
         start = v["start"] + acc
         if prev_end is not None and start < prev_end + gap - 1e-9:
             delta = round(prev_end + gap - start, 4)
-            points.append((v["start"], delta, v["ref"]))
-            acc += delta
-            start += delta
-        prev_end = max(prev_end or 0.0, start + v["dur"])
+            m = mode_for(v, delta, prev)
+            if m is None:
+                journal.decision("scout", f"did not move {v['id']}: no insertion keeps an archival line on its picture",
+                                 "A33(1): two archival lines of one take in one shot, or no source before the in point; "
+                                 "split the shot (the voice-overlap lint refuses the plan)", unit=v["id"], short_by_s=delta)
+            else:
+                points.append(dict(m, d=delta, ln=v["ref"], p=v["start"]))
+                acc += delta
+                start += delta
+        if prev_end is None or start + v["dur"] > prev_end:
+            prev_end, prev = start + v["dur"], v
     if not points:
         return play
 
-    def shift(t: float, strict: bool = False) -> float:
-        return sum(d for p, d, _ in points if (p < t - 1e-9 if strict else p <= t + 1e-9))
+    def shift(t: float, strict: bool = False, shot: bool = False) -> float:
+        tot = 0.0
+        for pt in points:
+            if strict and not (shot and pt["mode"] == "shift"):
+                hit = pt["at"] < t - 1e-9
+            else:
+                hit = pt["at"] <= t + 1e-9
+            tot += pt["d"] if hit else 0.0
+        return tot
 
-    # 2. Shots: the owner of each point grows; a shot starting after a point moves.
-    assets = None
-    for p, d, ln in points:
-        owner = max((sh for sh in shots if float(sh["start_s"]) <= p + 1e-9), key=lambda sh: float(sh["start_s"]))
-        if owner["kind"] == "archive_video":
-            if "out_s" not in owner:                  # derive the out point the way build_plan does
-                if assets is None:
-                    assets = load_ledgers(film, play)
-                item = assets.get(owner.get("asset"), {})
-                in_s = float(owner.get("in_s", item.get("in_s", 0.0)))
-                owner["in_s"] = in_s
-                owner["out_s"] = float(item.get("out_s", in_s + float(owner.get("dur_s", 0.0))))
-            owner["out_s"] = round(float(owner["out_s"]) + d, 4)
-        else:
-            owner["dur_s"] = round(float(owner["dur_s"]) + d, 4)
+    # 2. Shots: what grows, then everything after the insertion moves.
+    for pt in points:
+        if pt["mode"] == "grow" and pt["owner"] is not None:
+            grow(pt["owner"], pt["d"])
+        elif pt["mode"] == "shift":
+            grow(pt["grown"], pt["d"])
+        elif pt["mode"] == "in":
+            pt["owner"]["in_s"] = round(float(pt["owner"]["in_s"]) - pt["d"], 4)
     for sh in shots:
-        sh["start_s"] = round(float(sh["start_s"]) + shift(float(sh["start_s"]), strict=True), 4)
+        sh["start_s"] = round(float(sh["start_s"]) + shift(float(sh["start_s"]), strict=True, shot=True), 4)
     # 3. Lines, text and audio cues.
     moved: dict[str, float] = {}
     for part in play["parts"]:
@@ -977,14 +1048,26 @@ def fit_voices(play: dict, film: Path, journal: Journal, gap: float = VOICE_GAP_
         k = moved[c["ref"]] if c.get("ref") in moved else shift(float(c["start_s"]))
         if k:
             c["start_s"], c["end_s"] = round(float(c["start_s"]) + k, 4), round(float(c["end_s"]) + k, 4)
-    for p, d, ln in points:
-        owner = max((sh for sh in shots if float(sh["start_s"]) <= p + shift(p, strict=True) + 1e-9),
-                    key=lambda sh: float(sh["start_s"]))
-        journal.decision("scout", f"moved {ln['id']} later by {d:.3f} s (from {p + shift(p, strict=True):.3f} s) and lengthened "
-                         f"{owner['id']} by {d:.3f} s; everything from that point on moved {d:.3f} s later",
-                         f"voice-overlap: {ln['id']} started {d:.3f} s before the previous voice's end plus {gap:g} s "
-                         f"(--fit-voices)", unit=ln["id"], moved_from=round(p + shift(p, strict=True), 4),
-                         moved_to=round(p + shift(p), 4), shot=owner["id"], lengthened_s=d)
+    for pt in points:
+        ln, d, p = pt["ln"], pt["d"], pt["p"]
+        before = shift(p, strict=True)
+        why = f"voice-overlap: {ln['id']} started {d:.3f} s before the previous voice's end plus {gap:g} s (--fit-voices)"
+        keep = "; A33(1): the archival line keeps its place on its own picture"
+        if pt["mode"] == "shift":
+            journal.decision("scout", f"moved {ln['id']} and its shot {pt['owner']['id']} later by {d:.3f} s and lengthened "
+                             f"{pt['grown']['id']} by {d:.3f} s; everything from {pt['owner']['id']} on moved {d:.3f} s later",
+                             why + keep, unit=ln["id"], moved_from=round(p + before, 4), moved_to=round(p + shift(p), 4),
+                             shot=pt["owner"]["id"], lengthened=pt["grown"]["id"], lengthened_s=d, mode="lengthen-previous")
+        elif pt["mode"] == "in":
+            journal.decision("scout", f"moved {ln['id']} later by {d:.3f} s and opened {pt['owner']['id']} {d:.3f} s earlier in its "
+                             f"source (in_s {pt['owner']['in_s']:.3f}); everything after it moved {d:.3f} s later",
+                             why + keep, unit=ln["id"], moved_from=round(p + before, 4), moved_to=round(p + shift(p), 4),
+                             shot=pt["owner"]["id"], lengthened_s=d, mode="shift-in-point")
+        else:
+            oid = pt["owner"]["id"] if pt["owner"] is not None else None
+            journal.decision("scout", f"moved {ln['id']} later by {d:.3f} s (from {p + before:.3f} s) and lengthened "
+                             f"{oid} by {d:.3f} s; everything from that point on moved {d:.3f} s later", why, unit=ln["id"],
+                             moved_from=round(p + before, 4), moved_to=round(p + shift(p), 4), shot=oid, lengthened_s=d)
     return play
 
 
@@ -1456,6 +1539,9 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         lint(c["rule"], c["ok"], unit=c["unit"], severity=c["severity"], evidence=c["evidence"], grammar="A21", stage="motion")
     # A26 (E11): archival lines that play a span of a source's own soundtrack
     named_on_screen = archival_lints(lint, film, play, shots, lines, assets, lower_thirds, vl, speakers)
+    # A33 (R11): clip integrity. The sound stays on its picture, quotes are cut on speech edges, shots end on natural
+    # boundaries, no flash, no replay, no mouth moving unheard; clip-cut-mid-action is a warning for the report
+    clip_integrity = CL.plan_lints(lint, journal, film, shots, lines, assets)
     # A25 (E9): every declared shortfall names a card that states it
     shortfalls = shortfall_lints(lint, play, shots, settings)
     if lint_fail:
@@ -1490,6 +1576,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         "imagery_rule": rule, "settings": settings, "settings_stated": settings_stated, "shortfalls": shortfalls,
         "score_standard": score_std, "score_standard_stated": score_stated,
         "balance": play.get("balance"), "sides": film_sides(play),
+        "clip_integrity": clip_integrity,
     }
     plan["dark_voice"] = dark_voice_runs(plan)          # A30: judged by black_dip_lints, printed in sources.json
     plan["dips"] = dip_list(plan)
@@ -3621,10 +3708,11 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
             k, act, gain = place_archival_span(voice, plan, film, journal, ln, stash=parts)
             parts[-1]["i"] = len(placed["lines"])
             sp = plan["speakers"].get(ln.get("speaker"), {})
+            at = parts[-1]["at_s"]                   # A33(1b): the start the span was placed at, after any re-sync
             placed["lines"].append({"id": ln["id"], "speaker": ln.get("speaker"), "side": sp.get("side"), "kind": "archival",
-                                    "at_s": float(ln["start_s"]), "dur_s": round(k / AUDIO_RATE, 3), "line_kind": ln.get("kind"),
-                                    "speech_from_s": None if not len(act) else round(float(ln["start_s"]) + act[0] / AUDIO_RATE, 3),
-                                    "speech_to_s": None if not len(act) else round(float(ln["start_s"]) + (act[-1] + 1) / AUDIO_RATE, 3),
+                                    "at_s": at, "dur_s": round(k / AUDIO_RATE, 3), "line_kind": ln.get("kind"),
+                                    "speech_from_s": None if not len(act) else round(at + act[0] / AUDIO_RATE, 3),
+                                    "speech_to_s": None if not len(act) else round(at + (act[-1] + 1) / AUDIO_RATE, 3),
                                     "level_db": None, "mood_offset_db": None, "cleaned": None, "floor_before_dbfs": None,
                                     "floor_after_dbfs": None, "peak_reduction_db": None, "static_gain_db": gain,
                                     "span": {"clip": ln["clip"], "in_s": float(ln["in_s"]), "out_s": float(ln["out_s"])}})
@@ -3974,9 +4062,20 @@ def place_archival_span(voice: np.ndarray, plan: dict, film: Path, journal: Jour
                      "(held back to the voice ceiling, never limited), never cleaned", unit=ln["id"],
                      evidence={"span": sp, "measured": m, "static_gain_db": None if gain is None else round(gain, 2),
                                "line_gain_db": ln.get("gain_db"), "cleaned": False, "limited": False})
-    k = _place(voice, x, float(ln["start_s"]), total)
+    # A33(1b): a clip whose lip-measured offset lies outside BT.1359's window is put back on its picture by placing the
+    # span earlier (sound late) or later (sound early); the words and their edges are the span's own, never re-cut
+    corr = CL.av_correction_s(item)
+    at = float(ln["start_s"]) - corr
+    if corr:
+        journal.decision("assembly", f"{ln['id']} placed {corr * 1000:+.0f} ms against its screenplay start ({at:.3f} s)",
+                         f"A33(1b): {ln['clip']}'s av_offset_ms {item.get('av_offset_ms')} lies outside "
+                         f"{-CL.AV_LEAD_MAX_MS:g} to +{CL.AV_LAG_MAX_MS:g} ms; corrected by the offset less the envelope's "
+                         f"natural {CL.LIPS_NATURAL_LAG_MS:g} ms lag", unit=ln["id"],
+                         evidence={"av_offset_ms": item.get("av_offset_ms"), "correction_s": corr,
+                                   "measure": item.get("av_offset_measure")})
+    k = _place(voice, x, at, total)
     if stash is not None:
-        stash.append({"kind": "archival", "id": ln["id"], "x": x, "at_s": float(ln["start_s"]), "gain": gain, "m": m,
+        stash.append({"kind": "archival", "id": ln["id"], "x": x, "at_s": at, "gain": gain, "m": m,
                       "line_gain": line_gain, "total": total})
     return k, speech_active(x[:k], total), round(total, 2)
 
@@ -5111,6 +5210,9 @@ def readings_doc(plan: dict, *, durations: bool = True) -> list[dict]:
             if archival_span(ln):
                 readings[-1].update(mark="ARCHIVE", clip=ln["clip"], in_s=float(ln["in_s"]), out_s=float(ln["out_s"]),
                                     source=ln.get("source") or ln["clip"], transcript_source=ln.get("transcript_source"))
+                corr = CL.av_correction_s(plan["assets"].get(ln["clip"]))
+                if corr:                         # A33(1b): a re-synced span says so on the sources page
+                    readings[-1]["av_correction_ms"] = round(corr * 1000)
     return readings
 
 
@@ -5534,6 +5636,13 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         if not ok_fmt:
             raise Refused(f"the master is {pr['width']}x{pr['height']} at {pr['fps']} fps with {pr['frames']} frames; "
                           f"expected {W}x{H} at 24 with {plan['frames']}")
+        # A33(1c): every archival line heard over its own picture is measured in the master; a final render refuses a
+        # conclusive offset more than 45 ms from the correction applied (a draft or check render journals it)
+        with journal.unit("assembly", "sync-check", size={"driver": "items", "value": sum(
+                1 for ln in plan["lines"] if ln.get("archival_audio") and ln.get("clip"))}):
+            sync_refusals = CL.rendered_sync_lints(journal, plan, master, draft=draft or bool(check))
+        if sync_refusals:
+            raise Refused(f"archival sync (post-render): {'; '.join(sync_refusals)} (GRAMMAR A33)")
         # One write: a check render writes its own partial sources file and never the full one (T1d);
         # a full render also records the master's sha256, which ties sources.json to its film (T7).
         extra = {"loudness": loud, "master": master.name, "master_sha256": sha256_file(master)}
@@ -5551,7 +5660,8 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
                        model=ENGINE_MODEL, settings=dict(settings, workers=n))
         summary = {"run": journal.run, "journal": str(journal.path), "master": str(master), "sources": str(sources_path),
                    "frames": plan["frames"], "duration_s": dur, "wall_s": round(wall, 2), "rendered": [ids[i] for i in todo],
-                   "cached": [ids[i] for i in cached], "workers": n, "partial": bool(check), "until_s": until_s}
+                   "cached": [ids[i] for i in cached], "workers": n, "partial": bool(check), "until_s": until_s,
+                   "clip_warnings": plan.get("clip_integrity", {}).get("warnings", [])}     # A33(3): listed in the report
         journal.event("stage", "run", None, lens="run.end", status="done", outcome="ok", **summary)
         return summary
     except BaseException as exc:

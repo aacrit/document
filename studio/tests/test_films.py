@@ -503,9 +503,9 @@ def test_e9_the_womens_floor_is_a_review_item_until_a_film_states_it(film):
 
 
 ARCH_LINE = {"id": "A1", "kind": "testimony", "speaker": "sp-reel", "year": 2026, "archival_audio": True, "clip": "FX-REEL",
-             "in_s": 1.0, "out_s": 2.5, "start_s": 17.9, "text": ARCH_TEXT, "source": "FX-REEL",
+             "in_s": 1.0, "out_s": 2.5, "start_s": 17.5, "text": ARCH_TEXT, "source": "FX-REEL",
              "transcript_source": "fixture transcript (transcripts/fx-reel.txt)"}
-ARCH_LT = {"id": "T3", "kind": "lower_third", "start_s": 17.9, "end_s": 19.4,
+ARCH_LT = {"id": "T3", "kind": "lower_third", "start_s": 17.5, "end_s": 19.0,
            "lines": ["Fixture reel, original narration", "Test reel, 2026", "Fixture reel, studio test folder  ·  original recording"]}
 
 
@@ -514,7 +514,7 @@ def _archival(film, line=None, lt=None, cue=None):
         p["cast"]["speakers"].append({"id": "sp-reel", "name": "Fixture reel, original narration", "side": "usa", "gender": "m"})
         p["parts"][1]["lines"].append(dict(ARCH_LINE, **(line or {})))
         p["parts"][1]["text"].append(dict(ARCH_LT, **(lt or {})))
-        p["subtitle_source"].append(dict({"ref": "A1", "start_s": 17.9, "end_s": 19.4, "en": ARCH_TEXT}, **(cue or {})))
+        p["subtitle_source"].append(dict({"ref": "A1", "start_s": 17.5, "end_s": 19.0, "en": ARCH_TEXT}, **(cue or {})))
     _edit(film, fn)
 
 
@@ -556,7 +556,9 @@ def test_e11_an_archival_line_is_refused_when_it_is_not_its_own_recording(film, 
 def test_e11_a_shot_never_plays_the_same_soundtrack_under_the_line(film):
     _archival(film, line={"start_s": 15.0, "in_s": 1.0, "out_s": 2.5}, lt={"start_s": 15.0, "end_s": 16.5},
               cue={"start_s": 15.0, "end_s": 16.5})
-    _edit(film, lambda p: (_shot(p, "S6").update(asset="FX-REEL", in_s=0.5, out_s=3.5, native_fps=24),
+    # A33: the line sits on its own picture (0.25 s into the shot, 0.25 s into the source) and the shot says whether the
+    # speaker's mouth is on screen
+    _edit(film, lambda p: (_shot(p, "S6").update(asset="FX-REEL", in_s=0.75, out_s=3.75, native_fps=24, talking_head=False),
                            p["parts"][1]["text"].remove(next(t for t in p["parts"][1]["text"] if t["id"] == "T2")),
                            p["subtitle_source"].remove(next(c for c in p["subtitle_source"] if c["ref"] == "T2"))))
     with pytest.raises(R.Refused, match=r"archival-double-sound \(A1\)"):
@@ -575,7 +577,7 @@ def test_e11_the_mix_plays_the_span_at_its_own_dynamics_never_cleaned_or_judged(
     evs = J.read(j.path)
     for rule in ("voice-clean", "voice-chop", "voice-beside", "narrator-consistency", "voice-peak-control"):
         assert not [e for e in evs if e.get("rule") == rule and e.get("unit") == "A1"], rule
-    seg = mix[int(17.9 * 48000): int(19.4 * 48000)]
+    seg = mix[int(17.5 * 48000): int(19.0 * 48000)]
     assert abs(seg[0]) < 1e-3 and abs(seg[-1]) < 1e-3                             # 20 ms fades: the cut never clicks
     level = R._measure_line(seg)["input_i"]
     assert level == pytest.approx(R.ARCHIVAL_DIALOGUE_LUFS, abs=1.0)            # one static gain to the dialogue level
@@ -630,8 +632,10 @@ def test_e11_transcript_cues_read_nlm_vtt_and_srt(tmp_path):
 
 
 def test_e11_an_audio_only_clip_is_measured_too(film):
-    from conftest import tone
-    tone(film / "footage" / "fx-audio.wav", 3.0)
+    import soundfile as sf
+    t = np.arange(3 * 48000) / 48000                     # a phrase from 1.15 to 2.25 s, so 1.0 to 2.5 s is on its edges (A33)
+    sf.write(str(film / "footage" / "fx-audio.wav"), (0.2 * np.sin(2 * np.pi * 440 * t) * ((t >= 1.15) & (t < 2.25))).astype("float32"),
+             48000)
     _edit(film, lambda d: d["items"].append({"id": "FX-AUDIO", "file": "fx-audio.wav", "title": "Test tone, test fixture",
                                              "date": "2026", "archive": "studio test fixture", "licence": "CC0", "synthetic": True,
                                              "test_fixture": True, "transcript_file": "transcripts/fx-reel.txt"}), "footage-ledger.json")
@@ -646,7 +650,7 @@ def test_e11_a_line_gain_never_lifts_an_archival_span_past_the_ceiling(film):
     _archival(film, line={"gain_db": 30.0})
     plan, j = _plan(film, "arch-gain")
     mix, placed = R.build_mix(plan, film, j)
-    seg = mix[int(17.9 * 48000): int(19.4 * 48000)]
+    seg = mix[int(17.5 * 48000): int(19.0 * 48000)]
     assert R._measure_line(seg)["input_tp"] <= R.VOICE_TP + 0.2                   # never limited, so held back instead
 
 
@@ -929,7 +933,7 @@ def test_e14_an_archival_span_is_placed_again_under_the_derived_ceiling(film, mo
     dec = [e for e in J.read(j.path) if e["kind"] == "decision" and e.get("unit") == "voice-ceiling"][0]
     ch = next(c for c in dec["evidence"]["changes"] if c["id"] == "A1")
     assert ch["kind"] == "archival" and ch["final_static_gain_db"] < ch["pass1_static_gain_db"]
-    seg = mix[int(17.9 * 48000): int(19.4 * 48000)]
+    seg = mix[int(17.5 * 48000): int(19.0 * 48000)]
     assert R._measure_line(seg)["input_tp"] <= -6.5 + 0.2                    # never limited, so held back instead
     assert all(e["unit"] != "A1" for e in lints(j, "voice-peak-control"))      # an archival span is never peak-controlled
 
