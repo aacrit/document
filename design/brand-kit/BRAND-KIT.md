@@ -275,3 +275,25 @@ These values replace section 11's where they differ.
 | AI-GENERATED label | full opacity from the cut frame (no `whisper` arrival, no drift) and up for the whole shot, through a dissolve too (a dissolve joins two shots of one class) |
 | Shape check | mark-coverage reads the hue at the glyph's centre and the shape at two pixels: the glyph box's top-left pixel and the one to its right. Each must equal what the shot's own class glyph composes there over the same pixels of the frame before the mark was drawn. The square leaves its hue at both; the dot and the diamond leave the picture under the glyph's edge and its dark contact disc. A correct frame passes over any picture. The guarantee, tested at every engine resolution (1080p and 720p) for every bare value 0 to 255: between the square and the diamond (the classes that share the cold blue) some probe has a channel (blue, at the second probe) where no picture value brings the wrong shape's composite within 1 of the right one's, so a wrong shape fails over any picture, flat or not (T1f). |
 | Drawing | the glyph and the label are drawn on small tiles (the label and its shadow on a crop around the words) and composited in place, never as full-frame layers: about 2 ms a frame at 1080p, down from 41 ms, with identical pixels |
+
+### 11c. Corrected after the brand audit of film 2 (2026-10-11, E15; GRAMMAR A28)
+
+Appended; section 6's choreography table keeps its G2 text and is read with this. These values replace it where they differ.
+
+| | Value |
+|---|---|
+| Dip to black | the hold is 10% of the dip and never under 2 frames, centred on the cut. Section 6's example ("at 0.5 s and 24 fps: 5.4 + 1.2 + 5.4 frames") broke its own floor: at 0.5 s the hold is 2 frames (0.083 s) and each fade 0.208 s, so the cut frame and its two neighbours are black, 3 frames, where the G2 dip showed 1. At 0.75 s and 1.0 s the hold is 10% (0.075 s is under 2 frames, so 0.083 s; 0.1 s) and 3 frames are black, as before. `dip_hold_s`, `dip_black_frames` |
+| Statement cards | every element of `text[]` is drawn: the statement in Fraunces 300 at 4.0%, each later element (the Searched line, a source, a filled shortfall sentence) in Inter at 2.6% on 1.4, 1.2% of height apart, wrapped at 76% of width with no line limit, the block centred in a safe band from 10% to 90% of height. A block taller than the band steps all its type down by 5% at a time to 75% (3.0% and 1.95%: 32 and 21 px at 1080p, 22 and 14 px at 720p); past that the card is refused, never cut. A card that always fitted is drawn exactly as before. `card_layout`, `SILENT` |
+| Statement card timing | element `k` fades in `k` x 0.33 s after the first, all fade out together |
+| Lower third source | wraps to at most 2 lines (1 under a flag) and is refused past that, never cut; no comma after a title ending in `?` or `!` |
+| Lower third on screen | a speaker's 4 to 6 s (section 4); a place-and-date one fully visible at least 2.5 s, so on screen at least 3.79 s |
+| Credits | a year once: none after a title that ends with it |
+| Watermark source | `watermark.svg` carries A16's values (group opacity 0.36, halo film black at 0.22); a test rasterises it and `logomark.svg` and holds them to the engine's `watermark()` and `draw_logomark()` within antialiasing, and `motion.py` here is a pure re-export of the engine's |
+
+Correction to 11c (2026-10-11, E15 review of 5a9ee29; append-only): in the dip row, "as before" applies to the 1.0 s dips only. A 0.75 s dip's hold was 0.075 s (1 black frame) and is now 0.083 s (3 black frames); only at 1.0 s are the hold (0.1 s) and its 3 black frames unchanged.
+
+| | Value (E15 review) |
+|---|---|
+| One-line texts | a card's title, a chapter line and its dates, a lower third's name, role and flag, an overlay (56% of width), a burned subtitle line (84%), a credit line (the 70% column; a credit broken at 90 characters is broken again by its measured width where it is still wider), a credits heading and a provenance label (ending by 50% of width) each fit their measure with every glyph present, or the plan refuses. The engine never cuts text: no renderer drops a word, a line or a glyph |
+| Missing glyphs | a character the face has no glyph for (FreeType would draw an empty box) is refused wherever text is drawn, maps and count cards included |
+| Credits roll | the roll's constant speed is unchanged; the credits shot lasts until the last line has been fully on screen 2 s, or the render refuses |

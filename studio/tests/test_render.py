@@ -32,7 +32,7 @@ def test_master_is_24fps_h264_with_every_frame(rendered, plan):
     pr = R.probe_video(Path(rendered["master"]))
     assert (pr["width"], pr["height"]) == R.frame_size(HEIGHT)
     assert abs(pr["fps"] - 24) < 1e-6 and pr["has_audio"]
-    assert R.count_frames(Path(rendered["master"])) == plan["frames"] == rendered["frames"] == 594
+    assert R.count_frames(Path(rendered["master"])) == plan["frames"] == rendered["frames"] == 858
     assert rendered["workers"] == WORKERS
     tags = subprocess.run([R.ffprobe(), "-v", "error", "-select_streams", "v:0", "-show_entries",
                            "stream=color_space,color_primaries,color_transfer,pix_fmt", "-of", "json", rendered["master"]],
@@ -77,7 +77,8 @@ def test_every_lint_t1_enforces_ran_and_passed(rendered):
                  "clip-aspect", "dissolve-same-class", "conform-logged", "resampler-plain", "master-format",
                  "silent-card-form", "lower-third-format", "no-em-dash", "licence-allowlist", "no-bodies",
                  "still-zoom-limit", "cross-class-dip", "overlay-format", "clip-hold-rendered", "telecine-declared",
-                 "loudnorm-linear", "mark-class-valid", "clip-in-out", "still-hold"):
+                 "loudnorm-linear", "mark-class-valid", "clip-in-out", "still-hold",
+                 "card-fits", "card-drawn", "dip-black-hold", "lower-third-time"):
         found = lints(evs, rule)
         assert found, rule
         if rule == "still-first-frame-whole-pixels":
@@ -449,7 +450,7 @@ def test_resume_from_a_shot_takes_earlier_shots_from_the_cache(film, rendered):
     assert start["resumed_from"] == "S6"
     skipped = {e["unit"] for e in evs if e.get("lens") == "unit.done" and e.get("status") == "skip"}
     assert skipped == {"S1", "S2", "S3", "S4", "S5"}
-    assert R.count_frames(Path(resumed["master"])) == 594
+    assert R.count_frames(Path(resumed["master"])) == 858
 
 
 def test_resume_needs_the_earlier_segments(film, tmp_path):
@@ -474,7 +475,7 @@ def test_sources_timeline(rendered, plan):
     doc = json.loads(Path(rendered["sources"]).read_text(encoding="utf-8"))
     shots = doc["shots"]
     assert [s["id"] for s in shots] == [f"S{i}" for i in range(1, 10)]
-    assert shots[0]["start_s"] == 0 and shots[-1]["end_s"] == doc["duration_s"] == 24.75
+    assert shots[0]["start_s"] == 0 and shots[-1]["end_s"] == doc["duration_s"] == 35.75
     assert all(a["end_s"] == b["start_s"] for a, b in zip(shots, shots[1:]))
     by = {s["id"]: s for s in shots}
     assert by["S3"]["mark"] == {"class": "DRAWN", "detail": "from PIL test image, test fixture",
@@ -486,7 +487,7 @@ def test_sources_timeline(rendered, plan):
     assert by["S6"]["conform"]["method"] == "drop" and by["S6"]["resampler"]["method"].startswith("lanczos")
     assert by["S1"]["mark"]["class"] == "CARD"
     assert abs(sum(doc["share"].values()) - 1) < 1e-3 and doc["share"]["AI-GENERATED"] == 0
-    assert doc["marks"][0]["from_s"] == 0 and doc["marks"][-1]["to_s"] == 24.75
+    assert doc["marks"][0]["from_s"] == 0 and doc["marks"][-1]["to_s"] == 35.75
     assert doc["readings"][0]["credit"] == "Read by a computer voice. No recording of Fixture speaker was used."
     # The site's balance ("Whose words, and how long") needs each reading's length and whose words they are.
     assert doc["readings"][0]["gender"] == "f"
@@ -541,7 +542,7 @@ def test_brand_kit_reexports_the_engine_motion():
     kit = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(kit)
     for name in ("rostrum_move", "lower_third_frame", "mark_plate_frame", "chapter_card_frame", "silent_card_frame",
-                 "title_card_frame", "credits_frame", "watermark", "Spring", "PALETTE"):
+                 "title_card_frame", "credits_frame", "watermark", "Spring", "PALETTE", "WM", "LT", "LABEL"):
         assert getattr(kit, name) is getattr(M, name), name
     r = subprocess.run([sys.executable, str(ROOT / "design" / "brand-kit" / "motion.py"), "--table"], capture_output=True, text=True)
     assert r.returncode == 0 and "| `stamp` |" in r.stdout
@@ -569,7 +570,7 @@ def test_run_start_is_the_first_event_and_run_end_the_last(rendered):
     assert evs[-1]["lens"] == "run.end" and evs[-1]["seq"] == len(evs)
     assert [e.get("lens") for e in evs].count("run.start") == 1
     plan_ev = [e for e in evs if e.get("lens") == "run.plan"][0]
-    assert len(plan_ev["units"]) == 9 and plan_ev["duration_s"] == 24.75
+    assert len(plan_ev["units"]) == 9 and plan_ev["duration_s"] == 35.75
 
 
 def test_a_refused_run_also_starts_with_run_start(film, tmp_path):
@@ -955,7 +956,7 @@ def test_fit_voices_moves_lines_and_grows_their_shots(tmp_path):
     cues = sorted(after.values())
     assert all(b[0] >= a[1] for a, b in zip(cues, cues[1:])), cues    # no two cues overlap
     plan = R.build_plan(film, W=640, H=360, burn_subtitles=True, journal=j, play=fitted)
-    assert plan["frames"] == round((24.75 + 1.8 + 1.3) * 24)
+    assert plan["frames"] == round((35.75 + 1.8 + 1.3) * 24)
     evs = J.read(j.path)
     assert lints(evs, "voice-overlap")[-1]["status"] == "pass"
     assert lints(evs, "subtitle-overlap")[-1]["status"] == "pass" and lints(evs, "subtitle-overlap")[-1]["severity"] == "block"
@@ -965,7 +966,7 @@ def test_a_fit_voices_render_with_burned_subtitles(tmp_path):
     film = _with_voices(tmp_path)
     s = R.render(film, tmp_path / "out", height=HEIGHT, workers=WORKERS, min_free_gb=1, encode_preset="veryfast",
                  fit_voices_opt=True, burn_subtitles=True)
-    frames = round((24.75 + 1.8 + 1.3) * 24)
+    frames = round((35.75 + 1.8 + 1.3) * 24)
     assert s["frames"] == frames and R.count_frames(Path(s["master"])) == frames
     evs = events(s)
     assert evs[-1]["outcome"] == "ok"
@@ -1017,7 +1018,8 @@ def test_a_render_with_fit_voices_journals_and_saves_the_fitted_screenplay(tmp_p
 
 def test_a_crossfade_frame_off_the_hue_line_fails(plan):
     i = next(k for k, s in enumerate(plan["shots"]) if s["id"] == "S3")      # CARD (S2) into DRAWN (S3)
-    f = plan["shots"][i]["f0"] + 1
+    f = plan["shots"][i]["f0"] + 2      # E15: S3's 0.5 s dip holds f0 - 1 to f0 + 1 black; the 4-frame fade shows from f0 + 2
+    assert R.picture_level(plan, f - 1, i) <= 0.0 < R.picture_level(plan, f, i)
     arr = R.render_frame(plan, f)
     assert R.check_mark(plan, arr, f, i) == "fade"
     x, y = R.mark_probe(plan)

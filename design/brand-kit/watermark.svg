@@ -2,14 +2,18 @@
   <!--
     The in-film watermark: the logomark at 6% of frame height (65 px at 1080p,
     43 px at 720p), top right, inset 4% of width from the right edge and 5% of
-    height from the top. Whole group at opacity 0.6. Beneath the bone strokes
-    sits a halo: the same strokes in black at 0.35, 2 px wider at 1080p, so
-    the mark holds on a white sky. The halo exists only in the burned-in
-    watermark, never on the site. Colours cite design/tokens.css:
-    --doc-bone #ede2cf, --doc-safelight #eda23c, --doc-black #0f0c0a.
+    height from the top. Whole group at opacity 0.36 (A16; the G2 kit had 0.6).
+    Beneath the bone strokes sits a halo: the same strokes in film black at
+    0.22 (A16; was 0.35), 2 px wider at 1080p, so the mark holds on a white
+    sky. The halo exists only in the burned-in watermark, never on the site.
+    Colours cite design/tokens.css: --doc-bone #ede2cf, --doc-safelight
+    #eda23c; the halo is film black #000000, all pixels off (docs/DECISIONS.md,
+    "2026-10-10: The Trailer, and two picture and sound rules": black is
+    black; GRAMMAR A11), not the site's theatre black. studio/tests/test_render.py rasterises this file and the
+    engine's watermark() and holds them within a pixel tolerance (E15).
   -->
-  <g opacity="0.6">
-    <g fill="none" stroke="#0f0c0a" stroke-opacity="0.35" stroke-width="2.34" stroke-linecap="round" stroke-linejoin="round">
+  <g opacity="0.36">
+    <g fill="none" stroke="#000000" stroke-opacity="0.22" stroke-width="2.34" stroke-linecap="round" stroke-linejoin="round">
       <path d="M3.5 8V4.5H7"/>
       <path d="M17 4.5h3.5V8"/>
       <path d="M20.5 16v3.5H17"/>

@@ -65,7 +65,7 @@
     {
       "id": "p-credits", "kind": "credits", "title": "Credits",
       "shots": [
-        {"id": "S9", "kind": "card", "start_s": 21.75, "dur_s": 3.0, "transition_in": {"type": "cut"}, "mark": "CARD",
+        {"id": "S9", "kind": "card", "start_s": 21.75, "dur_s": 14.0, "transition_in": {"type": "cut"}, "mark": "CARD",
          "why": "Credits, generated from the timeline."}
       ],
       "lines": [], "cues": [], "text": []
