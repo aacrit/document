@@ -1,0 +1,502 @@
+{
+  "_note": "GRAMMAR A0, the founding principle: show as was, not as is, and never tell. The one list both sides read: studio/engine/aswas.py (the engine's plan-time lints on narration, cards, lower thirds and overlays) and scripts/lib/show-as-was.mjs (films.json copy, the page templates and the generated meta descriptions). Matching: words are matched whole and case-insensitively, a space or hyphen in a phrase matches any run of spaces or hyphens, and text inside double quotes (straight or curly) is skipped, because quoted period speech is exempt, and a group's except phrases are blanked before its phrases are matched. Period names are matched whole and case-sensitively, refused only while the film's horizon (as_of) is before the date the modern form came into use (until); a phrase in except is period-correct and never refused. Adding a phrase needs a test in tests/fixtures/a0-cases.json, which both suites read.",
+  "version": 1,
+  "hindsight": [
+    {
+      "id": "future-in-past",
+      "why": "Tells the viewer what happened after the moment on screen, which nobody in the moment knew.",
+      "phrases": [
+        "would later",
+        "would go on",
+        "would become",
+        "would never",
+        "would eventually",
+        "would ultimately",
+        "would one day",
+        "would prove",
+        "would turn out",
+        "would come to be",
+        "was to become",
+        "were to become",
+        "was to prove",
+        "were to prove",
+        "later known as",
+        "later called",
+        "as it turned out",
+        "little did",
+        "did not yet know",
+        "could not have known",
+        "had no way of knowing",
+        "would ever know",
+        "would ever see",
+        "the man who would be",
+        "the woman who would be"
+      ]
+    },
+    {
+      "id": "elapsed-time",
+      "why": "Measures from after the horizon. A counted span inside the story (two years later) is chronology, not hindsight, and is listed in except.",
+      "phrases": [
+        "years later",
+        "decades later",
+        "a century later",
+        "generations later",
+        "half a century later",
+        "years afterwards",
+        "decades afterwards",
+        "in the years since",
+        "in the decades since",
+        "ever since",
+        "since then",
+        "to this day",
+        "to the present"
+      ],
+      "except": [
+        "a year later",
+        "one year later",
+        "two years later",
+        "three years later",
+        "four years later",
+        "five years later",
+        "six years later",
+        "seven years later",
+        "eight years later",
+        "nine years later",
+        "ten years later"
+      ]
+    },
+    {
+      "id": "present-day",
+      "why": "Speaks from today, not from the time.",
+      "phrases": [
+        "today",
+        "nowadays",
+        "these days",
+        "at present",
+        "currently",
+        "present-day",
+        "modern-day",
+        "which is now",
+        "what is now",
+        "what are now",
+        "now called",
+        "now known as",
+        "now part of",
+        "has yet to",
+        "have yet to",
+        "has never been",
+        "have never been",
+        "has not since",
+        "have not since",
+        "it has not been",
+        "remains unresolved"
+      ]
+    },
+    {
+      "id": "knowledge-now",
+      "why": "Claims a later knowledge or a later verdict.",
+      "phrases": [
+        "we now know",
+        "now we know",
+        "we know now",
+        "it is now known",
+        "it is now clear",
+        "in hindsight",
+        "with hindsight",
+        "in retrospect",
+        "looking back",
+        "history would",
+        "history will",
+        "history has shown",
+        "history shows",
+        "the verdict of history",
+        "historians now",
+        "historians today"
+      ]
+    },
+    {
+      "id": "persistence",
+      "why": "Says what still exists now. Only the forms that can only mean today are listed: 'still' alone is an ordinary period word (a still photograph, the gate was still kept).",
+      "phrases": [
+        "still exists",
+        "still exist",
+        "still today",
+        "still stands today",
+        "still standing today",
+        "still to this day",
+        "can still be seen",
+        "may still be seen",
+        "still visible today",
+        "still in use today"
+      ]
+    }
+  ],
+  "never_tell": [
+    {
+      "id": "first-person-opinion",
+      "why": "The narrator has no opinion on screen; the film's view lives in selection, order and juxtaposition.",
+      "phrases": [
+        "we think",
+        "we believe",
+        "we feel",
+        "in our view",
+        "in our opinion",
+        "i think",
+        "i believe",
+        "i feel",
+        "in my view",
+        "in my opinion",
+        "it seems to us",
+        "we are reminded",
+        "reminds us",
+        "teaches us",
+        "let us remember",
+        "let us not forget",
+        "lest we forget",
+        "never forget",
+        "we owe"
+      ]
+    },
+    {
+      "id": "prescriptive",
+      "why": "Tells the viewer what to do or think. A bare should or must is not listed: in past-tense narration it reports what the time decided ('the line should follow the canal').",
+      "phrases": [
+        "we should",
+        "we must",
+        "you should",
+        "you must",
+        "one should",
+        "one must",
+        "should never",
+        "must never",
+        "should always",
+        "must always",
+        "should be remembered",
+        "must be remembered",
+        "should not be forgotten",
+        "must not be forgotten",
+        "should have",
+        "never again"
+      ]
+    },
+    {
+      "id": "editorial-adjectives",
+      "why": "Words that carry a verdict and no fact: no source can hold them. Words of fact (dead, burned, fled, sick, scarred) are never listed; a period voice may use any of these in quotes.",
+      "phrases": [
+        "tragic",
+        "tragically",
+        "tragedy",
+        "tragedies",
+        "heroic",
+        "heroically",
+        "heroism",
+        "brutal",
+        "brutally",
+        "brutality",
+        "remarkable",
+        "remarkably",
+        "horrific",
+        "horrifying",
+        "horrendous",
+        "unimaginable",
+        "unthinkable",
+        "heartbreaking",
+        "heart-breaking",
+        "harrowing",
+        "devastating",
+        "senseless",
+        "savage",
+        "barbaric",
+        "barbarous",
+        "shameful",
+        "shocking",
+        "appalling",
+        "atrocious",
+        "glorious",
+        "triumphant",
+        "courageous",
+        "selfless",
+        "evil",
+        "infamous",
+        "iconic",
+        "legendary",
+        "extraordinary",
+        "incredible",
+        "astonishing",
+        "inspiring",
+        "historic",
+        "momentous",
+        "unprecedented",
+        "terrible",
+        "horrible",
+        "cruel",
+        "needless",
+        "needlessly"
+      ]
+    },
+    {
+      "id": "verdict-adverbs",
+      "why": "Adverbs that pass judgment on what happened, or call it inevitable after the fact.",
+      "phrases": [
+        "sadly",
+        "fortunately",
+        "unfortunately",
+        "thankfully",
+        "mercifully",
+        "ironically",
+        "tellingly",
+        "inevitably",
+        "rightly",
+        "wrongly",
+        "shamefully",
+        "of course",
+        "undoubtedly"
+      ]
+    },
+    {
+      "id": "mind-reading",
+      "why": "Puts thoughts or certainty where the record has none (GRAMMAR 6.1's banned list).",
+      "phrases": [
+        "must have",
+        "surely",
+        "must surely",
+        "no doubt",
+        "can only imagine",
+        "cannot imagine",
+        "one can imagine"
+      ]
+    }
+  ],
+  "period_names": [
+    {
+      "modern": "Dhaka",
+      "period": "Dacca",
+      "until": "1982",
+      "note": "English spelling changed in 1982"
+    },
+    {
+      "modern": "Mumbai",
+      "period": "Bombay",
+      "until": "1995"
+    },
+    {
+      "modern": "Chennai",
+      "period": "Madras",
+      "until": "1996"
+    },
+    {
+      "modern": "Kolkata",
+      "period": "Calcutta",
+      "until": "2001"
+    },
+    {
+      "modern": "Bengaluru",
+      "period": "Bangalore",
+      "until": "2014-11-01"
+    },
+    {
+      "modern": "Mysuru",
+      "period": "Mysore",
+      "until": "2014-11-01"
+    },
+    {
+      "modern": "Thiruvananthapuram",
+      "period": "Trivandrum",
+      "until": "1991"
+    },
+    {
+      "modern": "Kochi",
+      "period": "Cochin",
+      "until": "1996"
+    },
+    {
+      "modern": "Puducherry",
+      "period": "Pondicherry",
+      "until": "2006"
+    },
+    {
+      "modern": "Odisha",
+      "period": "Orissa",
+      "until": "2011"
+    },
+    {
+      "modern": "Vadodara",
+      "period": "Baroda",
+      "until": "1974"
+    },
+    {
+      "modern": "Pune",
+      "period": "Poona",
+      "until": "1978"
+    },
+    {
+      "modern": "Varanasi",
+      "period": "Benares",
+      "until": "1956"
+    },
+    {
+      "modern": "Kanpur",
+      "period": "Cawnpore",
+      "until": "1948"
+    },
+    {
+      "modern": "Prayagraj",
+      "period": "Allahabad",
+      "until": "2018"
+    },
+    {
+      "modern": "Gurugram",
+      "period": "Gurgaon",
+      "until": "2016"
+    },
+    {
+      "modern": "Faisalabad",
+      "period": "Lyallpur",
+      "until": "1979"
+    },
+    {
+      "modern": "Sahiwal",
+      "period": "Montgomery",
+      "until": "1966"
+    },
+    {
+      "modern": "Chattogram",
+      "period": "Chittagong",
+      "until": "2018"
+    },
+    {
+      "modern": "Barishal",
+      "period": "Barisal",
+      "until": "2018"
+    },
+    {
+      "modern": "Cumilla",
+      "period": "Comilla",
+      "until": "2018"
+    },
+    {
+      "modern": "Jashore",
+      "period": "Jessore",
+      "until": "2018"
+    },
+    {
+      "modern": "Bogura",
+      "period": "Bogra",
+      "until": "2018"
+    },
+    {
+      "modern": "Bangladesh",
+      "period": "East Pakistan (1955 to 1971), East Bengal (1947 to 1955)",
+      "until": "1971-03-26"
+    },
+    {
+      "modern": "Bangladeshi",
+      "period": "East Pakistani, East Bengali",
+      "until": "1971-03-26"
+    },
+    {
+      "modern": "Sri Lanka",
+      "period": "Ceylon",
+      "until": "1972-05-22"
+    },
+    {
+      "modern": "Sri Lankan",
+      "period": "Ceylonese",
+      "until": "1972-05-22"
+    },
+    {
+      "modern": "Myanmar",
+      "period": "Burma",
+      "until": "1989"
+    },
+    {
+      "modern": "Yangon",
+      "period": "Rangoon",
+      "until": "1989"
+    },
+    {
+      "modern": "Thailand",
+      "period": "Siam",
+      "until": "1939"
+    },
+    {
+      "modern": "Benin",
+      "period": "Dahomey",
+      "until": "1975-11-30",
+      "except": [
+        "Bight of Benin",
+        "Kingdom of Benin",
+        "Benin City",
+        "Benin Empire"
+      ]
+    },
+    {
+      "modern": "Burkina Faso",
+      "period": "Upper Volta",
+      "until": "1984-08-04"
+    },
+    {
+      "modern": "Zimbabwe",
+      "period": "Rhodesia, Southern Rhodesia",
+      "until": "1980-04-18",
+      "except": [
+        "Great Zimbabwe"
+      ]
+    },
+    {
+      "modern": "Harare",
+      "period": "Salisbury",
+      "until": "1982"
+    },
+    {
+      "modern": "Kinshasa",
+      "period": "Léopoldville",
+      "until": "1966"
+    },
+    {
+      "modern": "Zambia",
+      "period": "Northern Rhodesia",
+      "until": "1964-10-24"
+    },
+    {
+      "modern": "Malawi",
+      "period": "Nyasaland",
+      "until": "1964-07-06"
+    },
+    {
+      "modern": "Botswana",
+      "period": "Bechuanaland",
+      "until": "1966-09-30"
+    },
+    {
+      "modern": "Lesotho",
+      "period": "Basutoland",
+      "until": "1966-10-04"
+    },
+    {
+      "modern": "Eswatini",
+      "period": "Swaziland",
+      "until": "2018"
+    },
+    {
+      "modern": "Namibia",
+      "period": "South West Africa",
+      "until": "1990"
+    },
+    {
+      "modern": "Beijing",
+      "period": "Peking",
+      "until": "1979"
+    },
+    {
+      "modern": "Guangzhou",
+      "period": "Canton",
+      "until": "1979"
+    },
+    {
+      "modern": "Ho Chi Minh City",
+      "period": "Saigon",
+      "until": "1976"
+    }
+  ]
+}

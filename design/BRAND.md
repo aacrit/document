@@ -20,6 +20,8 @@ The favicon is the mark alone. The wordmark is the mark plus "void document" as 
 
 A cinema house: a dark theatre where the film fills the screen and the chrome steps aside. Title cards are set like opening credits; the sources read like end credits. The site shows and does not explain. For a contested mass atrocity the voice is sober: say what the film shows and does not show, never sell it.
 
+**Voice, first: show as was, not as is, and never tell** (GRAMMAR A0, the founding principle). Site copy describes each film as the time saw it: its dates end at the film's horizon (never "to today"), its places carry their period names, and no synopsis, logline or note looks back ("would later", "decades later", "today") or passes a verdict ("tragic", "heroic", "we believe"). A period voice may judge, in quotes. films.json's registry check and `tests/show-as-was.test.ts` refuse it, from the same lists as the film (`studio/show-as-was.json`).
+
 ## Safelight (amber) and cold blue
 
 - **Safelight amber** (`--doc-safelight`, the `ARCHIVE` mark hue) means one thing: **this is real, and here is where it came from.** It marks credits, source and ledger links, the ARCHIVE mark's rule, and a timecode only where it points to a source. It never marks a button, focus ring, progress bar, status, heading, hover, typed input, player clock, transcript time, the Lens film clock or playhead.

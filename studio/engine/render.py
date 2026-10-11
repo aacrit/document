@@ -60,6 +60,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from studio.engine import aswas as AW
 from studio.engine import motion as M
 from studio.engine import overlays as OV
 from studio.engine import policy as POL
@@ -1036,6 +1037,9 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     if play.get("score_standard") is not None:
         lint("score-standard", not score_problems, unit="score_standard", grammar="A29",
              evidence={"standard": score_std, "stated": score_stated, "bounds": SC.BOUNDS, "problems": score_problems})
+    # A0 (founder, 2026-10-11), the founding principle: show as was, not as is, and never tell (studio/engine/aswas.py)
+    for c in AW.checks(play, assets, film=film):
+        lint(c["rule"], c["ok"], unit=c["unit"], severity=c["severity"], evidence=c["evidence"], grammar=c["grammar"])
     if lint_fail:
         raise Refused("lint failed: " + "; ".join(lint_fail))
 

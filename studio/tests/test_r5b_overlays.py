@@ -668,7 +668,7 @@ def mini_film(tmp: Path, georef: dict | None, *, marks=True) -> Path:
             "find": {"to": {"extent": [75.0, 32.0, 76.5, 32.75]}}, "why": "R5b test"}
     if marks:
         shot["marks"] = [line_mark(traced={"on": "SHEET", "what": "the test line", "error_px": 3}), halo_mark()]
-    play = {"title": "R5b test", "slug": "r5b-test", "era": {"from": 1946, "to": 1948},
+    play = {"title": "R5b test", "slug": "r5b-test", "era": {"from": 1946, "to": 1948}, "as_of": "1955",
             "languages": {"spoken": "en", "subtitles": ["en"]}, "runtime_target_s": 6,
             "ledgers": {"stills": {"path": "stills-ledger.json", "media": "stills"}},
             "cast": {"speakers": [], "voices": []},

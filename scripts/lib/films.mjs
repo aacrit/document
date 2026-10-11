@@ -18,9 +18,13 @@
 //   line, where } (the void family's work on the same subject),
 //   screenplay_path (optional: the film's working screenplay.json on the render
 //   machine, ~ for the home folder; the engine's bed-reuse lint reads it).
+// Every word a film's entry puts on the site (title, dates, logline, synopsis,
+// content_note, shows) is held to GRAMMAR A0 (scripts/lib/show-as-was.mjs):
+// no hindsight, no modern name the film's dates predate, no verdict.
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { copyFindings, horizonFromDates } from "./show-as-was.mjs";
 
 export const STATUSES = ["live", "in_production"];
 /** The one film whose live sources.json predates the balance block (web/src/film-data.ts PARTITION_BALANCE). */
@@ -80,6 +84,9 @@ export function registryProblems(reg) {
     for (const r of f.related ?? []) {
       if (!isObj(r) || !text(r.name) || !text(r.line) || !text(r.where) || !/^https:\/\//.test(r.href ?? "")) out.push(`${at}: each related link needs an https href, name, line and where`);
     }
+    // GRAMMAR A0: the copy shows the film as was, not as is, and never tells; the horizon is the last year its dates name.
+    const horizon = horizonFromDates(f.dates);
+    for (const k of ["title", "dates", "logline", "synopsis", "content_note", "shows"]) if (text(f[k])) out.push(...copyFindings(`${at}: ${k}`, f[k], { horizon }));
     if (f.status === "live") {
       if (!text(f.shows)) out.push(`${at}: a live film must say what it shows (shows)`);
       if (!text(f.synopsis)) out.push(`${at}: a live film needs a synopsis`);

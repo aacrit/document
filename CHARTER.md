@@ -1,5 +1,7 @@
 # Charter
 
+Purpose: history shown as it was seen at the time, never as it is now, and never told what to think (founding principle A0, `films/GRAMMAR.md`; founder, 2026-10-11). Every surface below, film and page alike, follows it.
+
 At most 5 surfaces for v1. Any surface added later needs a charter amendment.
 
 | Surface | Why | Justifying user event | Kill date |
