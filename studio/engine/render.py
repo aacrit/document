@@ -138,6 +138,7 @@ READINGS_FLOOR = 0.20               # GRAMMAR 6.1 as amended (founder, 2026-10-1
 STILL_MAX_S = 10.0                  # nothing spoken over the shot (7.2, A9)
 STILL_UNDER_NARRATION_MAX_S = 20.0  # narration speaking over it (A20(a), founder 2026-10-10)
 STILL_UNDER_READING_MAX_S = 30.0    # a reading (testimony) speaking over it (A9)
+STILL_DETAIL_MAX_S = 5.0            # a DETAIL move on a still (7.2: 3 to 5 s; the upper bound is linted)
 EVENT_FILM_MIN_S = 600.0            # the shares bind unless both the film and its runtime target are under 10 min
                                     # (teaser, trailer, the test fixture), which journal them as warnings
 MASTER_CRF = 18
@@ -2570,29 +2571,66 @@ def voice_shares(plan: dict, placed: dict) -> dict:
 
 
 def still_holds(plan: dict, placed: dict) -> list[dict]:
-    """Each archive still's length against what is spoken over it (GRAMMAR
-    7.2, A9, A20(a)): at most 30 s when a reading's speech-active span
-    overlaps the shot, 20 s when only narration's does, and 10 s when no
-    voice speaks over it. Read from the placed lines (their speech-active
-    spans, as the mix hears them), never from estimates."""
-    out = []
+    """Each archive still's hold against what is spoken over it (GRAMMAR
+    7.2, A9, A20(a)). Consecutive archive_still shots of one asset (joined by
+    a cut or a dissolve) are one hold. Inside a hold the speech-active spans
+    of the narration and testimony lines that overlap it are merged, and:
+    the longest stretch with no voice is at most STILL_MAX_S (10 s); the
+    whole hold is at most 30 s with a reading over it, 20 s with only
+    narration, 10 s with no voice; and a DETAIL shot is at most 5 s. Read
+    from the placed lines (as the mix hears them), never from estimates."""
+    spans = []
+    for ln in placed["lines"]:
+        kind = ln.get("line_kind", "narration" if ln.get("kind") == "narration" else "testimony")
+        if kind not in VOICE_KINDS:
+            continue
+        f, t = ln.get("speech_from_s", ln["at_s"]), ln.get("speech_to_s", ln["at_s"] + ln["dur_s"])
+        if f is not None and t > f:
+            spans.append((float(f), float(t), kind))
+    groups: list[list[dict]] = []
+    prev = None
     for s in plan["shots"]:
         if s.get("kind") != "archive_still":
+            prev = None
             continue
-        a, b = float(s["start_s"]), float(s["end_s"])
-        over = set()
-        for ln in placed["lines"]:
-            kind = ln.get("line_kind", "narration" if ln.get("kind") == "narration" else "testimony")
-            if kind not in VOICE_KINDS:
-                continue
-            f, t = ln.get("speech_from_s", ln["at_s"]), ln.get("speech_to_s", ln["at_s"] + ln["dur_s"])
-            if f is not None and f < b and t > a:
-                over.add(kind)
+        tr = (s.get("transition_in") or {}).get("type", "cut")
+        if prev is not None and s.get("asset") and s.get("asset") == prev.get("asset") and tr in ("cut", "dissolve"):
+            groups[-1].append(s)
+        else:
+            groups.append([s])
+        prev = s
+    tol = 0.5 / FPS
+    out = []
+    for g in groups:
+        a, b = float(g[0]["start_s"]), float(g[-1]["end_s"])
+        inside = sorted((max(f, a), min(t, b), k) for f, t, k in spans if f < b and t > a)
+        over = {k for _, _, k in inside}
+        merged: list[list[float]] = []
+        for f, t, _ in inside:
+            if merged and f <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], t)
+            else:
+                merged.append([f, t])
+        edges = [a] + [v for m in merged for v in m] + [b]
+        gaps = [(edges[i], edges[i + 1]) for i in range(0, len(edges), 2)]
+        silent = max(gaps, key=lambda x: x[1] - x[0])
+        silent_s = round(silent[1] - silent[0], 3)
         limit = (STILL_UNDER_READING_MAX_S if "testimony" in over else
                  STILL_UNDER_NARRATION_MAX_S if "narration" in over else STILL_MAX_S)
         dur = round(b - a, 3)
-        out.append({"id": s["id"], "dur_s": dur, "voices": sorted(over), "max_s": limit,
-                    "ok": dur <= limit + 0.5 / FPS})
+        details = [{"id": s["id"], "dur_s": round(float(s["end_s"]) - float(s["start_s"]), 3)}
+                   for s in g if str(s.get("preset") or "").upper() == "DETAIL"]
+        why = []
+        if dur > limit + tol:
+            why.append(f"{dur:g} s, at most {limit:g} s with {' and '.join(sorted(over)) or 'no voice'} over it")
+        if silent_s > STILL_MAX_S + tol:
+            why.append(f"{silent_s:g} s with no voice ({silent[0]:.2f} to {silent[1]:.2f} s), at most {STILL_MAX_S:g}")
+        for d in details:
+            if d["dur_s"] > STILL_DETAIL_MAX_S + tol:
+                why.append(f"DETAIL {d['id']} {d['dur_s']:g} s, at most {STILL_DETAIL_MAX_S:g}")
+        out.append({"id": g[0]["id"], "shots": [s["id"] for s in g], "asset": g[0].get("asset"), "dur_s": dur,
+                    "voices": sorted(over), "max_s": limit, "longest_voiceless_s": silent_s,
+                    "voiceless_max_s": STILL_MAX_S, "details": details, "ok": not why, "why": why})
     return out
 
 
@@ -2606,11 +2644,11 @@ def still_hold_lints(journal: Journal, plan: dict, placed: dict, *, draft: bool 
     for h in still_holds(plan, placed):
         journal.lint("still-hold", h["ok"], stage="assembly", phase="preflight", unit=h["id"],
                      severity="block" if binding else "warn", grammar="7.2, A9, A20(a)",
-                     evidence=dict(h, rule="10 s with nothing spoken over it, 20 s under narration, 30 s under a reading",
+                     evidence=dict(h, rule="at most 10 s with no voice anywhere in the hold; the hold at most 20 s under narration, "
+                                                "30 s under a reading; a DETAIL at most 5 s",
                                    fix=None if h["ok"] else "shorten the still, or cut to another picture"))
         if not h["ok"] and binding:
-            out.append(f"still-hold ({h['id']}: {h['dur_s']:g} s, at most {h['max_s']:g} s with "
-                       f"{' and '.join(h['voices']) or 'no voice'} over it)")
+            out.append(f"still-hold ({h['id']}: {'; '.join(h['why'])})")
     return out
 
 

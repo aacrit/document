@@ -77,7 +77,7 @@ def test_every_lint_t1_enforces_ran_and_passed(rendered):
                  "clip-aspect", "dissolve-same-class", "conform-logged", "resampler-plain", "master-format",
                  "silent-card-form", "lower-third-format", "no-em-dash", "licence-allowlist", "no-bodies",
                  "still-zoom-limit", "cross-class-dip", "overlay-format", "clip-hold-rendered", "telecine-declared",
-                 "loudnorm-linear", "mark-class-valid", "clip-in-out"):
+                 "loudnorm-linear", "mark-class-valid", "clip-in-out", "still-hold"):
         found = lints(evs, rule)
         assert found, rule
         if rule == "still-first-frame-whole-pixels":
@@ -2510,6 +2510,11 @@ def _spoken(kind, a, b):
     (14.0, [("narration", 14.2, 18.0)], False),                                  # narration after the cut is not over it
     (29.0, [("testimony", 1.0, 27.0)], True), (31.0, [("testimony", 1.0, 27.0)], False),  # A9: 30 s under a reading
     (25.0, [("sfx", 1.0, 20.0)], False),                                         # only the voice kinds count
+    (29.9, [("testimony", -5.0, 0.2)], False),                                   # T1f review: a reading's tail, then 29.7 s silent
+    (25.2, [("testimony", -5.0, 0.2)], False),                                   # the tail of a reading plus 25 s of silence
+    (19.0, [("narration", 0.0, 3.0), ("narration", 15.0, 19.0)], False),        # narration plus a 12 s pause
+    (19.0, [("narration", 0.0, 8.0), ("narration", 8.5, 9.5), ("narration", 9.2, 12.0)], True),  # 7 s silent at the end
+    (29.0, [("testimony", 0.5, 10.0), ("narration", 9.0, 19.5)], True),         # overlapping spans merge; 9.5 s silent
 ])
 def test_a20a_a_still_holds_by_what_is_spoken_over_it(dur, lines, ok):
     plan = _still_plan(dur)
@@ -2523,6 +2528,50 @@ def test_a20a_a_still_holds_by_what_is_spoken_over_it(dur, lines, ok):
     assert ev["status"] == ("pass" if ok else "fail") and ev["severity"] == "block"
     assert bool(out) is not ok
     assert R.still_hold_lints(J.Journal(film="still-hold-draft"), plan, placed, draft=True) == []   # a warning under --draft
+
+
+def test_a20a_stills_of_one_asset_are_one_hold_and_a_detail_is_at_most_5_s():
+    shots = [{"id": "P1", "kind": "archive_still", "asset": "A", "start_s": 0.0, "end_s": 8.0},
+             {"id": "P2", "kind": "archive_still", "asset": "A", "start_s": 8.0, "end_s": 16.0, "transition_in": {"type": "cut"}},
+             {"id": "P3", "kind": "archive_still", "asset": "B", "start_s": 16.0, "end_s": 24.0, "transition_in": {"type": "cut"}}]
+    h = R.still_holds({"shots": shots}, {"lines": []})
+    assert [x["shots"] for x in h] == [["P1", "P2"], ["P3"]]
+    assert h[0]["ok"] is False and h[0]["dur_s"] == 16.0 and h[1]["ok"] is True   # 8 + 8 s of one photograph, silent
+    dissolved = [dict(shots[0]), dict(shots[1], start_s=7.25, transition_in={"type": "dissolve", "s": 0.75})]
+    assert R.still_holds({"shots": dissolved}, {"lines": []})[0]["shots"] == ["P1", "P2"]
+    dipped = [dict(shots[0]), dict(shots[1], transition_in={"type": "dip", "s": 0.5})]
+    assert [x["shots"] for x in R.still_holds({"shots": dipped}, {"lines": []})] == [["P1"], ["P2"]]
+    narr = {"lines": [_spoken("narration", 0.5, 15.5)]}
+    assert R.still_holds({"shots": shots[:2]}, narr)[0]["ok"] is True              # one 16 s hold under narration
+    detail = [dict(shots[0]), dict(shots[1], end_s=14.0, preset="DETAIL")]
+    hd = R.still_holds({"shots": detail}, narr)[0]
+    assert hd["ok"] is False and any("DETAIL P2 6 s" in w for w in hd["why"])
+    assert R.still_holds({"shots": [dict(shots[0]), dict(shots[1], end_s=13.0, preset="DETAIL")]}, narr)[0]["ok"] is True
+
+
+def test_a20a_a_final_render_with_a_silent_still_over_10_s_is_refused(tmp_path):
+    film = make_film(tmp_path / "film")
+
+    def stretch(p):                                                            # S5 (no voice over it) runs 11 s, not 3
+        shots = [sh for part in p["parts"] for sh in part.get("shots", [])]
+        i = next(k for k, sh in enumerate(shots) if sh["id"] == "S5")
+        shots[i]["dur_s"] = 11.0
+        for sh in shots[i + 1:]:
+            sh["start_s"] += 8.0
+        for part in p["parts"]:
+            for x in part.get("lines", []) + part.get("cues", []) + part.get("text", []):
+                if x["start_s"] >= 14.0:
+                    x["start_s"] += 8.0
+                    if "end_s" in x:
+                        x["end_s"] += 8.0
+        for c in p["subtitle_source"]:
+            if c["start_s"] >= 14.0:
+                c["start_s"] += 8.0
+                c["end_s"] += 8.0
+    _edit_play(film, stretch)
+    from studio.engine.render import render
+    with pytest.raises(R.Refused, match=r"still-hold \(S5: 11 s, at most 10 s with no voice over it"):
+        render(film, tmp_path / "out", height=360, workers=1, min_free_gb=1, encode_preset="veryfast", audio_only=True)
 
 
 def test_a20a_the_still_hold_lint_runs_on_the_fixture_and_passes(plan):
