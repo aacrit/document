@@ -62,6 +62,7 @@ from PIL import Image
 
 from studio.engine import motion as M
 from studio.engine import policy as POL
+from studio.engine import score as SC
 from studio.engine.journal import Journal, sha256_file
 
 ENGINE_VERSION = "0.1.0"
@@ -132,11 +133,16 @@ VOICE_LIMIT_MARGIN_DB = 0.3         # the per-line limiter's ceiling sits this f
 # A13 bad take (refused, re-render it): over 8 dB for more than 20 ms in total, over 1 dB for more than 20% of the
 # line, or over 3 dB for more than 5% of it. A click cut deep for a few ms is peak control; sustained cuts are compression.
 VOICE_OVER_8DB_MAX_S, VOICE_OVER_1DB_MAX_SHARE, VOICE_OVER_3DB_MAX_SHARE = 0.020, 0.20, 0.05
-MUSIC_LUFS = -26.0                  # a music cue's bed level, 6 dB under the dialogue (its gain_db is an offset from it)
+MUSIC_LUFS = -26.0                  # a featured music cue (the motif, a palette recording), 6 dB under the dialogue; its
+                                    # gain_db is an offset from it. A29 (R1): an underscore cue (bed, transition, sting,
+                                    # outro) is levelled to the score standard's bed target instead, -32 LUFS by default
+                                    # (studio/engine/score.py holds the standard's numbers, settable per film in bounds)
 DUCK_DB = 9.0                       # GRAMMAR 8.5: music under voice
 DUCK_SMOOTH_S = 0.250               # GRAMMAR 8.5: 250 ms smoothing, a centred ramp (it starts 125 ms before the voice)
 DUCK_BRIDGE_S = 1.2                 # voice gaps shorter than this stay ducked (between words and between lines 0.8 s apart),
-                                    # so a long bed never pumps; across a 1.5 s scene breath (A10) it comes back up
+                                    # so a long bed never pumps; across a 1.5 s scene breath (A10) it comes back up.
+                                    # A29: the film's score_standard duck_hold_s (1.2 to 3 s); every pause inside a line holds
+assert (MUSIC_LUFS, DUCK_DB, DIALOGUE_LUFS, DUCK_BRIDGE_S) == (SC.FEATURE_LUFS, SC.DUCK_DB, SC.DIALOGUE_LUFS, SC.STANDARD["duck_hold_s"])
 DUCK_VOICE_THRESHOLD = 1e-3         # a voice sample over -60 dBFS counts as voice for ducking
 SILENCE_DBFS = -120.0               # A19: a mix sample at or under this is true digital silence
 SILENCE_WARN_S = 4.0                # digital-silence: a run longer than this outside an intended silence is a warning
@@ -192,7 +198,7 @@ LT_SUFFIXES = ("  ·  read by a computer voice", "  ·  original recording")
 EM_DASH = "—"
 
 _HERE = Path(__file__).resolve().parent
-ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py"))).hexdigest()[:12]
+ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py", "score.py"))).hexdigest()[:12]
 ENGINE_MODEL = {"name": "studio.engine.render", "version": f"{ENGINE_VERSION}+{ENGINE_HASH}"}
 
 
@@ -1015,6 +1021,11 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     if play.get("settings") is not None:
         lint("film-settings", not settings_problems, unit="settings", grammar="A25",
              evidence={"settings": settings, "stated": settings_stated, "bounds": POL.SETTING_BOUNDS, "problems": settings_problems})
+    # A29 (R1): the house score standard, with what the film sets of it inside GRAMMAR's bounds
+    score_std, score_stated, score_problems = SC.standard(play)
+    if play.get("score_standard") is not None:
+        lint("score-standard", not score_problems, unit="score_standard", grammar="A29",
+             evidence={"standard": score_std, "stated": score_stated, "bounds": SC.BOUNDS, "problems": score_problems})
     if lint_fail:
         raise Refused("lint failed: " + "; ".join(lint_fail))
 
@@ -1028,7 +1039,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         cues += [dict(x, _part=part["id"]) for x in part.get("cues", [])]
         texts += [dict(x, _part=part["id"]) for x in part.get("text", [])]
     # A19: underscore. Top-level `music` cues may span scenes and parts; a cue anywhere may fade in and out.
-    cues += [dict(x, _part=None, kind=x.get("kind", "music")) for x in play.get("music", [])]
+    cues += [dict(x, _part=None) for x in play.get("music", [])]     # A29(0): kind is stated, here as in a part
     if not shots:
         raise Refused("the screenplay has no shots")
     ids = [s["id"] for s in shots]
@@ -1277,6 +1288,15 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         if s.get("_card") == "chapter":
             first = (s.get("text") or [""])[0]
             lint("chapter-card-form", bool(CHAPTER_RE.match(first)), unit=s["id"], evidence=first, grammar="9")
+        if s.get("intent") is not None:          # A30: the closed list, on a black or card shot only
+            it = s["intent"]
+            known = isinstance(it, str) and it in BLACK_INTENTS
+            ok = known and s["kind"] in BLACK_KINDS and (it not in BLACK_ONLY_INTENTS or s["kind"] == "black")
+            lint("black-intent", ok, unit=s["id"], grammar="A30",
+                 evidence={"kind": s["kind"], "intent": it, "intents": sorted(BLACK_INTENTS),
+                           "fix": None if ok else ("intent is a string from the closed list" if not known else
+                                                   f"{it} is for a black shot only" if it in BLACK_ONLY_INTENTS else
+                                                   "intent is for a black or card shot")})
     card_lints(lint, shots, W, H)            # E15: laid out at plan time; overflow refuses, nothing is cut
     lower_thirds, subs, overlays = [], [], []
     for t in texts:
@@ -1369,6 +1389,19 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         lint("cue-span", ok, unit=c.get("id"), grammar="12, A19",
              evidence={"start_s": start, "end_s": end, "fade_in_s": fi, "fade_out_s": fo,
                        "fix": None if ok else "end_s after start_s, fades of 0 or more that fit inside the cue"})
+        kind_ok = c.get("kind") in SC.CUE_KINDS          # A29: a cue is music or ambience, spelled so; nothing else is placed
+        lint("cue-kind", kind_ok, unit=c.get("id"), grammar="A29",
+             evidence={"kind": c.get("kind"), "kinds": list(SC.CUE_KINDS)})
+        why = SC.role_problem(c)                 # A29: a music cue's role and score_role, from the closed lists
+        lint("score-role", why is None, unit=c.get("id"), grammar="A29",
+             evidence={"role": c.get("role"), "score_role": c.get("score_role"), "roles": list(SC.MUSIC_ROLES),
+                       "score_roles": list(SC.ROLES), "problem": why})
+        if why is None and kind_ok and (c["kind"] == "ambience" or SC.cue_role(c) in SC.UNDERSCORE):
+            g = c.get("gain_db", 0.0)
+            ok = isinstance(g, (int, float)) and not isinstance(g, bool) and math.isfinite(float(g)) and float(g) <= 0.0
+            lint("underscore-gain", ok, unit=c.get("id"), grammar="A29",
+                 evidence={"role": SC.cue_role(c), "gain_db": g,
+                           "fix": None if ok else "an underscore or ambience cue's gain_db may only lower it: 0 or less"})
     vl = voice_lines(play, film)
     collisions = voice_collisions(vl)
     lint("voice-overlap", not collisions, stage="scout", grammar="founder ruling 2026-10-10",
@@ -1431,8 +1464,11 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         "key_classes": list(M.key_classes(shots)),  # A31: the mark key's classes, from the whole film (kept by --until)
         # A21, A25 and E2's sides: what the sources page states about the film's own rules
         "imagery_rule": rule, "settings": settings, "settings_stated": settings_stated, "shortfalls": shortfalls,
+        "score_standard": score_std, "score_standard_stated": score_stated,
         "balance": play.get("balance"), "sides": film_sides(play),
     }
+    plan["dark_voice"] = dark_voice_runs(plan)          # A30: judged by black_dip_lints, printed in sources.json
+    plan["dips"] = dip_list(plan)
     plan["credits"] = credits_blocks(plan)
     try:
         M.credits_layout(M.Layout(W, H), plan["credits"], M.Fonts())
@@ -3530,14 +3566,24 @@ def narrator_consistency_lints(journal: Journal, profiles: dict[str, dict], draf
 
 
 def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
-              work: Path | None = None) -> tuple[np.ndarray, dict]:
+              work: Path | None = None, stems: dict | None = None) -> tuple[np.ndarray, dict]:
     """The programme mix, in two passes (A15 refined, E14). Pass 1 levels,
     cleans and peak-controls every line at A15's fixed voice ceiling and
     mixes. If the master's true-peak limiter would then do more than catch
     peaks, pass 2 peak-controls the synthetic lines (and holds the archival
     spans' static gain) to a ceiling derived from the measured lift and mixes
     again (voice_ceiling_pass). ``work`` holds pass 1's trial master (a
-    temporary folder when None)."""
+    temporary folder when None).
+
+    A29 (R1): a bed is high-passed (the score standard's bed_highpass_hz, 12
+    dB an octave) before it is levelled; every underscore cue (bed,
+    transition, sting, outro) is levelled to the standard's bed target, a
+    featured cue (the motif, a palette recording) to MUSIC_LUFS; the duck
+    holds through every pause inside a line and every gap under the
+    standard's duck_hold_s. ``stems``, when given, receives what score_lints
+    reads: each music cue's analysis as placed and the voice activity and
+    duck gain on score.py's grids."""
+    std = plan.get("score_standard") or dict(SC.STANDARD)
     n = int(round(plan["frames"] / FPS * AUDIO_RATE))
     voice, music, amb, clips = (np.zeros(n, np.float32) for _ in range(4))
     placed = {"lines": [], "cues": [], "clips": [], "missing": []}
@@ -3619,15 +3665,34 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
         target = music if c.get("kind") == "music" else amb
         x = _read_wav(wav)
         level = None
+        role = SC.cue_role(c)
+        hp = None
         if c.get("kind") == "music":            # levelled over the part that plays
             span = x[: max(0, int(round((float(c["end_s"]) - float(c["start_s"])) * AUDIO_RATE)))]
-            level = _level(journal, c["id"], span, MUSIC_LUFS, "music bed")
-        x = cue_fades(x, float(c["end_s"]) - float(c["start_s"]), float(c.get("fade_in_s", 0) or 0),
-                      float(c.get("fade_out_s", 0) or 0))
-        k = _place(target, x, float(c["start_s"]), (level or 0.0) + float(c.get("gain_db", 0.0)), float(c["end_s"]))
+            if role == "bed":                   # A29: nothing of a bed sits under the voice
+                hp = float(std["bed_highpass_hz"])
+                x = span = SC.highpass(span, hp)
+                journal.decision("assembly", f"{c['id']} high-passed at {hp:g} Hz (12 dB an octave)",
+                                 "A29: every bed is high-passed before it is levelled", unit=c["id"],
+                                 evidence={"role": role, "highpass_hz": hp})
+            under = role in SC.UNDERSCORE
+            level = _level(journal, c["id"], span, SC.bed_lufs(std) if under else MUSIC_LUFS,
+                           f"music {role}, the score standard's bed target" if under else f"music {role}")
+        fi, fo = float(c.get("fade_in_s", 0) or 0), float(c.get("fade_out_s", 0) or 0)
+        span_n = max(0, int(round((float(c["end_s"]) - float(c["start_s"])) * AUDIO_RATE)))
+        unfaded = x[:span_n] if stems is not None else None    # A29: breathing is judged before the fades
+        x = cue_fades(x, float(c["end_s"]) - float(c["start_s"]), fi, fo)
+        gain = (level or 0.0) + float(c.get("gain_db", 0.0))
+        k = _place(target, x, float(c["start_s"]), gain, float(c["end_s"]))
         placed["cues"].append({"id": c["id"], "kind": c.get("kind"), "at_s": float(c["start_s"]), "dur_s": round(k / AUDIO_RATE, 3),
                                "level_db": None if level is None else round(level, 2), "part": c.get("_part"),
-                               "fade_in_s": float(c.get("fade_in_s", 0) or 0), "fade_out_s": float(c.get("fade_out_s", 0) or 0)})
+                               "fade_in_s": fi, "fade_out_s": fo, "role": role, "highpass_hz": hp})
+        if stems is not None:
+            y = x[:k] * np.float32(10 ** (gain / 20))
+            stems.setdefault("cues", []).append({"id": c["id"], "role": role, "start_s": float(c["start_s"]), "fade_in_s": fi,
+                                                 "fade_out_s": fo, "gain_db": float(c.get("gain_db", 0.0)), "highpass_hz": hp,
+                                                 "an": SC.analyse_cue(y, role, fi, fo,
+                                                                      unfaded=unfaded[:k] * np.float32(10 ** (gain / 20)))})
     for s in plan["shots"]:
         if s["kind"] == "archive_video" and (s.get("sound") or {}).get("mode", "own") == "own" and s["_video"]["probe"]["has_audio"]:
             x = clip_audio(s)
@@ -3644,8 +3709,20 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
         raise Refused(f"voice-clean and voice-chop (A19): re-render these takes (or render with --draft): {'; '.join(unclean)}")
     if narrator_off and not draft:
         raise Refused(f"narrator-consistency and narrator-drift (A14): not the narrator's voice: {'; '.join(narrator_off)}")
-    mix = (voice + clips + music * duck_gain(voice) + amb).astype(np.float32)
-    lifted = voice_ceiling_pass(mix, parts, clips, music, amb, placed, journal, draft=draft, work=work)
+    spans = [(ln["speech_from_s"], ln["speech_to_s"]) for ln in placed["lines"] if ln.get("speech_from_s") is not None]
+    duck = duck_gain(voice, spans=spans, hold_s=float(std["duck_hold_s"]))
+    if stems is not None:
+        g = int(round(SC.DUCK_GRID_S * AUDIO_RATE))
+        m = len(voice) // g
+        stems.update(voice_grid=np.abs(voice[: m * g]).reshape(m, g).max(axis=1) > DUCK_VOICE_THRESHOLD,
+                     duck_grid=duck[: m * g].reshape(m, g).mean(axis=1), spans=spans,
+                     own_sound=[(s["f0"] / FPS, s["f1"] / FPS) for s in plan["shots"] if s["id"] in placed["clips"]]
+                     + [(ln["at_s"], ln["at_s"] + ln["dur_s"]) for ln in placed["lines"] if ln["kind"] == "archival"])
+        k = int(round(SC.HOP_S / SC.DUCK_GRID_S))
+        stems["duck100"] = stems["duck_grid"][: m // k * k].reshape(-1, k).mean(axis=1)
+        stems["voice100"] = stems["voice_grid"][: m // k * k].reshape(-1, k).any(axis=1)
+    mix = (voice + clips + music * duck + amb).astype(np.float32)
+    lifted = voice_ceiling_pass(mix, parts, clips, music, amb, placed, journal, draft=draft, work=work, duck=duck)
     return (mix if lifted is None else lifted), placed
 
 
@@ -3694,7 +3771,7 @@ def _held_gain(db: float, tp: float | None, ceiling: float) -> float:
 
 
 def _mix_at(parts: list[dict], ceiling: float, n: int, clips: np.ndarray, music: np.ndarray,
-            amb: np.ndarray) -> tuple[np.ndarray, dict]:
+            amb: np.ndarray, duck: np.ndarray | None = None) -> tuple[np.ndarray, dict]:
     """E14: place every voice part again under ``ceiling``: synthetic lines
     peak-controlled (A13) from their levelled take, archival spans and
     archival files at one static gain held to it (A26; never limited).
@@ -3714,11 +3791,13 @@ def _mix_at(parts: list[dict], ceiling: float, n: int, clips: np.ndarray, music:
         else:
             got[k] = {"x": p["x"], "db": p["db"]}
         _place(voice, got[k]["x"], p["at_s"], got[k]["db"])
-    return (voice + clips + music * duck_gain(voice) + amb).astype(np.float32), got
+    # A29: pass 1's duck (its lines' spans and the film's hold) when given; pass 2 only re-peaks the same lines
+    return (voice + clips + music * (duck_gain(voice) if duck is None else duck) + amb).astype(np.float32), got
 
 
 def voice_ceiling_pass(mix: np.ndarray, parts: list[dict], clips: np.ndarray, music: np.ndarray, amb: np.ndarray,
-                       placed: dict, journal: Journal, *, draft: bool = False, work: Path | None = None) -> np.ndarray | None:
+                       placed: dict, journal: Journal, *, draft: bool = False, work: Path | None = None,
+                       duck: np.ndarray | None = None) -> np.ndarray | None:
     """A15 refined (E14): measure pass 1's mix (its integrated loudness, so
     the lift to TARGET_LUFS) and, when that gain would push its true peak past
     TARGET_TP, run the loudness pass on a trial copy. Only when that master's
@@ -3761,7 +3840,7 @@ def voice_ceiling_pass(mix: np.ndarray, parts: list[dict], clips: np.ndarray, mu
         return None
     passes = [{"pass": 1, "ceiling_dbtp": VOICE_TP, "input_i": m["input_i"], "lift_db": lift}]
     while True:
-        out, got = _mix_at(parts, ceiling, len(mix), clips, music, amb)
+        out, got = _mix_at(parts, ceiling, len(mix), clips, music, amb, duck)
         mn = _measure(out)
         lift_n = round(TARGET_LUFS - mn["input_i"], 2)
         nxt, nraw, nbound = derived_voice_ceiling(lift_n)
@@ -3887,13 +3966,18 @@ def cue_fades(x: np.ndarray, span_s: float, fade_in_s: float, fade_out_s: float)
     return y
 
 
-def duck_gain(voice: np.ndarray) -> np.ndarray:
+def duck_gain(voice: np.ndarray, spans: list[tuple[float, float]] | None = None,
+              hold_s: float = DUCK_BRIDGE_S) -> np.ndarray:
     """Music gain under voice (GRAMMAR 8.5): -9 dB wherever a voice speaks,
-    with gaps shorter than DUCK_BRIDGE_S closed (a morphological closing of
+    with gaps shorter than ``hold_s`` closed (a morphological closing of
     the voice activity), so the bed holds still between words and between
-    lines instead of pumping, and a 250 ms centred ramp in and out."""
+    lines instead of pumping, and a 250 ms centred ramp in and out. A29: each
+    of ``spans`` (a line's spoken span, first to last word) counts as voice
+    throughout, so the duck holds through every pause written into a line."""
     active = (np.abs(voice) > DUCK_VOICE_THRESHOLD).astype(np.float32)
-    k = int(round(DUCK_BRIDGE_S * AUDIO_RATE)) | 1
+    for a, b in spans or []:
+        active[max(0, int(round(a * AUDIO_RATE))): max(0, int(round(b * AUDIO_RATE)))] = 1.0
+    k = int(round(hold_s * AUDIO_RATE)) | 1
     grown = (moving_average(active, k) > 1e-6).astype(np.float32)          # dilate by half the bridge on each side
     closed = (moving_average(grown, k) > 1 - 1e-6).astype(np.float32)       # erode back: only the short gaps stay filled
     closed = np.maximum(closed, active)
@@ -4192,6 +4276,162 @@ def lower_third_time_lints(journal: Journal, plan: dict, *, draft: bool = False)
 
 CREDITS_LAST_LINE_S = 2.0       # E15: the last credit line has been fully on screen this long when the credits shot ends
 
+# A30 (R4): no voice over empty black. A voice over a black or card picture (a run of them) for longer than
+# BLACK_VOICE_MAX_S is refused unless each such shot declares why, from this closed list; every use is journaled and
+# printed on the sources page. A reading over black also carries its lower third.
+BLACK_VOICE_MAX_S = 4.0
+BLACK_KINDS = ("black", "card")
+BLACK_INTENTS = {
+    "count-of-the-dead": "A count of the dead is read over bare black (GRAMMAR 8.2, A8 rule 6).",
+    "poem": "A poem or a song's words, heard whole over black.",
+    "no-open-image-of-the-author": "No image of the speaker exists under an open licence, and the absence is the point.",
+    "the-film-speaks": "The film's own card, read aloud.",
+}
+BLACK_ONLY_INTENTS = ("count-of-the-dead",)    # bare black: never on a card (its why says so)
+# A30 (R4): the dip budget (FOUNDER-FEEDBACK-1 section 4: Partition's 56 dips, one every 21 s, made "a lot of black").
+# Over each part, at most one dip per 40 s on average (rounded up, so a short part keeps its one dip); over the film,
+# at most 12 s of dip per 10 minutes.
+DIP_EVERY_S = 40.0
+DIP_SECONDS_PER_10MIN_MAX = 12.0
+
+
+def dark_voice_runs(plan: dict) -> list[dict]:
+    """A30: each run of consecutive black or card shots that a voice line
+    speaks over, with the seconds of voice over it (the lines' WAV lengths,
+    or an archival span's cut), the lines, each shot's declared intent and,
+    for a reading, the lower thirds drawn while it speaks."""
+    film = Path(plan["film"])
+    voice = []
+    for ln in plan["lines"]:
+        if ln.get("kind") not in VOICE_KINDS:
+            continue
+        if archival_span(ln):
+            d = max(0.0, float(ln.get("out_s", 0)) - float(ln.get("in_s", 0)))
+        elif voice_wav(film, ln).exists():
+            d = wav_seconds(voice_wav(film, ln))
+        else:
+            continue
+        voice.append((float(ln["start_s"]), float(ln["start_s"]) + d, ln))
+    runs, cur = [], []
+    for s in plan["shots"]:
+        if s["kind"] in BLACK_KINDS:
+            cur.append(s)
+        elif cur:
+            runs.append(cur)
+            cur = []
+    if cur:
+        runs.append(cur)
+    out = []
+    for run in runs:
+        a, b = run[0]["f0"] / FPS, run[-1]["f1"] / FPS
+        over = [(max(a, x), min(b, y), ln) for x, y, ln in voice if x < b and y > a]
+        if not over:
+            continue
+        merged = _merge_spans([(x, y) for x, y, _ in over], a, b)
+        secs = sum(y - x for x, y in merged)
+        shots = []
+        for s in run:
+            s0, s1 = s["f0"] / FPS, s["f1"] / FPS
+            sv = sum(max(0.0, min(s1, y) - max(s0, x)) for x, y in merged)
+            if sv > 0:
+                shots.append({"id": s["id"], "kind": s["kind"], "voice_s": round(sv, 2), "intent": s.get("intent")})
+        readings = []
+        for x, y, ln in over:
+            if ln.get("kind") == "testimony":
+                lt = [o["id"] for o in plan.get("lower_thirds", []) if o["start"] < y and o["end"] > x]
+                readings.append({"id": ln["id"], "lower_thirds": lt})
+        out.append({"from_s": round(a, 3), "to_s": round(b, 3), "voice_s": round(secs, 2), "shots": shots,
+                    "lines": [ln["id"] for _, _, ln in over], "readings": readings, "part": run[0]["_part"]})
+    return out
+
+
+def dip_list(plan: dict) -> list[dict]:
+    return [{"id": s["id"], "part": s["_part"], "s": float(s["transition_in"].get("s", 0))}
+            for s in plan["shots"] if (s.get("transition_in") or {}).get("type") == "dip"]
+
+
+def part_spans(plan: dict) -> dict:
+    """Each part's length in seconds, from its shots' frames, in film order."""
+    out: dict = {}
+    for s in plan["shots"]:
+        out[s["_part"]] = out.get(s["_part"], 0.0) + (s["f1"] - s["f0"]) / FPS
+    return out
+
+
+def black_dip_lints(journal: Journal, plan: dict, *, draft: bool = False) -> list[str]:
+    """A30 (R4). black-under-voice: a voice over a run of black or card
+    shots for more than BLACK_VOICE_MAX_S is refused unless every such shot
+    declares an intent from BLACK_INTENTS (journaled as a decision, printed in
+    sources.json), and a reading over it has a lower third. dip-budget: over
+    each part at most one dip per DIP_EVERY_S on average (rounded up, so a
+    short part keeps one), and over the film at most DIP_SECONDS_PER_10MIN_MAX
+    seconds of dip per 10 minutes; binding on an event film (10 min or more).
+    Blocking on a final render; warnings under --draft, --audio-only and
+    --until (``draft``). Returns the reasons to refuse."""
+    out = []
+    sev = "warn" if draft else "block"
+    runs = plan["dark_voice"] if "dark_voice" in plan else dark_voice_runs(plan)
+    for r in runs:
+        long_ = r["voice_s"] > BLACK_VOICE_MAX_S + 1e-9
+        missing = [s["id"] for s in r["shots"] if not (isinstance(s.get("intent"), str) and s["intent"] in BLACK_INTENTS)
+                   ] if long_ else []
+        bare = [x["id"] for x in r["readings"] if not x["lower_thirds"]] if long_ else []
+        ok = not missing and not bare
+        unit = r["shots"][0]["id"] if r["shots"] else r["part"]
+        journal.lint("black-under-voice", ok, stage="scout", phase="preflight", unit=unit, severity=sev, grammar="8.2, A8, A30",
+                     evidence=dict(r, max_s=BLACK_VOICE_MAX_S, intents=sorted(BLACK_INTENTS), no_intent=missing,
+                                   readings_without_lower_third=bare,
+                                   fix=None if ok else (
+                                       "give the words a picture (typeset the document as a DRAWN page, or a still), or "
+                                       f"declare the shot's intent from {sorted(BLACK_INTENTS)}" if missing else
+                                       "a reading over black carries its lower third")))
+        if ok and long_:
+            for s in r["shots"]:
+                journal.decision("scout", f"{s['id']}: a voice over {s['kind']} for {s['voice_s']:g} s, intent {s['intent']}",
+                                 f"A30: {BLACK_INTENTS[s['intent']]}", unit=s["id"],
+                                 evidence={"intent": s["intent"], "lines": r["lines"], "run_voice_s": r["voice_s"]})
+        if not ok and not draft:
+            out.append(f"black-under-voice ({unit}: {r['voice_s']:g} s of voice over {r['from_s']:g} to {r['to_s']:g} s; "
+                       + (f"no intent on {', '.join(missing)}" if missing else f"no lower third for {', '.join(bare)}") + ")")
+    dips = plan["dips"] if "dips" in plan else dip_list(plan)
+    dur = float(plan["duration_s"])
+    length = max(float(plan.get("runtime_target_s") or 0.0), dur)
+    binding = not draft and length >= EVENT_FILM_MIN_S
+    n, secs = len(dips), sum(d["s"] for d in dips)
+    srate = secs * 600.0 / dur if dur else 0.0
+    film_allowed = math.floor(dur / DIP_EVERY_S + 1e-9)        # and over the film, at most one per 40 s (15 per 10 min)
+    spans = plan["part_s"] if "part_s" in plan else part_spans(plan)
+    by_part = {}
+    for p, ps in spans.items():
+        ids = [d["id"] for d in dips if d["part"] == p]
+        allowed = max(1, math.ceil(ps / DIP_EVERY_S - 1e-9))
+        by_part[p] = {"dips": len(ids), "part_s": round(ps, 2), "allowed": allowed, "over": max(0, len(ids) - allowed)}
+    over = {p: v for p, v in by_part.items() if v["over"]}
+    secs_ok = srate <= DIP_SECONDS_PER_10MIN_MAX + 1e-9
+    count_ok = n <= film_allowed
+    ok = not over and secs_ok and count_ok
+    journal.lint("dip-budget", ok, stage="scout", phase="preflight", unit="dips", severity="block" if binding else "warn",
+                 grammar="7.3, A10, A30",
+                 evidence={"dips": n, "film_allowed_dips": film_allowed, "dip_s": round(secs, 2),
+                           "dip_s_per_10min": round(srate, 2),
+                           "one_dip_per_s": DIP_EVERY_S, "max_dip_s_per_10min": DIP_SECONDS_PER_10MIN_MAX,
+                           "allowed_dip_s": round(DIP_SECONDS_PER_10MIN_MAX * dur / 600.0, 2),
+                           "by_part": by_part, "parts_over": sorted(over), "binding": binding,
+                           "warning_because": None if binding else ("draft or check render" if draft else
+                                                                    f"under {EVENT_FILM_MIN_S:g} s (a short piece)"),
+                           "fix": None if ok else (
+                               "make cuts of " + ", ".join(f"{v['over']} dip(s) in {p}" for p, v in over.items()) if over else
+                               f"make cuts of {n - film_allowed} dip(s) across the film" if not count_ok else
+                               "shorten the dips") + " (a cut inside a scene; a breath between scenes is a held frame or 1.5 s "
+                                                     "with no voice, A10)"})
+    if not ok and binding:
+        out.append(f"dip-budget ({n} dips, {secs:g} s of dip in {dur:.0f} s"
+                   + (f"; over one per {DIP_EVERY_S:g} s in " + ", ".join(f"{p} ({v['dips']} in {v['part_s']:.0f} s, at most "
+                                                                           f"{v['allowed']})" for p, v in over.items()) if over else "")
+                   + ("" if count_ok else f"; {n} in the film, at most {film_allowed} (one per {DIP_EVERY_S:g} s)")
+                   + ("" if secs_ok else f"; {srate:.1f} s of dip per 10 min, at most {DIP_SECONDS_PER_10MIN_MAX:g}") + ")")
+    return out
+
 
 def credits_roll_lints(journal: Journal, plan: dict, *, draft: bool = False) -> list[str]:
     """credits-roll (E15): the roll finishes inside the credits shot: at the
@@ -4406,6 +4646,34 @@ def sound_lints(journal: Journal, plan: dict, mix: np.ndarray, placed: dict, *, 
                 out.append(f"{rule}: {ev} (its declared shortfall is not stated on a card)")
     journal.event("unit", "assembly", "mix", lens="shares", status="info", shares=sh, narration_ceiling=None,
                   note="A17 lifts the 25% narration ceiling; narration is reported, not capped")
+    return out
+
+
+def score_lints(journal: Journal, plan: dict, stems: dict, *, draft: bool = False) -> list[str]:
+    """A29 (R1), the house score standard on the music as the mix placed it
+    (studio/engine/score.py): bed-under-voice (a bed in the voice's gaps at
+    least the standard's 12 dB under the dialogue target), bed-low-end (its
+    energy under 230 Hz after the high-pass), bed-breathing (its 100 ms level
+    spread), transition-ceiling (a transition's or sting's loudest 400 ms
+    never above the bed it leads into), music-entry (an underscore cue that
+    enters from no music fades in), music-holes (no undeclared stretch with
+    no music between the first cue and the last) and duck-pumping (the duck
+    holds through every pause in a line and every gap under the hold).
+    Blocking on a final render; warnings under --draft, --audio-only and
+    --until (``draft``). Returns the reasons to refuse."""
+    std = plan.get("score_standard") or dict(SC.STANDARD)
+    checks = SC.score_checks(stems.get("cues", []), std, duration_s=plan["duration_s"], silences=plan.get("silences", []),
+                             own_sound=stems.get("own_sound", []), duck100=stems.get("duck100"),
+                             voice_grid=stems.get("voice_grid"), duck_grid=stems.get("duck_grid"), spans=stems.get("spans"),
+                             voice100=stems.get("voice100"))
+    out = []
+    for c in checks:
+        journal.lint(c["rule"], c["ok"], stage="assembly", phase="preflight", unit=c["unit"],
+                     severity="warn" if draft else "block", grammar="8.5, A29",
+                     evidence=dict(c["evidence"], standard_stated=plan.get("score_standard_stated") or {}))
+        if not c["ok"] and not draft:
+            ev = {k: v for k, v in c["evidence"].items() if k not in ("fix", "declared", "pumps", "holes")}
+            out.append(f"{c['rule']} ({c['unit']}: {ev}; {c['evidence'].get('fix')})")
     return out
 
 
@@ -4762,7 +5030,13 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             **film_policy_doc(plan),
             "cues": [{k: c.get(k) for k in ("id", "kind", "role", "source", "licence", "tradition", "performer", "start_s", "end_s")}
                      for c in plan["cues"]],
-            "credits": [{"heading": h, "lines": ln} for h, ln in plan["credits"]], **extra}
+            "credits": [{"heading": h, "lines": ln} for h, ln in plan["credits"]],
+            # A30: every voice over black the film chose, and why, so the choice is visible; A29: the score standard used
+            "black_under_voice": [{"shot": s["id"], "kind": s["kind"], "intent": s["intent"], "why": BLACK_INTENTS[s["intent"]],
+                                   "voice_s": s["voice_s"], "lines": r["lines"]}
+                                  for r in plan.get("dark_voice") or [] if r["voice_s"] > BLACK_VOICE_MAX_S
+                                  for s in r["shots"] if isinstance(s.get("intent"), str) and s["intent"] in BLACK_INTENTS],
+            "score_standard": plan.get("score_standard") or dict(SC.STANDARD), **extra}
 
 
 def readings_doc(plan: dict, *, durations: bool = True) -> list[dict]:
@@ -4918,8 +5192,9 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         advisory = draft or audio_only or until_s is not None
         lt_refusals = (lower_third_time_lints(journal, plan, draft=advisory) + credits_roll_lints(journal, plan, draft=advisory)
                        + label_rate_lint(journal, plan, draft=advisory) + mark_key_lints(journal, dict(plan, until_s=until_s), draft=advisory))
+        lt_refusals += black_dip_lints(journal, plan, draft=advisory)
         if lt_refusals:
-            raise Refused(f"on-screen time (pre-flight): {'; '.join(lt_refusals)} (BRAND-KIT 4 and 11c, A20(b); "
+            raise Refused(f"on-screen time (pre-flight): {'; '.join(lt_refusals)} (BRAND-KIT 4 and 11c, A20(b), A30; "
                           "render with --draft to accept it)")
         if until_s is not None:
             journal.human("scout", f"--until {until_s:g}: only the shots that start before {until_s:g} s are rendered",
@@ -4994,7 +5269,8 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         work = run_dir / "work"
         work.mkdir(parents=True, exist_ok=True)
         with journal.unit("assembly", "mix", size={"driver": "seconds", "value": round(plan["duration_s"], 3)}) as u:
-            mix, placed = build_mix(plan, film, journal, draft=draft, work=work)
+            stems: dict = {}
+            mix, placed = build_mix(plan, film, journal, draft=draft, work=work, stems=stems)
             import soundfile as sf
             sf.write(str(work / "mix.wav"), mix, AUDIO_RATE, subtype="FLOAT")
             u.extra.update(placed=placed)
@@ -5002,6 +5278,11 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         share_refusals = sound_lints(journal, plan, mix, placed, draft=draft)
         if share_refusals:
             raise Refused(f"voice shares (pre-flight): {'; '.join(share_refusals)} (GRAMMAR 6.1; render with --draft to accept it)")
+        score_refusals = score_lints(journal, plan, stems, draft=advisory)
+        del stems
+        if score_refusals:
+            raise Refused(f"score standard (pre-flight): {'; '.join(score_refusals)} (GRAMMAR 8.5, A29; render with --draft "
+                          "to accept it)")
         fill_cards(plan, shortfall_values(plan, placed), journal)
         fill_refusals = card_fill_lints(journal, plan)
         if fill_refusals:

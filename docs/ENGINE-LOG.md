@@ -583,3 +583,99 @@ Shown by: the reviewer's two blocking findings and the CoS's postmortem rule, th
 - **Glyphs:** the missing-glyph check skipped every whitespace character; it now skips only U+0020 and a line break. U+202F, U+2007, U+205F, U+3000 and a tab are missing in all five film faces (Fraunces 300, 300 italic, Inter 400, 500, JetBrains Mono 500), and U+2009 in Fraunces and JetBrains Mono; each refuses wherever it would be drawn. Tested in every face.
 - **On-screen name spans:** each `speakers_on_screen` span must hold 0 <= in_s < out_s <= the clip's length (read from its header); an archival line with no `in_s` or `out_s` is refused (`archival-span`, and the named-on-screen allowance cannot hold for it).
 - **The live films' plans, as their screenplays stand:** Partition passes every fit and glyph lint; it refuses only `credits-roll` (its credits shot is now 116 s and needs 116.2 s). Nought passes every fit and glyph lint (with FV-DEBATE-1969's spans; its screenplay still lacks `names_its_speakers`, so `archival-lower-third` refuses V:A06 and V:A07 until it is declared); it refuses `credits-roll` (56 s, needs 128.7 s) and `lower-third-time` on 14 place lower thirds. With subtitles burned in, both refuse `subtitle-fits` on nearly every cue: the cues are one line each, made for tracks the player wraps, and burned subtitles are not a release path.
+
+## 2026-10-11 R1 and R4: the house score standard (A29), no voice over empty black and the dip budget (A30)
+Shown by: `studio/tests/test_r1r4.py`; `python -m studio.engine.score` on `episode-v2` and `smallpox`; score-v3.yaml's cues rendered offline from its note data (void-history's `render_cue`, era `contemporary`, which reproduces `score/base/*.wav` to 16-bit quantisation) and placed where its plan puts them; both films' plans with `black_dip_lints`. No film was rendered and no full mix was made.
+- **What the engine did:** every music cue was levelled to -26 LUFS, 6 dB under the dialogue, with no filter; beds, transitions and the motif alike. The duck already held through voice gaps under 1.2 s (T1e). Nothing measured a bed's level against the voice, its low end, its breathing, a transition against its bed, an entry from silence or a hole between cues; `digital-silence` only warned past 4 s.
+- **Now (A29):** underscore cues (bed, transition, sting, outro) are levelled to -32 LUFS; beds are high-passed at 300 Hz (12 dB an octave, zero-phase by FFT) before levelling; the duck holds through every pause inside a line as well as gaps under the film's hold; seven lints read the cues as placed (`score.analyse_cue`: 100 ms RMS, BS.1770 K-weighted momentary and integrated loudness, low-band share, level spread). The numbers are one block (`score.STANDARD`), settable per film in `score_standard` inside `score.BOUNDS`. The K-weighted meter agrees with ffmpeg's loudnorm within 0.5 LU (tested). Fable's raw measurements reproduce exactly (heat 3.6 dB spread, water 3.9, clock 7.4, pulse 6.6; clock and pulse 56 to 70% of their energy under 230 Hz).
+- **Partition, its current score (screenplay cues, score/*.wav), under the new engine:** bed-under-voice passes everywhere (the -32 target does it; at the old -26 every bed sat 6 dB under). bed-breathing fails the heat and water beds, 8 placements (M-1, M-11, M-13, M-14, M-16, M-18, M-19, M-21: 3.5 to 3.8 dB). bed-low-end fails the clock and pulse, 5 placements (M-2, M-3, M-5, M-6, M-9: 22 to 37% under 230 Hz after the high-pass). transition-ceiling fails M-17 (transition:grief at 872 s, 1.5 dB over the bed it leads into). music-entry fails M-7 (sting:to_document), M-8 (transition:procedure at 425 s, Fable's step from zero), M-10 (rupture entry), M-15 (sting:from_clip at 761 s, Fable's other step) and M-22 (outro), all with no fade from silence. music-holes: 527.8 to 557.8 s (S-020, 30 s), 563.4 to 565.9 s (Fable's 2 s of zero), 763.6 to 771.3 s (Tara over the chapter-5 card) and 1124.2 to 1132.8 s (after card D, under V:N50). duck-pumping passes: Partition has no pause of 1.2 s or more inside a line; its "come and go" is the 48 of 67 gaps between lines that are 1.5 to 5 s long, where the duck releases by design (A10's breath). A film may hold to 3 s (`duck_hold_s`), which would cover 21 of them.
+- **Partition, score-v3.yaml (its cues in its plan's placements):** passes bed-under-voice, transition-ceiling and duck-pumping, and closes the holes at 527.8 and 563.4 s. Still fails: bed-low-end on every clock and pulse bed (28 to 35%: the harp's G3 at 196 Hz, every bar, is the loudest note, and the pulse's G2 tanpura; the high-pass takes 8 dB off G3, not all of it); bed-breathing on the heat bed by 0.4 dB (7.4 dB raw, as Fable measured, but 6.1 a loop after the high-pass and 5.6 as placed); music-entry on sting:to_document (no fade, from silence) and the outro (1.0 s fade); music-holes at 763.6 to 771.3 s and 1124.2 to 1132.8 s, which v3's plan leaves as they are.
+- **Nought (`smallpox`), its current score:** bed-low-end fails 12 beds (22 to 37%), bed-breathing 6 (3.5 to 3.7 dB), music-entry 3 (M-10 bed with a 1.0 s fade, M-20 transition and M-25 outro with none). No holes once its archival lines' own sound is counted; transition-ceiling and duck-pumping pass.
+- **Now (A30):** `black-under-voice` and `dip-budget`, with the closed `intent` list and its use journaled and printed in `sources.json`. **Partition trips:** 2.6 (Radcliffe's paragraph, 27.5 s of voice over black), 5.0 (Tara's V:N34 over the chapter-5 card, 5.9 s), 5.9 (V:N42 and Khosla's E:R20 over black, 33.3 s, which `intent: count-of-the-dead` passes, its lower third LT-43 being drawn); dips 58 and 32.5 s in 1,160 s (30 and 16.8 s per 10 minutes; the budget allows 28 dips and 23.2 s, so at least 30 dips become cuts). **Nought trips:** O1 (10.8 s over its opening statement card), 3.6 (24.2 s over the study's title card), 5.10 and 6.1 (23.4 s over the Maalin and laboratory cards), 6.3 to 6.8 (78.3 s of Hansard readings over heading cards; V:R02, V:R04 and V:R06 also have no lower third), C2 (9.9 s) and C5 with C6 (15.1 s); dips 77 and 42 s in 1,176 s (39.3 per 10 minutes; at least 48 become cuts).
+- **Open:** A29's lints read the cues as placed, not the master; the master's own loudness lints are unchanged. The offline check does not know which clips carry their own soundtrack (that needs a probe), so it may report a hole under one that the engine would not.
+
+## 2026-10-11 R1 and R4 review of 264b382: no lifted underscore cue, no role escape, holes have neither voice nor music
+Shown by: the reviewer's probe (six blocking findings) and the `test_review_*` cases in `studio/tests/test_r1r4.py`; both films re-checked as in the entry above. Where the per-film numbers below differ from that entry, they replace them.
+- **A lifted underscore cue passed:** an outro, or a transition with no bed within 10 s, at `gain_db: +12` passed every lint. Now `underscore-gain` refuses a `gain_db` over 0 on any underscore cue at plan time. `underscore-level` measures every transition, sting and outro against the bed target plus 1 dB. A transition with no nearby bed is compared with the film's loudest bed, or with the bed target plus 4 dB when the film has none. The outro is under `transition-ceiling` too.
+- **The role escape:** `score_role: palette` (or any unchecked `role`, which was read as palette) took a cue out of the standard. Now a music `role` is underscore, house_motif or palette, or it is refused. `score_role` may be bed, transition, sting or outro on an underscore cue, motif only with `role: house_motif` and palette only with `role: palette`. A WAV named theme is no longer read as the motif.
+- **High-pass bounds:** 300 to 400 Hz. A film can raise the high-pass but never set it under 300.
+- **music-holes:** a hole is now a stretch with neither voice nor music. Ambience is not music, so a stretch that only ambience fills is a hole unless it is declared. `_grid`, `_sounds_before` and the new `_sounds_after` all leave ambience out.
+- **music-exit (new):** every bed, and any underscore cue with no music after it, fades out over at least 1.5 s.
+- **Breathing:** measured on the levelled bed before its fades. A drone with 10 s fades had read 31 dB of "breathing"; it now reads 0. A bed under 4 s is not judged and is refused.
+- **A30:** a non-string `intent` is refused instead of crashing. `count-of-the-dead` is for black shots only. The dip budget is judged per part: each part may have its length over 40 s, rounded up, so a short part keeps its one dip. The film-wide cap stays at 12 s of dip per 10 minutes. Each part's dips, length and allowance are journaled.
+- **Offline duck-pumping** counts the archival lines' spans as voice.
+- **Voices untouched:** a test shows the voice track and every placed line are bit-identical with and without a scored bed, in pass 1 and after a forced E14 pass 2.
+- **Partition, current score:**
+  - bed-breathing: 8 beds, 3.6 to 3.7 dB (unchanged).
+  - bed-low-end: 5 clock and pulse beds (unchanged).
+  - transition-ceiling: M-17.
+  - music-entry: M-7, M-8, M-10, M-15, M-22.
+  - music-exit: M-4 (transition:reckoning, 0.6 s before its bed: Fable's hole at 235.4 s), M-6 (a 1.0 s fade), M-7, M-10, M-15.
+  - music-holes: 527.8 to 530.0 s (before E:R15 starts under S-020) and 563.4 to 565.9 s. The other two holes in the entry above had voice in them.
+- **Partition, score-v3:**
+  - bed-low-end: 5 clock and pulse beds.
+  - bed-breathing: 4 heat-bed placements, 5.6 to 5.7 dB.
+  - music-entry: sting:to_document, outro (1.0 s fade).
+  - music-exit: transition:reckoning, sting:to_document, the new S-020 bed (1.0 s fade-out), sting:from_clip.
+  - No holes.
+- **Nought, current score:**
+  - bed-low-end: 12 beds.
+  - bed-breathing: 6 beds.
+  - music-entry: M-10, M-20, M-25.
+  - music-exit: M-5 (transition, no fade), M-24 (a 1.0 s bed fade).
+  - No holes.
+- **Dips per part:**
+  - Partition (58 dips, 32.5 s, 16.8 s per 10 min against 12): over in cold-open 1, ch-1 1, ch-2 3, ch-3 3, ch-4 3, ch-5 6, close 5, credits 2. That is 24 dips to make cuts.
+  - Nought (77 dips, 42 s, 21.4 s per 10 min): ch-1 4, ch-2 9, ch-3 4, ch-4 7, ch-5 5, ch-6 6, close 6, credits 2. That is 43 dips.
+  - black-under-voice: unchanged from the entry above.
+
+## 2026-10-11 R1 and R4 re-review of 24f5de0: the film-wide dip count, the kind escape, faded cues
+Shown by: the reviewer's probes (`r1r4_probe.py`, `r1r4_probe2.py`) and the `test_rereview_*` cases in `studio/tests/test_r1r4.py`. Both films were checked again.
+- **Dips:** the per-part check alone let 36 parts of 20 s carry 36 dips (30 per 10 minutes). The film-wide count is back: at most one dip per 40 s over the film (floor of its length over 40), alongside the per-part check and the 12 s of dip per 10 minutes. The film-wide count is the binding one for both films. Partition: 58 dips, at most 28, so at least 30 must become cuts. Nought: 77, at most 29, so at least 48. Every part over its own allowance is still listed.
+- **The kind escape:** `kind: Music`, `kind: sfx` or a missing `kind` was placed unlevelled on the ambience bus. `cue-kind` now refuses any `kind` other than music or ambience at plan time. An ambience cue's `gain_db` may only lower it (`underscore-gain`). `ambience-level` holds ambience to the bed target, and its loudest 400 ms to the target plus 4 dB, so a transition swell filed as ambience fails.
+  - Ambience is held to a ceiling, not levelled up to the target or ducked. Ducking it 9 dB would put it 21 dB under the dialogue, outside GRAMMAR 8.5's 12 to 18 dB.
+  - Levelling it in the mix would also remove the loud ambience bed that the E14 tests use to drive the loudness lift. The ceiling blocks a final render, as every A29 lint does.
+- **Faded cues:** underscore-level now measures the cue levelled and before its fades. A 6 s swell with 2 s fades had read 1.12 dB over the target and now reads the target.
+- **Advisories:**
+  - A transition with no bed within 10 s is compared with the lower of the target plus 4 dB and the film's loudest bed, and the evidence says it is a fallback.
+  - Breathing counts whole 100 ms windows only, from the first to the last window that is not digital silence, so silence built into a WAV is no longer read as a breath.
+- **Per-film score results:** unchanged from the entry above. Neither film has an ambience cue over the ceiling.
+
+## 2026-10-11 R1 confirmation of ea5dfca: ambience is held to real checks, not to loudness alone
+Shown by: the reviewer's `r1r4_probe3.py` (a 55 and 110 Hz drone, scaled to the ambience ceiling and filed as `kind: ambience`, passed every check), and the `test_confirm_*` cases in `studio/tests/test_r1r4.py`.
+- **Now:** ambience gets `music-entry` and `music-exit`: a fade of at least 1.5 s, unless another cue sounds within 0.5 s before it or after it (a crossfade). A new check, `ambience-low-end`, applies while any voice speaks over the ambience. The probe's drone is refused by `ambience-low-end` (tonal share 0.998). Without fades it is refused by `music-entry` and `music-exit` as well.
+- **Calibration of the low-end limit:**
+  - **Real ambience available:** neither film uses an ambience cue. The two real room-tone recordings on this machine are voidnews' `radio_room_tone.wav` and `onair-03-room-tone.wav` (read, not copied). Coloured noise stands in for crowd (pink) and wind (brown).
+  - **A plain low-end share could not tell wind from a drone:**
+
+    | Sound | Share of energy under 230 Hz |
+    |---|---|
+    | Room tones | 0.34 and 0.42 |
+    | Pink noise | 0.58 |
+    | Brown noise (wind) | 1.00 |
+    | The drone | 1.00 |
+
+  - **What separates them is tonality.** The measure is the share of energy in spectral lines between 20 and 230 Hz that stand 10 times over the larger of their left and right neighbourhood medians (1 Hz Welch spectrum, ±12 Hz, a 2 Hz guard):
+
+    | Sound | Tonal share under 230 Hz |
+    |---|---|
+    | Both room tones | 0.0 |
+    | Pink noise | 0.0 |
+    | Brown noise (wind) | 0.0 |
+    | Brown noise with a strong 50 Hz mains hum | 0.10 |
+    | The E14 tests' two-tone ambience bed (150 and 233 Hz) | 0.50 |
+    | A cello G2 over noise | 0.93 |
+    | The probe's drone | 1.00 |
+
+  - **The limit is 0.15** (`AMB_TONAL_LOW_MAX_SHARE`): above the hum, below every tonal case.
+  - **The E14 fixtures would fail this check,** but they call `build_mix` directly and never run the lints. They are tones, not room tone.
+- **Breathing does not apply to ambience** (real room tone can be steady), and A29 now says so.
+- **A missing `kind`:** a top-level `music` cue no longer defaults to music. A missing kind is refused there as in a part, and the offline checker reports it as `cue-kind`.
+- **A29** now states what ambience is held to:
+  - integrated loudness as placed, before its fades, at most the bed target plus `TOL_DB` 1 dB (-31 LUFS);
+  - its loudest 400 ms at most the target plus `ORPHAN_HEADROOM_DB` 4 plus `CEILING_TOL_DB` 0.5 (-27.5 LUFS);
+  - the tonal low-end limit while under voice;
+  - the fades.
+
+  It also states the tolerances used for beds and transitions.
+- **Both films' offline reports are unchanged:** Partition, 25 of 87 checks fail; Nought, 23 of 101. Neither has an ambience cue.

@@ -74,6 +74,8 @@ See `CHARTER.md` for its surfaces and kill dates, and `contract.yaml` for what
   numpy, pillow, soundfile, pytest and fonttools, plus ffmpeg (`DOCUMENT_PYTHON` picks the interpreter).
 - `python -m studio.engine.render <film dir>`: render a screenplay v2 to a 1080p24 master;
   every run is journaled (`studio/engine/journal.py`), issues go to `docs/ENGINE-LOG.md`.
+- `python -m studio.engine.score <film dir> [--wavs <dir>]`: the house score standard (GRAMMAR A29) checked offline on the
+  film's cue WAVs as its screenplay places them, with no mix rendered; `--wavs` swaps in a re-scored set of cues.
 - `python -m studio.engine.captions <render dir>`: write the English captions (captions-en.vtt) from the
   render's resolved screenplay (`studio/engine/captions.py`); they go to R2 with the film, poster and sources.json.
 - `node scripts/release-film.mjs <render dir>/master.mp4 [--trailer <file>] [--out <dir>] [--dry-run]`: the post-render
