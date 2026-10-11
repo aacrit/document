@@ -2659,36 +2659,47 @@ def _spread_take(hiss_db, seed=5):
     return x
 
 
-def test_t1f_voice_chop_passes_a_wide_spread_under_an_inaudible_floor_and_says_why():
-    x = _spread_take(-100.0)
-    _, rep = R.clean_voice(x)
-    gain, _ = R.level_gain(x, R.DIALOGUE_LUFS)
-    assert rep["floor_spread_db"] > R.CLEAN_FLOOR_SPREAD_MAX_DB and rep["spread_why"]
-    assert rep["gate"]["threshold_dbfs"] + gain < R.CLEAN_FLOOR_MAX_DBFS               # the expander keys under -80 as levelled
-    j = J.Journal(film="inaudible-spread")
+def test_t1f_an_unsteady_floor_takes_the_denoise_only_path_and_passes_when_low():
+    x = _spread_take(-100.0)                                                    # spread far over 6 dB, hiss far under -80
+    y, rep = R.clean_voice(x)
+    y_dn, _ = R.spectral_denoise(x)
+    assert rep["path"] == "denoise-only" and np.array_equal(y, y_dn) and rep["gate"] is None
+    assert "not one steady floor" in rep["first_pass"]["why"] and rep["first_pass"]["floor_spread_db"] == rep["floor_spread_db"]
+    gain, _ = R.level_gain(y, R.DIALOGUE_LUFS)
+    j = J.Journal(film="denoise-only-low")
     assert R._journal_clean(j, "LQ", rep, gain) == []
-    vc = [e for e in lints(J.read(j.path), "voice-chop") if e["unit"] == "LQ"][0]
-    ev = vc["evidence"]
-    assert vc["status"] == "pass" and ev["audible_floor"] is False and ev["floor_spread_db"] == rep["floor_spread_db"]
-    assert "nothing it turns down is audible" in ev["inaudible_floor_pass"] and ev["share"] == rep["chopped_audible_share"]
+    evs = J.read(j.path)
+    dec = [e for e in evs if e["kind"] == "decision" and e.get("unit") == "LQ" and "denoise alone" in e["what"]]
+    assert len(dec) == 1 and dec[0]["evidence"]["first_pass"]["floor_spread_db"] > R.CLEAN_FLOOR_SPREAD_MAX_DB
+    vc = [e for e in lints(evs, "voice-chop") if e["unit"] == "LQ"][0]
+    assert vc["status"] == "pass" and vc["evidence"]["path"] == "denoise-only" and vc["evidence"]["share"] == 0.0
+    assert vc["evidence"]["floor_spread_db"] == rep["floor_spread_db"]                      # journaled, not refused
+    assert [e for e in lints(evs, "voice-clean") if e["unit"] == "LQ"][0]["status"] == "pass"
 
 
-def test_t1f_voice_chop_still_refuses_a_wide_spread_under_an_audible_floor():
+def test_t1f_an_unsteady_take_with_audible_hiss_still_refuses_on_voice_clean():
+    """The hiss (-60 dBFS) drops to digital zero inside a pause: the floor's
+    median is zero, so the median of the floor frames that are not digital
+    silence is what voice-clean must hold under -80."""
     x = _spread_take(-60.0)
-    _, rep = R.clean_voice(x)
-    assert rep["floor_spread_db"] > R.CLEAN_FLOOR_SPREAD_MAX_DB
-    j = J.Journal(film="audible-spread")
-    out = R._journal_clean(j, "LA", rep, 0.0)                                       # floor about -60 dBFS as levelled
-    vc = [e for e in lints(J.read(j.path), "voice-chop") if e["unit"] == "LA"][0]
-    assert vc["status"] == "fail" and vc["evidence"]["audible_floor"] is True and vc["evidence"]["inaudible_floor_pass"] is None
-    assert any("spread" in o for o in out)
-    # the dropout makes the floor's median digital zero, so the expander keys under -80 (speech - 60 dB) while the hiss
-    # stays at -60 untouched: the raw floor's p90 is what shows it audible
-    assert vc["evidence"]["expander_threshold_after_level_dbfs"] < R.CLEAN_FLOOR_MAX_DBFS < vc["evidence"]["floor_p90_raw_after_level_dbfs"]
-    hacked = dict(rep, chopped_audible_share=0.05, chopped_audible=99, spread_why=[], measure_why=[])   # the chop-share rule too
-    out2 = R._journal_clean(J.Journal(film="audible-chop"), "LB", hacked, 0.0)
-    assert any("frames cut over 3 dB" in o for o in out2)
-    assert R._journal_clean(J.Journal(film="inaudible-chop"), "LC", hacked, -60.0) == []   # the same, 60 dB down: inaudible
+    y, rep = R.clean_voice(x)
+    assert rep["path"] == "denoise-only" and rep["after"]["floor_dbfs"] < -200
+    gain, _ = R.level_gain(y, R.DIALOGUE_LUFS)
+    j = J.Journal(film="denoise-only-loud")
+    out = R._journal_clean(j, "LA", rep, gain)
+    vc = [e for e in lints(J.read(j.path), "voice-clean") if e["unit"] == "LA"][0]
+    assert vc["status"] == "fail" and vc["evidence"]["floor_heard_after_level_dbfs"] > R.CLEAN_FLOOR_MAX_DBFS
+    assert any("voice-clean" in o and "denoise only" in o for o in out)
+
+
+def test_t1f_a_steady_hiss_take_still_gets_the_expander():
+    x, _ = _speechlike(seed=6)                                                  # Tara-like: steady hiss at -60
+    y, rep = R.clean_voice(x)
+    assert rep["path"] == "expander" and rep["first_pass"] is None and rep["gate"]["kind"] == "downward expander"
+    gain, _ = R.level_gain(y, R.DIALOGUE_LUFS)
+    j = J.Journal(film="steady")
+    assert R._journal_clean(j, "LS", rep, gain) == []
+    assert lints(J.read(j.path), "voice-chop")[0]["evidence"]["path"] == "expander"
 
 
 def test_t1f_an_e_r01_like_take_with_too_few_pauses_is_refused_whatever_its_floor():
