@@ -181,42 +181,78 @@ def test_a16_the_label_surfaces_at_every_cut_even_with_the_same_words():
 def test_a16_refined_an_ai_generated_label_never_fades():
     shots = [{"start": 0.0, "cls": "AI-GENERATED", "label": "AI-generated · context"},
              {"start": 30.0, "cls": "AI-GENERATED", "label": "AI-generated · context"}]
-    for t in (0.5, 4.2, 10.0, 29.9, 30.5, 59.0):
-        assert M.mark_state(t, shots)["label_alpha"] > 0.98, t
+    for t in (0.0, 1 / 24, 4.2, 10.0, 29.9, 30.0, 30.5, 59.0):               # full on each cut frame, never fading
+        assert M.mark_state(t, shots)["label_alpha"] == 1.0, t
     assert M.label_alpha(10.0, 0.0, "DRAWN") == 0.0 and M.label_alpha(10.0, 0.0, "AI-GENERATED") > 0.99
 
 
-@pytest.mark.parametrize("height", [360, 720, 1080])
-def test_a16_classes_that_share_a_hue_differ_in_shape(height):
-    """At 720p the glyph is 6 px: a dot and a diamond read alike, so the shape
-    the lint reads is the corner, solid only in the square (DRAWN)."""
+def _corner_alpha(W, H, cls):
+    tile, (ox, oy) = M.glyph_tile(W, H, cls)
+    cx, cy = M.glyph_corner(M.Layout(W, H))
+    return tile.getpixel((cx - ox, cy - oy))[3] / 255.0
+
+
+def _trip_backgrounds(W, H):
+    """Every background that could make a dot's or a diamond's corner read as
+    the cold blue or amber hue: the hue divided by (1 - corner alpha), a few
+    steps around it, plus the hue itself and black, white and grey."""
+    out = {(0, 0, 0), (255, 255, 255), (128, 128, 128)}
+    for c in M.GLYPH_SHAPE:
+        out.add(M.MARK_HUE[c])
+        a = _corner_alpha(W, H, c)
+        for hue in {M.MARK_HUE[k] for k in M.GLYPH_SHAPE}:
+            base = np.array(hue) / max(1.0 - a, 1e-6)
+            for d in (-3, -1, 0, 1, 3):
+                out.add(tuple(int(v) for v in np.clip(np.round(base + d), 0, 255)))
+    return sorted(out)
+
+
+@pytest.mark.parametrize("height", [360, 720, 1080, 1440, 2160])
+def test_a16_the_shape_check_holds_over_any_background(height):
+    """Re-review blocker: the corner of a dot or a diamond is the picture under
+    an almost clear disc edge (alpha 0.08 at 1080p), so over a background of
+    hue / (1 - alpha) it reads as the hue. The check now compares the corner
+    with what the class's own glyph composes over the bare pixel."""
     W = round(height * 16 / 9)
     L = M.Layout(W, height)
-    assert M.MARK_HUE["DRAWN"] == M.MARK_HUE["AI-GENERATED"]
-    d = M.glyph_px(L)
-    m = {c: np.asarray(M._glyph(c, d).getchannel("A")) for c in M.GLYPH_SHAPE}
-    assert not np.array_equal(m["DRAWN"], m["AI-GENERATED"])
     plan = {"W": W, "H": height}
-    for bg in ((0, 0, 0), (255, 255, 255), M.MARK_HUE["DRAWN"], (128, 128, 128)):
+    assert M.MARK_HUE["DRAWN"] == M.MARK_HUE["AI-GENERATED"]
+    x, y = M.glyph_corner(L)
+    cx, cy = M.glyph_centre(L)
+    for bg in _trip_backgrounds(W, height):
         img = Image.new("RGBA", (W, height), bg + (255,))
-        for c in M.GLYPH_SHAPE:
-            arr = np.asarray(Image.alpha_composite(img, M._glyph_layer(W, height, c)).convert("RGB"))
-            x, y = M.glyph_centre(L)
-            assert tuple(arr[y, x]) == M.MARK_HUE[c], (height, bg, c)                 # solid hue at the centre
-            for other in M.GLYPH_SHAPE:                                                # the shape is read per class
-                if M.MARK_HUE[other] == M.MARK_HUE[c]:
-                    assert R.glyph_shape_ok(plan, arr, other) == (M.GLYPH_SHAPE[other] == M.GLYPH_SHAPE[c] or
-                                                                  {M.GLYPH_SHAPE[other], M.GLYPH_SHAPE[c]} <= {"dot", "diamond"}), (height, bg, c, other)
+        for drawn in M.GLYPH_SHAPE:
+            arr = np.asarray(M.mark_frame(img, 1.0, [{"start": 0.0, "cls": drawn, "label": ""}], M.Fonts()).convert("RGB"))
+            assert tuple(arr[cy, cx]) == M.MARK_HUE[drawn], (height, bg, drawn)            # solid hue at the centre
+            assert R.glyph_shape_ok(plan, arr, drawn, bg), (height, bg, drawn)             # a correct frame always passes
+            for claimed in M.GLYPH_SHAPE:
+                if claimed == drawn or M.MARK_HUE[claimed] != M.MARK_HUE[drawn]:
+                    continue
+                square = {M.GLYPH_SHAPE[claimed], M.GLYPH_SHAPE[drawn]} & {"square"}
+                if square and M.GLYPH_SHAPE[claimed] != M.GLYPH_SHAPE[drawn]:
+                    # a square for a dot or a diamond (or the reverse) is caught unless the picture is the hue itself
+                    if max(abs(int(v) - h) for v, h in zip(bg, M.MARK_HUE[drawn])) > 3:
+                        assert not R.glyph_shape_ok(plan, arr, claimed, bg), (height, bg, drawn, claimed)
+
+
+def test_a16_the_ai_and_drawn_glyphs_differ_at_720p():
+    L = M.Layout(1280, 720)
+    d = M.glyph_px(L)
+    assert d == 6
+    ai, dr = (np.asarray(M._glyph(c, d).getchannel("A")) for c in ("AI-GENERATED", "DRAWN"))
+    assert dr[0, 0] == 255 and ai[0, 0] == 0 and ai[d // 2, d // 2] == 255 and not np.array_equal(ai, dr)
 
 
 def test_a16_refined_coverage_refuses_a_drawn_glyph_on_an_ai_generated_shot(plan):
     i = next(k for k, s in enumerate(plan["shots"]) if s["id"] == "S3")       # DRAWN
     f = plan["shots"][i]["f0"] + 30
-    arr = R.render_frame(plan, f)
-    assert R.check_mark(plan, arr, f, i) == "ok"
+    probe = {}
+    arr = R.render_frame(plan, f, probe=probe)
+    assert R.check_mark(plan, arr, f, i, probe["bare_corner"]) == "ok"
+    assert R.check_mark(plan, arr, f, i) == "fail"                              # no bare pixel, no judgement: never a pass
     ai = json.loads(json.dumps(plan))
     ai["shots"][i]["mark"] = "AI-GENERATED"                                    # the same cold blue, the wrong shape
-    assert R.check_mark(ai, arr, f, i) == "shape"
+    assert R.check_mark(ai, arr, f, i, probe["bare_corner"]) == "shape"
 
 
 # --------------------------------------------------------------------------
@@ -2364,3 +2400,61 @@ def test_a19_the_expander_turns_a_breath_down_without_cutting_it():
     assert rep["gate"]["kind"] == "downward expander" and 20 <= rep["gate"]["range_db"] <= 30
     assert 0.05 <= rep["gate"]["lookahead_ms"] / 1000 <= 0.08
     assert rep["chopped_audible_share"] <= R.CLEAN_CHOP_MAX_SHARE
+
+
+
+def test_a16_refined_an_ai_label_stays_through_a_dissolve(plan):
+    """A dissolve joins two shots of one class (GRAMMAR 4.4), so out of an
+    AI-GENERATED shot it is into one: the label is full on every frame of it."""
+    shots = [{"start": 0.0, "cls": "AI-GENERATED", "label": "AI-generated · context"},
+             {"start": 5.0, "cls": "AI-GENERATED", "label": "AI-generated · context"}]
+    for f in range(int(4.0 * 24), int(6.5 * 24)):                             # the dissolve's frames on both sides of 5 s
+        assert M.mark_state(f / 24, shots)["label_alpha"] == 1.0, f
+    assert R.KIND_CLASSES["generated"] == {"AI-GENERATED"}
+
+
+def test_a16_a_lower_third_cue_that_starts_after_the_drawn_span_is_refused(tmp_path):
+    f2 = make_film(tmp_path / "film")
+    _edit_play(f2, lambda p: next(c for c in p["subtitle_source"] if c["ref"] == "T1").update(start_s=13.6, end_s=14.5))
+    with pytest.raises(R.Refused, match=r"subtitle-lower-third-span \(T1\)"):
+        R.build_plan(f2, W=640, H=360, burn_subtitles=True, journal=J.Journal(film="lt-cue-late"))
+    R.build_plan(f2, W=640, H=360, burn_subtitles=False, journal=J.Journal(film="lt-cue-tracks"))   # only a burned cue draws
+
+
+def test_a19_voice_chop_refuses_a_take_with_too_few_pauses_or_an_unsteady_floor():
+    rng = np.random.default_rng(11)
+    tt = np.arange(48000 * 6) / 48000                                          # 6 s of speech that never pauses: its
+    am = 0.05 + 0.95 * np.abs(np.sin(2 * np.pi * 1.7 * tt)) ** 4               # quietest frames are speech 25 dB down
+    x = (0.1 * am * sum(np.sin(2 * np.pi * 150 * h * tt) / h for h in range(1, 10))
+         + rng.normal(0, 1e-4, len(tt))).astype(np.float32)
+    y, rep = R.clean_voice(x)
+    assert rep["cleaned"] and rep["pause_share"] < R.CLEAN_PAUSE_MIN_SHARE and not rep["measure_ok"]
+    assert "pauses are" in rep["measure_why"][0]
+    j = J.Journal(film="few-pauses")
+    out = R._journal_clean(j, "L9", rep, 0.0)
+    assert any("pauses are" in o for o in out)
+    vc = [e for e in lints(J.read(j.path), "voice-chop") if e["unit"] == "L9"][0]
+    assert vc["status"] == "fail" and vc["evidence"]["near_floor_frames"] >= 0 and vc["evidence"]["why"]
+    x2, spans = _speechlike(seed=5)
+    x2[: int(0.42 * 48000)] = 0.0                                              # the hiss drops out for 0.42 s: two floors
+    _, rep2 = R.clean_voice(x2)
+    assert rep2["floor_spread_db"] > R.CLEAN_FLOOR_SPREAD_MAX_DB and any("spread" in w for w in rep2["measure_why"])
+
+
+def test_a19_voice_clean_reports_the_p90_and_names_its_measure():
+    x, _ = _speechlike(seed=6)
+    y, rep = R.clean_voice(x)
+    j = J.Journal(film="p90")
+    R._journal_clean(j, "L8", rep, 3.0)
+    ev = [e for e in lints(J.read(j.path), "voice-clean") if e["unit"] == "L8"][0]["evidence"]
+    assert "median" in ev["measure"] and "p90" in ev["measure"]
+    assert ev["floor_p90_after_level_dbfs"] == pytest.approx(rep["after"]["floor_p90_dbfs"] + 3.0, abs=0.01)
+
+
+def test_a17_shares_count_voice_kinds_over_their_speech_only(plan):
+    placed = {"lines": [
+        {"id": "N", "kind": "narration", "line_kind": "narration", "at_s": 0.0, "dur_s": 10.0, "speech_from_s": 1.0, "speech_to_s": 9.0},
+        {"id": "R", "kind": "reading", "line_kind": "testimony", "at_s": 10.0, "dur_s": 5.0, "speech_from_s": 10.5, "speech_to_s": 14.5},
+        {"id": "X", "kind": "reading", "line_kind": "sfx", "at_s": 15.0, "dur_s": 5.0, "speech_from_s": 15.0, "speech_to_s": 20.0}]}
+    sh = R.voice_shares(dict(plan, duration_s=20.0), placed)
+    assert sh == {"narration": 0.4, "readings": 0.2, "voiceless": 0.4}

@@ -162,7 +162,7 @@ STAMP = Spring("stamp", 420, 40, 1.0, says="a rule is drawn; the watermark's cor
 SETTLE = Spring("settle", 170, 24, 1.0, says="a line of a lower third or a card takes its place")
 ARRIVE = Spring("arrive", 110, 20, 1.1, says="a title, the largest thing on the frame, arrives")
 DRIFT = Spring("drift", 48, 14, 1.2, says="the watermark settles at the open; the chapter rule grows")
-# A16 (founder revamp, 2026-10-11): on-screen information is subtle. The provenance label and the lower
+# A16 (founder revamp, 2026-10-10): on-screen information is subtle. The provenance label and the lower
 # third's lines arrive on `whisper`: a quiet, near-critical spring that settles in 9 frames with no visible
 # travel, so the words seem to surface rather than land.
 WHISPER = Spring("whisper", 380, 38, 1.0, says="a provenance label or a lower third's line surfaces, then is let go")
@@ -559,9 +559,17 @@ def glyph_origin(L: Layout) -> tuple[int, int]:
 
 
 def glyph_corner(L: Layout) -> tuple[int, int]:
-    """The glyph box's top-left pixel: solid only in the square (DRAWN). The
-    mark-coverage lint reads the shape here."""
+    """The glyph box's top-left pixel: solid only in the square (DRAWN)."""
     return glyph_origin(L)
+
+
+def glyph_shape_probes(L: Layout) -> list[tuple[int, int]]:
+    """Where the mark-coverage lint reads the shape: the glyph box's top-left
+    pixel and the one right of it. Both are solid in the square; in the dot
+    and the diamond they lie under different alphas of the glyph's edge and
+    its contact disc, so no flat picture can make both read as the square."""
+    x, y = glyph_origin(L)
+    return [(x, y), (x + 1, y)]
 
 
 def glyph_centre(L: Layout) -> tuple[int, int]:
@@ -593,20 +601,30 @@ def _glyph(cls: str, d: int, ss: int = 4) -> Image.Image:
 
 
 @lru_cache(maxsize=32)
-def _glyph_layer(W: int, H: int, cls: str) -> Image.Image:
-    """The glyph with its dark contact ring, on a full-frame transparent layer."""
+def glyph_tile(W: int, H: int, cls: str) -> tuple[Image.Image, tuple[int, int]]:
+    """The glyph over its dark contact disc, as a small tile and the frame
+    pixel its top-left lands on. The disc is round for every shape, 0.12% of
+    height (at least 1 px) wider than the glyph on each side, black at
+    LABEL.shadow alpha, antialiased; a square's corners overhang it."""
     L = Layout(W, H)
-    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = glyph_px(L)
     x, y = glyph_origin(L)
     ring = max(1, L.px(LABEL["halo"]))
-    big = (d + 2 * ring) * 4
+    size = d + 2 * ring
+    big = size * 4
     halo = Image.new("L", (big, big), 0)
     ImageDraw.Draw(halo).ellipse([0, 0, big - 1, big - 1], fill=int(round(255 * LABEL["shadow"])))
-    dark = Image.new("RGBA", (d + 2 * ring, d + 2 * ring), (0, 0, 0, 0))
-    dark.putalpha(halo.resize(dark.size, Image.BOX))
-    layer.alpha_composite(dark, (x - ring, y - ring))
-    layer.alpha_composite(_glyph(cls, d), (x, y))
+    tile = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    tile.putalpha(halo.resize((size, size), Image.BOX))
+    tile.alpha_composite(_glyph(cls, d), (ring, ring))
+    return tile, (x - ring, y - ring)
+
+
+def _glyph_layer(W: int, H: int, cls: str) -> Image.Image:
+    """The glyph tile on a full-frame transparent layer (for tests and the kit)."""
+    tile, at = glyph_tile(W, H, cls)
+    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    layer.alpha_composite(tile, at)
     return layer
 
 
@@ -616,12 +634,14 @@ LABEL_STAYS = {"AI-GENERATED"}       # A16 refined (CoS, T1e review): this label
 def label_alpha(t: float, start: float, cls: str | None = None) -> float:
     """The label's opacity factor (0..1) at ``t`` for a label that surfaced at
     ``start``: up on `whisper`, held LABEL.hold s, let go over LABEL.exit s;
-    0 from LABEL_MAX_S on. An AI-GENERATED label never goes: it stays up."""
+    0 from LABEL_MAX_S on. An AI-GENERATED label is at full opacity from
+    the cut frame and never goes (a dissolve joins two shots of one class
+    (GRAMMAR 4.4), so it stays up through one too)."""
     if t < start:
         return 0.0
     u = t - start
     if cls in LABEL_STAYS:
-        return clamp01(WHISPER.progress(u))
+        return 1.0                       # the class is never hidden: full from the cut frame, no arrival
     if u >= LABEL_MAX_S:
         return 0.0
     return clamp01(WHISPER.progress(u)) * let_go(u, LABEL_MAX_S, LABEL["exit"])
@@ -656,9 +676,10 @@ def mark_state(t: float, shots) -> dict | None:
 
 
 
-def _label_layer(L: Layout, text: str, alpha: float, dx: float, fonts: Fonts) -> Image.Image:
-    """The label's words beside the glyph: near-white at LABEL.alpha over a soft
-    black shadow (no box), numerals in the data face."""
+def _label_tile(L: Layout, text: str, alpha: float, dx: float, fonts: Fonts) -> tuple[Image.Image, tuple[int, int]]:
+    """The label's words beside the glyph, near-white at LABEL.alpha over a soft
+    black shadow (no box), numerals in the data face, drawn and blurred on a
+    crop around the words only, and the frame pixel the crop lands on."""
     from PIL import ImageFilter
     px = L.px(LABEL["size"])
     f_txt = _font(fonts.structure, px)
@@ -667,16 +688,22 @@ def _label_layer(L: Layout, text: str, alpha: float, dx: float, fonts: Fonts) ->
     gx, gy = glyph_origin(L)
     x = gx + d + LABEL["gap"] * px + dx
     baseline = gy + d / 2.0 + 0.36 * px           # the glyph sits at the middle of the x-height
-    words = Image.new("RGBA", (L.W, L.H), (0, 0, 0, 0))
-    _draw_mixed(ImageDraw.Draw(words), (x, baseline), text, f_txt, f_num, _rgba(PALETTE["mark_text"], LABEL["alpha"] * alpha))
+    radius = max(1.0, L.h(LABEL["blur"]))
+    margin = int(math.ceil(3 * radius)) + 2
+    x0, y0 = max(0, int(math.floor(x)) - margin), max(0, int(math.floor(baseline - 1.1 * px)) - margin)
+    x1 = min(L.W, int(math.ceil(x + _measure(text, f_txt, f_num))) + margin + 1)
+    y1 = min(L.H, int(math.ceil(baseline + 0.4 * px)) + margin + 1)
+    words = Image.new("RGBA", (x1 - x0, y1 - y0), (0, 0, 0, 0))
+    _draw_mixed(ImageDraw.Draw(words), (x - x0, baseline - y0), text, f_txt, f_num,
+                _rgba(PALETTE["mark_text"], LABEL["alpha"] * alpha))
     # the shadow: the words' own coverage, blurred, in black at LABEL.shadow (scaled with the label's opacity)
     cover = np.asarray(words.getchannel("A"), dtype=np.float32) / max(LABEL["alpha"] * alpha, 1e-6)
-    blurred = Image.fromarray(np.clip(cover, 0, 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(max(1.0, L.h(LABEL["blur"]))))
+    blurred = Image.fromarray(np.clip(cover, 0, 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(radius))
     sh = np.clip(np.asarray(blurred, dtype=np.float32) * 1.8, 0, 255) * (LABEL["shadow"] * alpha)
-    out = Image.new("RGBA", (L.W, L.H), (0, 0, 0, 0))
+    out = Image.new("RGBA", words.size, (0, 0, 0, 0))
     out.putalpha(Image.fromarray(sh.astype(np.uint8)))
     out.alpha_composite(words)
-    return out
+    return out, (x0, y0)
 
 
 def mark_frame(img: Image.Image, t: float, shots, fonts: Fonts) -> Image.Image:
@@ -685,21 +712,24 @@ def mark_frame(img: Image.Image, t: float, shots, fonts: Fonts) -> Image.Image:
     swap within a class, a 4-frame linear crossfade when the class changes
     (both glyphs are opaque at the centre, so the pixel there is exactly the
     mix of the two hues). The label surfaces at the shot change, drifting a
-    quarter em toward its rest, and is let go after about 3 s."""
-    base = _as_rgba(img)
+    quarter em toward its rest, and is let go after about 3 s; an
+    AI-GENERATED label is full from the cut frame and stays. Only small tiles
+    are drawn and composited, never full-frame layers."""
+    out = _as_rgba(img)
     st = mark_state(t, shots)
     if st is None:
-        return base
-    L = Layout(*base.size)
+        return out
+    L = Layout(*out.size)
+    tile, at = glyph_tile(L.W, L.H, st["cls"])
     if st["mix"] < 1.0:
-        layer = Image.blend(_glyph_layer(L.W, L.H, st["prev_cls"]), _glyph_layer(L.W, L.H, st["cls"]), st["mix"])
-    else:
-        layer = _glyph_layer(L.W, L.H, st["cls"])
-    out = Image.alpha_composite(base, layer)
+        tile = Image.blend(glyph_tile(L.W, L.H, st["prev_cls"])[0], tile, st["mix"])
+    out.alpha_composite(tile, at)
     if st["label_alpha"] > 0.0 and st["label"]:
         u = t - st["label_start"]
-        dx = -(1.0 - clamp01(WHISPER.progress(u))) * LABEL["drift"] * L.px(LABEL["size"])
-        out = Image.alpha_composite(out, _label_layer(L, st["label"], st["label_alpha"], dx, fonts))
+        arriving = st["cls"] not in LABEL_STAYS
+        dx = -(1.0 - clamp01(WHISPER.progress(u))) * LABEL["drift"] * L.px(LABEL["size"]) if arriving else 0.0
+        words, wat = _label_tile(L, st["label"], st["label_alpha"], dx, fonts)
+        out.alpha_composite(words, wat)
     return out
 
 

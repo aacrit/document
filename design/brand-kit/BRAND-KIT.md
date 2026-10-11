@@ -191,7 +191,7 @@ Don't: put a hue in text on film; animate the mark plate; bounce anything; slide
 5. **sketch.py:** master at 1920 x 1080 and 24 fps as GRAMMAR 7.5 says (it renders 1280 x 720 at 30 today); import the moves, plates and cards from `motion.py` instead of its own `ease`.
 6. **Subtitle faces:** add `@fontsource/noto-sans-devanagari` and `@fontsource/noto-nastaliq-urdu` (already a build ticket). Pillow on this machine lacks libraqm, so `motion.py` lays out Devanagari and Nastaliq without shaping; it is for layout checks only, and subtitles ship as tracks.
 
-## 11. Subtle on-screen information (2026-10-11, founder revamp; GRAMMAR A16)
+## 11. Subtle on-screen information (2026-10-10, founder revamp; GRAMMAR A16)
 
 Appended; sections 3 to 6 above keep their G2 text and are read with this. Where they conflict, this section wins: the always-on mark plate (section 5, A1) is replaced by a label and a glyph, and the lower third and watermark are quieter. The measure is void news's restraint: information is there when you look for it and gone when you don't. `motion.py` implements every number below (`LABEL`, `GLYPH_SHAPE`, `LT`, `WM`, `WHISPER`, `let_go`).
 
@@ -205,7 +205,7 @@ At each shot change a short label surfaces top left, holds about 3 s and is let 
 | Glyph size | 0.85% of height, never under 4 px | 9 px | 6 px |
 | Glyph shape | ARCHIVE, RECONSTRUCTED and CARD a dot; DRAWN a square (inset 9% of its box); AI-GENERATED a diamond. Classes that share a hue (DRAWN and AI-GENERATED are both cold blue) differ in shape. Every shape is solid at its centre. | | |
 | Glyph colour | the class hue at full opacity (amber, bone, cold blue, as section 5), drawn 4x and box-filtered | | |
-| Glyph contact ring | black at 0.42 alpha, 0.12% of height wider on every side (at least 1 px) | 1 px | 1 px |
+| Glyph contact disc | a round disc beneath the glyph, black at 0.42 alpha, its diameter the glyph box plus 0.12% of height on each side (at least 1 px), antialiased at its edge; it is round under every shape, so it shows as a thin dark rim around the dot and the diamond, and the square's corners overhang it | 11 px across | 8 px across |
 | Label words | class and year, sentence case, joined by ` · `: `Archive · 1947`; RECONSTRUCTED adds its alterations (`Reconstructed · 1946 · colour cast removed`); DRAWN its data source (`Drawn · from Natural Earth`). The archive's name stays in the credits and on the Sources page. | | |
 | Label type | Inter 400 at 1.85% of height, numerals JetBrains Mono at 94%, `--mark-text` at 0.72 opacity (the G2 plate was mono 600 at 3.1%, opaque on a 60% scrim) | 20 px | 13 px |
 | Label position | 0.55 em right of the glyph; the glyph sits at the middle of the x-height | | |
@@ -256,7 +256,7 @@ The logomark top right as section 3, at 0.36 opacity (was 0.6), with its halo at
 
 Do: let the glyph do the work once the label has gone; keep the flag the strongest line of a partisan lower third. Don't: put a box behind the label; animate the glyph; bring the same label back at a cut; let a lower third stay past its hold.
 
-### 11a. Refined after the T1e review (2026-10-11, Chief of Staff; GRAMMAR A16 refined)
+### 11a. Refined after the T1e review (2026-10-10, Chief of Staff; GRAMMAR A16 refined)
 
 These values replace section 11's where they differ.
 
@@ -265,5 +265,13 @@ These values replace section 11's where they differ.
 | Label at a cut | it surfaces at every cut, even when its words repeat the outgoing shot's (section 11's "repeated words" row no longer applies) |
 | AI-GENERATED label | never fades: it surfaces on `whisper` and stays up for the whole shot, because at 4 to 9 px the diamond and the square read alike |
 | DRAWN glyph | a square filling its whole box (no inset), so its top-left pixel is solid; no other shape's is |
-| Shape check | mark-coverage reads the hue at the glyph's centre and the shape at its top-left pixel: the class hue there only for the square |
+| Shape check | see 11b |
 | Lower third's bracketed cue | a burned subtitle cue for a lower third ends when the drawn lower third does |
+
+### 11b. Refined after the T1e re-review (2026-10-10, Chief of Staff)
+
+| | Value |
+|---|---|
+| AI-GENERATED label | full opacity from the cut frame (no `whisper` arrival, no drift) and up for the whole shot, through a dissolve too (a dissolve joins two shots of one class) |
+| Shape check | mark-coverage reads the hue at the glyph's centre and the shape at two pixels: the glyph box's top-left pixel and the one to its right. Each must equal what the shot's own class glyph composes there over the same pixels of the frame before the mark was drawn. The square leaves its hue at both; the dot and the diamond leave the picture under two different edge alphas, so no flat picture can pass a wrong shape, and a correct frame passes over any picture. |
+| Drawing | the glyph and the label are drawn on small tiles (the label and its shadow on a crop around the words) and composited in place, never as full-frame layers: about 2 ms a frame at 1080p, down from 41 ms, with identical pixels |
