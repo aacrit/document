@@ -1588,13 +1588,13 @@ def _line(play_or_plan, lid):
     return next(ln for ln in play_or_plan["lines"] if ln["id"] == lid)
 
 
-def test_a14_a_mood_offset_moves_only_the_level_after_levelling(plan, film):
+def test_a14_a_mood_offset_moves_only_the_level_after_levelling(plan, film, tmp_path):
     span = slice(int(5.2 * 48000), int(6.8 * 48000))                 # inside L1 (5.0 to 7.0 s), where nothing else plays
     mixes = {}
     for mood in ("plain", "measured", "grave", "hushed", "close"):
         p = json.loads(json.dumps(plan))
         _line(p, "L1")["delivery"] = {"mood": mood, "intensity": 2, "pace": "slower", "pause_after_s": 1.5}
-        j = J.Journal(film=f"mood-{mood}")
+        j = J.Journal(film=f"mood-{mood}", directory=tmp_path / mood)
         mix, placed = R.build_mix(p, film, j)
         assert next(ln for ln in placed["lines"] if ln["id"] == "L1")["mood_offset_db"] == R.MOOD_OFFSET_DB[mood]
         dec = [e for e in J.read(j.path) if e["kind"] == "decision" and e["unit"] == "L1" and "delivery" in e["what"]][0]
