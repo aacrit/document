@@ -18,7 +18,7 @@ jobs:
           python-version: "3.12"
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       # The studio venv's versions (studio-test renders the fixture film).
-      - run: python -m pip install numpy==2.5.3 pillow==12.3.0 soundfile==0.14.0 pytest==9.1.1
+      - run: python -m pip install numpy==2.5.3 pillow==12.3.0 soundfile==0.14.0 pytest==9.1.1 fonttools==4.66.1
       - run: npm install
       - run: npm run gate
         env:
