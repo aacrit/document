@@ -484,6 +484,13 @@ def method(spec: dict) -> dict:
     return claims
 
 
+# A frame the studio's engine draws (a map, a count card) shows no photographed person: its content
+# flags are false by construction, stated by the generator itself so every film's ledger carries them
+# (GRAMMAR A21's content schema; policy.asset_checks refuses an unstated flag).
+DRAWN_CONTENT = {"graphic_medical": False, "named_patient": False, "shows_violence": False, "shows_bodies": False,
+                 "people": []}
+
+
 def ledger_fields(spec: dict) -> dict:
     """What the drawn ledger says about a map, from the spec alone, so the mark
     plate, the ledger and the frame's source line always agree."""
@@ -500,7 +507,8 @@ def ledger_fields(spec: dict) -> dict:
             # a canonical id the render engine's licence allowlist recognises; the why goes in licence_note
             "licence": "CC-BY-4.0" if (geo or by) else "CC0",
             "licence_note": note,
-            "data_sources": spec["sources"], "source_line": source_line(spec), "method": method(spec)}
+            "data_sources": spec["sources"], "source_line": source_line(spec), "method": method(spec),
+            **DRAWN_CONTENT}
 
 
 # --------------------------------------------------------------------------

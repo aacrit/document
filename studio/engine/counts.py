@@ -226,7 +226,7 @@ def ledger_fields(card: dict, resolved: dict | None = None) -> dict:
             "licence_note": ("the card's figures come from " + "; ".join(f"{s['id']} ({s['licence']})" for s in card["sources"])
                              + ("; the frame is CC BY 4.0 for that attribution" if by else "")),
             "data_sources": card["sources"], "source_line": source_line(card),
-            "method": method(card, resolved)}
+            "method": method(card, resolved), **MP.DRAWN_CONTENT}
 
 
 def render_card(card: dict, data_root, *, fonts: M.Fonts | None = None,

@@ -768,3 +768,21 @@ def test_a_file_rewritten_in_place_is_hashed_again(tmp_path):
     f.write_text("b", encoding="utf-8")
     os.utime(f, ns=(time.time_ns(), time.time_ns() + 10_000_000))
     assert maps.file_sha256(str(f)) != first
+
+
+def test_the_engine_states_a_drawn_frames_content_flags_for_every_film(root):
+    """A count card's and a map's ledger fields carry graphic_medical, named_patient, shows_violence and
+    shows_bodies false and no people: the studio drew them, so it says so. Under a film's declared imagery
+    rule (film 2 shows disease) the content-flags check passes on them; with a flag left out it refuses."""
+    from studio.engine import policy
+    rule, problems = policy.imagery_rule({"imagery_rule": {"show_disease": True,
+                                                           "statement": "This film shows the disease as the record holds it."}})
+    assert not problems
+    img, info = maps.render_map(card(root), root, data_root=root)
+    for fields in (maps.ledger_for(card(root), info), maps.ledger_fields(world_map(root))):
+        item = {"id": "X", "generator": "studio/engine", **fields}
+        assert {k: item[k] for k in maps.DRAWN_CONTENT} == maps.DRAWN_CONTENT
+        checks = {c["rule"]: c["ok"] for c in policy.asset_checks(item, rule)}
+        assert checks["content-flags"] and checks["no-bodies"] and checks["imagery-rule"]
+        bare = {k: v for k, v in item.items() if k != "named_patient"}
+        assert not {c["rule"]: c["ok"] for c in policy.asset_checks(bare, rule)}["content-flags"]
