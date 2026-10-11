@@ -3,12 +3,13 @@
 // the film within a frame (scripts/contract.mjs sha256_matches, duration_matches).
 import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { runContract } from "../scripts/contract.mjs";
+import { loadContract, runContract, whenDeclaredProblem } from "../scripts/contract.mjs";
 
 const FILM = Buffer.from("not really a film, but bytes");
 const POSTER = Buffer.from("not really a jpeg");
@@ -25,20 +26,20 @@ beforeAll(async () => {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify(sources));
     }
-    if (req.url === "/m/film.mp4") {
+    const ranged = req.url === "/m/film.mp4" ? FILM : req.url === "/m/trailer.mp4" ? TRAILER : null;
+    if (ranged) {
       // Byte ranges as R2 serves them: bytes=a-b and bytes=-n.
       const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ""));
       if (m) {
-        const start = m[1] ? Number(m[1]) : FILM.length - Number(m[2]);
-        const end = m[1] && m[2] ? Number(m[2]) : FILM.length - 1;
-        res.writeHead(206, { "content-range": `bytes ${start}-${end}/${FILM.length}`, "content-length": end - start + 1 });
-        return res.end(FILM.subarray(start, end + 1));
+        const start = m[1] ? Number(m[1]) : ranged.length - Number(m[2]);
+        const end = m[1] && m[2] ? Number(m[2]) : ranged.length - 1;
+        res.writeHead(206, { "content-range": `bytes ${start}-${end}/${ranged.length}`, "content-length": end - start + 1 });
+        return res.end(ranged.subarray(start, end + 1));
       }
-      res.writeHead(200, { "content-length": FILM.length });
-      return res.end(FILM);
+      res.writeHead(200, { "content-length": ranged.length });
+      return res.end(ranged);
     }
     if (req.url === "/m/poster.jpg") return res.end(POSTER);
-    if (req.url === "/m/trailer.mp4") return res.end(TRAILER);
     res.writeHead(404);
     res.end();
   });
@@ -73,6 +74,8 @@ describe("media checks", () => {
     expect(media.map((x: { field: string }) => x.field).sort()).toEqual(["poster.sha256", "trailer.sha256", "web.film_duration_s", "web.film_sha256"]);
     // The trailer is optional: checked only when sources.json declares one, never required by status alone.
     expect(media.find((x: { field: string }) => x.field === "trailer.sha256").when_declared).toBe("trailer");
+    // Undeclared, the trailer path must answer 404: no stale trailer stays public.
+    expect(media.find((x: { field: string }) => x.field === "trailer.sha256").undeclared_status).toBe(404);
     expect(c.checks.some((x: { type: string; path?: string }) => x.type === "status" && String(x.path).endsWith("trailer.mp4"))).toBe(false);
     for (const x of media) expect(x.requires).toBe("deployed");
     // The film is checked by two byte ranges, never downloaded whole by the scheduled run.
@@ -106,5 +109,43 @@ describe("media checks", () => {
     expect((await runContract({ checks: missing }, base))[0].pass).toBe(false);
     const unread = [{ ...trailer[0], sources: "/m/none.json" }];
     expect((await runContract({ checks: unread }, base))[0].pass).toBe(false);
+  });
+
+  it("with undeclared_status, an undeclared trailer must not be served: a 404 passes, a stale file fails", async () => {
+    sources = { fps: 24, duration_s: 100 };
+    const gone = [{ name: "t", type: "sha256_matches", path: "/m/nothing.mp4", sources: "/m/sources.json", field: "trailer.sha256", when_declared: "trailer", undeclared_status: 404 }];
+    const ok = (await runContract({ checks: gone }, base))[0];
+    expect([ok.pass, ok.undeclared]).toEqual([true, undefined]);
+    const stale = [{ ...gone[0], path: "/m/trailer.mp4" }];
+    const bad = (await runContract({ checks: stale }, base))[0];
+    expect(bad.pass).toBe(false);
+    expect(bad.detail).toMatch(/answered 200, expected 404/);
+  });
+
+  it("with max_bytes smaller than the trailer, compare a declared trailer by its size and first and last bytes", async () => {
+    const n = 6;
+    expect(TRAILER.length).toBeGreaterThan(n);
+    const edge = (b: Buffer) => ({ sha256_size: b.length, sha256_head: sha(b.subarray(0, n)), sha256_tail: sha(b.subarray(b.length - n)) });
+    const t = [{ name: "t", type: "sha256_matches", path: "/m/trailer.mp4", sources: "/m/sources.json", field: "trailer.sha256", when_declared: "trailer", max_bytes: n }];
+    sources = { fps: 24, duration_s: 100, trailer: { sha256: sha(TRAILER), ...edge(TRAILER) } };
+    const ok = (await runContract({ checks: t }, base))[0];
+    expect(ok.pass, ok.detail).toBe(true);
+    sources = { fps: 24, duration_s: 100, trailer: { sha256: sha(TRAILER), ...edge(FILM) } };
+    expect((await runContract({ checks: t }, base))[0].pass).toBe(false);
+  });
+
+  it("refuse when_declared anywhere but on a hash of the declared record", async () => {
+    expect(whenDeclaredProblem({ type: "sha256_matches", field: "trailer.sha256", when_declared: "trailer", sources: "/s" })).toBeNull();
+    expect(whenDeclaredProblem({ type: "status", field: "trailer.sha256", when_declared: "trailer", sources: "/s" })).toMatch(/only allowed on sha256_matches/);
+    expect(whenDeclaredProblem({ type: "sha256_matches", field: "poster.sha256", when_declared: "trailer", sources: "/s" })).toMatch(/not inside/);
+    expect(whenDeclaredProblem({ type: "sha256_matches", field: "trailers.sha256", when_declared: "trailer", sources: "/s" })).toMatch(/not inside/);
+    const bad = [{ name: "b", type: "status", path: "/m/trailer.mp4", expect: 200, sources: "/m/sources.json", field: "trailer.sha256", when_declared: "trailer" }];
+    sources = { fps: 24, duration_s: 100, trailer: { sha256: sha(TRAILER) } };
+    const r = (await runContract({ checks: bad }, base))[0];
+    expect([r.pass, r.detail]).toEqual([false, "contract error: when_declared is only allowed on sha256_matches, not status"]);
+    const dir = mkdtempSync(path.join(os.tmpdir(), "contract-"));
+    const file = path.join(dir, "c.yaml");
+    writeFileSync(file, "checks:\n  - name: b\n    type: status\n    path: /x\n    when_declared: trailer\n    field: trailer.sha256\n    sources: /s\n");
+    expect(() => loadContract(file)).toThrow(/when_declared is only allowed/);
   });
 });

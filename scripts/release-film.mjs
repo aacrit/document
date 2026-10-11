@@ -43,19 +43,51 @@ export const PACKET_ROOT = "D:/document-media/web-packet";
 export const MAX_PUT_BYTES = 300 * 1024 * 1024;
 /** Uploaded in this order: the media first, sources.json last (see above). */
 export const UPLOAD_ORDER = ["film.mp4", "poster.jpg", "trailer.mp4", "captions-en.vtt", "sources.json"];
+/** What wrangler or R2 may say when a deleted key was never there. */
+export const MISSING_KEY = /does not exist|NoSuchKey|not found/i;
 const TYPES = { mp4: "video/mp4", jpg: "image/jpeg", vtt: "text/vtt", json: "application/json" };
 
-// The web encode: 1280x720, 24 fps, H.264 high, AAC, faststart, capped so a
-// 20-minute film stays well under the 300 MiB put limit (1.8 + 0.128 Mbit/s
-// for 1,205 s is about 290 MB at the cap; stills and cards come in far lower).
-export const WEB_ENCODE = [
-  "-map", "0:v:0", "-map", "0:a:0",
-  "-vf", "scale=1280:720:flags=lanczos,format=yuv420p",
-  "-c:v", "libx264", "-preset", "slow", "-crf", "22", "-maxrate", "1800k", "-bufsize", "3600k",
-  "-profile:v", "high", "-level:v", "4.0", "-r", "24", "-g", "48",
-  "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
-  "-movflags", "+faststart",
-];
+// The web encode: 1280x720, 24 fps, H.264 high, AAC 128k, faststart. CRF 22
+// sets the quality; -maxrate (with a VBV buffer of twice that) caps the rate,
+// derived from the input's duration so the file stays under 85% of the 300 MiB
+// put limit: (0.85 x 300 MiB x 8 / duration - 128 kbit/s audio) x 0.98 for the
+// container, never above 2,500 kbit/s. A 1,205 s film gets about 1,600 kbit/s
+// (about 255 MiB at the cap; stills and cards come in far lower).
+export const AUDIO_BPS = 128000;
+export const PUT_MARGIN = 0.85;
+export const MAX_VIDEO_KBPS = 2500;
+export const MIN_VIDEO_KBPS = 400;
+
+/** The video rate cap for an input of `durationS` seconds, in kbit/s; throws when even the floor would not fit. */
+export function videoKbps(durationS) {
+  if (!(durationS > 0)) throw new Error(`cannot derive a rate cap from a duration of ${durationS}`);
+  const kbps = Math.floor((((PUT_MARGIN * MAX_PUT_BYTES * 8) / durationS - AUDIO_BPS) * 0.98) / 1000);
+  if (kbps < MIN_VIDEO_KBPS) throw new Error(`${durationS} s is too long for one ${MAX_PUT_BYTES / 2 ** 20} MiB put at ${MIN_VIDEO_KBPS} kbit/s or more`);
+  return Math.min(MAX_VIDEO_KBPS, kbps);
+}
+
+/** The encode arguments for an input of `durationS` seconds (null in a dry run before the file exists). */
+export function webEncodeArgs(durationS) {
+  const rate = durationS === null ? "<derived from duration>" : `${videoKbps(durationS)}k`;
+  const buf = durationS === null ? "<twice the rate>" : `${2 * videoKbps(durationS)}k`;
+  return [
+    "-map", "0:v:0", "-map", "0:a:0",
+    "-vf", "scale=1280:720:flags=lanczos,format=yuv420p",
+    "-c:v", "libx264", "-preset", "slow", "-crf", "22", "-maxrate", rate, "-bufsize", buf,
+    "-profile:v", "high", "-level:v", "4.0", "-r", "24", "-g", "48",
+    "-c:a", "aac", "-b:a", `${AUDIO_BPS / 1000}k`, "-ar", "48000",
+    "-movflags", "+faststart",
+  ];
+}
+
+/** An input's duration in seconds by ffprobe (beside DOCUMENT_FFMPEG, else on PATH), or null when it cannot be read. */
+export function probeDuration(file, ffmpeg = process.env.DOCUMENT_FFMPEG || "ffmpeg") {
+  if (!existsSync(file)) return null;
+  const probe = path.join(path.dirname(ffmpeg), path.basename(ffmpeg).replace(/ffmpeg/i, "ffprobe"));
+  const r = spawnSync(probe, ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file], { encoding: "utf8", shell: false });
+  const d = Number(String(r.stdout ?? "").trim());
+  return r.status === 0 && d > 0 ? d : null;
+}
 
 export function parseArgs(argv) {
   const o = { master: null, dryRun: false, upload: true, trailer: null, filmDir: null, posterId: "S-020", out: null, slug: null, threads: 4 };
@@ -112,7 +144,7 @@ export function posterSource(ledgers, posterId) {
 }
 
 /** Every step of the release, in order, as plain data: { id, label, exe, args, cwd } or { id, label, check }. */
-export function planRelease(o, { python = studioPython(), ffmpeg = process.env.DOCUMENT_FFMPEG || "ffmpeg", wrangler = null, ledgers, poster } = {}) {
+export function planRelease(o, { python = studioPython(), ffmpeg = process.env.DOCUMENT_FFMPEG || "ffmpeg", wrangler = null, ledgers, poster, durations = {} } = {}) {
   const master = path.resolve(o.master);
   const renderDir = path.dirname(master);
   const filmDir = path.resolve(o.filmDir ?? path.join(os.homedir(), "document-work", "episode-v2"));
@@ -126,9 +158,9 @@ export function planRelease(o, { python = studioPython(), ffmpeg = process.env.D
 
   steps.push({ id: "a", label: "sources.json beside the master (--sources-only)", exe: python, cwd: repoRoot,
     args: ["-m", "studio.engine.render", filmDir, "--out", renderDir, "--sources-only"] });
-  const encode = (input, file) => ({ exe: ffmpeg, cwd: repoRoot, args: ["-v", "error", "-y", "-i", input, ...WEB_ENCODE, "-threads", String(o.threads), at(file)] });
-  steps.push({ id: "b", label: "the 720p web encode of the film", ...encode(master, "film.mp4") });
-  if (o.trailer) steps.push({ id: "b", label: "the 720p web encode of the trailer", ...encode(path.resolve(o.trailer), "trailer.mp4") });
+  const encode = (input, file, d) => ({ exe: ffmpeg, cwd: repoRoot, args: ["-v", "error", "-y", "-i", input, ...webEncodeArgs(d ?? null), "-threads", String(o.threads), at(file)] });
+  steps.push({ id: "b", label: "the 720p web encode of the film", ...encode(master, "film.mp4", durations.film) });
+  if (o.trailer) steps.push({ id: "b", label: "the 720p web encode of the trailer", ...encode(path.resolve(o.trailer), "trailer.mp4", durations.trailer) });
   steps.push({ id: "c", label: `the poster (${o.posterId}, 1920 wide)`, exe: ffmpeg, cwd: repoRoot,
     args: ["-v", "error", "-y", "-i", stillPath, "-vf", "scale=1920:-1:flags=lanczos", "-q:v", "3", at("poster.jpg")] });
   steps.push({ id: "c", label: "the web packet (publish.py: sources.json with web and poster, captions)", exe: python, cwd: repoRoot,
@@ -137,7 +169,15 @@ export function planRelease(o, { python = studioPython(), ffmpeg = process.env.D
   steps.push({ id: "d", label: "the captions (captions-en.vtt, written by publish from the render's screenplay)", check: "captions", file: at("captions-en.vtt") });
   const files = UPLOAD_ORDER.filter((f) => f !== "trailer.mp4" || o.trailer);
   steps.push({ id: "e", label: "every file under the put limit", check: "sizes", files: files.map(at) });
+  // Every hash is checked against sources.json before the first put, so nothing goes up that the record does not describe.
+  steps.push({ id: "e", label: "every file hashes to what sources.json records", check: "hashes", files: files.map(at), sources: at("sources.json"), slug });
   if (o.upload) {
+    // Without a trailer, one left from an earlier release must not stay public (the contract expects a 404 then).
+    // R2 deletes a missing key without error; a "does not exist" answer is tolerated as well.
+    if (!o.trailer) {
+      steps.push({ id: "e", label: "delete any earlier trailer.mp4 (none is declared)", exe: wr.exe, cwd: repoRoot, tolerate: MISSING_KEY,
+        args: [...wr.pre, "r2", "object", "delete", `${BUCKET}/${slug}/trailer.mp4`, "--remote"] });
+    }
     for (const f of files) {
       steps.push({ id: "e", label: `upload ${f}`, exe: wr.exe, cwd: repoRoot,
         args: [...wr.pre, "r2", "object", "put", `${BUCKET}/${slug}/${f}`, "--file", at(f), "--content-type", TYPES[f.split(".").pop()], "--remote"] });
@@ -196,13 +236,14 @@ function runCheck(step) {
     }
   } else if (step.check === "hashes") {
     const doc = JSON.parse(readFileSync(step.sources, "utf8"));
-    const want = { "film.mp4": doc.web?.film_sha256, "poster.jpg": doc.poster?.sha256 };
+    const want = { "film.mp4": doc.web?.film_sha256, "poster.jpg": doc.poster?.sha256, "trailer.mp4": doc.trailer?.sha256 };
     for (const f of step.files) {
       const name = path.basename(f);
       const got = sha256(f);
       const tie = want[name] ? (want[name] === got ? "  = sources.json" : `  != sources.json ${want[name]}`) : "";
       console.log(`  ${got}  ${BUCKET}/${step.slug}/${name}${tie}`);
       if (want[name] && want[name] !== got) throw new Error(`${name} does not hash to what sources.json records`);
+      if (name === "trailer.mp4" && !want[name]) throw new Error("trailer.mp4 is in the packet but sources.json declares no trailer");
     }
     console.log(`  film ${doc.web?.film_duration_s} s, master ${doc.master_sha256}`);
   }
@@ -219,7 +260,8 @@ function main() {
   const filmDir = path.resolve(o.filmDir ?? path.join(os.homedir(), "document-work", "episode-v2"));
   const ledgers = readLedgers(filmDir);
   const poster = posterSource(ledgers, o.posterId);
-  const plan = planRelease(o, { ledgers, poster });
+  const durations = { film: probeDuration(o.master), trailer: o.trailer ? probeDuration(o.trailer) : null };
+  const plan = planRelease(o, { ledgers, poster, durations });
 
   if (!o.dryRun) {
     const problems = [];
@@ -228,6 +270,8 @@ function main() {
     if (!ledgers) problems.push(`${filmDir} has no screenplay.json naming its stills ledger`);
     if (!poster || !existsSync(poster)) problems.push(`the poster still ${o.posterId} was not found in the stills ledger`);
     if (o.trailer && !existsSync(o.trailer)) problems.push(`${o.trailer} does not exist`);
+    if (existsSync(o.master) && durations.film === null) problems.push(`ffprobe could not read the duration of ${o.master} (the rate cap is derived from it)`);
+    if (o.trailer && existsSync(o.trailer) && durations.trailer === null) problems.push(`ffprobe could not read the duration of ${o.trailer}`);
     problems.push(...driveProblems([plan.out, plan.renderDir]));
     if (problems.length) {
       for (const p of problems) console.error(`release-film: ${p}`);
@@ -238,7 +282,7 @@ function main() {
 
   console.log(`release-film: ${o.dryRun ? "DRY RUN, nothing is run" : "releasing"} ${plan.slug} from ${plan.renderDir}`);
   console.log(`release-film: packet ${plan.out}; upload ${o.upload ? plan.files.join(", ") : "skipped (--no-upload)"}`);
-  if (!o.trailer) console.log("release-film: no --trailer: no trailer is declared or uploaded; the site shows none");
+  if (!o.trailer) console.log("release-film: no --trailer: no trailer is declared or uploaded, any earlier one is deleted; the site shows none");
   if (o.dryRun) for (const d of [...new Set([plan.out, plan.renderDir].map((x) => driveOf(x)).filter((x) => x === "D:"))]) console.log(`release-film: a real run first checks: fsutil dirty query ${d}`);
   for (const step of plan.steps) {
     console.log(`\n[${step.id}] ${step.label}`);
@@ -257,7 +301,12 @@ function main() {
     }
     console.log(`  ${commandLine(step)}`);
     if (o.dryRun) continue;
-    const r = spawnSync(step.exe, step.args, { cwd: step.cwd, stdio: "inherit", shell: false });
+    const r = spawnSync(step.exe, step.args, { cwd: step.cwd, stdio: step.tolerate ? "pipe" : "inherit", shell: false, encoding: "utf8" });
+    if (step.tolerate) {
+      const said = `${r.stdout ?? ""}${r.stderr ?? ""}`;
+      process.stdout.write(said);
+      if (!r.error && r.status !== 0 && step.tolerate.test(said)) continue;
+    }
     if (r.error || r.status !== 0) {
       console.error(`release-film: FAILED at [${step.id}] ${step.label} (${r.error ? r.error.message : `exit ${r.status}`})`);
       process.exit(r.status || 1);

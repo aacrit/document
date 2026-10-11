@@ -32,6 +32,10 @@ export function loadContract(contractPath) {
   if (!contract || !Array.isArray(contract.checks)) {
     throw new Error(`${contractPath} has no \`checks\` list`);
   }
+  for (const check of contract.checks) {
+    const problem = whenDeclaredProblem(check);
+    if (problem) throw new Error(`${contractPath}: ${check.name ?? check.type}: ${problem}`);
+  }
   return contract;
 }
 
@@ -99,6 +103,20 @@ export async function contractFetch(url, init = {}, retryMs = 2000) {
   }
 }
 
+/**
+ * `when_declared` only makes sense on a hash check of the declared record itself: the check's
+ * `field` must sit inside it ("trailer" with "trailer.sha256"). Anything else is a contract error.
+ */
+export function whenDeclaredProblem(check) {
+  if (!check.when_declared) return null;
+  if (check.type !== "sha256_matches") return `contract error: when_declared is only allowed on sha256_matches, not ${check.type}`;
+  if (!String(check.field ?? "").startsWith(`${check.when_declared}.`)) {
+    return `contract error: field ${check.field} is not inside when_declared ${check.when_declared}`;
+  }
+  if (!check.sources) return "contract error: when_declared needs sources";
+  return null;
+}
+
 async function runCheck(check, baseUrl, originalBase = baseUrl) {
   const target = joinUrl(baseUrl, check.path ?? "/");
   const label = check.name ?? `${check.type} ${check.path ?? "/"}`;
@@ -118,13 +136,29 @@ async function runCheck(check, baseUrl, originalBase = baseUrl) {
   // `when_declared` (a dotted path in `sources`): the check applies only when the film's sources.json
   // declares that record (an optional trailer). Undeclared, it is reported as not declared, never as a
   // pass; a sources.json that cannot be read fails the check.
+  // With `undeclared_status`, an undeclared record is checked too: its path must answer that status
+  // (a 404: nothing stale is served when nothing is declared).
   if (check.when_declared) {
+    const problem = whenDeclaredProblem(check);
+    if (problem) return { label, pass: false, detail: problem };
     try {
       const r = await contractFetch(joinUrl(baseUrl, check.sources));
       if (!r.ok) return { label, pass: false, detail: `${check.sources} answered ${r.status}` };
       const doc = await r.json();
       const rec = String(check.when_declared).split(".").reduce((o, k) => (o == null ? undefined : o[k]), doc);
-      if (rec == null) return { label, pass: true, undeclared: true, detail: `${NOT_DECLARED}: ${check.sources} declares no ${check.when_declared}` };
+      if (rec == null) {
+        if (check.undeclared_status === undefined) {
+          return { label, pass: true, undeclared: true, detail: `${NOT_DECLARED}: ${check.sources} declares no ${check.when_declared}` };
+        }
+        const res = await contractFetch(target);
+        await res.body?.cancel();
+        const pass = res.status === check.undeclared_status;
+        return {
+          label,
+          pass,
+          detail: `${check.sources} declares no ${check.when_declared}: ${check.path} answered ${res.status}${pass ? "" : `, expected ${check.undeclared_status}`}`,
+        };
+      }
     } catch (err) {
       return { label, pass: false, detail: `${check.sources}: ${err.message}` };
     }
