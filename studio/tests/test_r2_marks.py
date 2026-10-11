@@ -140,6 +140,30 @@ def test_ai_generated_is_labelled_whenever_it_is_on_screen():
 
 
 @pytest.mark.parametrize("W, H", SIZES)
+def test_the_ai_label_keeps_a16s_size_and_opacity_and_stays_in_the_zone(W, H):
+    L = M.Layout(W, H)
+    assert M.label_type("AI-GENERATED") == (1.85, 0.72) and M.label_type("ARCHIVE") == (1.6, 0.6)
+    text = M.mark_label("AI-GENERATED", None, "context")
+    assert M.label_check(L, text, FONTS, "AI-GENERATED") > M.label_check(L, text, FONTS, "DRAWN")
+    tile, (x, y) = M._label_tile(L, text, 1.0, 0.0, FONTS, "AI-GENERATED")
+    bx0, by0, bx1, by1 = _alpha_box(tile)
+    gx, _ = M.glyph_origin(L)
+    assert x + bx1 < gx and y + by0 >= M.SUB["bottom"] / 100 * H and y + by1 <= 0.965 * H
+    assert x + bx0 >= M.LABEL_MIN_X / 100 * W
+    words = np.asarray(tile.getchannel("A")).max()
+    assert words >= round(255 * 0.72) - 1                                       # its words at 0.72, not 0.6
+
+
+def test_an_empty_label_on_an_ai_generated_shot_is_refused_at_plan_time():
+    seen = []
+    shots = [{"id": "A1", "mark": "AI-GENERATED", "label": "AI-generated · context"},
+             {"id": "A2", "mark": "AI-GENERATED", "label": " "},
+             {"id": "A3", "mark": "DRAWN", "label": ""}]
+    R.ai_label_lint(lambda rule, ok, **kw: seen.append((rule, kw["unit"], ok)), shots)
+    assert seen == [("ai-label", "A1", True), ("ai-label", "A2", False)]       # blocking: build_plan's lint refuses
+
+
+@pytest.mark.parametrize("W, H", SIZES)
 def test_the_glyph_shape_check_holds_at_the_new_position_with_the_label_up(W, H):
     """The bare-pixel probe method at A31's position, with the label at rest
     and at its first frame (nearest the glyph): a correct frame passes over any
@@ -149,12 +173,17 @@ def test_the_glyph_shape_check_holds_at_the_new_position_with_the_label_up(W, H)
     cx, cy = M.glyph_centre(L)
     for bg in [(0, 0, 0), (255, 255, 255), (47, 95, 168), (128, 128, 128), (237, 162, 60)]:
         img = Image.new("RGBA", (W, H), bg + (255,))
-        for drawn in ("ARCHIVE", "DRAWN", "AI-GENERATED", "RECONSTRUCTED"):
-            shots = [{"start": 0.0, "cls": drawn, "label": M.mark_label(drawn, "1947" if drawn == "ARCHIVE" else None)}]
+        for drawn in ("ARCHIVE", "DRAWN", "AI-GENERATED", "RECONSTRUCTED", "CARD"):
+            shots = [{"start": 0.0, "cls": drawn,
+                      "label": "" if drawn == "CARD" else M.mark_label(drawn, "1947" if drawn == "ARCHIVE" else None)}]
             for t in (1 / 24, 1.0):
                 arr = np.asarray(M.mark_frame(img, t, shots, FONTS).convert("RGB"))
-                assert tuple(arr[cy, cx]) == M.MARK_HUE[drawn], (W, bg, drawn, t)
+                if drawn != "CARD":                                             # the ring is hollow at its centre
+                    assert tuple(arr[cy, cx]) == M.MARK_HUE[drawn], (W, bg, drawn, t)
                 assert R.glyph_shape_ok(plan, arr, drawn, bg), (W, bg, drawn, t)
+                if drawn in ("RECONSTRUCTED", "CARD"):                          # the two bones differ by shape
+                    other = "CARD" if drawn == "RECONSTRUCTED" else "RECONSTRUCTED"
+                    assert not R.glyph_shape_ok(plan, arr, other, bg), (W, bg, drawn, t)
                 if drawn in ("DRAWN", "AI-GENERATED") and bg != M.MARK_HUE[drawn]:
                     other = "AI-GENERATED" if drawn == "DRAWN" else "DRAWN"
                     assert not R.glyph_shape_ok(plan, arr, other, bg), (W, bg, drawn, t)
@@ -172,7 +201,7 @@ def _rate_plan(n, dur):
     return {"marks": marks, "duration_s": float(dur)}
 
 
-@pytest.mark.parametrize("n, dur, ok", [(4, 60, True), (5, 60, False), (40, 600, True), (41, 600, False), (2, 25, True),
+@pytest.mark.parametrize("n, dur, ok", [(4, 60, True), (5, 60, False), (38, 600, True), (41, 600, False), (2, 25, True),
                                         (3, 25, False)])
 def test_label_rate_allows_one_surfacing_per_15_s(tmp_path, n, dur, ok):
     j = J.Journal(film="r2-rate")
@@ -183,6 +212,19 @@ def test_label_rate_allows_one_surfacing_per_15_s(tmp_path, n, dur, ok):
     j2 = J.Journal(film="r2-rate-draft")
     assert R.label_rate_lint(j2, _rate_plan(n, dur), draft=True) == []
     assert lints(j2, "label-rate")[0]["severity"] == "warn"
+
+
+def test_label_rate_caps_the_busiest_minute_at_4():
+    def plan(times):
+        return {"marks": [{"start": t, "cls": "ARCHIVE", "label": f"Archive · {1900 + k}", "year": str(1900 + k)}
+                          for k, t in enumerate(times)], "duration_s": 1200.0}
+    burst = [100.0, 110.0, 120.0, 130.0, 140.0]                                 # 5 in 40 s, in a film that allows 80
+    j = J.Journal(film="r2-rate-burst")
+    out = R.label_rate_lint(j, plan(burst))
+    e = lints(j, "label-rate")[0]
+    assert out and "busiest minute" in out[0] and e["evidence"]["busiest_minute"] == 5 and e["status"] == "fail"
+    j = J.Journal(film="r2-rate-spread")
+    assert R.label_rate_lint(j, plan([100.0, 110.0, 120.0, 130.0, 161.0])) == []    # the fifth 61 s after the first
 
 
 def test_label_rate_counts_changes_not_cuts():
@@ -207,18 +249,22 @@ def test_the_fixture_plan_carries_the_year_and_surfaces_once(plan):
 @pytest.mark.parametrize("W, H", SIZES)
 def test_the_key_is_drawn_from_the_class_table(W, H):
     L = M.Layout(W, H)
-    lay = M.mark_key_layout(L, FONTS)
-    assert M.KEY_CLASSES == ("ARCHIVE", "RECONSTRUCTED", "DRAWN", "AI-GENERATED")
-    assert M.mark_key_drawn_text(lay) == ["What the marks mean", "Archive", "Reconstructed", "Drawn", "AI-generated"]
-    assert [r["text"] for r in lay["rows"]] == [M.CLASS_WORD[c] for c in M.KEY_CLASSES]
+    lay = M.mark_key_layout(L, FONTS, M.KEY_CLASSES)
+    assert M.KEY_CLASSES == ("ARCHIVE", "RECONSTRUCTED", "CARD", "DRAWN", "AI-GENERATED")
+    assert M.mark_key_drawn_text(lay) == ["What the marks mean", "Archive", "Reconstructed", "Our own titles and cards",
+                                          "Drawn", "AI-generated"]
+    assert [r["text"] for r in lay["rows"]] == [M.KEY_WORD[c] for c in M.KEY_CLASSES]
     assert 0.10 * H <= lay["top"] and lay["bottom"] <= 0.90 * H                # inside the statement card's safe band
     for r in lay["rows"]:
         assert r["x"] + r["w"] <= L.w(50 + M.KEY["max_w"] / 2)
-    img = M.mark_key_frame(Image.new("RGB", (W, H)), 4.0, start=0.0, end=5.0, fonts=FONTS)
+    img = M.mark_key_frame(Image.new("RGB", (W, H)), 4.0, start=0.0, end=5.0, fonts=FONTS, classes=M.KEY_CLASSES)
     arr = np.asarray(img.convert("RGB")).astype(int)
     for r in lay["rows"]:                                                       # each glyph in its class hue, at its centre
         gx, gy, d = r["glyph"]
-        assert tuple(arr[gy + d // 2, gx + d // 2]) == M.MARK_HUE[r["cls"]], r["cls"]
+        if r["cls"] == "CARD":                                                  # the ring: hollow centre, bone stroke
+            assert not arr[gy + d // 2, gx + d // 2].any() and tuple(arr[gy + 1, gx + d // 2]) == M.MARK_HUE["CARD"]
+        else:
+            assert tuple(arr[gy + d // 2, gx + d // 2]) == M.MARK_HUE[r["cls"]], r["cls"]
     rows = {r["cls"]: r for r in lay["rows"]}
     sq, dm = rows["DRAWN"]["glyph"], rows["AI-GENERATED"]["glyph"]              # the two blues differ by shape
     assert tuple(arr[sq[1], sq[0]]) == M.MARK_HUE["DRAWN"] and not arr[dm[1], dm[0]].any()
@@ -228,16 +274,17 @@ def test_the_key_is_drawn_from_the_class_table(W, H):
 def test_the_key_uses_the_house_motion():
     W, H = 1280, 720
     blank = Image.new("RGB", (W, H))
-    first = np.asarray(M.mark_key_frame(blank, 0.0, start=0.0, end=5.0, fonts=FONTS).convert("RGB"))
-    held = np.asarray(M.mark_key_frame(blank, 2.5, start=0.0, end=5.0, fonts=FONTS).convert("RGB")).astype(int)
-    leaving = np.asarray(M.mark_key_frame(blank, 4.7, start=0.0, end=5.0, fonts=FONTS).convert("RGB")).astype(int)
+    K = M.KEY_CLASSES
+    first = np.asarray(M.mark_key_frame(blank, 0.0, start=0.0, end=5.0, fonts=FONTS, classes=K).convert("RGB"))
+    held = np.asarray(M.mark_key_frame(blank, 2.5, start=0.0, end=5.0, fonts=FONTS, classes=K).convert("RGB")).astype(int)
+    leaving = np.asarray(M.mark_key_frame(blank, 4.7, start=0.0, end=5.0, fonts=FONTS, classes=K).convert("RGB")).astype(int)
     assert not first.any()                                                      # it arrives; nothing pops in on frame 0
     assert 0 < leaving.max() < held.max()                                       # let go: thinning out, not moving
     assert np.array_equal(np.nonzero(leaving.sum(axis=2) > 0)[0].min(), np.nonzero(held.sum(axis=2) > 0)[0].min())
-    lay = M.mark_key_layout(M.Layout(W, H), FONTS)
+    lay = M.mark_key_layout(M.Layout(W, H), FONTS, K)
     r = lay["rows"][-1]
-    t_last = M.KEY["row_delay"] + 3 * M.KEY["stagger"]
-    a = np.asarray(M.mark_key_frame(blank, t_last + 0.01, start=0.0, end=5.0, fonts=FONTS).convert("RGB"))
+    t_last = M.KEY["row_delay"] + (len(lay["rows"]) - 1) * M.KEY["stagger"]
+    a = np.asarray(M.mark_key_frame(blank, t_last + 0.01, start=0.0, end=5.0, fonts=FONTS, classes=K).convert("RGB"))
     gx, gy, d = r["glyph"]
     assert a[gy - 2:gy + d + 4, gx - 2:gx + d + 2].max() < 200                  # the last row is still surfacing (whisper)
 
@@ -245,25 +292,41 @@ def test_the_key_uses_the_house_motion():
 def test_a_key_heading_that_does_not_fit_is_refused(monkeypatch):
     monkeypatch.setattr(M, "KEY_HEADING", "What the marks mean " * 8)
     with pytest.raises(M.TextOverflow, match="mark key"):
-        M.mark_key_layout(M.Layout(1280, 720), FONTS)
+        M.mark_key_layout(M.Layout(1280, 720), FONTS, M.KEY_CLASSES)
+
+
+def test_the_key_has_no_default_classes(plan):
+    with pytest.raises(M.TextOverflow, match="no classes"):
+        M.mark_key_layout(M.Layout(1280, 720), FONTS, None)
+    s = {"id": "K1", "kind": "card", "card": "mark_key", "mark": "CARD", "text": [], "_part_kind": "chapter",
+         "_first_in_part": False}
+    c = R.card_text_check(s, plan["W"], plan["H"])                             # no classes given: not laid out, refused
+    assert not c["fits"] and "no classes" in c["why"]
+    pics = R.Pictures(dict(plan, key_classes=None))
+    try:
+        with pytest.raises(R.Refused, match="key_classes"):
+            pics.card(dict(s, _card="mark_key", _dur=5.0), 2.0)
+    finally:
+        pics.close()
 
 
 def test_a_key_card_draws_no_typed_text_and_is_laid_out_at_plan_time(plan):
     s = {"id": "K1", "kind": "card", "card": "mark_key", "mark": "CARD", "text": [], "_part_kind": "chapter",
          "_first_in_part": False}
-    c = R.card_text_check(s, plan["W"], plan["H"])
+    c = R.card_text_check(s, plan["W"], plan["H"], key_classes=plan["key_classes"])
     assert c["card"] == "mark_key" and c["fits"] and c["missing"] == []
     typed = dict(s, text=["Amber is archive"])
-    assert R.card_text_check(typed, plan["W"], plan["H"])["missing"] == [{"index": 0, "intended": "Amber is archive",
+    assert R.card_text_check(typed, plan["W"], plan["H"], key_classes=plan["key_classes"])["missing"] == [
+        {"index": 0, "intended": "Amber is archive",
                                                                          "drawn": None}]
     pics = R.Pictures(plan)
     try:
         img = pics.card(dict(s, _card="mark_key", _dur=5.0), 2.0)
     finally:
         pics.close()
-    assert plan["key_classes"] == ["DRAWN"]                                     # the fixture's picture shots are all DRAWN
+    assert plan["key_classes"] == ["CARD", "DRAWN"]                             # the fixture's pictures are all DRAWN
     want = M.mark_key_frame(Image.new("RGB", (plan["W"], plan["H"])), 2.0, start=0.0, end=5.0, fonts=M.Fonts(),
-                            classes=("DRAWN",))
+                            classes=("CARD", "DRAWN"))
     assert np.array_equal(np.asarray(img), np.asarray(want.convert("RGB")))
 
 
@@ -277,9 +340,9 @@ def test_a_film_without_ai_shows_its_classes_and_says_none_is_ai_generated(W, H)
     L = M.Layout(W, H)
     marks = [{"cls": "CARD"}, {"cls": "ARCHIVE"}, {"cls": "DRAWN"}, {"cls": "ARCHIVE"}]
     used = M.key_classes(marks)
-    assert used == ("ARCHIVE", "DRAWN")                                         # only what the film uses, in key order
+    assert used == ("ARCHIVE", "CARD", "DRAWN")                                 # only what the film uses, in key order
     lay = M.mark_key_layout(L, FONTS, used)
-    assert M.mark_key_drawn_text(lay) == ["What the marks mean", "Archive", "Drawn",
+    assert M.mark_key_drawn_text(lay) == ["What the marks mean", "Archive", "Our own titles and cards", "Drawn",
                                           "No picture in this film is AI-generated."]
     assert lay["note"]["text"] == M.KEY_NO_AI and 0.10 * H <= lay["top"] and lay["bottom"] <= 0.90 * H
     assert lay["note"]["x"] >= L.w(50 - M.KEY["max_w"] / 2) and lay["note"]["baseline"] > lay["rows"][-1]["baseline"]
@@ -290,7 +353,8 @@ def test_a_film_without_ai_shows_its_classes_and_says_none_is_ai_generated(W, H)
     assert band.max() > 150                                                     # the line is drawn
     for r in lay["rows"]:
         gx, gy, d = r["glyph"]
-        assert tuple(arr[gy + d // 2, gx + d // 2]) == M.MARK_HUE[r["cls"]]
+        if r["cls"] != "CARD":
+            assert tuple(arr[gy + d // 2, gx + d // 2]) == M.MARK_HUE[r["cls"]]
     assert not any(r["cls"] in ("RECONSTRUCTED", "AI-GENERATED") for r in lay["rows"])
 
 
@@ -312,7 +376,7 @@ def test_a_film_that_adds_an_ai_shot_loses_the_line_and_gains_the_class(W, H):
 
 
 def test_the_plan_derives_the_key_and_its_segment_follows_it(plan):
-    assert plan["key_classes"] == list(M.key_classes(plan["shots"])) == ["DRAWN"]
+    assert plan["key_classes"] == list(M.key_classes(plan["shots"])) == ["CARD", "DRAWN"]
     shots = [dict(s) for s in plan["shots"]]
     k = next(i for i, s in enumerate(shots) if s["kind"] == "card")
     shots[k] = dict(shots[k], _card="mark_key", text=[])
@@ -321,7 +385,7 @@ def test_the_plan_derives_the_key_and_its_segment_follows_it(plan):
     assert R.shot_key(p1, k, {}) != R.shot_key(p2, k, {})                       # a new class re-renders the key card
     other = next(i for i, s in enumerate(shots) if s["kind"] != "card")
     assert R.shot_key(p1, other, {}) == R.shot_key(p2, other, {})              # and nothing else
-    c1 = R.card_text_check(shots[k], plan["W"], plan["H"], key_classes=("DRAWN",))
+    c1 = R.card_text_check(shots[k], plan["W"], plan["H"], key_classes=("CARD", "DRAWN"))
     assert c1["fits"] and c1["missing"] == []
 
 
@@ -331,10 +395,13 @@ def test_the_plan_derives_the_key_and_its_segment_follows_it(plan):
 
 
 def _key_plan(seq, dur=1200.0):
-    shots = []
+    """Shots from (card kind, mark, s); the part of kind credits starts at the second title card (the end card)."""
+    shots, titles = [], 0
     for k, (card, mark, d) in enumerate(seq):
+        titles += card == "title"
         shots.append({"id": f"X{k}", "kind": "card" if card not in (None, "black") else ("black" if card == "black" else "archive_still"),
-                      "_card": card if card not in (None,) else None, "mark": mark, "_dur": d})
+                      "_card": card if card not in (None,) else None, "mark": mark, "_dur": d,
+                      "_part_kind": "credits" if titles >= 2 else "chapter"})
     return {"shots": shots, "duration_s": dur, "runtime_target_s": dur}
 
 
@@ -372,6 +439,22 @@ def test_mark_key_refuses_a_key_in_the_wrong_place_or_too_short():
     j = J.Journal(film="r2-key-short")
     assert R.mark_key_lints(j, _key_plan(short))
     assert "lengthen" in next(e for e in lints(j, "mark-key") if e["unit"] == "mark-key:head")["evidence"]["fix"]
+
+
+def test_mark_key_finds_the_attribution_card_by_its_kind_with_credits_after_it():
+    """A credits roll after the attribution card (E2) is not the card the key
+    must precede: a key between E2 and the roll is refused."""
+    film = [*FILM[:7], ("statement", "CARD", 8), ("mark_key", "CARD", 5), ("credits", "CARD", 30), ("black", "CARD", 2)]
+    plan = _key_plan(film)
+    assert R.attribution_card(plan["shots"]) == 7
+    j = J.Journal(film="r2-key-roll")
+    out = R.mark_key_lints(j, plan)
+    assert out and "end" in out[0]
+    ok = [*FILM[:7], ("mark_key", "CARD", 5), ("statement", "CARD", 8), ("credits", "CARD", 30), ("black", "CARD", 2)]
+    assert R.mark_key_lints(J.Journal(film="r2-key-roll-ok"), _key_plan(ok)) == []
+    roll_only = [*FILM[:7], ("mark_key", "CARD", 5), ("credits", "CARD", 30)]  # no attribution card: the roll stands in
+    assert R.attribution_card(_key_plan(roll_only)["shots"]) == 8
+    assert R.mark_key_lints(J.Journal(film="r2-key-roll-only"), _key_plan(roll_only)) == []
 
 
 def test_mark_key_warns_on_a_draft_or_a_short_piece_and_skips_a_film_without_pictures():

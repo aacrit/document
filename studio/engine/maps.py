@@ -231,6 +231,16 @@ PANEL = dict(x=0.715, w=0.245, top=0.15, bottom=0.80, wash_from=0.64, wash_full=
 SOURCE_LINE = dict(x=0.04, baseline=0.972)   # film 1's frames; a spec may set `source_at` (film 2: 0.05, 0.94)
 
 
+def source_clear_of_label(fid: str, box: dict, W: int, H: int) -> None:
+    """A31: the frame's source line never runs under the provenance label's
+    zone (bottom right, from 60% of the width), where the label surfaces over
+    it; film 2's source line sits at a 0.94 baseline, in the label's band."""
+    if _intersects(box["box"], _zone(M.MARK_ZONE)):
+        raise MapRefused(f"{fid}: the source line runs into the provenance label's zone (from "
+                         f"{M.LABEL_MIN_X:g}% of the width, {100 * M.MARK_ZONE[1]:g}% to {100 * M.MARK_ZONE[3]:g}% of the "
+                         f"height): shorten it to end before {M.LABEL_MIN_X:g}% of the width")
+
+
 def source_at(spec: dict) -> dict:
     at = spec.get("source_at")
     if at is None:
@@ -1833,6 +1843,7 @@ def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
             "muted", halo=True, kind="source")
     if cv.boxes[-1]["box"][2] > 0.96 * W:
         raise MapRefused(f"{spec['id']}: the source line is wider than the frame's safe width")
+    source_clear_of_label(spec["id"], cv.boxes[-1], W, H)
     warnings = []
     for b in cv.boxes:
         bx = b["box"]

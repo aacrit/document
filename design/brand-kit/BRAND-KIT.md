@@ -300,22 +300,24 @@ Correction to 11c (2026-10-11, E15 review of 5a9ee29; append-only): in the dip r
 
 ## 12. The mark, calmer (2026-10-11, founder; R2, GRAMMAR A31)
 
-Appended; sections 5 and 11 to 11c keep their text and are read with this. Where they conflict, this section wins. The founder: the label "takes too much attention ... shouldn't be jarring"; it moves down, comes only when it says something new, and a key teaches the colours once. `motion.py` implements every number below (`LABEL`, `LABEL_MIN_X`, `MARK_ZONE`, `MARK_GLYPH_ZONE`, `label_plan`, `KEY`, `mark_key_frame`).
+Appended; sections 5 and 11 to 11c keep their text and are read with this. Where they conflict, this section wins. The founder: the label "takes too much attention ... shouldn't be jarring"; it moves down, comes only when it says something new, and a key teaches the colours once. `motion.py` implements every number below (`LABEL`, `LABEL_AI`, `LABEL_MIN_X`, `MARK_ZONE`, `MARK_GLYPH_ZONE`, `GLYPH_SHAPE`, `RING_STROKE`, `label_plan`, `KEY`, `KEY_WORD`, `mark_key_frame`).
 
 ### Position: bottom right
 
 | | Value | 1080p | 720p |
 |---|---|---|---|
 | Glyph box | its right edge 4% of width in from the right, its bottom edge 5% of height up from the bottom: the watermark's insets (section 3) mirrored into the opposite corner | x 1834 to 1842, y 1017 to 1025 | x 1223 to 1228, y 678 to 683 |
-| Glyph size, shape, colour, contact disc | unchanged (sections 11, 11a): 0.85% of height | 9 px | 6 px |
+| Glyph size, shape, colour, contact disc | unchanged (sections 11, 11a): 0.85% of height; except CARD's (below) | 9 px | 6 px |
+| CARD glyph | a ring, an outline in bone, its stroke 25% of its diameter (at least 1 px), hollow at the centre where the contact disc shows; it was a dot, which read as RECONSTRUCTED's bone dot (CoS 2026-10-11). The two bones now differ by shape as the two blues do; mark-coverage reads the centre as a shape probe beside the corner pair | stroke 2.25 px | stroke 1.5 px |
 | Label | set flush right against the glyph, 0.55 em left of it, the glyph at the middle of its x-height; it grows leftward and the glyph never moves | | |
 | Label type | Inter 400 at 1.6% of height (was 1.85%), numerals JetBrains Mono at 94%, `--mark-text` at 0.6 opacity (was 0.72); the soft shadow as section 11 | 17 px | 12 px |
+| AI-GENERATED label | keeps section 11's 1.85% at 0.72 (`LABEL_AI`): it is a truth label, up for the whole shot, and must stay readable at the smaller corner; it sits in the same zone | 20 px | 13 px |
 | Label measure | starts right of 60% of width (the lower third's measure, 4% + 56%); a longer label is refused, never cut (E15). Was "ends by 50%" | | |
 | Mark zone | x 60% to 96%, y 93% to 96.5% of the frame; the glyph's own zone x 95.0% to 96.6%, y 93.5% to 95.6% | | |
 
 Why this corner and these numbers. Every other corner is taken: the watermark is top right, lower thirds are bottom left (their measure ends at 60% of width, their wash at 52%), subtitles are bottom centre with their scrim's bottom at 93% of height, and a date or count overlay (section 7) is bottom right with its box bottom at 92%. The mark sits under all of them: its highest pixel, the label's shadow included, is below 93% at 1080p and 720p, so it never meets a subtitle cue, an overlay or a lower third, and a long label stops at 60% of width. The overlay and the glyph share the 96% right edge, so a date over footage and the mark beneath it read as one column. The glyph is inside title safe (5%); the label's descenders and shadow reach 96.5% of height, inside action safe (3.5%), accepted for the reason section 4 gives for the 4% left edge (the film goes to screens that do not overscan). `studio/tests/test_r2_marks.py` holds every bound at 1080p and 720p.
 
-The YouTube branding watermark (section 3, "On YouTube") is withdrawn: YouTube draws it bottom right, over the glyph. The burned watermark top right already carries the channel's mark. YouTube's own player bar covers the bottom of the picture only while the viewer hovers or pauses, which is accepted; on document.voidvision.org the player draws the mark from `sources.json` (A4).
+The YouTube branding watermark (section 3, "On YouTube") is withdrawn: YouTube draws it bottom right, over the glyph. The burned watermark top right already carries the channel's mark. YouTube's own player bar covers the bottom of the picture only while the viewer hovers or pauses, which is accepted; on document.voidvision.org the player draws the mark from `sources.json` (A4). YouTube end screens use the layout with the elements in the left and centre (video and subscribe left, nothing in the bottom-right quarter), so the last frames keep the corner clear. A pillarboxed picture (a 4:3 clip or a portrait still) puts the glyph and most of the label on the black bar, not on the picture; that is accepted: the mark is in the same place on every frame, and on black it is at its calmest.
 
 ### Behaviour: only when it says something new
 
@@ -329,11 +331,12 @@ The YouTube branding watermark (section 3, "On YouTube") is withdrawn: YouTube d
 | Out | `let_go`, 0.75 s, as section 11; the glyph stays |
 | Whole label | 3.11 s from the cut to gone |
 | AI-GENERATED | unchanged (11a, 11b): full from the cut frame and up for the whole shot, whatever came before; counted once per change for the rate |
-| Rate | at most one surfacing per 15 s of film, over the film (n at most the duration over 15 s, rounded up); the `label-rate` lint counts them, reports them per minute and the busiest minute, and refuses a final render past the cap |
+| Rate | at most one surfacing per 15 s of film, over the film (n at most the duration over 15 s, rounded up), and at most 4 in any 60 s; the `label-rate` lint counts them, reports them per minute and the busiest minute, and refuses a final render past either cap |
+| Empty AI label | refused at plan time (`ai-label`) |
 
 ### The key card: "What the marks mean"
 
-A card (`card: mark_key`, CARD, true black, `text: []`) that teaches the glyphs once. The engine draws it from the plan and the class table, never from typed words or colours: the glyph (`GLYPH_SHAPE`, `MARK_HUE`) and word (`CLASS_WORD`) of each picture class the film's shots use, and only those (`key_classes`, CoS 2026-10-11: a class shown in the key could imply the film has it), in the order Archive, Reconstructed, Drawn, AI-generated, so two cold blues, when both are used, sit side by side and differ by shape. A film with no AI-GENERATED shot gets one more line beneath the rows, `No picture in this film is AI-generated.` (`KEY_NO_AI`), derived from the plan; adding an AI-GENERATED shot removes the line and adds the class.
+A card (`card: mark_key`, CARD, true black, `text: []`) that teaches the glyphs once. The engine draws it from the plan and the class table, never from typed words or colours: the glyph (`GLYPH_SHAPE`, `MARK_HUE`) and words (`KEY_WORD`) of each class the film's shots use, and only those (`key_classes`, CoS 2026-10-11: a class shown in the key could imply the film has it), in the order Archive, Reconstructed, Our own titles and cards (the CARD ring, shown whenever the film has a card, which it always does), Drawn, AI-generated, so each pair that shares a hue (the two bones, the two blues) sits side by side and differs by shape. The ring's words say whose the frame is, not what it shows, because a card's own words already say that. The plan's key classes are required: a key with none is refused, never filled with a default. A film with no AI-GENERATED shot gets one more line beneath the rows, `No picture in this film is AI-generated.` (`KEY_NO_AI`), derived from the plan; adding an AI-GENERATED shot removes the line and adds the class.
 
 | | Value | 1080p | 720p |
 |---|---|---|---|
@@ -344,7 +347,7 @@ A card (`card: mark_key`, CARD, true black, `text: []`) that teaches the glyphs 
 | In | the heading on `settle`, rising 0.6% of height; from +0.25 s each row on `whisper`, 4 frames apart, rising 0.35% | | |
 | Out | everything let go together over 0.75 s; nothing moves | | |
 | On screen | at least 4 s; 5 s recommended | | |
-| Where | (1) after the title card, before the next picture shot; (2) in the end sequence, after the last picture shot and before the attribution card (or the credits). The `mark-key` lint refuses a final render of an event film without either; a draft, a check render or a short piece gets a warning | | |
-| Mark and watermark | the bone CARD glyph bottom right, as on every card; no watermark (a CARD) | | |
+| Where | (1) after the title card, before the next picture shot; (2) in the end sequence, after the last picture shot and before the attribution card, found by its kind: the first statement card of the credits part, else its credits roll. The `mark-key` lint refuses a final render of an event film without either; a draft, a check render or a short piece gets a warning | | |
+| Mark and watermark | the bone CARD ring bottom right, as on every card; no watermark (a CARD) | | |
 
-Do: let the key teach the colours so the label can stay down; keep the overlay and the glyph on one right edge. Don't: bring a label up at a cut that repeats class and year; type a key's words or colours into a screenplay; let a label run past 60% of width; set YouTube's branding watermark.
+Do: let the key teach the colours so the label can stay down; keep the overlay and the glyph on one right edge. Don't: draw a card's mark as a dot; bring a label up at a cut that repeats class and year; type a key's words or colours into a screenplay; let a label run past 60% of width; set YouTube's branding watermark.

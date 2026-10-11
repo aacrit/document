@@ -105,21 +105,23 @@ def test_mark_plate_on_every_frame_matches_the_shot(plan):
         for f in range(plan["frames"]):
             i = max(k for k, s in enumerate(plan["shots"]) if s["f0"] <= f)
             s = plan["shots"][i]
-            arr = np.asarray(R.compose(plan, pics, f, i))
+            probe = {}
+            arr = np.asarray(R.compose(plan, pics, f, i, probe))
             if R.picture_level(plan, f, i) <= 0.0:          # a dip's black hold: every pixel off
                 assert not arr.any(), f
                 dips += 1
                 continue
             px = arr[y, x].astype(int)
             fading = i > 0 and plan["shots"][i - 1]["mark"] != s["mark"] and f - s["f0"] < 4
+            res = R.check_mark(plan, arr, f, i, probe["bare_corner"])
             if fading:
                 crossfades += 1
-                prev = np.array(M.MARK_HUE[plan["shots"][i - 1]["mark"]])
-                cur = np.array(M.MARK_HUE[s["mark"]])
-                # a true crossfade: the bar pixel lies between the two hues, never the picture showing through
-                assert R.between_hues(px, prev, cur), (f, px)
+                # a true crossfade: the centre is what the two glyph tiles blended compose, never the picture alone
+                assert res == "fade", (f, px)
                 continue
-            assert np.max(np.abs(px - np.array(M.MARK_HUE[s["mark"]]))) <= 2, (f, s["id"], px)
+            assert res == "ok", (f, s["id"], px)
+            if s["mark"] != "CARD":                         # the ring (CARD, A31) is hollow at its centre
+                assert np.max(np.abs(px - np.array(M.MARK_HUE[s["mark"]]))) <= 2, (f, s["id"], px)
     finally:
         pics.close()
     changes = sum(1 for a, b in zip(plan["shots"], plan["shots"][1:]) if a["mark"] != b["mark"])
@@ -138,8 +140,13 @@ def test_a16_a_card_carries_the_glyph_alone_and_imagery_its_label_then_the_glyph
     L = M.Layout(plan["W"], plan["H"])
     x, y = R.mark_probe(plan)
     y0, y1, x0, x1 = _label_box(plan)
-    card = R.render_frame(plan, plan["shots"][0]["f0"] + 5)
-    assert np.max(np.abs(card[y, x].astype(int) - np.array(M.MARK_HUE["CARD"]))) <= 2
+    probe = {}
+    f = plan["shots"][0]["f0"] + 5
+    card = R.render_frame(plan, f, probe=probe)
+    assert R.check_mark(plan, card, f, 0, probe["bare_corner"]) == "ok"      # the CARD ring (A31)
+    assert card[y, x].max() < 100                                              # hollow: dark over the card's black
+    gx, gy = M.glyph_origin(L)
+    assert card[gy:gy + M.glyph_px(L), gx:gx + M.glyph_px(L)].max() > 150     # its bone stroke
     assert not card[y0:y1, x0:x1].any(), "a CARD has no label: its own words say what it is"
     s3 = next(s for s in plan["shots"] if s["id"] == "S3")
     assert s3["label"] == "Drawn · from PIL test image, test fixture"
@@ -228,7 +235,8 @@ def test_a16_the_shape_check_holds_over_any_background(height):
         img = Image.new("RGBA", (W, height), bg + (255,))
         for drawn in M.GLYPH_SHAPE:
             arr = np.asarray(M.mark_frame(img, 1.0, [{"start": 0.0, "cls": drawn, "label": ""}], M.Fonts()).convert("RGB"))
-            assert tuple(arr[cy, cx]) == M.MARK_HUE[drawn], (height, bg, drawn)            # solid hue at the centre
+            if drawn != "CARD":                                                            # the ring is hollow (A31)
+                assert tuple(arr[cy, cx]) == M.MARK_HUE[drawn], (height, bg, drawn)        # solid hue at the centre
             assert R.glyph_shape_ok(plan, arr, drawn, bg), (height, bg, drawn)             # a correct frame always passes
             for claimed in M.GLYPH_SHAPE:
                 if claimed == drawn or M.MARK_HUE[claimed] != M.MARK_HUE[drawn]:
@@ -1024,12 +1032,14 @@ def test_a_crossfade_frame_off_the_hue_line_fails(plan):
     i = next(k for k, s in enumerate(plan["shots"]) if s["id"] == "S3")      # CARD (S2) into DRAWN (S3)
     f = plan["shots"][i]["f0"] + 2      # E15: S3's 0.5 s dip holds f0 - 1 to f0 + 1 black; the 4-frame fade shows from f0 + 2
     assert R.picture_level(plan, f - 1, i) <= 0.0 < R.picture_level(plan, f, i)
-    arr = R.render_frame(plan, f)
-    assert R.check_mark(plan, arr, f, i) == "fade"
+    probe = {}
+    arr = R.render_frame(plan, f, probe=probe)
+    assert R.check_mark(plan, arr, f, i, probe["bare_corner"]) == "fade"
+    assert R.check_mark(plan, arr, f, i) == "fail"                             # no bare pixels, no judgement
     x, y = R.mark_probe(plan)
     bad = arr.copy()
     bad[y, x] = (200, 0, 0)
-    assert R.check_mark(plan, bad, f, i) == "fail"
+    assert R.check_mark(plan, bad, f, i, probe["bare_corner"]) == "fail"
     assert R.between_hues((126, 129, 138), (0, 0, 0), (255, 255, 255), tol=3) is False
 
 
