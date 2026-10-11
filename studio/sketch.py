@@ -62,7 +62,7 @@ class Timer:
 
     def __init__(self, film: Path):
         import time, uuid
-        self.run = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:4]
+        self.run = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
         self.film = film.name
         TIMINGS.parent.mkdir(parents=True, exist_ok=True)
 

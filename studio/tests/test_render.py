@@ -1591,7 +1591,7 @@ def _line(play_or_plan, lid):
 def test_a14_a_mood_offset_moves_only_the_level_after_levelling(plan, film, tmp_path):
     span = slice(int(5.2 * 48000), int(6.8 * 48000))                 # inside L1 (5.0 to 7.0 s), where nothing else plays
     mixes = {}
-    for mood in ("plain", "measured", "grave", "hushed", "close"):
+    for mood in ("plain", "measured", "warm", "grave", "hushed", "close"):
         p = json.loads(json.dumps(plan))
         _line(p, "L1")["delivery"] = {"mood": mood, "intensity": 2, "pace": "slower", "pause_after_s": 1.5}
         j = J.Journal(film=f"mood-{mood}", directory=tmp_path / mood)
@@ -1602,7 +1602,18 @@ def test_a14_a_mood_offset_moves_only_the_level_after_levelling(plan, film, tmp_
         mixes[mood] = mix
     for mood, off in R.MOOD_OFFSET_DB.items():
         assert _rms_db(mixes[mood][span]) - _rms_db(mixes["plain"][span]) == pytest.approx(off, abs=0.05)
-    assert R.MOOD_OFFSET_DB == {"plain": 0.0, "measured": 0.0, "grave": -0.5, "hushed": -2.0, "close": -1.0}
+    assert R.MOOD_OFFSET_DB == {"plain": 0.0, "measured": 0.0, "warm": 0.0, "grave": -0.5, "hushed": -2.0, "close": -1.0}
+
+
+def test_a14_the_warm_mood_is_plain_and_passes_the_delivery_lint(tmp_path):
+    """CoS (2026-10-10): warm joins A14's list at 0 dB; it is judged like a
+    plain line (not one of the lower moods) and adds nothing to the baseline."""
+    film = make_film(tmp_path / "film")
+    _edit_play(film, lambda p: _line(p, "L1").update(delivery={"mood": "warm"}))
+    plan, j = _plan(film, "warm")
+    nd = [e for e in lints(J.read(j.path), "narrator-delivery") if e["unit"] == "L1"]
+    assert nd and nd[0]["status"] == "pass" and nd[0]["evidence"]["offset_db"] == 0.0
+    assert "warm" not in R.MOOD_MAY_BE_LOWER and "warm" not in R.BASELINE_MOODS
 
 
 @pytest.mark.parametrize("lid,delivery", [("L1", {"mood": "angry"}), ("L2", {"mood": "grave"})])   # L2 is a reading
@@ -2429,14 +2440,15 @@ def test_a19_voice_chop_refuses_a_take_with_too_few_pauses_or_an_unsteady_floor(
          + rng.normal(0, 1e-4, len(tt))).astype(np.float32)
     y, rep = R.clean_voice(x)
     assert rep["cleaned"] and rep["pause_share"] < R.CLEAN_PAUSE_MIN_SHARE and not rep["measure_ok"]
-    assert "pauses are" in rep["measure_why"][0]
+    assert rep["measure_why"][0].startswith("the take's floor is within 30 dB of its speech: no pause quiet enough to measure")
     j = J.Journal(film="few-pauses")
     out = R._journal_clean(j, "L9", rep, 0.0)
-    assert any("pauses are" in o for o in out)
+    assert any("no pause quiet enough to measure" in o for o in out)
     vc = [e for e in lints(J.read(j.path), "voice-chop") if e["unit"] == "L9"][0]
     assert vc["status"] == "fail" and vc["evidence"]["near_floor_frames"] >= 0 and vc["evidence"]["why"]
     x2, spans = _speechlike(seed=5)
-    x2[: int(0.42 * 48000)] = 0.0                                              # the hiss drops out for 0.42 s: two floors
+    a = spans[0][1] + int(0.05 * 48000)                                        # inside the first pause, after the tail
+    x2[a: a + int(0.42 * 48000)] = 0.0                                         # the hiss drops out for 0.42 s: two floors
     _, rep2 = R.clean_voice(x2)
     assert rep2["floor_spread_db"] > R.CLEAN_FLOOR_SPREAD_MAX_DB and any("spread" in w for w in rep2["measure_why"])
 
@@ -2458,3 +2470,133 @@ def test_a17_shares_count_voice_kinds_over_their_speech_only(plan):
         {"id": "X", "kind": "reading", "line_kind": "sfx", "at_s": 15.0, "dur_s": 5.0, "speech_from_s": 15.0, "speech_to_s": 20.0}]}
     sh = R.voice_shares(dict(plan, duration_s=20.0), placed)
     assert sh == {"narration": 0.4, "readings": 0.2, "voiceless": 0.4}
+
+
+# --------------------------------------------------------------------------
+# T1f: the founder's revamp rulings (2026-10-10) and the T1e review advisories
+# --------------------------------------------------------------------------
+
+
+def test_6_1_the_readings_floor_is_20_percent(plan):
+    """Founder ruling (2026-10-10): readings carry at least 20% of the runtime, not 30%."""
+    assert R.READINGS_FLOOR == 0.20
+    d = 1000.0
+    event = dict(plan, duration_s=d, runtime_target_s=1200)
+    mix = np.full(48000, 1e-3, np.float32)
+
+    def placed(share):
+        return {"lines": [{"id": "N", "kind": "narration", "line_kind": "narration", "at_s": 0.0, "dur_s": 500.0,
+                           "speech_from_s": 0.0, "speech_to_s": 500.0},
+                          {"id": "R", "kind": "reading", "line_kind": "testimony", "at_s": 501.0, "dur_s": d * share,
+                           "speech_from_s": 501.0, "speech_to_s": 501.0 + d * share}]}
+    assert R.sound_lints(J.Journal(film="floor-21"), event, mix, placed(0.21)) == []          # 21%: passes (it failed at 30%)
+    out = R.sound_lints(J.Journal(film="floor-19"), event, mix, placed(0.19))
+    assert any(o.startswith("readings-floor") and "'min': 0.2" in o for o in out)
+
+
+def _still_plan(dur, start=0.0):
+    return {"shots": [{"id": "P1", "kind": "archive_still", "start_s": start, "end_s": start + dur},
+                      {"id": "M1", "kind": "drawn", "start_s": start + dur, "end_s": start + dur + 25.0}]}
+
+
+def _spoken(kind, a, b):
+    return {"id": f"{kind}-{a}", "kind": "narration" if kind == "narration" else "reading",
+            "line_kind": kind, "at_s": a - 0.3, "dur_s": b - a + 0.6, "speech_from_s": a, "speech_to_s": b}
+
+
+@pytest.mark.parametrize("dur,lines,ok", [
+    (10.0, [], True), (10.5, [], False),                                         # A9: 10 s with nothing spoken over it
+    (19.9, [("narration", 2.0, 15.0)], True), (20.5, [("narration", 2.0, 15.0)], False),   # A20(a): 20 s under narration
+    (14.0, [("narration", 14.2, 18.0)], False),                                  # narration after the cut is not over it
+    (29.0, [("testimony", 1.0, 27.0)], True), (31.0, [("testimony", 1.0, 27.0)], False),  # A9: 30 s under a reading
+    (25.0, [("sfx", 1.0, 20.0)], False),                                         # only the voice kinds count
+])
+def test_a20a_a_still_holds_by_what_is_spoken_over_it(dur, lines, ok):
+    plan = _still_plan(dur)
+    placed = {"lines": [_spoken(*ln) for ln in lines]}
+    h = R.still_holds(plan, placed)
+    assert [x["id"] for x in h] == ["P1"]                                       # archive stills only; a drawn map is not one
+    assert h[0]["ok"] is ok, h
+    j = J.Journal(film="still-hold")
+    out = R.still_hold_lints(j, plan, placed)
+    ev = lints(J.read(j.path), "still-hold")[0]
+    assert ev["status"] == ("pass" if ok else "fail") and ev["severity"] == "block"
+    assert bool(out) is not ok
+    assert R.still_hold_lints(J.Journal(film="still-hold-draft"), plan, placed, draft=True) == []   # a warning under --draft
+
+
+def test_a20a_the_still_hold_lint_runs_on_the_fixture_and_passes(plan):
+    placed = {"lines": [_spoken("narration", 5.0, 7.0)]}
+    holds = R.still_holds(plan, placed)
+    assert {h["id"] for h in holds} == {"S3", "S4", "S5"} and all(h["ok"] for h in holds)
+    assert next(h for h in holds if h["id"] == "S3")["voices"] == ["narration"]
+
+
+def test_a19_a_zero_padded_noisy_take_now_fails_voice_clean():
+    """T1e review: the quietest 10% of frames were the digital zero padding a
+    take's ends, so a hissy take measured a floor of -300 dBFS and passed.
+    The floor is now measured inside the take's live span."""
+    rng = np.random.default_rng(5)
+    x, _ = _speechlike(seed=2)
+    x = (x + rng.normal(0, 10 ** (-38 / 20), len(x))).astype(np.float32)      # hiss 38 dB up: no pause clean enough
+    pad = np.zeros(int(1.5 * 48000), np.float32)
+    padded = np.concatenate([pad, x, pad])                                     # zero frames: 1.5 + 1.5 of 9.2 s, over 10%
+    _, rep = R.clean_voice(padded)
+    assert rep["before"]["floor_dbfs"] > -60                                   # the hiss, not the padding (-300 before)
+    gain, _ = R.level_gain(padded, R.DIALOGUE_LUFS)
+    j = J.Journal(film="zero-padded")
+    out = R._journal_clean(j, "LZ", rep, gain)
+    vc = [e for e in lints(J.read(j.path), "voice-clean") if e["unit"] == "LZ"][0]
+    assert vc["status"] == "fail" and any("voice-clean" in o for o in out)
+    # the same take unpadded measures the same floor, within a dB
+    _, rep0 = R.clean_voice(x)
+    assert rep["before"]["floor_dbfs"] == pytest.approx(rep0["before"]["floor_dbfs"], abs=1.0)
+
+
+def test_a19_a_clean_take_silent_between_words_still_passes():
+    """Digital silence inside the live span (a take that is truly silent in its
+    pauses) is still the floor: only the padding at the ends is set aside."""
+    x, spans = _speechlike(seed=4, hiss_db=-200.0)                              # no hiss at all
+    x = np.concatenate([np.zeros(48000, np.float32), x, np.zeros(48000, np.float32)])
+    _, rep = R.clean_voice(x)
+    gain, _ = R.level_gain(x, R.DIALOGUE_LUFS)
+    assert rep["cleaned"] and rep["after"]["floor_dbfs"] + gain < R.CLEAN_FLOOR_MAX_DBFS
+    assert R.live_span(x)[0] == 48000 + 24000                                    # the pad and the take's own lead-in
+
+
+def test_t1e_review_the_speech_span_is_measured_after_the_placement_gain():
+    """A sample at -59 dBFS in the take counts as speech at 0 dB, but a hushed
+    line is placed 2 dB down, where the mix hears it at -61: not speech."""
+    x = np.zeros(48000, np.float32)
+    x[1000:2000] = 0.5
+    x[30000:31000] = 10 ** (-59 / 20)                                           # a quiet tail
+    assert R.speech_active(x, 0.0)[-1] == 30999
+    assert R.speech_active(x, R.MOOD_OFFSET_DB["hushed"])[-1] == 1999
+
+
+def test_a16_the_shape_check_cannot_be_reached_by_any_picture_at_the_film_resolutions():
+    """T1e review: the guarantee, stated exactly. For every resolution the
+    engine renders and every pair of classes that share a hue and differ in
+    shape, some probe has a channel where no bare value from 0 to 255 brings
+    the wrong class's composite within 1 of the drawn class's. So whatever
+    the picture under the glyph, a wrong shape fails the lint."""
+    for height, (W, H) in R.RESOLUTIONS.items():
+        plan = {"W": W, "H": H}
+        probes = M.glyph_shape_probes(M.Layout(W, H))
+        for drawn in M.GLYPH_SHAPE:
+            for claimed in M.GLYPH_SHAPE:
+                if M.MARK_HUE[claimed] != M.MARK_HUE[drawn] or M.GLYPH_SHAPE[claimed] == M.GLYPH_SHAPE[drawn]:
+                    continue
+                guarded = []
+                for at in probes:
+                    for ch in range(3):
+                        reach = []
+                        for v in range(256):
+                            bare = [0, 0, 0]
+                            bare[ch] = v
+                            d = abs(int(R.expected_probe(plan, drawn, at, bare)[ch]) - int(R.expected_probe(plan, claimed, at, bare)[ch]))
+                            if d <= 1:
+                                reach.append(v)
+                        if not reach:
+                            guarded.append((at, ch))
+                assert guarded, (height, drawn, claimed)

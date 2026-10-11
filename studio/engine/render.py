@@ -93,7 +93,7 @@ VOICE_TP_MARGIN = 1.3               # A15: room for the mix-to-master gain
 VOICE_TP = DIALOGUE_LUFS + (TARGET_TP - TARGET_LUFS) - VOICE_TP_MARGIN
 LEVEL_MIN_S = 0.4                   # loudnorm's gating block: a shorter line is measured looped to this length
 # A14: narration delivery moves only the level, after the -20 LUFS levelling (voices are rendered upstream)
-MOOD_OFFSET_DB = {"plain": 0.0, "measured": 0.0, "grave": -0.5, "hushed": -2.0, "close": -1.0}
+MOOD_OFFSET_DB = {"plain": 0.0, "measured": 0.0, "warm": 0.0, "grave": -0.5, "hushed": -2.0, "close": -1.0}   # warm: A14 list (CoS, 2026-10-10)
 MOOD_OFFSET_MAX_DB = 2.0            # an offset under -2 dB is refused, and so is any positive one (a mood never lifts)
 # narrator-consistency (A14): one narrator, one voice. Per line: median f0 and its p10-p90 range over voiced 40 ms
 # frames (normalised autocorrelation), spectral centroid over active frames, words per second over the speech span.
@@ -132,7 +132,12 @@ DUCK_VOICE_THRESHOLD = 1e-3         # a voice sample over -60 dBFS counts as voi
 SILENCE_DBFS = -120.0               # A19: a mix sample at or under this is true digital silence
 SILENCE_WARN_S = 4.0                # digital-silence: a run longer than this outside an intended silence is a warning
 VOICELESS_FLOOR = 0.10              # GRAMMAR 6.1, A18: at least 10% of the runtime carries no voice
-READINGS_FLOOR = 0.30               # GRAMMAR 6.1: readings (read-by and archival testimony) carry at least 30%
+READINGS_FLOOR = 0.20               # GRAMMAR 6.1 as amended (founder, 2026-10-10): readings (read-by and archival
+                                    # testimony) carry at least 20% of the runtime (was 30%)
+# GRAMMAR 7.2, A9 and A20(a): how long an archive still may hold, by what is spoken over it
+STILL_MAX_S = 10.0                  # nothing spoken over the shot (7.2, A9)
+STILL_UNDER_NARRATION_MAX_S = 20.0  # narration speaking over it (A20(a), founder 2026-10-10)
+STILL_UNDER_READING_MAX_S = 30.0    # a reading (testimony) speaking over it (A9)
 EVENT_FILM_MIN_S = 600.0            # the shares bind unless both the film and its runtime target are under 10 min
                                     # (teaser, trailer, the test fixture), which journal them as warnings
 MASTER_CRF = 18
@@ -1481,8 +1486,10 @@ def glyph_shape_ok(plan: dict, arr: np.ndarray, cls: str, bare) -> bool:
     each shape-probe pixel must be what ``cls``'s own glyph composes there
     over the bare frame's pixel (``bare``: one RGB per probe, or one RGB for
     all). The square leaves its hue at both probes; the dot and the diamond
-    leave the picture under two different edge alphas, which no flat picture
-    can turn into the hue at both."""
+    leave the picture under the glyph's edge and its contact disc. At every
+    engine resolution some probe channel of a wrong shape at the same hue
+    stays more than 1 away whatever the bare value (0 to 255), so a wrong
+    shape fails over any picture."""
     probes = M.glyph_shape_probes(M.Layout(plan["W"], plan["H"]))
     bares = list(bare) if bare and isinstance(bare[0], (tuple, list, np.ndarray)) else [bare] * len(probes)
     for (x, y), b in zip(probes, bares):
@@ -1748,6 +1755,14 @@ def _read_wav(path: Path) -> np.ndarray:
     return x
 
 
+def speech_active(x: np.ndarray, gain_db: float = 0.0) -> np.ndarray:
+    """The samples of a voice line that count as speech once it is placed:
+    over -60 dBFS (DUCK_VOICE_THRESHOLD) after the placement gain (a mood
+    offset or an archival line's gain_db), so the span is measured on what
+    the mix hears, not on the take before its offset (T1e review)."""
+    return np.flatnonzero(np.abs(x) * np.float32(10 ** (gain_db / 20)) > DUCK_VOICE_THRESHOLD)
+
+
 def _place(buf: np.ndarray, x: np.ndarray, at_s: float, gain_db: float = 0.0, end_s: float | None = None):
     i = int(round(at_s * AUDIO_RATE))
     if i >= len(buf):
@@ -1812,16 +1827,44 @@ CLEAN_CHOP_MAX_SHARE = 0.02         # at most 2% of them may be
 CLEAN_FLOOR_MAX_DBFS = -80.0        # voice-clean (blocking): the median power of the raw take's quietest 10% of frames,
                                     # cleaned and levelled, under this; their p90 is journaled, not limited
 CLEAN_SPEECH_TOL_DB = 0.5           # and its speech energy must stay within this
+CLEAN_SILENT_DBFS = -120.0          # a take's live span runs from its first to its last 20 ms frame over this; digital
+                                    # silence padding a take's ends is outside it and never counts as floor or pause
 
 
 def _db(p: float) -> float:
     return 10.0 * math.log10(max(float(p), 1e-30))
 
 
+def live_span(x: np.ndarray) -> tuple[int, int] | None:
+    """The take's live span in samples: from the start of its first 20 ms
+    frame over CLEAN_SILENT_DBFS to the end of its last. Digital silence
+    padding the take's ends lies outside it (T1e review: a zero-padded noisy
+    take made its quietest 10% digital zero, and voice-clean passed it).
+    Digital silence between words stays inside, so a take that is truly
+    silent in its pauses still measures a silent floor."""
+    n = int(round(CLEAN_FRAME_S * AUDIO_RATE))
+    k = len(x) // n
+    if k == 0:
+        return None
+    p = (x[: k * n].astype(np.float64).reshape(k, n) ** 2).mean(axis=1)
+    live = np.flatnonzero(p > 10 ** (CLEAN_SILENT_DBFS / 10))
+    return None if not len(live) else (int(live[0]) * n, (int(live[-1]) + 1) * n)
+
+
+def _live_frames(k: int, span: tuple[int, int] | None) -> np.ndarray:
+    """The 20 ms frames inside ``span`` (all of them when it holds under 4)."""
+    n = int(round(CLEAN_FRAME_S * AUDIO_RATE))
+    m = np.zeros(k, bool)
+    if span is not None:
+        m[span[0] // n: span[1] // n] = True
+    return m if m.sum() >= 4 else np.ones(k, bool)
+
+
 def voice_floor(x: np.ndarray, gaps: np.ndarray | None = None, speech: np.ndarray | None = None) -> dict:
     """Measure a voice line over 20 ms frames: the noise floor (dBFS, the
-    median power of the quietest 10% of frames, or of ``gaps`` frames when
-    given; ``floor_p90_dbfs`` is their 90th percentile),
+    median power of the quietest 10% of the frames inside the take's live
+    span (``live_span``), or of ``gaps`` frames when given;
+    ``floor_p90_dbfs`` is their 90th percentile),
     the speech level (dBFS, the mean power of frames 20 dB or more above that
     floor, or of ``speech`` frames when given) and their difference, the SNR.
     Passing the frame sets measured on the raw take measures a cleaned take on
@@ -1832,9 +1875,10 @@ def voice_floor(x: np.ndarray, gaps: np.ndarray | None = None, speech: np.ndarra
         return {"frames": k, "floor_dbfs": None, "speech_dbfs": None, "snr_db": None}
     p = (x[: k * n].astype(np.float64).reshape(k, n) ** 2).mean(axis=1)
     if gaps is None:
-        q = max(1, int(round(k * CLEAN_NOISE_PCT / 100.0)))
+        cand = np.flatnonzero(_live_frames(k, live_span(x)))
+        q = max(1, int(round(len(cand) * CLEAN_NOISE_PCT / 100.0)))
         gaps = np.zeros(k, bool)
-        gaps[np.argsort(p, kind="stable")[:q]] = True
+        gaps[cand[np.argsort(p[cand], kind="stable")[:q]]] = True
     floor = _db(float(np.median(p[gaps]))) if gaps.any() else None
     p90 = _db(float(np.percentile(p[gaps], 90))) if gaps.any() else None
     if speech is None:
@@ -1869,14 +1913,21 @@ def _istft(X: np.ndarray, n: int, hop: int, length: int, out_len: int) -> np.nda
 
 def spectral_denoise(x: np.ndarray, noise_frames: np.ndarray | None = None) -> tuple[np.ndarray, dict]:
     """A gentle spectral subtraction against the take's own noise: the noise
-    power per bin is the mean over the quietest 10% of STFT frames, each bin's
+    power per bin is the mean over the quietest 10% of the STFT frames centred
+    inside the take's live span (digital silence padding its ends is not its
+    noise), each bin's
     gain is sqrt(1 - 2 N / P), floored at -18 dB and smoothed over 3 frames so
     the residue never warbles. Returns the cleaned line and what was done."""
     X, length = _stft(x, CLEAN_NFFT, CLEAN_HOP)
     P = np.abs(X) ** 2
     e = P.sum(axis=1)
-    q = max(1, int(round(len(e) * CLEAN_NOISE_PCT / 100.0)))
-    quiet = np.argsort(e, kind="stable")[:q]
+    span = live_span(x)
+    centre = np.arange(len(e)) * CLEAN_HOP - CLEAN_NFFT // 2          # each frame's centre, in the take's samples
+    cand = np.flatnonzero((centre >= span[0]) & (centre < span[1])) if span else np.arange(len(e))
+    if len(cand) < 4:
+        cand = np.arange(len(e))
+    q = max(1, int(round(len(cand) * CLEAN_NOISE_PCT / 100.0)))
+    quiet = cand[np.argsort(e[cand], kind="stable")[:q]]
     N = P[quiet].mean(axis=0)
     gmin = 10 ** (-CLEAN_MAX_REDUCTION_DB / 20)
     g = np.sqrt(np.clip(1.0 - CLEAN_OVERSUB * N[None, :] / np.maximum(P, 1e-30), gmin * gmin, 1.0))
@@ -1953,13 +2004,14 @@ def clean_voice(x: np.ndarray) -> tuple[np.ndarray, dict]:
     cut = px > py * 10 ** (CLEAN_CHOP_CUT_DB / 10)
     lo = 10 ** (before["floor_dbfs"] / 10)
     near = (px >= lo) & ~audible                 # between the floor and 6 dB over it: noise and the faintest breaths
-    pause_share = float(np.mean(px < 10 ** ((before["speech_dbfs"] - CLEAN_PAUSE_BELOW_DB) / 10)))
+    live = _live_frames(k, live_span(x))         # padding at the ends is not a pause either
+    pause_share = float(np.mean(px[live] < 10 ** ((before["speech_dbfs"] - CLEAN_PAUSE_BELOW_DB) / 10)))
     spread = before["floor_p90_dbfs"] - before["floor_dbfs"]
     why = []
     if pause_share < CLEAN_PAUSE_MIN_SHARE:
-        why.append(f"pauses are {100 * pause_share:.1f}% of the take (frames {CLEAN_PAUSE_BELOW_DB:g} dB under the speech; "
-                   f"at least {100 * CLEAN_PAUSE_MIN_SHARE:g}% needed): the quietest frames are quiet speech, so the floor "
-                   "and the chop count cannot be trusted")
+        why.append(f"the take's floor is within {CLEAN_PAUSE_BELOW_DB:g} dB of its speech: no pause quiet enough to measure "
+                   f"(frames {CLEAN_PAUSE_BELOW_DB:g} dB under the speech are {100 * pause_share:.1f}% of the take; at least "
+                   f"{100 * CLEAN_PAUSE_MIN_SHARE:g}% needed)")
     if spread > CLEAN_FLOOR_SPREAD_MAX_DB:
         why.append(f"the floor frames spread {spread:.1f} dB (p90 over median; at most {CLEAN_FLOOR_SPREAD_MAX_DB:g}): the noise "
                    "is not steady, so one floor does not describe it")
@@ -2088,7 +2140,7 @@ def mood_offset(journal: Journal, ln: dict) -> float:
         raise Refused(f"narrator-delivery (A14): {ln['id']} mood {mood!r} gives offset {off}; moods {MOOD_OFFSET_DB}, "
                       f"each from -{MOOD_OFFSET_MAX_DB:g} to 0 dB")
     journal.decision("assembly", f"{ln['id']} delivery {mood}: {off:+.1f} dB after levelling to {DIALOGUE_LUFS:g} LUFS",
-                     "GRAMMAR A14: a narration line's mood sets a small level offset (plain 0, measured 0, grave -0.5, "
+                     "GRAMMAR A14: a narration line's mood sets a small level offset (plain 0, measured 0, warm 0, grave -0.5, "
                      "hushed -2.0, close -1.0 dB); the voice itself was rendered upstream", unit=ln["id"],
                      evidence={"mood": mood, "offset_db": off, "intensity": d.get("intensity"), "pace": d.get("pace"),
                                "pause_after_s": d.get("pause_after_s"), "applies_to": "level only"})
@@ -2397,8 +2449,9 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
                 if peak["bad_take"]:
                     bad_takes.append(f"{ln['id']} ({'; '.join(peak['bad_take'])})")
         offset = mood_offset(journal, ln) if synthetic else 0.0
-        k = _place(voice, x, float(ln["start_s"]), offset if synthetic else float(ln.get("gain_db", 0.0)))   # levelling is in x
-        act = np.flatnonzero(np.abs(x[:k]) > DUCK_VOICE_THRESHOLD)          # the speech-active span, past the take's silences
+        place_db = offset if synthetic else float(ln.get("gain_db", 0.0))
+        k = _place(voice, x, float(ln["start_s"]), place_db)                # levelling is in x
+        act = speech_active(x[:k], place_db)                                 # the speech-active span, as placed
         sp = plan["speakers"].get(ln.get("speaker"), {})
         placed["lines"].append({"id": ln["id"], "speaker": ln.get("speaker"), "side": sp.get("side"),
                                 "kind": "narration" if ln.get("kind") == "narration" else ("archival" if ln.get("archival_audio") else "reading"),
@@ -2516,11 +2569,56 @@ def voice_shares(plan: dict, placed: dict) -> dict:
             "voiceless": round(1.0 - any_voice.sum() / n, 4)}
 
 
+def still_holds(plan: dict, placed: dict) -> list[dict]:
+    """Each archive still's length against what is spoken over it (GRAMMAR
+    7.2, A9, A20(a)): at most 30 s when a reading's speech-active span
+    overlaps the shot, 20 s when only narration's does, and 10 s when no
+    voice speaks over it. Read from the placed lines (their speech-active
+    spans, as the mix hears them), never from estimates."""
+    out = []
+    for s in plan["shots"]:
+        if s.get("kind") != "archive_still":
+            continue
+        a, b = float(s["start_s"]), float(s["end_s"])
+        over = set()
+        for ln in placed["lines"]:
+            kind = ln.get("line_kind", "narration" if ln.get("kind") == "narration" else "testimony")
+            if kind not in VOICE_KINDS:
+                continue
+            f, t = ln.get("speech_from_s", ln["at_s"]), ln.get("speech_to_s", ln["at_s"] + ln["dur_s"])
+            if f is not None and f < b and t > a:
+                over.add(kind)
+        limit = (STILL_UNDER_READING_MAX_S if "testimony" in over else
+                 STILL_UNDER_NARRATION_MAX_S if "narration" in over else STILL_MAX_S)
+        dur = round(b - a, 3)
+        out.append({"id": s["id"], "dur_s": dur, "voices": sorted(over), "max_s": limit,
+                    "ok": dur <= limit + 0.5 / FPS})
+    return out
+
+
+def still_hold_lints(journal: Journal, plan: dict, placed: dict, *, draft: bool = False) -> list[str]:
+    """still-hold (GRAMMAR 7.2, A9, A20(a)), one lint per archive still:
+    blocking on a final render, a warning under --draft or a check render
+    (--until, which may not place every line over its last shot). Returns
+    the reasons to refuse."""
+    binding = not draft and not plan.get("until_s")
+    out = []
+    for h in still_holds(plan, placed):
+        journal.lint("still-hold", h["ok"], stage="assembly", phase="preflight", unit=h["id"],
+                     severity="block" if binding else "warn", grammar="7.2, A9, A20(a)",
+                     evidence=dict(h, rule="10 s with nothing spoken over it, 20 s under narration, 30 s under a reading",
+                                   fix=None if h["ok"] else "shorten the still, or cut to another picture"))
+        if not h["ok"] and binding:
+            out.append(f"still-hold ({h['id']}: {h['dur_s']:g} s, at most {h['max_s']:g} s with "
+                       f"{' and '.join(h['voices']) or 'no voice'} over it)")
+    return out
+
+
 def sound_lints(journal: Journal, plan: dict, mix: np.ndarray, placed: dict, *, draft: bool = False) -> list[str]:
     """A17, A18 and A19 on the mix. digital-silence (a warning): true digital
     silence over 4 s outside an intended silence. voiceless-floor and
     readings-floor (GRAMMAR 6.1): at least 10% of the runtime has no voice
-    and readings carry at least 30%; blocking on a full, final render of an
+    and readings carry at least 20% (founder, 2026-10-10; was 30%); blocking on a full, final render of an
     event film, a warning on a draft, a check render (--until) or a short
     piece. The narration ceiling is lifted (A17): narration is reported, never
     capped. Returns the reasons to refuse."""
@@ -3080,6 +3178,10 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         share_refusals = sound_lints(journal, plan, mix, placed, draft=draft)
         if share_refusals:
             raise Refused(f"voice shares (pre-flight): {'; '.join(share_refusals)} (GRAMMAR 6.1; render with --draft to accept it)")
+        hold_refusals = still_hold_lints(journal, plan, placed, draft=draft)
+        if hold_refusals:
+            raise Refused(f"still holds (pre-flight): {'; '.join(hold_refusals)} (GRAMMAR 7.2, A9, A20(a); "
+                          "render with --draft to accept it)")
         journal.event("unit", "assembly", "mix", lens="narration", status="info", lines=placed["lines"], peaks=None)
         with journal.unit("assembly", "loudness", size={"driver": "seconds", "value": round(plan["duration_s"], 3)},
                           settings={"I": TARGET_LUFS, "TP": TARGET_TP, "LRA_min": TARGET_LRA, "linear": True,
