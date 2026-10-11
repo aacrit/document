@@ -327,6 +327,12 @@ def _keys(o):
             yield from _keys(v)
 
 
+# E15 (brand audit of film 2): a frame's words speak of the open record, never of the studio's own folders. "none are
+# in the studio's geodata" became "no open source gives them".
+NOT_IN_OPEN_SOURCES = "no open source gives them"
+STUDIO_WORDING = re.compile(r"\bgeodata\b|\bthe studio's\b", re.I)
+
+
 def check_spec(spec: dict) -> None:
     for k in ("id", "title", "source_short", "sources"):
         if k not in spec:
@@ -342,6 +348,10 @@ def check_spec(spec: dict) -> None:
             raise MapRefused(f"{spec['id']}{path}: colour literal in a spec")
         if "—" in s:
             raise MapRefused(f"{spec['id']}{path}: em dash in on-screen copy")
+    for where, t in [("title", spec.get("title", ""))] + [(f"notes[{i}]", n) for i, n in enumerate(spec.get("notes", []))]:
+        if STUDIO_WORDING.search(str(t)):
+            raise MapRefused(f"{spec['id']}.{where}: {t!r} names the studio's own files; a frame says what the open "
+                             f"record holds, e.g. {NOT_IN_OPEN_SOURCES!r} (E15)")
     src = spec["sources"]
     if not src or any(not s.get("id") or not s.get("licence") for s in src):
         raise MapRefused(f"{spec['id']}: every source needs an id and a licence")

@@ -233,19 +233,39 @@ def dissolve_weight(t: float, dur: float) -> float:
     return sine_inout(t / dur) if dur > 0 else 1.0
 
 
-def dip_level(t: float, dur: float, hold: float = 0.10) -> float:
+DIP_HOLD_MIN_FRAMES = 2            # E15: a dip's black hold is never shorter than 2 frames (BRAND-KIT 6, 11c)
+_DIP_EPS = 1e-9                    # frame times are floats: a frame on the hold's edge is in the hold
+
+
+def dip_hold_s(dur: float, hold: float = 0.10, fps: float = 24.0) -> float:
+    """Seconds of black at the bottom of a dip of ``dur`` seconds: ``hold`` of
+    the duration, and never under DIP_HOLD_MIN_FRAMES frames (E15: at 0.5 s
+    the 10% hold was 1.2 frames, so a frame-sampled dip showed one black frame)."""
+    return max(hold * dur, DIP_HOLD_MIN_FRAMES / fps)
+
+
+def dip_level(t: float, dur: float, hold: float = 0.10, fps: float = 24.0) -> float:
     """Picture level 0..1 through a dip to black of ``dur`` seconds: fade out
-    over 45% (ease-in, the picture is released), black for ``hold`` of the
-    duration, fade in over 45% (ease-out, the next picture arrives)."""
+    (ease-in, the picture is released), black for ``dip_hold_s`` centred on
+    the cut, fade in (ease-out, the next picture arrives). The fades share
+    what the hold leaves: 45% each when the hold is 10% of the dip."""
     if dur <= 0:
         return 1.0
     u = t / dur
-    a = 0.5 * (1.0 - hold)
-    if u < a:
-        return 1.0 - ease_in_quad(u / a)
-    if u <= 1.0 - a:
+    a = 0.5 * (1.0 - min(1.0, dip_hold_s(dur, hold, fps) / dur))
+    if u < a - _DIP_EPS:
+        return 1.0 - ease_in_quad(u / a) if a > 0 else 0.0
+    if u <= 1.0 - a + _DIP_EPS:
         return 0.0
     return ease_out_quad((u - (1.0 - a)) / a)
+
+
+def dip_black_frames(dur: float, fps: float = 24.0) -> int:
+    """How many frames of a dip of ``dur`` seconds, its cut on a frame, are
+    entirely black when the dip is sampled at ``fps`` (the renderer samples
+    frame k after the cut at ``dur / 2 + k / fps``)."""
+    n = int(math.ceil(dur * fps)) + 1
+    return sum(1 for k in range(-n, n + 1) if 0.0 <= dur / 2 + k / fps <= dur and dip_level(dur / 2 + k / fps, dur, fps=fps) <= 0.0)
 
 
 def fade_out(t: float, end: float, dur: float) -> float:
@@ -345,7 +365,10 @@ CLASS_WORD = {"ARCHIVE": "Archive", "RECONSTRUCTED": "Reconstructed", "AI-GENERA
 WM = dict(box=6.0, right=4.0, top=5.0, opacity=0.36, spread=0.08, halo=0.22, fade=0.5)   # A16: was 0.6 and 0.35
 SUB = dict(size=3.9, bottom=93.0, max_w=84.0, gap=1.2, lh=1.45, lh_nastaliq=1.9)
 CHAPTER = dict(title=5.6, dates=2.6, rule_len=6.0, rule_h=0.19, baseline=47.0, rise=0.6, exit=0.4)
-SILENT = dict(size=4.0, lh=1.35, searched=2.6, max_w=76.0, fade=0.75, stagger=0.33)
+SILENT = dict(size=4.0, lh=1.35, searched=2.6, max_w=76.0, fade=0.75, stagger=0.33,
+              # E15: every element of a statement card is drawn; the block sits in the safe band (% of H) and
+              # steps down in size (never under min_scale) rather than lose a word
+              gap=1.2, safe_top=10.0, safe_bottom=90.0, min_scale=0.75, scale_step=0.05)
 TITLE = dict(size=7.0, wordmark=2.6, rise=0.6, exit=0.67, gap=2.2)
 CREDITS = dict(size=2.4, lh=1.5, heading=1.85, speed=5.2, fade_in=1.0, col_w=70.0)
 
@@ -401,7 +424,15 @@ def _tracked_width(text: str, font, track_em: float) -> float:
     return sum(font.getlength(ch) for ch in text) + track_em * font.size * max(0, len(text) - 1)
 
 
-def _wrap(text: str, font, data_font, max_w: float) -> list[str]:
+class TextOverflow(ValueError):
+    """Text that does not fit where it is drawn. The engine never cuts text to
+    fit (E15: a card lost its third element and three quotes lost their ends
+    to a silent ``lines[:2]``); it refuses and says what does not fit."""
+
+
+def _wrap(text: str, font, data_font, max_w: float, max_lines: int | None = None, what: str = "text") -> list[str]:
+    """Greedy word wrap at ``max_w`` px. Every word is kept: past ``max_lines``
+    lines this raises TextOverflow, it never drops a line."""
     words = text.split(" ")
     lines, cur = [], ""
     for w in words:
@@ -413,7 +444,13 @@ def _wrap(text: str, font, data_font, max_w: float) -> list[str]:
             cur = cand
     if cur:
         lines.append(cur)
-    return lines[:2] if len(lines) > 2 else lines
+    if max_lines is not None and len(lines) > max_lines:
+        raise TextOverflow(f"{what} wraps to {len(lines)} lines; at most {max_lines} fit: {text!r}")
+    return lines
+
+
+def _ws_words(text: str) -> str:
+    return " ".join(str(text or "").split())
 
 
 def _scale_alpha(layer: Image.Image, k: float) -> Image.Image:
@@ -745,6 +782,13 @@ mark_plate_frame = mark_frame        # the G2 name, kept so the kit's callers st
 # --------------------------------------------------------------------------
 
 
+def source_line_text(text: str) -> str:
+    """A lower third's source line as drawn: ``<source title>, <archive>``,
+    except that a title ending in ``?`` or ``!`` takes no comma after it
+    (E15: "should our policy be changed?, National Library of Medicine")."""
+    return re.sub(r"([?!]),(?=\s)", r"\1", text)
+
+
 def lower_third_layout(L: Layout, lines, fonts: Fonts, kind: str = "speaker", flag: str | None = None):
     """Compute the block: returns (elements, top_y, block_w). Each element is a
     dict with kind, text, font, data_font, baseline, size, order."""
@@ -765,10 +809,14 @@ def lower_third_layout(L: Layout, lines, fonts: Fonts, kind: str = "speaker", fl
         f_src_n = _font(fonts.data, round(px(LT["source"]) * 0.94))
         rows = [("name", lines[0], f_name, None, name_sz, LT["lh_name"]),
                 ("role", lines[1], f_role, f_role_n, LT["role"], LT["lh_role"])]
-        if len(lines) > 2 and flag and len(_wrap(lines[2], f_src, f_src_n, max_w)) > 1:
-            raise ValueError("a flagged lower third's source line must fit on one line")
         if len(lines) > 2:
-            for i, wrapped in enumerate(_wrap(lines[2], f_src, f_src_n, max_w)):
+            # BRAND-KIT 4: the source wraps to at most 2 lines, 1 under a flag; past that it is refused, never cut (E15)
+            src = source_line_text(lines[2])
+            try:
+                wrapped_src = _wrap(src, f_src, f_src_n, max_w, max_lines=1 if flag else 2, what="a lower third's source line")
+            except TextOverflow as e:
+                raise TextOverflow(("a flagged lower third's source line must fit on one line: " if flag else "") + str(e)) from None
+            for i, wrapped in enumerate(wrapped_src):
                 rows.append(("source" if i == 0 else "source2", wrapped, f_src, f_src_n, LT["source"], LT["lh_source"]))
     # Stack from the bottom up so the last line's box bottom sits at LT.bottom.
     y = L.h(LT["bottom"])
@@ -1015,38 +1063,123 @@ def chapter_card_frame(img: Image.Image, t: float, *, start: float, end: float, 
     return Image.alpha_composite(base, layer)
 
 
-def silent_card_frame(img: Image.Image, t: float, *, start: float, end: float, statement: str,
-                      searched: str | None, fonts: Fonts) -> Image.Image:
-    """The record-is-silent card. No spring: the record is silent, so the
-    graphic is still. Line 1 fades in over 0.75 s (ease-out sine); the
-    "Searched:" line follows 0.33 s later; both fade out together over 0.75 s."""
+def card_layout(L: Layout, texts, fonts: Fonts, what: str = "card") -> dict:
+    """Where every element of a statement card's ``text[]`` is drawn (E15).
+
+    Element 0 is the statement, Fraunces 300 at SILENT.size on SILENT.lh;
+    every later element (the Searched line, a source, a filled shortfall
+    sentence) is Inter at SILENT.searched on 1.4, SILENT.gap of height above
+    it. Each wraps at SILENT.max_w of the width with no line limit, and the
+    block is centred. When it is taller than the safe band (SILENT.safe_top
+    to SILENT.safe_bottom of the height) every size steps down together by
+    SILENT.scale_step, never under SILENT.min_scale (the floor that stays
+    readable at 720p: the statement 3.0% of height, 22 px; the rest 1.95%,
+    14 px). A card that does not fit at the floor raises TextOverflow: text
+    is never cut or dropped.
+
+    Returns ``{"scale", "top", "bottom", "elements": [{"index", "role",
+    "text", "px", "lines": [{"text", "x", "baseline", "w"}]}]}``. The drawer
+    draws these records and nothing else, so the card-drawn lint compares
+    them with the intended text. At scale 1 the arithmetic is the G2 card's,
+    so a card that always fitted keeps its pixels."""
+    texts = [str(x) for x in (texts or [])]
+    max_w = L.w(SILENT["max_w"])
+    safe_top, safe_bottom = L.h(SILENT["safe_top"]), L.h(SILENT["safe_bottom"])
+    steps = int(round((1.0 - SILENT["min_scale"]) / SILENT["scale_step"]))
+    tried = []
+    for k in range(steps + 1):
+        scale = round(1.0 - k * SILENT["scale_step"], 6)
+        px1 = L.px(SILENT["size"] * scale)
+        px2 = L.px(SILENT["searched"] * scale)
+        f1, f1n = _font(fonts.display, px1), _font(fonts.data, round(px1 * 0.94))
+        f2, f2n = _font(fonts.structure, px2), _font(fonts.data, round(px2 * 0.94))
+        gap = L.h(SILENT["gap"] * scale)
+        wrapped = []
+        for i, tx in enumerate(texts):
+            f, fn = (f1, f1n) if i == 0 else (f2, f2n)
+            wrapped.append((i, tx, f, fn, _wrap(tx, f, fn, max_w)))
+        too_wide = [ln for (_, _, f, fn, lines) in wrapped for ln in lines if _measure(ln, f, fn) > max_w + 0.5]
+        h1 = len(wrapped[0][4]) * f1.size * SILENT["lh"] if wrapped else 0
+        h2 = 0
+        for (i, _, _, _, lines) in wrapped[1:]:
+            h2 += len(lines) * f2.size * 1.4 + (gap if lines else 0)
+        y = (L.H - h1 - h2) / 2.0
+        top, bottom = y, y + h1 + h2
+        tried.append({"scale": scale, "height_pct": round(100.0 * (h1 + h2) / L.H, 2), "too_wide": too_wide})
+        if too_wide or (texts and (top < safe_top - 0.5 or bottom > safe_bottom + 0.5)):
+            continue
+        elements = []
+        for (i, tx, f, fn, lines) in wrapped:
+            if i == 0:
+                recs = []
+                for ln in lines:
+                    w = _measure(ln, f, fn)
+                    recs.append({"text": ln, "x": (L.W - w) / 2.0, "baseline": y + f.size * (0.78 + (SILENT["lh"] - 1) / 2), "w": w})
+                    y += f.size * SILENT["lh"]
+            else:
+                if lines:
+                    y += gap
+                recs = []
+                for ln in lines:
+                    w = _measure(ln, f, fn)
+                    recs.append({"text": ln, "x": (L.W - w) / 2.0, "baseline": y + f.size * (0.78 + 0.2), "w": w})
+                    y += f.size * 1.4
+            elements.append({"index": i, "role": "statement" if i == 0 else "line", "text": tx, "px": f.size,
+                             "font": f, "data_font": fn, "lines": recs})
+        return {"scale": scale, "top": top, "bottom": bottom, "elements": elements}
+    last = tried[-1] if tried else {}
+    raise TextOverflow(
+        f"{what}: its {len(texts)} text elements do not fit the card at the smallest readable size "
+        f"({SILENT['size'] * SILENT['min_scale']:.2f}% and {SILENT['searched'] * SILENT['min_scale']:.2f}% of height): "
+        + (f"a word is wider than {SILENT['max_w']:g}% of the width ({last['too_wide'][0]!r})" if last.get("too_wide") else
+           f"the block is {last.get('height_pct')}% of the height and the safe band is "
+           f"{SILENT['safe_bottom'] - SILENT['safe_top']:g}% ({SILENT['safe_top']:g}% to {SILENT['safe_bottom']:g}%)")
+        + "; shorten the text or split the card, nothing is cut")
+
+
+def card_drawn_text(layout: dict) -> list[str]:
+    """What a card layout draws, element by element, as one whitespace-normalised string each."""
+    return [_ws_words(" ".join(ln["text"] for ln in e["lines"])) for e in layout["elements"]]
+
+
+def card_text_problems(texts, layout: dict) -> list[dict]:
+    """Every element of ``texts`` that the layout does not draw word for word
+    (E15): the comparison is between the layout records the drawer draws and
+    the intended text, never OCR."""
+    drawn = card_drawn_text(layout)
+    out = []
+    for i, tx in enumerate(texts or []):
+        want = _ws_words(tx)
+        got = drawn[i] if i < len(drawn) else None
+        if got != want:
+            out.append({"index": i, "intended": want, "drawn": got})
+    return out
+
+
+def silent_card_frame(img: Image.Image, t: float, *, start: float, end: float, statement: str = "",
+                      searched: str | None = None, fonts: Fonts, texts=None) -> Image.Image:
+    """A statement card over black: the record-is-silent card, a perspective
+    card, a quote with its source. No spring: the graphic is still. Every
+    element of ``texts`` (or ``[statement, searched]``) is drawn, laid out by
+    ``card_layout`` (E15). Element 0 fades in over 0.75 s (ease-out sine);
+    each later element follows SILENT.stagger s after the one before; all
+    fade out together over 0.75 s."""
     base = _black(img.size)
     if t < start or t >= end:
         return base
     L = Layout(*base.size)
-    f1 = _font(fonts.display, L.px(SILENT["size"]))
-    f1n = _font(fonts.data, round(L.px(SILENT["size"]) * 0.94))
-    f2 = _font(fonts.structure, L.px(SILENT["searched"]))
-    f2n = _font(fonts.data, round(L.px(SILENT["searched"]) * 0.94))
+    if texts is None:
+        texts = [statement] + ([searched] if searched else [])
+    lay = card_layout(L, texts, fonts)
     exit_k = 1.0 - ease_in_sine((t - (end - SILENT["fade"])) / SILENT["fade"]) if t > end - SILENT["fade"] else 1.0
-    a1 = fade_in(t, start, SILENT["fade"]) * exit_k
-    a2 = fade_in(t, start + SILENT["stagger"], SILENT["fade"]) * exit_k
-    lines1 = _wrap(statement, f1, f1n, L.w(SILENT["max_w"]))
-    lines2 = _wrap(searched, f2, f2n, L.w(SILENT["max_w"])) if searched else []
-    h1 = len(lines1) * f1.size * SILENT["lh"]
-    h2 = len(lines2) * f2.size * 1.4 + (L.h(1.2) if lines2 else 0)
-    y = (L.H - h1 - h2) / 2.0
     layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
-    for ln in lines1:
-        w = _measure(ln, f1, f1n)
-        _draw_mixed(d, ((L.W - w) / 2.0, y + f1.size * (0.78 + (SILENT["lh"] - 1) / 2)), ln, f1, f1n, _rgba(PALETTE["mark_text"], a1))
-        y += f1.size * SILENT["lh"]
-    y += L.h(1.2)
-    for ln in lines2:
-        w = _measure(ln, f2, f2n)
-        _draw_mixed(d, ((L.W - w) / 2.0, y + f2.size * (0.78 + 0.2)), ln, f2, f2n, _rgba(PALETTE["mark_text"], a2 * 0.8))
-        y += f2.size * 1.4
+    for e in lay["elements"]:
+        a = fade_in(t, start + e["index"] * SILENT["stagger"], SILENT["fade"]) * exit_k
+        if e["index"]:
+            a *= 0.8
+        for ln in e["lines"]:
+            _draw_mixed(d, (ln["x"], ln["baseline"]), ln["text"], e["font"], e["data_font"], _rgba(PALETTE["mark_text"], a))
     return Image.alpha_composite(base, layer)
 
 

@@ -77,7 +77,8 @@ def test_every_lint_t1_enforces_ran_and_passed(rendered):
                  "clip-aspect", "dissolve-same-class", "conform-logged", "resampler-plain", "master-format",
                  "silent-card-form", "lower-third-format", "no-em-dash", "licence-allowlist", "no-bodies",
                  "still-zoom-limit", "cross-class-dip", "overlay-format", "clip-hold-rendered", "telecine-declared",
-                 "loudnorm-linear", "mark-class-valid", "clip-in-out", "still-hold"):
+                 "loudnorm-linear", "mark-class-valid", "clip-in-out", "still-hold",
+                 "card-fits", "card-drawn", "dip-black-hold", "lower-third-time"):
         found = lints(evs, rule)
         assert found, rule
         if rule == "still-first-frame-whole-pixels":
@@ -541,7 +542,7 @@ def test_brand_kit_reexports_the_engine_motion():
     kit = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(kit)
     for name in ("rostrum_move", "lower_third_frame", "mark_plate_frame", "chapter_card_frame", "silent_card_frame",
-                 "title_card_frame", "credits_frame", "watermark", "Spring", "PALETTE"):
+                 "title_card_frame", "credits_frame", "watermark", "Spring", "PALETTE", "WM", "LT", "LABEL"):
         assert getattr(kit, name) is getattr(M, name), name
     r = subprocess.run([sys.executable, str(ROOT / "design" / "brand-kit" / "motion.py"), "--table"], capture_output=True, text=True)
     assert r.returncode == 0 and "| `stamp` |" in r.stdout
@@ -1017,7 +1018,8 @@ def test_a_render_with_fit_voices_journals_and_saves_the_fitted_screenplay(tmp_p
 
 def test_a_crossfade_frame_off_the_hue_line_fails(plan):
     i = next(k for k, s in enumerate(plan["shots"]) if s["id"] == "S3")      # CARD (S2) into DRAWN (S3)
-    f = plan["shots"][i]["f0"] + 1
+    f = plan["shots"][i]["f0"] + 2      # E15: S3's 0.5 s dip holds f0 - 1 to f0 + 1 black; the 4-frame fade shows from f0 + 2
+    assert R.picture_level(plan, f - 1, i) <= 0.0 < R.picture_level(plan, f, i)
     arr = R.render_frame(plan, f)
     assert R.check_mark(plan, arr, f, i) == "fade"
     x, y = R.mark_probe(plan)

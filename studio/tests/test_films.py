@@ -932,3 +932,100 @@ def test_e14_an_archival_span_is_placed_again_under_the_derived_ceiling(film, mo
     seg = mix[int(17.9 * 48000): int(19.4 * 48000)]
     assert R._measure_line(seg)["input_tp"] <= -6.5 + 0.2                    # never limited, so held back instead
     assert all(e["unit"] != "A1" for e in lints(j, "voice-peak-control"))      # an archival span is never peak-controlled
+
+
+# --------------------------------------------------------------------------
+# E15: a source that names its speakers on screen (A26 refined); a filled card is drawn whole
+# --------------------------------------------------------------------------
+
+REEL_NAME = "Fixture reel, original narration"
+
+
+def _no_lower_third(film):
+    _edit(film, lambda p: p["parts"][1]["text"].remove(next(t for t in p["parts"][1]["text"] if t["id"] == "T3")))
+
+
+def _reel_names(film, **item):
+    _edit(film, lambda d: next(x for x in d["items"] if x["id"] == "FX-REEL").update(**item), "footage-ledger.json")
+
+
+def test_e15_an_archival_line_without_a_lower_third_is_refused_unless_its_source_names_the_speaker(film):
+    _archival(film)
+    _no_lower_third(film)
+    with pytest.raises(R.Refused, match=r"archival-lower-third \(A1\)"):
+        _plan(film, "named-none")
+    _reel_names(film, speakers_on_screen=[REEL_NAME])                       # listed, but nothing declares the allowance
+    with pytest.raises(R.Refused, match=r"archival-lower-third \(A1\)"):
+        _plan(film, "named-undeclared")
+
+
+@pytest.mark.parametrize("declare", ["screenplay", "ledger"])
+def test_e15_a_source_that_names_its_speaker_on_screen_needs_no_lower_third(film, declare):
+    _archival(film)
+    _no_lower_third(film)
+    _reel_names(film, speakers_on_screen=["  fixture reel,  ORIGINAL narration "], **({"names_its_speakers": True}
+                                                                                       if declare == "ledger" else {}))
+    if declare == "screenplay":
+        _edit(film, lambda p: p.update(names_its_speakers=["FX-REEL"]))
+    plan, j = _plan(film, f"named-{declare}")
+    for rule in ("archival-lower-third", "archival-named-on-screen", "archival-named-elsewhere"):
+        assert [e["status"] for e in lints(j, rule)] == ["pass"], rule
+    assert lints(j, "archival-lower-third")[0]["evidence"]["named_on_screen_by_the_source"] is True
+    # (b): still named where the record names every voice
+    assert any(r["id"] == "A1" and r["name"] == REEL_NAME for r in R.sources_doc(plan, j, {})["readings"])
+    assert dict(plan["credits"])["Recordings"][0].startswith(f"{REEL_NAME}: original recording")
+
+
+def test_e15_the_ledger_must_list_the_speaker_the_source_names(film):
+    _archival(film)
+    _no_lower_third(film)
+    _edit(film, lambda p: p.update(names_its_speakers=["FX-REEL"]))
+    _reel_names(film, speakers_on_screen=["Someone else"])
+    with pytest.raises(R.Refused, match=r"archival-named-on-screen \(A1\)"):
+        _plan(film, "named-wrong")
+    _reel_names(film, speakers_on_screen=None)
+    with pytest.raises(R.Refused, match=r"archival-named-on-screen \(A1\)"):
+        _plan(film, "named-missing")
+
+
+def test_e15_a_speaker_named_only_on_screen_must_still_be_in_the_credits(film, monkeypatch):
+    _archival(film)
+    _no_lower_third(film)
+    _edit(film, lambda p: p.update(names_its_speakers=["FX-REEL"]))
+    _reel_names(film, speakers_on_screen=[REEL_NAME])
+    real = R.credits_blocks
+    monkeypatch.setattr(R, "credits_blocks", lambda plan: [(h, ln) for h, ln in real(plan) if h != "Recordings"])
+    with pytest.raises(R.Refused, match=r"archival-named-elsewhere \(A1\)"):
+        _plan(film, "named-uncredited")
+
+
+def test_e15_names_its_speakers_lists_ledger_clips(film):
+    _edit(film, lambda p: p.update(names_its_speakers=["FX-NOWHERE"]))
+    with pytest.raises(R.Refused, match=r"names-its-speakers"):
+        _plan(film, "named-unknown")
+
+
+def test_e15_two_speakers_from_one_clip_are_both_credited(film):
+    _archival(film)
+    _edit(film, lambda p: (p["cast"]["speakers"].append({"id": "sp-reel-2", "name": "Second voice", "side": "usa", "gender": "f"}),
+                           p["parts"][1]["lines"].append(dict(ARCH_LINE, id="A2", speaker="sp-reel-2", start_s=24.0)),
+                           p["subtitle_source"].append({"ref": "A2", "start_s": 24.0, "end_s": 25.5, "en": ARCH_TEXT}),
+                           p.update(names_its_speakers=["FX-REEL"])))
+    _reel_names(film, speakers_on_screen=["Second voice"])
+    plan, _ = _plan(film, "two-voices")
+    rec = dict(plan["credits"])["Recordings"]
+    heads = [r.split(": original recording")[0] for r in rec if ": original recording" in r]
+    assert heads == [REEL_NAME, "Second voice"]                                 # one clip, two voices, two credits
+
+
+def test_e15_a_filled_card_is_drawn_whole_or_refused(film, monkeypatch):
+    _with_card_d(film, [SF_READ, SF_WOMEN])
+    plan, j = _plan(film, "fill-drawn")
+    plan = _event(plan, speakers=SPEAKERS)
+    R.fill_cards(plan, R.shortfall_values(plan, _placed(0.135, women_s=30.0)), j)
+    assert R.card_fill_lints(j, plan) == []
+    assert [e["status"] for e in lints(j, "card-fills-drawn")] == ["pass"]
+    real = R.M.card_layout
+    monkeypatch.setattr(R.M, "card_layout", lambda *a, **k: dict(real(*a, **k), elements=real(*a, **k)["elements"][:1]))
+    out = R.card_fill_lints(J.Journal(film="fill-cut"), plan)                 # the G2 card drew two of card D's three
+    assert out and out[0].startswith("card-fills-drawn (S7)")
