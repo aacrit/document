@@ -74,12 +74,36 @@ def slow(dest: Path, seconds: float = 4.0, fps: int = 10) -> Path:
 def reel(dest: Path, seconds: float = 8.0) -> Path:
     """A small stand-in for a long reel with its own soundtrack (A26): a moving
     24 fps pattern and a steady 440 Hz tone (about -27 dBFS peak) as its "narration",
-    so a span cut from it can be measured and compared frame for frame."""
+    so a span cut from it can be measured and compared frame for frame. The
+    narration speaks in phrases (A33: a quote is cut on its speech edges):
+    1.15 to 2.25 s, so the fixture's archival span 1.0 to 2.5 s has its 0.15 s
+    lead and 0.25 s tail, and 3.2 to 4.0 s; silence between."""
     dest.parent.mkdir(parents=True, exist_ok=True)
+    words = "gte(t,1.15)*lt(t,2.25)+gte(t,3.2)*lt(t,4.0)"
     _run(["-f", "lavfi", "-i", f"testsrc2=size=320x240:rate=24:duration={seconds}",
           "-f", "lavfi", "-i", f"sine=frequency=440:sample_rate=48000:duration={seconds}",
-          "-af", "volume=-9dB", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-g", "48", "-pix_fmt", "yuv420p",
+          "-af", f"volume=-9dB,volume=0:enable='not({words})'", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-g", "48", "-pix_fmt", "yuv420p",
           "-c:a", "aac", "-b:a", "128k", "-shortest", str(dest)])
+    return dest
+
+
+def talker(dest: Path, seconds: float = 12.0, cuts=(4.0, 7.0), words=((1.0, 1.8), (4.6, 5.4), (7.5, 8.3), (9.2, 10.0)),
+           size: str = "320x240") -> Path:
+    """A33 clip-integrity stand-in: a moving 24 fps pattern that changes
+    look at each of ``cuts`` (inverted, then grey, alternately: hard cuts
+    scdet finds on the frame), and a soundtrack of noise "words" (bursts at
+    about -9 dBFS RMS, digital silence between) over ``words`` (start, end),
+    so its cuts and speech edges are known to the frame. Lossless video and
+    PCM in Matroska."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    edges = [0.0, *cuts, seconds + 1]
+    neg = "+".join(f"gte(t,{edges[k]})*lt(t,{edges[k + 1]})" for k in range(1, len(edges) - 1, 2)) or "0"
+    grey = "+".join(f"gte(t,{edges[k]})*lt(t,{edges[k + 1]})" for k in range(2, len(edges) - 1, 2)) or "0"
+    gate = "+".join(f"gte(t,{a})*lt(t,{b})" for a, b in words) or "0"
+    _run(["-f", "lavfi", "-i", f"testsrc2=size={size}:rate=24:duration={seconds}",
+          "-f", "lavfi", "-i", f"aevalsrc='0.5*(random(0)*2-1)*({gate})':s=48000:d={seconds}",
+          "-vf", f"negate=enable='{neg}',hue=s=0:enable='{grey}'", "-c:v", "libx264", "-qp", "0", "-preset", "ultrafast",
+          "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", "-shortest", str(dest)])
     return dest
 
 
