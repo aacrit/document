@@ -61,6 +61,7 @@ import numpy as np
 from PIL import Image
 
 from studio.engine import motion as M
+from studio.engine import policy as POL
 from studio.engine.journal import Journal, sha256_file
 
 ENGINE_VERSION = "0.1.0"
@@ -134,6 +135,16 @@ SILENCE_WARN_S = 4.0                # digital-silence: a run longer than this ou
 VOICELESS_FLOOR = 0.10              # GRAMMAR 6.1, A18: at least 10% of the runtime carries no voice
 READINGS_FLOOR = 0.20               # GRAMMAR 6.1 as amended (founder, 2026-10-10): readings (read-by and archival
                                     # testimony) carry at least 20% of the runtime (was 30%)
+# A25 (E9): these floors are the defaults of a film's `settings` (studio/engine/policy.py), Partition's values
+assert (VOICELESS_FLOOR, READINGS_FLOOR) == (POL.DEFAULT_SETTINGS["voiceless_floor"], POL.DEFAULT_SETTINGS["readings_floor"])
+# A25 (E9): the readings share counts first-person words, read by a computer voice or heard in their own recording
+READINGS_SHARE_COUNTS = ("reading", "archival")
+# A26 (E11): an archival line that plays a span of a source's own soundtrack
+ARCHIVAL_DIALOGUE_LUFS = -20.0      # one static gain brings the span to the dialogue level (8.5); no compression, no limiter
+ARCHIVAL_FADE_S = 0.020             # raised-cosine fades at its in and out points, so a cut never clicks
+LONG_REEL_BYTES = 512 * 1024 * 1024  # a source over this is trimmed to a cached span before conform, never read whole
+SPAN_PAD_S = 1.0                    # a cached video span keeps this much of the reel either side of the shot
+SPAN_VERSION = 1                    # bump when the span extraction changes, so old cached spans are not reused
 # GRAMMAR 7.2, A9 and A20(a): how long an archive still may hold, by what is spoken over it
 STILL_MAX_S = 10.0                  # nothing spoken over the shot (7.2, A9)
 STILL_UNDER_NARRATION_MAX_S = 20.0  # narration speaking over it (A20(a), founder 2026-10-10)
@@ -427,6 +438,15 @@ def preflight_sources(film: Path, play: dict, journal: Journal, *, draft: bool =
         for ln in part.get("lines", []):
             if ln.get("kind") not in VOICE_KINDS:
                 continue
+            if archival_span(ln):                         # A26: the line plays its clip's own soundtrack
+                checked += 1
+                item = assets.get(ln["clip"])
+                path = (item or {}).get("_path")
+                why = ("clip not in any ledger" if item is None else "ledger item names no file" if not path else
+                       "missing" if not Path(path).exists() else None)
+                if why:
+                    problems.append({"unit": ln["id"], "asset": ln["clip"], "file": path, "why": why})
+                continue
             wav = voice_wav(film, ln)
             checked += 1
             if not wav.exists():
@@ -682,12 +702,22 @@ def credits_blocks(plan: dict) -> list:
             seen.add(ln.get("speaker"))
             name = plan["speakers"].get(ln.get("speaker"), {}).get("name", ln.get("speaker"))
             readings.append(f"Read by a computer voice. No recording of {name} was used.")
+    recordings, clips_seen = [], set()
+    for ln in plan["lines"]:
+        if archival_span(ln) and ln["clip"] not in clips_seen:
+            clips_seen.add(ln["clip"])
+            it = plan["assets"].get(ln["clip"], {})
+            name = plan["speakers"].get(ln.get("speaker"), {}).get("name", ln.get("speaker"))
+            recordings += _wrap_chars(", ".join(b for b in [f"{name}: original recording", (it.get("title") or "").strip(),
+                                                            it.get("archive") or "", year_of(it) or "", it.get("licence") or ""] if b))
     for c in plan["cues"]:
         bits = [c.get("source", ""), c.get("tradition", ""), c.get("performer", ""), c.get("licence", "")]
         sound += _wrap_chars(", ".join(b for b in bits if b))
     blocks = [("Shots", shots)]
     if readings:
         blocks.append(("Readings", readings))
+    if recordings:
+        blocks.append(("Recordings", recordings))
     if sound:
         blocks.append(("Sound", sound))
     blocks.append(("Studio", [f"void document studio engine {ENGINE_VERSION} ({ENGINE_HASH})"]))
@@ -715,7 +745,11 @@ def voice_lines(play: dict, film: Path) -> list[dict]:
     out = []
     for part in play["parts"]:
         for ln in part.get("lines", []):
-            if ln.get("kind") in VOICE_KINDS and voice_wav(film, ln).exists():
+            if ln.get("kind") in VOICE_KINDS and archival_span(ln):
+                # A26: an archival span's length is its out point minus its in point, the cut the mix places
+                out.append({"id": ln["id"], "kind": ln["kind"], "start": float(ln["start_s"]),
+                            "dur": max(0.0, float(ln.get("out_s", 0)) - float(ln.get("in_s", 0))), "ref": ln})
+            elif ln.get("kind") in VOICE_KINDS and voice_wav(film, ln).exists():
                 out.append({"id": ln["id"], "kind": ln["kind"], "start": float(ln["start_s"]),
                             "dur": wav_seconds(voice_wav(film, ln)), "ref": ln})
     return sorted(out, key=lambda v: (v["start"], v["id"]))
@@ -858,6 +892,19 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     if lint_fail:
         raise Refused("lint failed: " + "; ".join(lint_fail))
 
+    # A21 and A25 (E3, E9): the film's own imagery rule and policy settings; a screenplay that states neither gets the
+    # Partition pilot's, which is what the engine enforced before they were per film (studio/engine/policy.py).
+    rule, rule_problems = POL.imagery_rule(play)
+    if rule["declared"]:
+        lint("imagery-rule-declared", not rule_problems, unit="imagery_rule", grammar="A21",
+             evidence={"rule": rule, "problems": rule_problems})
+    settings, settings_stated, settings_problems = POL.film_settings(play)
+    if play.get("settings") is not None:
+        lint("film-settings", not settings_problems, unit="settings", grammar="A25",
+             evidence={"settings": settings, "stated": settings_stated, "bounds": POL.SETTING_BOUNDS, "problems": settings_problems})
+    if lint_fail:
+        raise Refused("lint failed: " + "; ".join(lint_fail))
+
     shots, lines, cues, texts = [], [], [], []
     for part in play["parts"]:
         for k, s in enumerate(part.get("shots", [])):
@@ -892,8 +939,11 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                 continue
             lic = str(item.get("licence") or "")
             lint("licence-allowlist", bool(LICENCE_OK.match(lic.strip())), unit=s["id"], evidence={"licence": lic}, grammar="1.2")
-            bodies = item.get("shows_bodies", item.get("shows_violence_or_bodies"))
-            lint("no-bodies", bodies is False, unit=s["id"], evidence={"shows_bodies": bodies}, grammar="1.6")
+            # A21 (E3): the film's imagery rule on the asset's content flags. Under the default rule this is the
+            # Partition lint exactly: no-bodies, shows_bodies (or the older shows_violence_or_bodies) stated false.
+            for c in POL.asset_checks(item, rule):
+                lint(c["rule"], c["ok"], unit=s["id"], severity=c["severity"], evidence=c["evidence"],
+                     grammar="1.6" if c["rule"] == "no-bodies" and not rule["declared"] else "1.6, 11.1, A21")
             if not item.get("_path") or not Path(item["_path"]).exists():
                 lint("asset-file", False, unit=s["id"], evidence={"file": item.get("_path")})
                 continue
@@ -980,10 +1030,18 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         if s["f1"] <= s["f0"]:
             raise Refused(f"shot {s['id']} owns no frames")
 
-    # AI-GENERATED share (decision "No AI-generated imagery in the Partition pilot").
+    # AI-GENERATED share (decision "No AI-generated imagery in the Partition pilot"); A25: the film's
+    # ai_generated_share_max, 0 unless it states otherwise, never over GRAMMAR 2.6's 15%.
     gen = sum(s["f1"] - s["f0"] for s in shots if s["mark"] == "AI-GENERATED")
-    lint("ai-generated-share-zero", gen == 0, evidence={"generated_frames": gen, "frames": total_frames},
-         grammar="decision 2026-10-10", stage="marks")
+    gen_max = settings["ai_generated_share_max"]
+    if gen_max == 0:
+        lint("ai-generated-share-zero", gen == 0, stage="marks",
+             evidence={"generated_frames": gen, "frames": total_frames} if "ai_generated_share_max" not in settings_stated else
+             {"generated_frames": gen, "frames": total_frames, "max": 0.0},
+             grammar="decision 2026-10-10" if "ai_generated_share_max" not in settings_stated else "A25")
+    else:
+        lint("ai-generated-share-max", gen / total_frames <= gen_max + 1e-9, stage="marks", grammar="2.6, A2, A25",
+             evidence={"generated_frames": gen, "frames": total_frames, "share": round(gen / total_frames, 4), "max": gen_max})
 
     # Stills: the camera, the whole first frame (A7), the resampler (A5), fill_ok for the reviewer.
     for s in shots:
@@ -1022,7 +1080,21 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         item = s["_item"]
         with journal.unit("conform", s["id"], size={"driver": "seconds", "value": round(s["_dur"], 3)}, model=ENGINE_MODEL,
                           unit_kind="clip") as u:
-            pr = probe_video(Path(item["_path"]))
+            if is_long_reel(item):
+                # A26 (E11): a long reel is cut to the shot's span (with SPAN_PAD_S either side) before anything reads it;
+                # the probe, the conform and every frame read the cached span, in reel time through its offset.
+                sp = cached_span(film, item["_path"], s["in_s"], s["out_s"], video=True, pad_s=SPAN_PAD_S)
+                s["_span"] = sp
+                pr = probe_video(Path(sp["file"]))
+                pr["span_duration_s"] = pr["duration_s"]
+                pr["duration_s"] = sp["offset_s"] + pr["duration_s"]
+                pr["container_duration_s"] = sp["offset_s"] + pr["container_duration_s"]
+                journal.decision("conform", f"read from a cached span of the reel, {sp['offset_s']:.3f} to "
+                                 f"{pr['duration_s']:.3f} s", "A26: a source over "
+                                 f"{LONG_REEL_BYTES // (1024 * 1024)} MB (or trim_span: true) is never read whole",
+                                 unit=s["id"], evidence={"asset": s.get("asset"), "span": sp})
+            else:
+                pr = probe_video(Path(item["_path"]))
             conf = conform_plan(item, pr)
             ntsc = any(abs(pr["fps"] - r) < 0.02 for r in (29.97, 59.94))
             if ntsc:
@@ -1167,10 +1239,17 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                            "fix": None if ok else ("delivery is for narration lines only" if ln.get("kind") != "narration" else
                                                    f"mood must be one of {sorted(MOOD_OFFSET_DB)}" if off is None else
                                                    f"offset {off:+g} dB is outside -{MOOD_OFFSET_MAX_DB:g} to 0 dB")})
+    # A21 (E3): the shot-level half of the film's imagery rule (patient shots only; inert for a film that shows none)
+    for c in POL.patient_shot_checks(shots, assets, rule, lower_thirds):
+        lint(c["rule"], c["ok"], unit=c["unit"], severity=c["severity"], evidence=c["evidence"], grammar="A21", stage="motion")
+    speakers = {sp["id"]: sp for sp in (play.get("cast") or {}).get("speakers", [])}
+    # A26 (E11): archival lines that play a span of a source's own soundtrack
+    archival_lints(lint, film, play, shots, lines, assets, lower_thirds, vl)
+    # A25 (E9): every declared shortfall names a card that states it
+    shortfalls = shortfall_lints(lint, play, shots, settings)
     if lint_fail:
         raise Refused("lint failed: " + "; ".join(lint_fail))
 
-    speakers = {sp["id"]: sp for sp in (play.get("cast") or {}).get("speakers", [])}
     # A19: where digital silence is meant (a shot, a part, a cue or a top-level moment marked silence: intended)
     silences = []
     for s in shots:
@@ -1194,9 +1273,168 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         "lower_thirds": lower_thirds, "overlays": overlays, "subtitles": subs, "burn_subtitles": burn_subtitles,
         "marks": [{"start": s["f0"] / FPS, "cls": s["mark"], "detail": s["detail"], "label": s["label"]} for s in shots],
         "card_spans": card_spans, "wm_start": (imagery[0]["f0"] / FPS) if imagery else None,
+        # A21, A25 and E2's sides: what the sources page states about the film's own rules
+        "imagery_rule": rule, "settings": settings, "settings_stated": settings_stated, "shortfalls": shortfalls,
+        "balance": play.get("balance"), "sides": film_sides(play),
     }
     plan["credits"] = credits_blocks(plan)
     return plan
+
+
+def film_sides(play: dict) -> list[str]:
+    """The sides the film declares (``balance.sides``: ids, or objects with an
+    ``id``), else the sides of its cast's speakers in the order they are
+    listed. Never a fixed list: a film's sides are its own (GRAMMAR 6.4, E2)."""
+    declared = (play.get("balance") or {}).get("sides") if isinstance(play.get("balance"), dict) else None
+    if isinstance(declared, list) and declared:
+        return [str(x.get("id") if isinstance(x, dict) else x) for x in declared]
+    out: list[str] = []
+    for sp in (play.get("cast") or {}).get("speakers", []):
+        side = sp.get("side")
+        if side and side != "narrator" and side not in out:
+            out.append(str(side))
+    return out
+
+
+TRANSCRIPT_TIME = re.compile(r"^\s*\d[\d:.,]*\s*-->\s*\d[\d:.,]*[^|]*\|?\s*")
+
+
+def transcript_text(path: Path) -> str:
+    """The words of a transcript file (plain text, WebVTT, SRT, or NLM's
+    ``start --> end | text`` lines): timestamps, cue numbers and bracketed
+    tags (``[Music]``, ``[Narrator:]``) dropped, whitespace collapsed."""
+    words = []
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        t = raw.strip()
+        if not t or t == "WEBVTT" or t.isdigit():
+            continue
+        t = TRANSCRIPT_TIME.sub("", t)
+        words.append(re.sub(r"\[[^\]]*\]", " ", t))
+    return re.sub(r"\s+", " ", " ".join(words)).strip()
+
+
+def _ws(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+def transcript_holds(transcript: str, text: str) -> str | None:
+    """How the line's text is found in the transcript: ``"verbatim"`` after
+    whitespace normalisation, ``"verbatim without spaces"`` (caption files
+    join words across their line breaks, as NLM's do), or None."""
+    if _ws(text) and _ws(text) in transcript:
+        return "verbatim"
+    nospace = re.sub(r"\s+", "", str(text or ""))
+    if nospace and nospace in re.sub(r"\s+", "", transcript):
+        return "verbatim without spaces"
+    return None
+
+
+VIDEO_EXT = (".mp4", ".mkv", ".mov", ".avi", ".webm", ".mpg", ".mpeg", ".m4v")
+
+
+def archival_lints(lint, film: Path, play: dict, shots: list[dict], lines: list[dict], assets: dict,
+                   lower_thirds: list[dict], vl: list[dict]) -> None:
+    """A26 (E11) on every archival span line: its clip resolves to a ledger
+    item with a file and an allowed licence, the span lies inside the clip; it
+    carries ``transcript_source`` and a transcript file that holds its text
+    word for word; its subtitles (``subtitle_source`` cues with its id as
+    ``ref``) are that text; its mark is ARCHIVE; no shot plays the same clip's
+    own sound over it; a speaker's first archival line has a lower third
+    ending ``  ·  original recording``, and none over it says ``read by a
+    computer voice``."""
+    durs = {v["id"]: v["dur"] for v in vl}
+    seen: set = set()
+    cues = play.get("subtitle_source", [])
+    for ln in lines:
+        if not archival_span(ln):
+            continue
+        uid = ln["id"]
+        item = assets.get(ln["clip"])
+        in_s, out_s = float(ln.get("in_s", -1)), float(ln.get("out_s", -1))
+        why = []
+        path = (item or {}).get("_path")
+        if item is None:
+            why.append(f"clip {ln['clip']!r} is in no ledger")
+        else:
+            lic = str(item.get("licence") or "")
+            if not LICENCE_OK.match(lic.strip()):
+                why.append(f"licence {lic!r} is not on the allowlist")
+            if not path or not Path(path).exists():
+                why.append("the clip's file is missing")
+        if not (0 <= in_s < out_s):
+            why.append(f"in_s {in_s:g} and out_s {out_s:g} are not a span")
+        elif path and Path(path).exists() and str(path).lower().endswith(VIDEO_EXT):
+            dur = probe_video(Path(path))["container_duration_s"]          # ffprobe reads the header, not the reel
+            if dur and out_s > dur + 1.0 / FPS:
+                why.append(f"out_s {out_s:g} is past the clip's end ({dur:.3f} s)")
+        if str(ln.get("mark", "ARCHIVE")) != "ARCHIVE":
+            why.append(f"an original recording is marked ARCHIVE, not {ln.get('mark')!r}")
+        lint("archival-span", not why, unit=uid, grammar="6.3, A26",
+             evidence={"clip": ln.get("clip"), "in_s": in_s, "out_s": out_s, "problems": why})
+        # the transcript the ledger cites holds the words; the subtitles are those words
+        tf = ln.get("transcript_file") or (item or {}).get("transcript_file")
+        tpath = (film / tf) if tf and not Path(tf).is_absolute() else (Path(tf) if tf else None)
+        found = transcript_holds(transcript_text(tpath), ln.get("text") or "") if tpath and tpath.exists() else None
+        ok = bool(ln.get("transcript_source")) and found is not None
+        lint("archival-transcript", ok, unit=uid, grammar="6.3, A26",
+             evidence={"transcript_source": ln.get("transcript_source"), "transcript_file": str(tpath) if tpath else None,
+                       "found": found, "fix": None if ok else "cite transcript_source and give transcript_file (the line's "
+                                                             "or its clip's), whose text holds the line word for word"})
+        mine = [c for c in cues if c.get("ref") == uid or str(c.get("ref", "")).startswith(uid + "-")]
+        said = _ws(" ".join(str(c.get("en") or "") for c in mine))
+        ok = bool(mine) and said == _ws(ln.get("text") or "")
+        lint("archival-subtitles", ok, unit=uid, grammar="6.3, 10, A26",
+             evidence={"cues": [c.get("ref") for c in mine], "subtitles": said, "text": _ws(ln.get("text") or ""),
+                       "fix": None if ok else "subtitle the line from its transcript: its cues' text is the line's text"})
+        a = float(ln["start_s"])
+        b = a + durs.get(uid, max(0.0, out_s - in_s))
+        double = [s["id"] for s in shots if s["kind"] == "archive_video" and s.get("asset") == ln["clip"]
+                  and (s.get("sound") or {}).get("mode", "own") == "own" and s["start_s"] < b and s["start_s"] + s["_dur"] > a]
+        lint("archival-double-sound", not double, unit=uid, grammar="7.1, A26",
+             evidence={"shots": double, "fix": None if not double else "mute the shot's own sound (sound: mute, with the reason "
+                                                                       "that the archival line plays it)"})
+        over = [lt for lt in lower_thirds if lt["kind"] == "speaker" and len(lt["lines"]) == 3 and lt["start"] < b and lt["end"] > a]
+        read_by = [lt["id"] for lt in over if lt["lines"][2].endswith(LT_SUFFIXES[0])]
+        original = [lt["id"] for lt in over if lt["lines"][2].endswith(LT_SUFFIXES[1])]
+        first = ln.get("speaker") not in seen
+        seen.add(ln.get("speaker"))
+        ok = not read_by and (bool(original) or not first)
+        lint("archival-lower-third", ok, unit=uid, grammar="6.3, 6.4, 9, A26",
+             evidence={"first_line_of_speaker": first, "original_recording": original, "read_by_a_computer_voice": read_by,
+                       "fix": None if ok else f"the speaker's first line carries a lower third whose line 3 ends '{LT_SUFFIXES[1]}'"})
+
+
+def shortfall_lints(lint, play: dict, shots: list[dict], settings: dict) -> list[dict]:
+    """A25 (E9): each declared shortfall is well formed (what, measured and
+    floor shares, the film's own floor) and names a card shot whose text
+    states it. Returns the shortfalls with what was found."""
+    declared = play.get("shortfalls")
+    if declared is None:
+        return []
+    if not isinstance(declared, list):
+        lint("shortfall-stated", False, unit="shortfalls", grammar="6.5, A25", evidence={"why": "shortfalls must be a list"})
+        return []
+    by_id = {s["id"]: s for s in shots}
+    out = []
+    for sf in declared:
+        probs = POL.shortfall_problems(sf, settings)
+        if not isinstance(sf, dict):
+            lint("shortfall-stated", False, unit="shortfalls", grammar="6.5, A25", evidence={"problems": probs})
+            continue
+        card = by_id.get(sf.get("stated_on"))
+        how: dict = {}
+        if sf.get("stated_on") and card is None:
+            probs.append(f"no shot {sf.get('stated_on')!r} in the film")
+        elif card is not None and card["kind"] != "card":
+            probs.append(f"{card['id']} is a {card['kind']} shot, not a card")
+        elif card is not None:
+            stated, how = POL.shortfall_stated(sf, " ".join(card.get("text") or []))
+            if not stated:
+                probs.append(f"{card['id']}'s text does not state it")
+        lint("shortfall-stated", not probs, unit=f"shortfall:{sf.get('what')}", grammar="6.5, A25",
+             evidence={"shortfall": sf, "card_text": (card or {}).get("text"), "found": how, "problems": probs})
+        out.append(dict(sf, stated=not probs))
+    return out
 
 
 def trim_plan(plan: dict, until_s: float) -> dict:
@@ -1237,11 +1475,12 @@ class VideoReader:
         conform = v["conform"]["filter"]
         neutral = (v.get("neutralise_cast") or {}).get("filter")
         vf = "".join(f + "," for f in (conform, neutral) if f) + f"scale={self.vw}:{self.vh}:flags=lanczos,setsar=1,format=rgb24"
-        ss = shot["in_s"] + start_local
+        src, base = clip_file(shot)                # a long reel is read from its cached span (A26), in the span's own time
+        ss = shot["in_s"] - base + start_local
         dur = shot["_dur"] - start_local + 2.0 / FPS
         self.err = tempfile.TemporaryFile()
-        self.src, self.vf, self.in_s = shot["_item"]["_path"], vf, float(shot["in_s"])
-        self.src_dur = float((v.get("probe") or {}).get("duration_s") or 0.0)
+        self.src, self.vf, self.in_s = src, vf, float(shot["in_s"]) - base
+        self.src_dur = max(0.0, float((v.get("probe") or {}).get("duration_s") or 0.0) - base)
         self.src_fps = float((v.get("probe") or {}).get("fps") or 0.0) or float(FPS)
         self.proc = subprocess.Popen([ffmpeg(), "-v", "error", "-filter_threads", "1", "-threads", "1",
                                       "-ss", f"{ss:.4f}", "-t", f"{dur:.4f}", "-i", self.src,
@@ -1775,9 +2014,76 @@ def _place(buf: np.ndarray, x: np.ndarray, at_s: float, gain_db: float = 0.0, en
     return len(x)
 
 
+def archival_span(ln: dict) -> bool:
+    """A26 (E11): a testimony line that plays a span (``clip``, ``in_s``,
+    ``out_s``) of a source's own soundtrack, rather than a WAV of its own."""
+    return bool(ln.get("archival_audio")) and bool(ln.get("clip"))
+
+
+def is_long_reel(item: dict | None) -> bool:
+    """A26 (E11): a source too large to read whole (or a ledger item that says
+    ``trim_span: true``) is trimmed to a cached span before conform."""
+    if not item:
+        return False
+    if item.get("trim_span") is True:
+        return True
+    p = item.get("_path")
+    return bool(p) and Path(p).exists() and Path(p).stat().st_size > LONG_REEL_BYTES
+
+
+def cached_span(film: Path, src: str | Path, in_s: float, out_s: float, *, video: bool, pad_s: float = 0.0) -> dict:
+    """A26 (E11): the span [in_s - pad, out_s + pad] of a source, cut once by an
+    input seek (ffmpeg never reads the reel before the seek point, and stops at
+    the span's end) into ``<film>/cache/spans/``, keyed by the source's size and
+    mtime and the span, never by hashing the reel. Video is re-encoded lossless
+    (x264 qp 0, so every decoded frame is the source's own) with the source's
+    sound as float PCM; audio alone is mono 48 kHz float WAV, as the mix reads
+    it. Returns the file, the reel time it starts at (``offset_s``), and its
+    sha256 and length."""
+    src = Path(src)
+    st = src.stat()
+    a = max(0.0, float(in_s) - pad_s)
+    b = float(out_s) + pad_s
+    rec = {"src": str(src.resolve()), "size": st.st_size, "mtime_ns": st.st_mtime_ns, "a": round(a, 4), "b": round(b, 4),
+           "video": video, "v": SPAN_VERSION}
+    key = hashlib.sha256(json.dumps(rec, sort_keys=True).encode()).hexdigest()[:16]
+    d = film / "cache" / "spans"
+    d.mkdir(parents=True, exist_ok=True)
+    out = d / f"{src.stem}.{key}.{'mkv' if video else 'wav'}"
+    meta = out.with_name(out.name + ".json")
+    if out.exists() and meta.exists():
+        return json.loads(meta.read_text(encoding="utf-8"))
+    part = out.with_name(out.stem + ".part" + out.suffix)
+    cmd = [ffmpeg(), "-v", "error", "-y", "-ss", f"{a:.4f}", "-t", f"{b - a:.4f}", "-i", str(src)]
+    if video:
+        cmd += ["-map", "0:v:0", "-map", "0:a:0?", "-c:v", "libx264", "-qp", "0", "-preset", "ultrafast",
+                "-fps_mode", "passthrough", "-c:a", "pcm_f32le", "-threads", "2", str(part)]
+    else:
+        cmd += ["-vn", "-ac", "1", "-ar", str(AUDIO_RATE), "-c:a", "pcm_f32le", str(part)]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode or not part.exists():
+        _unlink_quietly(part)
+        raise EncodeError(f"span {a:.3f} to {b:.3f} s of {src.name} could not be cut: {r.stderr[-400:]}")
+    os.replace(part, out)
+    info = {"file": str(out), "src": str(src), "offset_s": a, "requested": [round(float(in_s), 4), round(float(out_s), 4)],
+            "pad_s": pad_s, "bytes": out.stat().st_size, "sha256": sha256_file(out), "key": key}
+    meta.write_text(json.dumps(info), encoding="utf-8")
+    return info
+
+
+def clip_file(s: dict) -> tuple[str, float]:
+    """The file a clip shot is read from and the reel time that file starts
+    at: the cached span for a long reel (A26), else the ledger's own file."""
+    sp = s.get("_span")
+    if sp:
+        return sp["file"], float(sp["offset_s"])
+    return s["_item"]["_path"], 0.0
+
+
 def clip_audio(s: dict) -> np.ndarray | None:
+    src, base = clip_file(s)
     r = subprocess.run([ffmpeg(), "-v", "error", "-filter_threads", "1", "-threads", "1",
-                        "-ss", f"{s['in_s']:.4f}", "-t", f"{s['_dur']:.4f}", "-i", s["_item"]["_path"],
+                        "-ss", f"{s['in_s'] - base:.4f}", "-t", f"{s['_dur']:.4f}", "-i", src,
                         "-vn", "-ac", "1", "-ar", str(AUDIO_RATE), "-f", "f32le", "-"], capture_output=True)
     if r.returncode or not r.stdout:
         return None
@@ -2854,6 +3160,18 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
     missing_voice, bad_takes, unclean = [], [], []
     narr: dict[str, dict] = {}                   # narration line id -> its voice profile, for narrator-consistency
     for ln in plan["lines"]:
+        if archival_span(ln):
+            # A26 (E11): the clip's own soundtrack, cut at in and out, faded, one static gain; never cleaned or limited
+            k, act, gain = place_archival_span(voice, plan, film, journal, ln)
+            sp = plan["speakers"].get(ln.get("speaker"), {})
+            placed["lines"].append({"id": ln["id"], "speaker": ln.get("speaker"), "side": sp.get("side"), "kind": "archival",
+                                    "at_s": float(ln["start_s"]), "dur_s": round(k / AUDIO_RATE, 3), "line_kind": ln.get("kind"),
+                                    "speech_from_s": None if not len(act) else round(float(ln["start_s"]) + act[0] / AUDIO_RATE, 3),
+                                    "speech_to_s": None if not len(act) else round(float(ln["start_s"]) + (act[-1] + 1) / AUDIO_RATE, 3),
+                                    "level_db": None, "mood_offset_db": None, "cleaned": None, "floor_before_dbfs": None,
+                                    "floor_after_dbfs": None, "peak_reduction_db": None, "static_gain_db": gain,
+                                    "span": {"clip": ln["clip"], "in_s": float(ln["in_s"]), "out_s": float(ln["out_s"])}})
+            continue
         wav = film / (ln.get("wav") or f"audio/{ln['id']}.wav")
         if not wav.exists():
             # a narration or testimony line is the film's words: missing, it blocks unless this is a draft
@@ -2939,6 +3257,44 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
     return mix.astype(np.float32), placed
 
 
+def archival_gain(x: np.ndarray) -> tuple[float | None, dict]:
+    """A26: the one static gain that brings an archival span to the dialogue
+    level (ARCHIVAL_DIALOGUE_LUFS), held back so its true peak stays under the
+    voice ceiling (VOICE_TP, A15), since nothing may limit it. None when the
+    span is too quiet to measure. Dynamics are never touched."""
+    g, m = level_gain(x, ARCHIVAL_DIALOGUE_LUFS)
+    if g is None:
+        return None, m
+    held = math.isfinite(m.get("input_tp", float("nan"))) and m["input_tp"] + g > VOICE_TP
+    gain = (VOICE_TP - m["input_tp"]) if held else g
+    return gain, dict(m, target_gain_db=round(g, 2), held_by_peak=held)
+
+
+def place_archival_span(voice: np.ndarray, plan: dict, film: Path, journal: Journal, ln: dict) -> tuple[int, np.ndarray, float]:
+    """A26 (E11): place an archival line from its clip's own soundtrack. The
+    span is cut from the source once into the span cache (a long reel is
+    never read whole), faded in and out over ARCHIVAL_FADE_S, brought to the
+    archival dialogue level by one static gain (plus the line's own
+    ``gain_db``, if any), and placed. Never cleaned (A19), never peak
+    controlled (A13), never judged as the narrator (A14). Returns the samples
+    placed, its speech-active samples and the gain."""
+    item = plan["assets"].get(ln["clip"]) or {}
+    in_s, out_s = float(ln["in_s"]), float(ln["out_s"])
+    sp = cached_span(film, item["_path"], in_s, out_s, video=False)
+    x = _read_wav(Path(sp["file"]))[: int(round((out_s - in_s) * AUDIO_RATE))]
+    x = cue_fades(x, out_s - in_s, ARCHIVAL_FADE_S, ARCHIVAL_FADE_S)
+    gain, m = archival_gain(x)
+    total = (gain or 0.0) + float(ln.get("gain_db", 0.0) or 0.0)
+    journal.decision("assembly", f"{ln['id']} plays {ln['clip']} {in_s:.2f} to {out_s:.2f} s at its own dynamics, "
+                     f"{total:+.2f} dB", "A26: an archival span is cut with "
+                     f"{ARCHIVAL_FADE_S * 1000:g} ms fades and brought to {ARCHIVAL_DIALOGUE_LUFS:g} LUFS by one static gain "
+                     "(held back to the voice ceiling, never limited), never cleaned", unit=ln["id"],
+                     evidence={"span": sp, "measured": m, "static_gain_db": None if gain is None else round(gain, 2),
+                               "line_gain_db": ln.get("gain_db"), "cleaned": False, "limited": False})
+    k = _place(voice, x, float(ln["start_s"]), total)
+    return k, speech_active(x[:k], total), round(total, 2)
+
+
 def cue_fades(x: np.ndarray, span_s: float, fade_in_s: float, fade_out_s: float) -> np.ndarray:
     """A19: a cue's fade in at its start and fade out at the end of what plays
     (its end_s, or the WAV's end if sooner), each a raised cosine. The cue is
@@ -3002,6 +3358,26 @@ def voice_shares(plan: dict, placed: dict) -> dict:
         by[kind][a:b] = True
     return {"narration": round(by["narration"].sum() / n, 4), "readings": round(by["testimony"].sum() / n, 4),
             "voiceless": round(1.0 - any_voice.sum() / n, 4)}
+
+
+def women_share(plan: dict, placed: dict) -> dict:
+    """GRAMMAR 6.5: women's share of the testimony seconds (read-by and
+    archival, A25), each line over its speech-active span, by the gender the
+    cast states (A3; never inferred). Lines whose speaker states no gender are
+    counted apart."""
+    by = {"f": 0.0, "m": 0.0, "unknown": 0.0}
+    for ln in placed["lines"]:
+        kind = ln.get("line_kind", "narration" if ln.get("kind") == "narration" else "testimony")
+        if kind != "testimony":
+            continue
+        f, t = ln.get("speech_from_s", ln.get("at_s")), ln.get("speech_to_s", (ln.get("at_s") or 0) + (ln.get("dur_s") or 0))
+        if f is None or t is None or t <= f:
+            continue
+        g = (plan.get("speakers") or {}).get(ln.get("speaker"), {}).get("gender")
+        by[g if g in ("f", "m") else "unknown"] += float(t) - float(f)
+    total = sum(by.values())
+    return {"share": round(by["f"] / total, 4) if total else 0.0, "testimony_s": round(total, 3),
+            "by_gender_s": {k: round(v, 3) for k, v in by.items()}}
 
 
 def _merge_spans(spans: list[tuple[float, float]], a: float, b: float) -> list[list[float]]:
@@ -3130,12 +3506,44 @@ def sound_lints(journal: Journal, plan: dict, mix: np.ndarray, placed: dict, *, 
     why = None if binding else ("draft" if draft else "check render (--until)" if plan.get("until_s") else
                                 f"the film and its runtime target are both under {EVENT_FILM_MIN_S:g} s (a short piece)")
     out = []
-    for rule, ok, ev in (("voiceless-floor", sh["voiceless"] >= VOICELESS_FLOOR, {"voiceless": sh["voiceless"], "min": VOICELESS_FLOOR}),
-                         ("readings-floor", sh["readings"] >= READINGS_FLOOR, {"readings": sh["readings"], "min": READINGS_FLOOR})):
-        journal.lint(rule, ok, stage="assembly", phase="preflight", severity=sev, grammar="6.1, A17, A18",
-                     evidence=dict(ev, shares=sh, binding=binding, warning_because=why))
-        if not ok and binding:
-            out.append(f"{rule}: {ev}")
+    # A25 (E9): the floors are the film's settings (Partition's values unless it states its own); a share under its
+    # floor passes as a review item only when the screenplay declares the shortfall and its card states it (6.5, T1f).
+    settings = plan.get("settings") or POL.DEFAULT_SETTINGS
+    stated = plan.get("settings_stated") or {}
+    declared = {sf.get("what"): sf for sf in (plan.get("shortfalls") or []) if isinstance(sf, dict)}
+    floors = [("voiceless-floor", "voiceless", sh["voiceless"], settings["voiceless_floor"], sev, "6.1, A17, A18"),
+              ("readings-floor", "readings", sh["readings"], settings["readings_floor"], sev, "6.1, A17, A18")]
+    women = women_share(plan, placed)
+    if women["testimony_s"] > 0:
+        # GRAMMAR 6.5 (T1f: the engine did not lint it): a review item unless the film states its women_floor
+        floors.append(("women-floor", "women", women["share"], settings["women_floor"],
+                       sev if "women_floor" in stated else "review", "6.5, A25"))
+    for rule, what, value, floor, severity, grammar in floors:
+        ok = value >= floor
+        ev = {what: value, "min": floor}
+        extra = {"women": women} if what == "women" else {}
+        sf = declared.get(what)
+        if sf is not None:
+            extra["shortfall"] = sf
+        if ok or not binding or severity != "block":
+            if ok and sf is not None:
+                journal.lint("shortfall-measured", False, stage="assembly", phase="preflight", unit=f"shortfall:{what}",
+                             severity="warn", grammar="6.5, A25", evidence={"shortfall": sf, "measured": value, "floor": floor,
+                                                                           "why": "declared short, but the film meets its floor"})
+            journal.lint(rule, ok, stage="assembly", phase="preflight", severity=severity, grammar=grammar,
+                         evidence=dict(ev, shares=sh, binding=binding, warning_because=why, **extra))
+            continue
+        if sf is not None and sf.get("stated") and abs(float(sf["measured"]) - value) <= POL.SHORTFALL_TOL + 1e-9:
+            journal.lint(rule, False, stage="assembly", phase="preflight", severity="review", grammar=grammar,
+                         evidence=dict(ev, shares=sh, binding=binding, **extra,
+                                       result=f"short of the floor, stated on {sf['stated_on']}: a review item for G3"))
+            continue
+        if sf is not None and sf.get("stated"):
+            extra["why"] = (f"the shortfall stated on {sf['stated_on']} says {float(sf['measured']):g}; the film measures "
+                            f"{value:g} (more than {POL.SHORTFALL_TOL:g} apart)")
+        journal.lint(rule, False, stage="assembly", phase="preflight", severity=severity, grammar=grammar,
+                     evidence=dict(ev, shares=sh, binding=binding, warning_because=why, **extra))
+        out.append(f"{rule}: {ev}" + (f" ({extra['why']})" if "why" in extra else ""))
     journal.event("unit", "assembly", "mix", lens="shares", status="info", shares=sh, narration_ceiling=None,
                   note="A17 lifts the 25% narration ceiling; narration is reported, not capped")
     return out
@@ -3482,14 +3890,20 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             sp = plan["speakers"].get(ln.get("speaker"), {})
             # How long the reading is heard (its measured WAV) and whose words they are: the site's
             # "Whose words, and how long" balance is computed from these (web/src/film-data.ts).
-            wav = voice_wav(Path(plan["film"]), ln)
-            dur = round(wav_seconds(wav), 3) if wav.exists() else None
+            if archival_span(ln):                # A26: an original recording plays its span, marked ARCHIVE
+                dur = round(float(ln["out_s"]) - float(ln["in_s"]), 3)
+            else:
+                wav = voice_wav(Path(plan["film"]), ln)
+                dur = round(wav_seconds(wav), 3) if wav.exists() else None
             readings.append({"id": ln["id"], "speaker": ln.get("speaker"), "name": sp.get("name"), "side": sp.get("side"),
                              "gender": sp.get("gender"), "dur_s": dur,
                              "year": ln.get("year"), "source": ln.get("source"), "locator": ln.get("locator"),
                              "start_s": ln.get("start_s"), "text": ln.get("text"),
                              "credit": (f"Read by a computer voice. No recording of {sp.get('name', ln.get('speaker'))} was used."
                                         if ln.get("read_by") else "original recording")})
+            if archival_span(ln):
+                readings[-1].update(mark="ARCHIVE", clip=ln["clip"], in_s=float(ln["in_s"]), out_s=float(ln["out_s"]),
+                                    source=ln.get("source") or ln["clip"], transcript_source=ln.get("transcript_source"))
     # The narrator's words, so the site's transcript holds everything spoken, and the narrator's voice credit, so
     # the site can say the narration is a computer voice from the film's own record (web/src/film-data.ts).
     narration = [{"id": ln["id"], "start_s": ln.get("start_s"), "text": ln.get("text")}
@@ -3503,6 +3917,8 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             "lower_thirds": [{"id": lt["id"], "start_s": lt["start"], "end_s": lt["end"], "lines": lt["lines"], "flag": lt["flag"]}
                              for lt in plan["lower_thirds"]],
             "readings": readings, "narration": narration, "narrator": narrator,
+            # A21, A25, E2: the film's own imagery rule, policy settings, stated shortfalls and sides, for the sources page
+            **film_policy_doc(plan),
             "cues": [{k: c.get(k) for k in ("id", "kind", "role", "source", "licence", "tradition", "performer", "start_s", "end_s")}
                      for c in plan["cues"]],
             "credits": [{"heading": h, "lines": ln} for h, ln in plan["credits"]], **extra}
@@ -3511,6 +3927,19 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
 # --------------------------------------------------------------------------
 # The run
 # --------------------------------------------------------------------------
+
+
+def film_policy_doc(plan: dict) -> dict:
+    """What sources.json states of the film's own rules (A21, A25, E2): its
+    imagery rule in plain words, its policy settings, each stated shortfall
+    and the card that states it, and the sides it declares. A plan made
+    before these existed gets the Partition defaults."""
+    rule = plan.get("imagery_rule") or dict(POL.DEFAULT_IMAGERY_RULE, declared=False)
+    return {"imagery_rule": rule, "settings": plan.get("settings") or dict(POL.DEFAULT_SETTINGS),
+            "readings_share_counts": list(READINGS_SHARE_COUNTS),
+            "shortfalls": plan.get("shortfalls") or [], "sides": plan.get("sides") or sorted(
+                {sp.get("side") for sp in (plan.get("speakers") or {}).values() if sp.get("side")}),
+            **({"balance": plan["balance"]} if plan.get("balance") else {})}
 
 
 def _clean(d: dict) -> dict:
@@ -3634,6 +4063,8 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         seg_dir.mkdir(parents=True, exist_ok=True)
         asset_hash = {}
         for s in plan["shots"]:
+            if s.get("_span"):                   # A26: keyed by the span's own sha256 (in the shot), never the whole reel
+                continue
             p = (s.get("_item") or {}).get("_path")
             if p and s.get("asset") not in asset_hash:
                 asset_hash[s["asset"]] = sha256_file(p)

@@ -34,6 +34,7 @@ import sys
 from pathlib import Path
 
 from studio.engine import captions as C
+from studio.engine import policy as POL
 from studio.engine.journal import sha256_file
 from studio.engine.render import Refused, probe_video
 
@@ -63,17 +64,22 @@ def edge_hashes(path: Path, key: str, n: int = EDGE_BYTES) -> dict:
     return {f"{key}_size": size, f"{key}_head": head, f"{key}_tail": tail}
 
 
-def poster_record(ledger: Path, poster_id: str, poster: Path) -> dict:
+def poster_record(ledger: Path, poster_id: str, poster: Path, rule: dict | None = None) -> dict:
+    """The poster's record. GRAMMAR A21 (E3): the still must pass the film's
+    imagery rule on the same content flags as a shot (``rule``, as the
+    render's sources.json states it); with no rule, the default, which is
+    the Partition poster rule: shows_bodies (or the older
+    shows_violence_or_bodies) stated false, so a still nobody has checked is
+    never a poster."""
     data = json.loads(ledger.read_text(encoding="utf-8"))
     items = data.get("items", data) if isinstance(data, dict) else data
     item = next((x for x in items if isinstance(x, dict) and x.get("id") == poster_id), None)
     if item is None:
         raise Refused(f"{poster_id} is not in {ledger}")
-    # The ledger's current field is shows_bodies; older ledgers say shows_violence_or_bodies. Only an explicit
-    # False passes: a still nobody has checked is not a poster.
-    bodies = item.get("shows_bodies", item.get("shows_violence_or_bodies"))
-    if bodies is not False:
-        raise Refused(f"{poster_id} is not recorded as showing no bodies or violence (shows_bodies: {bodies!r}): never a poster")
+    rule = {**POL.DEFAULT_IMAGERY_RULE, "declared": False, **(rule or {})}
+    problem = POL.poster_problem(item, rule)
+    if problem:
+        raise Refused(f"{poster_id} {problem}")
     if not item.get("licence"):
         raise Refused(f"{poster_id} has no licence in the ledger")
     return {
@@ -88,6 +94,21 @@ def poster_record(ledger: Path, poster_id: str, poster: Path) -> dict:
         "file": "poster.jpg",
         "sha256": sha256_file(poster),
     }
+
+
+def poster_rule(doc: dict, screenplay: Path | None) -> dict | None:
+    """The film's imagery rule for the poster: the one the render stated in
+    sources.json, else the screenplay's, else None (the default)."""
+    if isinstance(doc.get("imagery_rule"), dict):
+        return doc["imagery_rule"]
+    if screenplay is not None:
+        try:
+            play = json.loads(C.find_screenplay(Path(screenplay)).read_text(encoding="utf-8"))
+        except (C.CaptionError, OSError, ValueError):
+            return None
+        rule, _ = POL.imagery_rule(play)
+        return rule
+    return None
 
 
 def packet(render_dir: Path, *, film: Path, poster: Path, poster_id: str, stills_ledger: Path, out: Path,
@@ -110,7 +131,7 @@ def packet(render_dir: Path, *, film: Path, poster: Path, poster_id: str, stills
             raise Refused(f"the web encode's {what} runs {d:.3f} s and the film {doc['duration_s']} s: more than one frame apart")
     doc["web"] = {"film": "film.mp4", "film_sha256": sha256_file(film), "film_duration_s": round(web_dur, 4),
                   **edge_hashes(film, "film_sha256")}
-    doc["poster"] = poster_record(stills_ledger, poster_id, poster)
+    doc["poster"] = poster_record(stills_ledger, poster_id, poster, poster_rule(doc, screenplay))
     doc.pop("trailer", None)
     if trailer is not None:
         tp = probe_video(trailer)
