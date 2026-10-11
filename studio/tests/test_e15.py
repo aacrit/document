@@ -500,6 +500,25 @@ def test_a_character_with_no_glyph_is_found_in_every_face(face):
     assert M.missing_glyphs("a b\nc", f) == []
 
 
+@pytest.mark.parametrize("face", FACES)
+def test_the_glyph_check_reads_the_cmap_and_never_the_renderer(face, monkeypatch):
+    """Whether a character is drawable is read from the font file's cmap: the
+    same answer on every platform, whatever FreeType draws for a missing one
+    (the empty-box comparison passed on Windows and failed on Linux CI)."""
+    path = getattr(FONTS, face)
+    cmap = M.font_cmap(path)
+    assert ord("A") in cmap and ord("7") in cmap and 0x202F not in cmap and 0x0901 not in cmap
+    from PIL import ImageFont
+
+    def no_render(*a, **k):
+        raise AssertionError("the glyph check rendered a glyph")
+    monkeypatch.setattr(ImageFont.FreeTypeFont, "getmask", no_render)
+    monkeypatch.setattr(ImageFont.FreeTypeFont, "getmask2", no_render)
+    f = M._font(path, 43)
+    assert M.missing_glyphs("गाँव", f) == sorted(set("गाँव"))                  # the combining candrabindu too
+    assert M.missing_glyphs("1947 48", f) == [" "]
+
+
 def test_a_space_the_face_lacks_refuses_the_card():
     data = M._font(FONTS.data, 43)
     assert M.missing_glyphs("1947 48", data)

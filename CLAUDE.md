@@ -71,7 +71,7 @@ See `CHARTER.md` for its surfaces and kill dates, and `contract.yaml` for what
 - `npm run gate`: the full gate (typecheck, build, tests, studio-test, lint-size,
   lint-workflows, lint-design, lint-docs, lint-events, gate-selftest). Must pass before
   any merge. studio-test runs pytest on `studio/tests` and needs Python 3.12 with
-  numpy, pillow, soundfile and pytest, plus ffmpeg (`DOCUMENT_PYTHON` picks the interpreter).
+  numpy, pillow, soundfile, pytest and fonttools, plus ffmpeg (`DOCUMENT_PYTHON` picks the interpreter).
 - `python -m studio.engine.render <film dir>`: render a screenplay v2 to a 1080p24 master;
   every run is journaled (`studio/engine/journal.py`), issues go to `docs/ENGINE-LOG.md`.
 - `python -m studio.engine.captions <render dir>`: write the English captions (captions-en.vtt) from the

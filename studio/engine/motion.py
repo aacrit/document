@@ -462,20 +462,24 @@ class TextUndrawable(TextOverflow):
 SAFE_W = 90.0                      # % of W: a one-line text (a card's title, a chapter line, its dates) stays inside
 
 
-@lru_cache(maxsize=64)
-def _notdef(path: str, size: int) -> tuple:
-    m = _font(path, size).getmask("\U0010FFFD")     # a private-use code point no film face maps
-    return m.size, bytes(m)
+@lru_cache(maxsize=32)
+def font_cmap(path: str) -> frozenset:
+    """The code points the font file maps to a glyph: its best Unicode cmap,
+    read by fontTools from the .woff or .ttf itself. Whether a character can
+    be drawn is a fact of the file, not of how a FreeType build renders a
+    missing one (the empty-box comparison this replaces differed between
+    Windows and Linux CI)."""
+    from fontTools.ttLib import TTFont
+    with TTFont(path, lazy=True) as f:
+        return frozenset((f.getBestCmap() or {}).keys())
 
 
-@lru_cache(maxsize=4096)
 def _has_glyph(path: str, size: int, ch: str) -> bool:
-    # only the plain space and a line break are never drawn; every other space (U+00A0, U+2007, U+2009, U+202F,
-    # U+205F, U+3000 ...) is a glyph the face must hold, or FreeType draws its empty box (E15 review)
+    # only the plain space and a line break are never drawn; every other character, every other space (U+00A0,
+    # U+2007, U+2009, U+202F, U+205F, U+3000 ...) and every combining mark must be in the face's cmap (E15 review)
     if ch in (" ", "\n"):
         return True
-    m = _font(path, size).getmask(ch)
-    return (m.size, bytes(m)) != _notdef(path, size)
+    return ord(ch) in font_cmap(path)
 
 
 def missing_glyphs(text: str, font, data_font=None) -> list[str]:
