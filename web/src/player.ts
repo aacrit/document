@@ -39,6 +39,8 @@ import { countCompletionOnce, reportCoreSuccess } from "./telemetry";
 const maybe = (id: string): HTMLElement | null => document.getElementById(id);
 
 const playerRoot = byId("screen");
+/** The player is off screen in the home page's theatre while the theatre is closed: then no key, hash or seek link may drive it. */
+export const playerOffScreen = (): boolean => Boolean(playerRoot.closest("dialog:not([open])"));
 const SLUG = playerRoot.dataset.slug ?? "partition-of-india";
 const FILM = filmPath(SLUG);
 
@@ -206,7 +208,12 @@ let inFullscreen = false;
 function goFullscreen(): { path: FullscreenPath; done: Promise<boolean> } {
   if (!inFullscreen) scrollBefore = window.scrollY;
   inFullscreen = true;
-  return enterFullscreen(document, playerRoot, video, orientation());
+  const r = enterFullscreen(document, playerRoot, video, orientation());
+  // Focus goes inside what is now on screen: the Play control, not anything left outside the full screen element.
+  void r.done.then((ok) => {
+    if (ok) playBtn.focus({ preventScroll: true });
+  });
+  return r;
 }
 
 /** Full screen was left (the back gesture, Escape, the button, or the native player's Done): the film keeps playing in the page. */
@@ -541,6 +548,7 @@ function setupVideoEvents(): void {
 // ---- #t=, keyboard, house lights ------------------------------------------------------------
 
 function applyHash(): void {
+  if (playerOffScreen()) return;
   const m = /^#t=(\d+(?:\.\d+)?)$/.exec(location.hash);
   if (!m) return;
   started = true;
@@ -551,7 +559,7 @@ function applyHash(): void {
 function setupSeekLinks(): void {
   document.addEventListener("click", (e) => {
     const a = (e.target as Element).closest<HTMLAnchorElement>("a[data-seek]");
-    if (!a) return;
+    if (!a || playerOffScreen()) return;
     e.preventDefault();
     history.replaceState(null, "", `#t=${a.dataset.seek}`);
     seek(Number(a.dataset.seek), true);
@@ -563,6 +571,8 @@ function setupSeekLinks(): void {
 
 function setupKeys(): void {
   document.addEventListener("keydown", (e) => {
+    // On the landing page the theatre is closed: its keys are the page's own (Space scrolls).
+    if (playerOffScreen()) return;
     if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
     const target = e.target as HTMLElement;
     if (target.closest("input, textarea, select, [role=menu], [role=dialog]")) return;

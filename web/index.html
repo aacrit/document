@@ -44,7 +44,7 @@
     </section>
 
     <!-- The theatre: Watch plays the film here, in the same tap (player.ts), so sound and full screen are allowed. Without script, Watch opens the film page. -->
-    <dialog class="theatre" id="theatre" aria-label="The Partition of India, the film">
+    <dialog class="theatre" id="theatre">
       <button class="close" type="button" id="theatre-close">Close</button>
         <section class="screen" id="screen" aria-label="The Partition of India, the film" data-slug="partition-of-india">
           <div class="topbar">
@@ -74,12 +74,6 @@
                 </div>
               </div>
             </div>
-            <aside class="paused-credit" id="credit" aria-live="polite" hidden>
-              <p class="t" id="credit-title"></p>
-              <p class="w safe" id="credit-where"></p>
-              <a class="source" id="credit-source" href="/f/partition-of-india/sources/">See the source</a>
-              <a class="correct-at" id="credit-correct" href="/f/partition-of-india/correct/">Correct something here</a>
-            </aside>
           </div>
           <div class="controls" role="group" aria-label="Film controls">
             <div class="scrub" id="scrub" role="slider" tabindex="0" aria-label="Position in the film" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="0:00"><div class="fill" id="scrub-fill"></div><div class="head" id="scrub-head"></div></div>
@@ -114,6 +108,12 @@
               </div>
             </div>
           </div>
+            <aside class="paused-credit" id="credit" aria-live="polite" hidden>
+              <p class="t" id="credit-title"></p>
+              <p class="w safe" id="credit-where"></p>
+              <a class="source" id="credit-source" href="/f/partition-of-india/sources/">See the source</a>
+              <a class="correct-at" id="credit-correct" href="/f/partition-of-india/correct/">Correct something here</a>
+            </aside>
           <p class="provenance"><strong id="ai-sentence"></strong> <span id="voice-sentence"></span> <a href="#legend" id="legend-link">What the marks mean</a></p>
         </section>
     </dialog>

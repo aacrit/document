@@ -238,3 +238,41 @@ describe("the phone controls", () => {
     for (const label of ["Play", "Subtitles", "Marks", "Chapters", "Sound", "Full screen"]) expect(film).toMatch(new RegExp(`aria-label="${label}"`));
   });
 });
+
+describe("review fixes", () => {
+  const player = read("web/src/player.ts");
+  const css = read("web/src/film.css");
+
+  it("with the theatre closed, no key, hash or seek link drives the player (k on the landing page started the film)", () => {
+    expect(player).toMatch(/export const playerOffScreen = \(\): boolean => Boolean\(playerRoot\.closest\("dialog:not\(\[open\]\)"\)\);/);
+    expect(player).toMatch(/function setupKeys\(\): void \{\s*document\.addEventListener\("keydown", \(e\) => \{\s*\/\/[^\n]*\n\s*if \(playerOffScreen\(\)\) return;/);
+    expect(player).toMatch(/function applyHash\(\): void \{\s*if \(playerOffScreen\(\)\) return;/);
+    expect(player).toMatch(/if \(!a \|\| playerOffScreen\(\)\) return;/);
+  });
+
+  it("the DOM order is the order on screen on phones: frame, controls, paused credit, provenance (WCAG 2.4.3)", () => {
+    for (const page of ["web/index.html", "web/f/partition-of-india/index.html"]) {
+      const html = read(page);
+      const at = (s: string) => html.indexOf(s);
+      expect(at('id="frame"'), page).toBeLessThan(at('class="controls"'));
+      expect(at('class="controls"'), page).toBeLessThan(at('id="credit"'));
+      expect(at('id="credit"'), page).toBeLessThan(at('class="provenance"'));
+    }
+    expect(css).not.toMatch(/\.paused-credit \{ order:/);
+  });
+
+  it("one accessible name: the theatre dialog does not repeat the player's", () => {
+    expect(read("web/index.html")).toMatch(/<dialog class="theatre" id="theatre">/);
+  });
+
+  it("focus moves to Play once full screen resolves", () => {
+    expect(player).toMatch(/r\.done\.then\(\(ok\) => \{\s*if \(ok\) playBtn\.focus\(\{ preventScroll: true \}\);/);
+  });
+
+  it("full screen keeps the watermark zone clear, the theatre backdrop is the letterbox, and the controls hug the picture", () => {
+    expect(css).toMatch(/top: max\(calc\(env\(safe-area-inset-top\) \+ 56px\), 13dvh\)/);
+    expect(css).toMatch(/\.theatre::backdrop \{ background: var\(--color-letterbox\); \}/);
+    expect(css).toMatch(/@media \(orientation: portrait\) \{\s*\.screen:fullscreen \{ display: flex; flex-direction: column; justify-content: center; \}/);
+    expect(css).toMatch(/grid-template-areas: "play tc scrub subs marks list vol full"/);
+  });
+});

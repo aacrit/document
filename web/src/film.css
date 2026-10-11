@@ -107,8 +107,6 @@
    The paused credit and the provenance line follow the controls. */
 @media (max-width: 759.98px), (max-aspect-ratio: 4/3), (max-height: 539.98px) {
   .screen:not(:fullscreen) .stage { display: contents; }
-  .screen:not(:fullscreen) .paused-credit { order: 1; }
-  .screen:not(:fullscreen) .provenance { order: 2; }
 }
 /* A finger needs a 44 px target on the scrubber too. */
 @media (pointer: coarse) {
@@ -143,16 +141,42 @@
 }
 .screen:fullscreen .provenance { display: none; }
 .screen:fullscreen .paused-credit {
-  position: absolute; z-index: 6; right: max(16px, env(safe-area-inset-right)); top: calc(env(safe-area-inset-top) + 56px);
+  /* Below the watermark's reserved zone (BRAND-KIT: top right, 12% by 12%; the credit's top at 13% or lower). */
+  position: absolute; z-index: 6; right: max(16px, env(safe-area-inset-right)); top: max(calc(env(safe-area-inset-top) + 56px), 13dvh);
   max-width: 340px; padding: 10px 12px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-control);
 }
-/* Captions stay above the controls while the controls show. */
-.screen:fullscreen:not(.lights-down) .frame-box .cue:not(.raised) { bottom: max(7cqh, 124px); }
+/* Landscape: the controls are one compact 44 px row (scrubber inline, icons only) over the picture's foot,
+   and captions stay above them while they show. */
+@media (orientation: landscape) {
+  .screen:fullscreen .controls {
+    display: grid; grid-template-columns: auto auto minmax(0, 1fr) repeat(5, auto);
+    grid-template-areas: "play tc scrub subs marks list vol full"; gap: 0 2px;
+    padding: 12px max(8px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  }
+  .screen:fullscreen .controls > button, .screen:fullscreen .controls > a.ic { min-width: 44px; padding: 0; }
+  .screen:fullscreen .controls > button::after, .screen:fullscreen .controls > a.ic::after { content: none; }
+  .screen:fullscreen .controls .time { white-space: nowrap; }
+  .screen:fullscreen .scrub { height: 44px; }
+  .screen:fullscreen .scrub::before, .screen:fullscreen .scrub .fill { top: 21px; }
+  .screen:fullscreen .scrub .tick { top: 17px; }
+  .screen:fullscreen .scrub .head { top: 15px; }
+  .screen:fullscreen:not(.lights-down) .frame-box .cue:not(.raised) { bottom: max(7cqh, 72px); }
+}
+/* Portrait (the phone held upright, or a refused landscape lock): the picture and its controls as one block,
+   centred, the controls straight under the frame with nothing between. */
+@media (orientation: portrait) {
+  .screen:fullscreen { display: flex; flex-direction: column; justify-content: center; }
+  .screen:fullscreen .stage { position: static; display: block; flex: none; padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left); }
+  .screen:fullscreen .stage .frame-box { width: 100%; }
+  .screen:fullscreen .controls { position: static; flex: none; background: none; padding: 4px max(8px, env(safe-area-inset-right)) 10px max(8px, env(safe-area-inset-left)); }
+  /* The paused credit follows the controls, off the picture, as it does inline. */
+  .screen:fullscreen .paused-credit { position: static; flex: none; max-width: none; background: none; border: 0; padding: 8px max(16px, env(safe-area-inset-right)) 4px max(16px, env(safe-area-inset-left)); }
+}
 .screen:fullscreen .controls .popover .menu { max-height: min(60dvh, 420px); }
 
 /* ---- The theatre: the home page's Watch plays the film here, in the same tap ---- */
 .theatre { width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; overflow: auto; background: var(--color-letterbox); color: var(--color-cream); }
-.theatre::backdrop { background: var(--color-fullscreen); }
+.theatre::backdrop { background: var(--color-letterbox); }
 .theatre > .close {
   position: absolute; z-index: 8; top: 4px; right: max(8px, env(safe-area-inset-right));
   appearance: none; background: none; border: 0; color: var(--color-cream); min-height: 44px; min-width: 44px; padding: 0 12px;
