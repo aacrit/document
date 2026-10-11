@@ -72,11 +72,12 @@ def test_a29_standard_defaults_and_bounds():
     std, stated, problems = SC.standard({})
     assert std == SC.STANDARD and stated == {} and problems == []
     assert SC.bed_lufs(std) == -32.0                       # 12 dB under the -20 LUFS dialogue (founder, 2026-10-11)
-    assert std["bed_highpass_hz"] == 300.0 and std["bed_breath_db"] == 6.0 and std["duck_hold_s"] == 1.2
+    assert std["bed_lowmid_hz"] == 400.0 and std["bed_breath_db"] == 6.0 and std["duck_hold_s"] == 1.2
     std, stated, problems = SC.standard({"score_standard": {"bed_under_dialogue_db": 15, "duck_hold_s": 2.5}})
     assert problems == [] and stated == {"bed_under_dialogue_db": 15.0, "duck_hold_s": 2.5} and SC.bed_lufs(std) == -35.0
-    for bad in ({"bed_under_dialogue_db": 9}, {"bed_breath_db": 3}, {"music_hole_max_s": 4}, {"bed_low_end_max_share": 0.5},
-                {"transition_over_bed_max_db": 2}, {"loudness": 1}, {"bed_highpass_hz": "300"}, {"duck_hold_s": True}):
+    for bad in ({"bed_under_dialogue_db": 9}, {"bed_breath_db": 3}, {"music_hole_max_s": 4}, {"bed_lowmid_max_share": 0.5},
+                {"transition_over_bed_max_db": 2}, {"loudness": 1}, {"bed_lowmid_hz": "400"}, {"duck_hold_s": True},
+                {"music_treble_max_share": 0.05}, {"bed_highpass_hz": 300}):
         _, _, problems = SC.standard({"score_standard": bad})
         assert problems, bad                               # louder or laxer than the house allows is refused
     assert set(SC.STANDARD) == set(SC.BOUNDS)
@@ -149,9 +150,9 @@ def test_a29_breathing_and_low_end_measures():
     assert flat["breath_db"] < 0.5                                   # a held drone does not breathe
     breath = SC.analyse_cue(_breathing(38.4), "bed")
     assert breath["breath_db"] >= 6.0
-    low = SC.analyse_cue(SC.highpass(_sine(196.0, 10.0) + _sine(800.0, 10.0, 0.03), 300.0), "bed")
-    high = SC.analyse_cue(SC.highpass(_sine(600.0, 10.0), 300.0), "bed")
-    assert low["low_share"] > 0.3 and high["low_share"] < 0.01      # a harp's G3 under the high-pass still sits low
+    low = SC.analyse_cue(SC.bed_shape(_sine(196.0, 10.0) + _sine(800.0, 10.0, 0.03), 400.0), "bed")
+    high = SC.analyse_cue(SC.bed_shape(_sine(600.0, 10.0), 400.0), "bed")
+    assert low["lowmid_share"] > 0.10 and high["lowmid_share"] < 0.01   # a harp's G3 under the shaping still sits low
 
 
 def test_a29_bed_checks_level_low_end_breathing():
@@ -251,15 +252,15 @@ def _scored_film(tmp_path, bed, *, gain=0.0, fade_in=1.5):
     return film
 
 
-def test_a29_build_mix_high_passes_and_levels_a_bed_to_the_standard(tmp_path):
-    film = _scored_film(tmp_path, _breathing(22.0, 196.0) + _breathing(22.0, 900.0, 0.05))
+def test_a29_build_mix_band_shapes_and_levels_a_bed_to_the_standard(tmp_path):
+    film = _scored_film(tmp_path, _breathing(22.0, 250.0) + _breathing(22.0, 900.0, 0.02))   # a viola line in the voice's range
     plan, j = _plan(film, "mix-bed")
     stems: dict = {}
     mix, placed = R.build_mix(plan, film, j, stems=stems)
     pc = next(c for c in placed["cues"] if c["id"] == "M1")
-    assert pc["role"] == "bed" and pc["highpass_hz"] == 300.0
+    assert pc["role"] == "bed" and pc["shaping"]["passes_over_hz"] == 400.0 and pc["shaping"]["sub_bass_kept_under_hz"] == 100.0
     evs = J.read(j.path)
-    assert any(e["kind"] == "decision" and e.get("unit") == "M1" and "high-passed at 300 Hz" in e["what"] for e in evs)
+    assert any(e["kind"] == "decision" and e.get("unit") == "M1" and "band-shaped" in e["what"] for e in evs)
     lv = [e for e in evs if e["kind"] == "decision" and e.get("unit") == "M1" and "levelled to" in e["what"]]
     assert lv and lv[0]["evidence"]["target"] == -32.0
     c = stems["cues"][0]
@@ -268,7 +269,7 @@ def test_a29_build_mix_high_passes_and_levels_a_bed_to_the_standard(tmp_path):
     music = [x for x in R.score_lints(J.Journal(film="sl-draft"), plan, stems, draft=True)]
     assert music == []                                              # a draft journals warnings, never refuses
     out = R.score_lints(J.Journal(film="sl-final"), plan, stems)
-    assert any(o.startswith("bed-low-end (M1") for o in out)       # its 196 Hz line survives the high-pass
+    assert any(o.startswith("bed-low-end (M1") for o in out)       # its 250 Hz line survives the shaping (-15 dB)
 
 
 def test_a29_a_final_render_refuses_and_audio_only_warns(tmp_path):
@@ -457,10 +458,10 @@ def test_review_roles_cannot_escape_the_standard(tmp_path):
     assert SC.cue_role({"kind": "music", "wav": "score/base/theme.wav"}) == "bed"      # only role makes the motif
 
 
-def test_review_highpass_is_never_under_300_hz():
-    assert SC.BOUNDS["bed_highpass_hz"] == (300.0, 400.0)
-    assert SC.standard({"score_standard": {"bed_highpass_hz": 250}})[2]
-    assert not SC.standard({"score_standard": {"bed_highpass_hz": 350}})[2]
+def test_review_the_low_mid_cut_is_never_under_400_hz():
+    assert SC.BOUNDS["bed_lowmid_hz"] == (400.0, 500.0)              # A29 refined: the high-pass bound it replaces was 300
+    assert SC.standard({"score_standard": {"bed_lowmid_hz": 350}})[2]
+    assert not SC.standard({"score_standard": {"bed_lowmid_hz": 450}})[2]
 
 
 def test_review_a_hole_has_neither_voice_nor_music_and_ambience_is_not_music():

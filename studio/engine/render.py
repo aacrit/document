@@ -1415,12 +1415,13 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         lint("score-role", why is None, unit=c.get("id"), grammar="A29",
              evidence={"role": c.get("role"), "score_role": c.get("score_role"), "roles": list(SC.MUSIC_ROLES),
                        "score_roles": list(SC.ROLES), "problem": why})
-        if why is None and kind_ok and (c["kind"] == "ambience" or SC.cue_role(c) in SC.UNDERSCORE):
+        if why is None and kind_ok and (c["kind"] == "ambience" or SC.cue_role(c) in SC.UNDERSCORE + ("brand_pulse",)):
             g = c.get("gain_db", 0.0)
             ok = isinstance(g, (int, float)) and not isinstance(g, bool) and math.isfinite(float(g)) and float(g) <= 0.0
-            lint("underscore-gain", ok, unit=c.get("id"), grammar="A29",
+            lint("underscore-gain", ok, unit=c.get("id"), grammar="A29, A29 refined",
                  evidence={"role": SC.cue_role(c), "gain_db": g,
-                           "fix": None if ok else "an underscore or ambience cue's gain_db may only lower it: 0 or less"})
+                           "fix": None if ok else "an underscore, brand pulse or ambience cue's gain_db may only lower it: "
+                                                  "0 or less"})
     vl = voice_lines(play, film)
     collisions = voice_collisions(vl)
     lint("voice-overlap", not collisions, stage="scout", grammar="founder ruling 2026-10-10",
@@ -3592,14 +3593,17 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
     again (voice_ceiling_pass). ``work`` holds pass 1's trial master (a
     temporary folder when None).
 
-    A29 (R1): a bed is high-passed (the score standard's bed_highpass_hz, 12
-    dB an octave) before it is levelled; every underscore cue (bed,
-    transition, sting, outro) is levelled to the standard's bed target, a
-    featured cue (the motif, a palette recording) to MUSIC_LUFS; the duck
-    holds through every pause inside a line and every gap under the
-    standard's duck_hold_s. ``stems``, when given, receives what score_lints
-    reads: each music cue's analysis as placed and the voice activity and
-    duck gain on score.py's grids."""
+    A29 refined (R10): a bed or a regional cue is band-shaped (score.bed_shape:
+    the sub-bass kept, the voice-competing low-mids cut over the standard's
+    bed_lowmid_hz, a gentle treble shelf) before it is levelled; every
+    underscore cue (bed, transition, sting, outro, regional) is levelled to
+    the standard's bed target, a featured cue (the motif, the brand pulse, a
+    palette recording) to MUSIC_LUFS; the duck holds through every pause
+    inside a line and every gap under the standard's duck_hold_s. ``stems``,
+    when given, receives what score_lints reads: each music cue's analysis
+    as placed, the voice activity and duck gain on score.py's grids, and the
+    phone-check of the mix (the voice against the ducked music and the
+    ambience, through the small-speaker simulation)."""
     std = plan.get("score_standard") or dict(SC.STANDARD)
     n = int(round(plan["frames"] / FPS * AUDIO_RATE))
     voice, music, amb, clips = (np.zeros(n, np.float32) for _ in range(4))
@@ -3683,15 +3687,16 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
         x = _read_wav(wav)
         level = None
         role = SC.cue_role(c)
-        hp = None
+        shaping = None
         if c.get("kind") == "music":            # levelled over the part that plays
             span = x[: max(0, int(round((float(c["end_s"]) - float(c["start_s"])) * AUDIO_RATE)))]
-            if role == "bed":                   # A29: nothing of a bed sits under the voice
-                hp = float(std["bed_highpass_hz"])
-                x = span = SC.highpass(span, hp)
-                journal.decision("assembly", f"{c['id']} high-passed at {hp:g} Hz (12 dB an octave)",
-                                 "A29: every bed is high-passed before it is levelled", unit=c["id"],
-                                 evidence={"role": role, "highpass_hz": hp})
+            if role in SC.SHAPED:               # A29 refined: the sub-bass kept, the voice's low-mids and the treble cut
+                shaping = SC.shaping_record(std)
+                x = span = SC.bed_shape(span, float(std["bed_lowmid_hz"]))
+                journal.decision("assembly", f"{c['id']} band-shaped: sub-bass kept under {SC.SUB_BASS_HZ:g} Hz, passed over "
+                                 f"{float(std['bed_lowmid_hz']):g} Hz, treble shelved {SC.TREBLE_SHELF_DB:g} dB",
+                                 "A29 refined: every bed and regional cue is band-shaped before it is levelled", unit=c["id"],
+                                 evidence={"role": role, "shaping": shaping})
             under = role in SC.UNDERSCORE
             level = _level(journal, c["id"], span, SC.bed_lufs(std) if under else MUSIC_LUFS,
                            f"music {role}, the score standard's bed target" if under else f"music {role}")
@@ -3703,11 +3708,12 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
         k = _place(target, x, float(c["start_s"]), gain, float(c["end_s"]))
         placed["cues"].append({"id": c["id"], "kind": c.get("kind"), "at_s": float(c["start_s"]), "dur_s": round(k / AUDIO_RATE, 3),
                                "level_db": None if level is None else round(level, 2), "part": c.get("_part"),
-                               "fade_in_s": fi, "fade_out_s": fo, "role": role, "highpass_hz": hp})
+                               "fade_in_s": fi, "fade_out_s": fo, "role": role, "shaping": shaping})
         if stems is not None:
             y = x[:k] * np.float32(10 ** (gain / 20))
             stems.setdefault("cues", []).append({"id": c["id"], "role": role, "start_s": float(c["start_s"]), "fade_in_s": fi,
-                                                 "fade_out_s": fo, "gain_db": float(c.get("gain_db", 0.0)), "highpass_hz": hp,
+                                                 "fade_out_s": fo, "gain_db": float(c.get("gain_db", 0.0)), "shaping": shaping,
+                                                 "marks_moment": c.get("marks_moment"),
                                                  "an": SC.analyse_cue(y, role, fi, fo,
                                                                       unfaded=unfaded[:k] * np.float32(10 ** (gain / 20)))})
     for s in plan["shots"]:
@@ -3738,6 +3744,8 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
         k = int(round(SC.HOP_S / SC.DUCK_GRID_S))
         stems["duck100"] = stems["duck_grid"][: m // k * k].reshape(-1, k).mean(axis=1)
         stems["voice100"] = stems["voice_grid"][: m // k * k].reshape(-1, k).any(axis=1)
+        # A29 refined: phone-check, on pass 1's voice (pass 2 only re-peaks the same lines) against the score as heard
+        stems["phone"] = SC.phone_check(voice, music * duck + amb, spans)
     mix = (voice + clips + music * duck + amb).astype(np.float32)
     lifted = voice_ceiling_pass(mix, parts, clips, music, amb, placed, journal, draft=draft, work=work, duck=duck)
     return (mix if lifted is None else lifted), placed
@@ -4666,11 +4674,18 @@ def sound_lints(journal: Journal, plan: dict, mix: np.ndarray, placed: dict, *, 
     return out
 
 
-def score_lints(journal: Journal, plan: dict, stems: dict, *, draft: bool = False) -> list[str]:
-    """A29 (R1), the house score standard on the music as the mix placed it
-    (studio/engine/score.py): bed-under-voice (a bed in the voice's gaps at
-    least the standard's 12 dB under the dialogue target), bed-low-end (its
-    energy under 230 Hz after the high-pass), bed-breathing (its 100 ms level
+def score_lints(journal: Journal, plan: dict, stems: dict, *, draft: bool = False,
+                registry: list[dict] | None = None) -> list[str]:
+    """A29 (R1) and A29 refined (R10), the house score standard on the music
+    as the mix placed it (studio/engine/score.py): bed-under-voice (a bed in
+    the voice's gaps at least the standard's 12 dB under the dialogue
+    target), bed-low-end (a bed's or regional cue's share of 150 to 400 Hz
+    after its band-shaping), music-treble (a scored cue's share over 5 kHz),
+    regional-density, brand-pulse-place, score-repetition (no tiled loop in
+    a cue, no two cues alike), bed-reuse (no cue of the film's own score
+    another registered film plays; ``registry`` replaces
+    score.film_registry), phone-check (the words clear and the brand pulse
+    perceptible on a small speaker), bed-breathing (its 100 ms level
     spread), transition-ceiling (a transition's or sting's loudest 400 ms
     never above the bed it leads into), music-entry (an underscore cue that
     enters from no music fades in), music-holes (no undeclared stretch with
@@ -4679,17 +4694,23 @@ def score_lints(journal: Journal, plan: dict, stems: dict, *, draft: bool = Fals
     Blocking on a final render; warnings under --draft, --audio-only and
     --until (``draft``). Returns the reasons to refuse."""
     std = plan.get("score_standard") or dict(SC.STANDARD)
+    film = Path(plan["film"])
+    mine = [(c["id"], film / (c.get("wav") or f"audio/{c['id']}.wav")) for c in plan["cues"]
+            if c.get("kind") == "music" and SC.cue_role(c) in SC.FILM_LAYER and c.get("silence") != "intended"]
+    cards = [(s["f0"] / FPS, s["f1"] / FPS) for s in plan["shots"]
+             if s["kind"] == "card" and (s.get("_card") or card_kind(s)) in ("title", "chapter")]
     checks = SC.score_checks(stems.get("cues", []), std, duration_s=plan["duration_s"], silences=plan.get("silences", []),
                              own_sound=stems.get("own_sound", []), duck100=stems.get("duck100"),
                              voice_grid=stems.get("voice_grid"), duck_grid=stems.get("duck_grid"), spans=stems.get("spans"),
-                             voice100=stems.get("voice100"))
+                             voice100=stems.get("voice100"), cards=cards, phone=stems.get("phone"),
+                             reuse=SC.reuse_check(film, {"slug": plan["slug"]}, registry, mine=mine))
     out = []
     for c in checks:
         journal.lint(c["rule"], c["ok"], stage="assembly", phase="preflight", unit=c["unit"],
-                     severity="warn" if draft else "block", grammar="8.5, A29",
+                     severity="warn" if draft else "block", grammar="8.5, A29, A29 refined",
                      evidence=dict(c["evidence"], standard_stated=plan.get("score_standard_stated") or {}))
         if not c["ok"] and not draft:
-            ev = {k: v for k, v in c["evidence"].items() if k not in ("fix", "declared", "pumps", "holes")}
+            ev = {k: v for k, v in c["evidence"].items() if k not in ("fix", "declared", "pumps", "holes", "worst", "duplicates")}
             out.append(f"{c['rule']} ({c['unit']}: {ev}; {c['evidence'].get('fix')})")
     return out
 
@@ -5046,7 +5067,10 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             "readings": readings, "narration": narration, "narrator": narrator,
             # A21, A25, E2: the film's own imagery rule, policy settings, stated shortfalls and sides, for the sources page
             **film_policy_doc(plan),
-            "cues": [{k: c.get(k) for k in ("id", "kind", "role", "source", "licence", "tradition", "performer", "start_s", "end_s")}
+            # A29 refined: a regional cue prints the critical moment it lands on
+            "cues": [{**{k: c.get(k) for k in ("id", "kind", "role", "source", "licence", "tradition", "performer", "start_s",
+                                               "end_s")},
+                      **({"score_role": "regional", "marks_moment": c["marks_moment"]} if SC.cue_role(c) == "regional" else {})}
                      for c in plan["cues"]],
             "credits": [{"heading": h, "lines": ln} for h, ln in plan["credits"]],
             # A30: every voice over black the film chose, and why, so the choice is visible; A29: the score standard used
