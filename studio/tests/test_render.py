@@ -127,11 +127,11 @@ def test_mark_plate_on_every_frame_matches_the_shot(plan):
 
 
 def _label_box(plan):
-    """The zone right of the glyph where the A16 label is drawn."""
+    """The zone left of the glyph where the label is drawn (A29: bottom right)."""
     L = M.Layout(plan["W"], plan["H"])
     gx, gy = M.glyph_origin(L)
     d = M.glyph_px(L)
-    return gy - 2, gy + d + L.px(M.LABEL["size"]), gx + d + 1, int(L.w(30))
+    return gy - L.px(M.LABEL["size"]), gy + d + L.px(M.LABEL["size"]) // 2, int(L.w(M.LABEL_MIN_X)), gx - 1
 
 
 def test_a16_a_card_carries_the_glyph_alone_and_imagery_its_label_then_the_glyph(plan):
@@ -147,36 +147,40 @@ def test_a16_a_card_carries_the_glyph_alone_and_imagery_its_label_then_the_glyph
     assert up[y0:y1, x0:x1].max() > 150
     st = M.mark_state((s3["f0"] + 30) / 24, plan["marks"])
     assert st["label"] == s3["label"] and st["label_alpha"] > 0.99
-    # the G2 plate set its text at 3.1% of height, opaque on a scrim; the label is smaller, translucent and boxless
-    assert M.LABEL["size"] < 3.1 and M.LABEL["alpha"] < 1.0
+    # the G2 plate set its text at 3.1% of height, opaque on a scrim; A16's label 1.85% at 0.72; A29's is smaller and fainter
+    assert M.LABEL["size"] < 1.85 and M.LABEL["alpha"] < 0.72
 
 
-def test_a16_the_label_surfaces_holds_about_3_s_and_is_let_go_to_the_glyph():
+def test_a29_the_label_surfaces_holds_about_2_s_and_is_let_go_to_the_glyph():
     shots = [{"start": 0.0, "cls": "ARCHIVE", "label": "Archive · 1947"}]
     a = [M.label_alpha(f / 24, 0.0) for f in range(0, 24 * 6)]
     assert a[0] == 0.0 and 0.3 < a[2] < 0.95 and a[9] > 0.98                  # up in a few frames, on whisper
-    assert all(x > 0.98 for x in a[10:24 * 3])                                  # held about 3 s
-    gone = next(f for f in range(24 * 3, len(a)) if a[f] == 0.0)
-    assert 3.9 <= gone / 24 <= 4.3 and all(x == 0.0 for x in a[gone:])        # let go, then glyph only
-    assert all(b <= c + 1e-9 for b, c in zip(a[24 * 3 + 9:gone], a[24 * 3 + 8:gone - 1]))   # it never comes back up
+    assert all(x > 0.98 for x in a[10:24 * 2])                                  # held about 2 s (A29; A16 held 3)
+    gone = next(f for f in range(24 * 2, len(a)) if a[f] == 0.0)
+    assert 2.9 <= gone / 24 <= 3.3 and all(x == 0.0 for x in a[gone:])        # let go, then glyph only
+    assert all(b <= c + 1e-9 for b, c in zip(a[24 * 2 + 9:gone], a[24 * 2 + 8:gone - 1]))   # it never comes back up
     L = M.Layout(640, 360)
     img = Image.new("RGB", (640, 360), (255, 255, 255))
     for t in (0.0, 1.0, 5.0, 60.0):                                             # the glyph is on every frame, label or not
         px = M.mark_frame(img, t, shots, M.Fonts()).getpixel(M.glyph_centre(L))[:3]
         assert px == M.MARK_HUE["ARCHIVE"], (t, px)
-    y0, y1, x0, x1 = 16, 30, 32, 192
+    y0, y1, x0, x1 = _label_box({"W": 640, "H": 360})
     held = np.asarray(M.mark_frame(img, 1.0, shots, M.Fonts()).convert("RGB")).astype(int)
     after = np.asarray(M.mark_frame(img, 5.0, shots, M.Fonts()).convert("RGB")).astype(int)
     assert (255 - held[y0:y1, x0:x1]).max() > 60 and (255 - after[y0:y1, x0:x1]).max() == 0
 
 
-def test_a16_the_label_surfaces_at_every_cut_even_with_the_same_words():
+def test_a29_the_label_surfaces_only_on_a_change_of_class_or_year():
+    """A29 replaces A16 refined's "at every cut": a cut that repeats the class
+    and the year brings nothing up; the label already up runs on."""
     shots = [{"start": 0.0, "cls": "ARCHIVE", "label": "Archive · 1947"},
              {"start": 6.0, "cls": "ARCHIVE", "label": "Archive · 1947"},
              {"start": 9.0, "cls": "ARCHIVE", "label": "Archive · 1948"},
              {"start": 12.0, "cls": "CARD", "label": ""}]
-    assert M.label_starts(shots) == [0.0, 6.0, 9.0, None]
-    assert M.mark_state(6.5, shots)["label_alpha"] > 0.9 and M.mark_state(12.5, shots)["label_alpha"] == 0.0
+    assert M.label_starts(shots) == [0.0, 0.0, 9.0, None]
+    assert M.label_surfacings(shots) == [0.0, 9.0]
+    assert M.mark_state(6.5, shots)["label_alpha"] == 0.0                       # the same words at a cut: glyph only
+    assert M.mark_state(9.5, shots)["label_alpha"] > 0.9 and M.mark_state(12.5, shots)["label_alpha"] == 0.0
 
 
 def test_a16_refined_an_ai_generated_label_never_fades():
@@ -881,7 +885,7 @@ def test_black_is_limited_range_y16_in_the_master(rendered):
                           "-pix_fmt", "yuv420p", "-"], capture_output=True, check=True).stdout
     y = np.frombuffer(raw[: W * H], np.uint8).reshape(H, W)
     u = np.frombuffer(raw[W * H: W * H + W * H // 4], np.uint8)
-    body = y[int(0.3 * H):, :]                                  # below the CARD mark
+    body = y[:int(0.92 * H), :]                                 # above the CARD glyph (A29: bottom right)
     assert body.min() >= 15 and body.max() <= 17 and abs(float(body.mean()) - 16) < 0.2
     assert abs(float(u.mean()) - 128) < 1.0
 

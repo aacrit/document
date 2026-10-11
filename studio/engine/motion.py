@@ -337,20 +337,22 @@ LT = dict(                 # lower third (A16: quieter than the G2 kit in size, 
 )
 # A16's lower third is on screen for at most its arrival, LT.hold and its departure, whatever the screenplay's end.
 LT_MAX_S = 3 * LT["stagger"] + WHISPER.settle_time() + LT["hold"] + LT["exit"]
-# A16: the provenance label and the class glyph. The label ("Archive · 1947") surfaces at a shot change on
-# `whisper`, holds about 3 s and is let go; the glyph (a small mark in the class hue) stays on every frame.
+# A16: the provenance label and the class glyph. The label ("Archive · 1947") surfaces on `whisper`, holds and is
+# let go; the glyph (a small mark in the class hue) stays on every frame. A29 (R2, founder 2026-10-11): bottom right,
+# smaller and fainter, and the label surfaces only when the class or the year changes (BRAND-KIT 12).
 LABEL = dict(
-    x=4.0, y=5.0,          # % of W and H: the glyph's top-left, the old plate's corner
+    right=4.0,             # % of W from the frame's right edge to the glyph box's right edge (the watermark's right inset)
+    bottom=5.0,            # % of H from the frame's bottom edge to the glyph box's bottom edge (the watermark's top inset)
     glyph=0.85,            # % of H, the glyph's diameter (9 px at 1080p, 6 at 720p), never under 4 px
     glyph_min_px=4,
-    size=1.85,             # % of H, the label's text (20 px at 1080p, 13 at 720p; the G2 plate was 3.1)
-    gap=0.55,              # em of the label's size between the glyph and the text
-    alpha=0.72,            # the label text's opacity (the G2 plate's text was opaque on a 60% scrim)
-    drift=0.25,            # em: the text surfaces this far left of its rest, toward the glyph, as it arrives
+    size=1.6,              # % of H, the label's text (17 px at 1080p, 12 at 720p; A16 was 1.85, the G2 plate 3.1)
+    gap=0.55,              # em of the label's size between the text and the glyph
+    alpha=0.6,             # the label text's opacity (A16 was 0.72; the G2 plate's text was opaque on a 60% scrim)
+    drift=0.25,            # em: the text surfaces this far toward the glyph (to the right of its rest) as it arrives
     shadow=0.42,           # alpha of the soft black shadow under the text and around the glyph (no box)
     blur=0.11,             # % of H, the shadow's blur radius
     halo=0.12,             # % of H, the dark contact ring around the glyph (at least 1 px)
-    hold=3.0,              # s the label holds after it has surfaced
+    hold=2.0,              # s the label holds after it has surfaced (A16 was 3.0)
     exit=0.75,             # s, its departure (let_go)
     fade=4 / 24,           # s, the glyph's linear crossfade when the class changes (GRAMMAR 4.1, 4 frames)
 )
@@ -629,18 +631,25 @@ def watermark(img: Image.Image, t: float, *, start: float = 0.0, card_spans=(), 
 # --------------------------------------------------------------------------
 
 
-LABEL_MAX_W = 50.0                  # % of W: a provenance label ends before the middle of the frame (E15)
+LABEL_MIN_X = 60.0                  # % of W: a provenance label starts right of the lower third's measure (A29; E15 ended it by 50%)
+# A29: the zone the mark may occupy (fractions of the frame: x0, y0, x1, y1): the longest label from LABEL_MIN_X to the
+# glyph, from the top of its words to the title-safe line. Clear of the subtitle cue (bottom at SUB.bottom, 93%), the
+# overlay (bottom at 92%), the lower third (its measure ends at 60% of width) and the watermark (top right).
+MARK_ZONE = (LABEL_MIN_X / 100.0, 0.93, 1.0 - LABEL["right"] / 100.0, 0.965)
+# The glyph's own box with its contact disc and a margin (fractions of the frame): on every frame, so nothing else
+# (a map's text, a count card's source line) may enter it. At 1080p the glyph is x 1834 to 1842, y 1017 to 1025.
+MARK_GLYPH_ZONE = (0.950, 0.935, 0.966, 0.956)
 
 
 def label_check(L: Layout, text: str, fonts: Fonts) -> float:
-    """A provenance label is one line from the glyph to at most LABEL_MAX_W of
-    the width, every glyph present, or TextOverflow (E15)."""
+    """A provenance label is one line, every glyph present, from at least
+    LABEL_MIN_X of the width to the glyph, or TextOverflow (E15, A29)."""
     px = L.px(LABEL["size"])
     w = check_text(text, _font(fonts.structure, px), _font(fonts.data, max(1, round(px * 0.94))), what="a provenance label")
-    gx, _ = glyph_origin(L)
-    right = gx + glyph_px(L) + LABEL["gap"] * px + w
-    if right > L.w(LABEL_MAX_W) + 0.5:
-        raise TextOverflow(f"a provenance label runs to {100 * right / L.W:.1f}% of the width; at most {LABEL_MAX_W:g}%: {text!r}")
+    left = label_right(L) - w
+    if left < L.w(LABEL_MIN_X) - 0.5:
+        raise TextOverflow(f"a provenance label starts at {100 * left / L.W:.1f}% of the width; it starts right of "
+                           f"{LABEL_MIN_X:g}% (the lower third's measure): {text!r}")
     return w
 
 
@@ -658,8 +667,26 @@ def glyph_px(L: Layout) -> int:
 
 
 def glyph_origin(L: Layout) -> tuple[int, int]:
-    """Top-left pixel of the glyph's box."""
-    return int(round(L.w(LABEL["x"]))), int(round(L.h(LABEL["y"])))
+    """Top-left pixel of the glyph's box (A29): its right edge LABEL.right of
+    the width in from the frame's right edge and its bottom edge LABEL.bottom
+    of the height up from the frame's bottom, the watermark's insets mirrored
+    into the opposite corner."""
+    d = glyph_px(L)
+    return int(round(L.W - L.w(LABEL["right"]))) - d, int(round(L.H - L.h(LABEL["bottom"]))) - d
+
+
+def label_baseline(L: Layout) -> float:
+    """The label's baseline (px): the glyph sits at the middle of its x-height."""
+    _, gy = glyph_origin(L)
+    return gy + glyph_px(L) / 2.0 + 0.36 * L.px(LABEL["size"])
+
+
+def label_right(L: Layout) -> float:
+    """Where the label's words end (px), at rest: LABEL.gap em left of the
+    glyph box. The words are set flush right against the glyph, so the glyph
+    never moves and the label grows leftward from it."""
+    gx, _ = glyph_origin(L)
+    return gx - LABEL["gap"] * L.px(LABEL["size"])
 
 
 def glyph_corner(L: Layout) -> tuple[int, int]:
@@ -754,11 +781,61 @@ def label_alpha(t: float, start: float, cls: str | None = None) -> float:
     return clamp01(WHISPER.progress(u)) * let_go(u, LABEL_MAX_S, LABEL["exit"])
 
 
+_YEAR = re.compile(r"(?<!\d)(\d{4})(?!\d)")
+
+
+def mark_key(shot: dict) -> tuple[str, str | None]:
+    """What a label says that the glyph does not (A29): the class and the
+    year. The year is the shot's ``year`` when it states one (the engine's
+    plan does), else the first four-digit year in its label's words."""
+    if "year" in shot:
+        y = shot["year"]
+    else:
+        m = _YEAR.search(shot.get("label") or "")
+        y = m.group(1) if m else None
+    return shot["cls"], (str(y) if y not in (None, "") else None)
+
+
+def label_plan(shots) -> list[dict]:
+    """Per shot (``shots`` sorted by start): ``start``, when the label it
+    shows surfaced (None: glyph only), and ``surfaces``, whether it surfaces
+    at this shot's cut (A29, founder 2026-10-11). A label surfaces at the
+    film's first picture shot and wherever the class or the year differs from
+    the previous picture shot's (cards are not compared: a card carries the
+    glyph alone). At a direct cut into a shot with the same class and year
+    the label already up runs on, its words swapped on the cut frame (within
+    a class the swap is hard, BRAND-KIT 5), and lets go on its own time. An
+    AI-GENERATED shot is labelled for the whole shot, from its cut frame,
+    whatever came before (A16 refined: the class is never hidden)."""
+    out: list[dict] = []
+    prev_key = None
+    for k, s in enumerate(shots):
+        if s["cls"] == "CARD" or not s.get("label"):
+            out.append({"start": None, "surfaces": False})
+            continue
+        key = mark_key(s)
+        surfaces = prev_key is None or key != prev_key
+        start = None
+        if s["cls"] in LABEL_STAYS or surfaces:
+            start = s["start"]
+        elif k > 0 and out[k - 1]["start"] is not None and shots[k - 1]["cls"] != "CARD" and shots[k - 1].get("label"):
+            start = out[k - 1]["start"]          # the same class and year across a cut: the label runs on
+        out.append({"start": start, "surfaces": surfaces})
+        prev_key = key
+    return out
+
+
 def label_starts(shots) -> list[float | None]:
-    """When each shot's label surfaces (``shots`` sorted by start): at every
-    cut, its own start, as A16 says, even when the words repeat the outgoing
-    shot's. A CARD has no label (the card's own words say what it is)."""
-    return [None if s["cls"] == "CARD" or not s.get("label") else s["start"] for s in shots]
+    """When the label each shot shows surfaced (``shots`` sorted by start), or
+    None for the glyph alone (A29: only on a change of class or year; see
+    ``label_plan``). A CARD has no label (the card's own words say what it is)."""
+    return [e["start"] for e in label_plan(shots)]
+
+
+def label_surfacings(shots) -> list[float]:
+    """The times a label surfaces in the film (A29), for the label-rate lint."""
+    ss = sorted(shots, key=lambda s: s["start"])
+    return [s["start"] for s, e in zip(ss, label_plan(ss)) if e["surfaces"]]
 
 
 def mark_state(t: float, shots) -> dict | None:
@@ -784,21 +861,22 @@ def mark_state(t: float, shots) -> dict | None:
 
 
 def _label_tile(L: Layout, text: str, alpha: float, dx: float, fonts: Fonts) -> tuple[Image.Image, tuple[int, int]]:
-    """The label's words beside the glyph, near-white at LABEL.alpha over a soft
-    black shadow (no box), numerals in the data face, drawn and blurred on a
-    crop around the words only, and the frame pixel the crop lands on."""
+    """The label's words left of the glyph, set flush right against it (A29),
+    near-white at LABEL.alpha over a soft black shadow (no box), numerals in
+    the data face, drawn and blurred on a crop around the words only, and the
+    frame pixel the crop lands on. The crop stops short of the glyph's tile,
+    so the label never touches a pixel the mark-coverage lint reads."""
     from PIL import ImageFilter
     px = L.px(LABEL["size"])
     f_txt = _font(fonts.structure, px)
     f_num = _font(fonts.data, max(1, round(px * 0.94)))
-    d = glyph_px(L)
-    gx, gy = glyph_origin(L)
-    x = gx + d + LABEL["gap"] * px + dx
-    baseline = gy + d / 2.0 + 0.36 * px           # the glyph sits at the middle of the x-height
+    gx, _ = glyph_origin(L)
+    x = label_right(L) - _measure(text, f_txt, f_num) + dx
+    baseline = label_baseline(L)
     radius = max(1.0, L.h(LABEL["blur"]))
     margin = int(math.ceil(3 * radius)) + 2
     x0, y0 = max(0, int(math.floor(x)) - margin), max(0, int(math.floor(baseline - 1.1 * px)) - margin)
-    x1 = min(L.W, int(math.ceil(x + _measure(text, f_txt, f_num))) + margin + 1)
+    x1 = max(x0, min(gx - max(1, L.px(LABEL["halo"])), int(math.ceil(x + _measure(text, f_txt, f_num))) + margin + 1))
     y1 = min(L.H, int(math.ceil(baseline + 0.4 * px)) + margin + 1)
     words = Image.new("RGBA", (x1 - x0, y1 - y0), (0, 0, 0, 0))
     _draw_mixed(ImageDraw.Draw(words), (x - x0, baseline - y0), text, f_txt, f_num,
@@ -814,14 +892,15 @@ def _label_tile(L: Layout, text: str, alpha: float, dx: float, fonts: Fonts) -> 
 
 
 def mark_frame(img: Image.Image, t: float, shots, fonts: Fonts) -> Image.Image:
-    """Draw the provenance mark at ``t`` (A16). ``shots`` holds dicts with
-    ``start`` (s), ``cls`` and ``label``. The glyph is on every frame: a hard
-    swap within a class, a 4-frame linear crossfade when the class changes
-    (both glyphs are opaque at the centre, so the pixel there is exactly the
-    mix of the two hues). The label surfaces at the shot change, drifting a
-    quarter em toward its rest, and is let go after about 3 s; an
-    AI-GENERATED label is full from the cut frame and stays. Only small tiles
-    are drawn and composited, never full-frame layers."""
+    """Draw the provenance mark at ``t`` (A16, A29: bottom right). ``shots``
+    holds dicts with ``start`` (s), ``cls``, ``label`` and optionally
+    ``year``. The glyph is on every frame: a hard swap within a class, a
+    4-frame linear crossfade when the class changes (both glyphs are opaque
+    at the centre, so the pixel there is exactly the mix of the two hues).
+    The label surfaces only when the class or the year changes, drifting a
+    quarter em from the glyph to its rest, and is let go after about 2 s;
+    an AI-GENERATED label is full from the cut frame and stays. Only small
+    tiles are drawn and composited, never full-frame layers."""
     out = _as_rgba(img)
     st = mark_state(t, shots)
     if st is None:
@@ -834,9 +913,10 @@ def mark_frame(img: Image.Image, t: float, shots, fonts: Fonts) -> Image.Image:
     if st["label_alpha"] > 0.0 and st["label"]:
         u = t - st["label_start"]
         arriving = st["cls"] not in LABEL_STAYS
-        dx = -(1.0 - clamp01(WHISPER.progress(u))) * LABEL["drift"] * L.px(LABEL["size"]) if arriving else 0.0
+        dx = (1.0 - clamp01(WHISPER.progress(u))) * LABEL["drift"] * L.px(LABEL["size"]) if arriving else 0.0
         words, wat = _label_tile(L, st["label"], st["label_alpha"], dx, fonts)
-        out.alpha_composite(words, wat)
+        if words.width > 0:
+            out.alpha_composite(words, wat)
     return out
 
 
@@ -1339,6 +1419,104 @@ def title_card_frame(img: Image.Image, t: float, *, start: float, end: float, ti
         ww = wordmark_width(L, px, fonts)
         draw_wordmark(sd, (L.W - ww) / 2.0, by + L.h(TITLE["gap"]) + px, px, fonts, clamp01(wp) * exit_k)
         layer.alpha_composite(_shift(sub, (1.0 - clamp01(wp)) * L.h(CHAPTER["rise"])))
+    return Image.alpha_composite(base, layer)
+
+
+# --------------------------------------------------------------------------
+# The mark key (A29, R2): "What the marks mean", each picture class's glyph
+# with its word, drawn from the class table (GLYPH_SHAPE, MARK_HUE,
+# CLASS_WORD), never from typed colours or words. After the title card and
+# again in the end sequence, before the attribution card.
+# --------------------------------------------------------------------------
+
+KEY = dict(
+    heading=4.0,           # % of H, Fraunces 300: the statement card's size (43 px at 1080p, 29 at 720p)
+    word=2.6,              # % of H, Inter 400 in --mark-text: the statement card's second line (28 / 19 px)
+    glyph=1.7,             # % of H, the glyph drawn large enough to read its shape (18 / 12 px)
+    gap=0.6,               # em of the word's size between the glyph and its word
+    pitch=5.2,             # % of H from one row's baseline to the next
+    head_gap=4.8,          # % of H from the heading's baseline to the first row's cap height
+    max_w=76.0,            # % of W: the statement card's measure
+    rise=0.6,              # % of H, the heading's rise on `settle` (a card's line takes its place)
+    row_rise=0.35,         # % of H, each row's rise on `whisper` (the label's own preset)
+    row_delay=0.25,        # s after the heading before the first row (as a chapter card's dates)
+    stagger=4 / 24,        # s between rows (a lower third's stagger)
+    exit=0.75,             # s, everything is let go together (the label's departure)
+    min_s=4.0,             # s on screen at least (5 s recommended), so all four words can be read
+)
+KEY_HEADING = "What the marks mean"
+# The picture classes in key order: amber, bone, then the two cold blues side by side, so their shapes are compared.
+KEY_CLASSES = tuple(c for c in GLYPH_SHAPE if c != "CARD")
+
+
+def mark_key_layout(L: Layout, fonts: Fonts) -> dict:
+    """Where the key draws its heading and its rows (E15: every glyph present,
+    each line inside KEY.max_w, or TextOverflow; nothing is cut). The rows are
+    a column centred on the frame, each glyph centred on its word's x-height;
+    the block is centred vertically. Returns ``{"heading": {...}, "rows":
+    [{"cls", "text", "glyph": (x, y, d), "x", "baseline"}], "top", "bottom"}``."""
+    f_h = _font(fonts.display, L.px(KEY["heading"]))
+    px = L.px(KEY["word"])
+    f_w, f_n = _font(fonts.structure, px), _font(fonts.data, round(px * 0.94))
+    max_w = L.w(KEY["max_w"])
+    hw = check_text(KEY_HEADING, f_h, max_w=max_w, what="the mark key's heading")
+    d = max(LABEL["glyph_min_px"], L.px(KEY["glyph"]))
+    gap = KEY["gap"] * px
+    words = [(c, CLASS_WORD[c]) for c in KEY_CLASSES]
+    ww = [check_text(w, f_w, f_n, max_w=max_w - d - gap, what=f"the mark key's word for {c}") for c, w in words]
+    col_w = d + gap + max(ww)
+    pitch = L.h(KEY["pitch"])
+    head_gap = L.h(KEY["head_gap"])
+    height = f_h.size * 0.78 + head_gap + 0.73 * px + (len(words) - 1) * pitch + 0.25 * px
+    top = (L.H - height) / 2.0
+    h_base = top + f_h.size * 0.78
+    x0 = (L.W - col_w) / 2.0
+    rows = []
+    for k, (c, w) in enumerate(words):
+        base = h_base + head_gap + 0.73 * px + k * pitch
+        cy = base - 0.36 * px
+        rows.append({"cls": c, "text": w, "glyph": (int(round(x0)), int(round(cy - d / 2.0)), d),
+                     "x": x0 + d + gap, "baseline": base, "w": ww[k]})
+    return {"heading": {"text": KEY_HEADING, "x": (L.W - hw) / 2.0, "baseline": h_base, "w": hw, "font": f_h},
+            "rows": rows, "font": f_w, "data_font": f_n, "top": top, "bottom": top + height}
+
+
+def mark_key_drawn_text(layout: dict) -> list[str]:
+    """What the key draws, heading first, then each row's word (for the lint and the tests)."""
+    return [layout["heading"]["text"]] + [r["text"] for r in layout["rows"]]
+
+
+def mark_key_frame(img: Image.Image, t: float, *, start: float, end: float, fonts: Fonts) -> Image.Image:
+    """The mark key over black (CARD). In: the heading on `settle`, rising
+    KEY.rise; from KEY.row_delay the rows one by one, KEY.stagger apart, each
+    glyph with its word on `whisper`, rising KEY.row_rise. Out: all of it let
+    go together over KEY.exit (nothing moves). The glyphs are the class
+    glyphs themselves (``_glyph``), drawn at KEY.glyph of the height."""
+    base = _black(img.size)
+    if t < start or t >= end:
+        return base
+    L = Layout(*base.size)
+    lay = mark_key_layout(L, fonts)
+    exit_k = let_go(t, end, KEY["exit"])
+    layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    hp = clamp01(SETTLE.progress(t - start))
+    sub = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    h = lay["heading"]
+    ImageDraw.Draw(sub).text((h["x"], h["baseline"]), h["text"], font=h["font"],
+                             fill=_rgba(PALETTE["bone"], hp * exit_k), anchor="ls")
+    layer.alpha_composite(_shift(sub, (1.0 - hp) * L.h(KEY["rise"])))
+    for k, r in enumerate(lay["rows"]):
+        t0 = start + KEY["row_delay"] + k * KEY["stagger"]
+        if t < t0:
+            continue
+        p = clamp01(WHISPER.progress(t - t0))
+        a = p * exit_k
+        sub = Image.new("RGBA", base.size, (0, 0, 0, 0))
+        gx, gy, d = r["glyph"]
+        sub.alpha_composite(_scale_alpha(_glyph(r["cls"], d), a), (gx, gy))
+        _draw_mixed(ImageDraw.Draw(sub), (r["x"], r["baseline"]), r["text"], lay["font"], lay["data_font"],
+                    _rgba(PALETTE["mark_text"], a))
+        layer.alpha_composite(_shift(sub, (1.0 - p) * L.h(KEY["row_rise"])))
     return Image.alpha_composite(base, layer)
 
 

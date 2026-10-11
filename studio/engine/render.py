@@ -555,6 +555,15 @@ def mark_label(shot: dict, item: dict | None) -> str:
     return M.mark_label(cls, year_of(item or {}), extra)
 
 
+def mark_year(shot: dict) -> str | None:
+    """A29: the year the label states, which with the class decides when it
+    surfaces: an ARCHIVE or RECONSTRUCTED shot's item year, else none."""
+    if shot["mark"] not in ("ARCHIVE", "RECONSTRUCTED"):
+        return None
+    y = year_of(shot.get("_item") or {})
+    return str(y) if y else None
+
+
 def is_synthetic(item: dict | None) -> bool:
     """A ledger item a program made (a test pattern or fixture image) rather
     than an archive: it may only ever be marked DRAWN."""
@@ -605,6 +614,13 @@ def card_text_check(shot: dict, W: int, H: int, fonts: M.Fonts | None = None) ->
                 for i, tx in enumerate(texts) if (drawn[i] if i < len(drawn) else None) != norm(tx)]
 
     if ck in ("black", "credits"):          # neither draws the shot's text (the credits draw the plan's blocks)
+        out["missing"] = drawn_as([])
+        return out
+    if ck == "mark_key":                    # A29: the key draws the class table; a text[] would be words not drawn
+        try:
+            M.mark_key_layout(L, fonts)
+        except M.TextOverflow as e:
+            out.update(fits=False, why=str(e))
         out["missing"] = drawn_as([])
         return out
     if ck in ("title", "chapter"):
@@ -1297,7 +1313,9 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         fits("overlay-fits", o["id"], lambda o=o: M.overlay_check(L_, o["text"], fonts_), "9, BRAND-KIT 11c")
     for s in shots:
         if s.get("label"):
-            fits("label-fits", s["id"], lambda s=s: M.label_check(L_, s["label"], fonts_), "A16, BRAND-KIT 11c")
+            # A29: at both delivery resolutions, so a check render's size (a sources-only pass reads a 64 px master) never decides
+            fits("label-fits", s["id"], lambda s=s: [M.label_check(M.Layout(*wh), s["label"], fonts_) for wh in RESOLUTIONS.values()],
+                 "A16, A29, BRAND-KIT 11c and 12")
     lt_drawn_end = {lt["id"]: lt["end"] for lt in lower_thirds}
     if burn_subtitles:
         for c in play.get("subtitle_source", []):
@@ -1395,7 +1413,8 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         "lines": lines, "cues": cues, "speakers": speakers, "narrator_voice": narrator_voice(play), "silences": sorted(silences),
         "runtime_target_s": play.get("runtime_target_s"),
         "lower_thirds": lower_thirds, "overlays": overlays, "subtitles": subs, "burn_subtitles": burn_subtitles,
-        "marks": [{"start": s["f0"] / FPS, "cls": s["mark"], "detail": s["detail"], "label": s["label"]} for s in shots],
+        "marks": [{"start": s["f0"] / FPS, "cls": s["mark"], "detail": s["detail"], "label": s["label"], "year": mark_year(s)}
+                  for s in shots],
         "card_spans": card_spans, "wm_start": (imagery[0]["f0"] / FPS) if imagery else None,
         # A21, A25 and E2's sides: what the sources page states about the film's own rules
         "imagery_rule": rule, "settings": settings, "settings_stated": settings_stated, "shortfalls": shortfalls,
@@ -1896,6 +1915,8 @@ class Pictures:
                                        dates=text[1] if len(text) > 1 else "", fonts=f)
         elif ck == "credits":
             img = M.credits_frame(blank, t, start=0.0, blocks=self.plan["credits"], fonts=f)
+        elif ck == "mark_key":                   # A29: drawn from the class table, never from the shot's text
+            img = M.mark_key_frame(blank, t, start=0.0, end=dur, fonts=f)
         else:                                    # silent, perspective, statement: every element of text[] (E15)
             img = M.silent_card_frame(blank, t, start=0.0, end=dur, texts=text, fonts=f)
         return img.convert("RGB")
@@ -4167,6 +4188,74 @@ def credits_roll_lints(journal: Journal, plan: dict, *, draft: bool = False) -> 
     return out
 
 
+LABEL_RATE_S = 15.0             # A29 (R2): at most one label surfacing per 15 s of film (4 a minute), over the film
+PICTURE_CLASSES = ("ARCHIVE", "RECONSTRUCTED", "DRAWN", "AI-GENERATED")
+
+
+def label_rate_lint(journal: Journal, plan: dict, *, draft: bool = False) -> list[str]:
+    """label-rate (A29): the provenance label surfaces only on a change of
+    class or year (``M.label_surfacings``), and at most once per LABEL_RATE_S
+    of film: n <= ceil(duration / 15). The evidence counts the surfacings per
+    minute and the busiest minute. Blocking on a final render, a warning
+    under --draft. Returns the reasons to refuse."""
+    times = M.label_surfacings(plan["marks"])
+    dur = float(plan["duration_s"])
+    allowed = max(1, math.ceil(dur / LABEL_RATE_S - 1e-9))
+    busiest = max((sum(1 for u in times if t <= u < t + 60.0) for t in times), default=0)
+    ok = len(times) <= allowed
+    journal.lint("label-rate", ok, stage="scout", phase="preflight", severity="warn" if draft else "block",
+                 grammar="A16, A29, BRAND-KIT 12",
+                 evidence={"surfacings": len(times), "allowed": allowed, "duration_s": round(dur, 3),
+                           "per_minute": round(60.0 * len(times) / dur, 2) if dur > 0 else None,
+                           "busiest_minute": busiest, "times_s": [round(t, 3) for t in times[:200]],
+                           "rule": f"at most one per {LABEL_RATE_S:g} s of film, only on a change of class or year",
+                           "fix": None if ok else "fewer changes of class or year between neighbouring picture shots: "
+                                                  "group the shots of one year, or cut to a card between eras"})
+    if not ok and not draft:
+        return [f"label-rate ({len(times)} label surfacings in {dur:.0f} s; at most {allowed})"]
+    return []
+
+
+def mark_key_lints(journal: Journal, plan: dict, *, draft: bool = False) -> list[str]:
+    """mark-key (A29): a film with picture marks shows the key card
+    (``card: mark_key``) after its title card and before the next picture
+    shot ("head"), and again after its last picture shot and before its last
+    text card, the attribution card or the credits ("end"); each key card is
+    on screen at least KEY.min_s. Blocking on a final render of an event film
+    (EVENT_FILM_MIN_S or longer, as the floors), a warning on a draft, a check
+    render (--until) or a short piece. Returns the reasons to refuse."""
+    shots = plan["shots"]
+    pics = [i for i, s in enumerate(shots) if s["mark"] in PICTURE_CLASSES]
+    if not pics:
+        return []
+    length = max(float(plan.get("runtime_target_s") or 0.0), float(plan["duration_s"]))
+    binding = not draft and not plan.get("until_s") and length >= EVENT_FILM_MIN_S
+    keys = [i for i, s in enumerate(shots) if s.get("_card") == "mark_key"]
+    title = next((i for i, s in enumerate(shots) if s.get("_card") == "title"), None)
+    after = title if title is not None else -1
+    nxt_pic = next((i for i in pics if i > after), None)
+    head = next((k for k in keys if k > after and (nxt_pic is None or k < nxt_pic)), None)
+    texts = [i for i, s in enumerate(shots) if s["kind"] == "card" and s.get("_card") not in ("mark_key", "black")]
+    last_text = texts[-1] if texts and texts[-1] > pics[-1] else None
+    end = next((k for k in keys if k > pics[-1] and (last_text is None or k < last_text)), None)
+    out = []
+    for unit, k, where in (("mark-key:head", head, "after the title card, before the first picture shot after it"),
+                           ("mark-key:end", end, "after the last picture shot, before the attribution card")):
+        dur = float(shots[k]["_dur"]) if k is not None else None
+        ok = k is not None and dur >= M.KEY["min_s"] - 1e-6
+        journal.lint("mark-key", ok, stage="scout", phase="preflight", unit=unit, severity="block" if binding else "warn",
+                     grammar="A29, BRAND-KIT 12",
+                     evidence={"where": where, "shot": shots[k]["id"] if k is not None else None, "dur_s": dur,
+                               "min_s": M.KEY["min_s"], "title": shots[title]["id"] if title is not None else None,
+                               "key_cards": [shots[i]["id"] for i in keys], "binding": binding,
+                               "fix": None if ok else (
+                                   f"lengthen it to at least {M.KEY['min_s']:g} s" if k is not None else
+                                   f"add a shot {{kind: card, card: mark_key, mark: CARD, text: []}} {where}, 5 s")})
+        if not ok and binding:
+            out.append(f"mark-key ({unit.split(':')[1]}: {where})")
+    return out
+
+
 def card_fill_lints(journal: Journal, plan: dict) -> list[str]:
     """card-fills-drawn (E15): after the fill, every filled card is laid out
     again from its filled text, which must fit and be drawn word for word.
@@ -4704,6 +4793,7 @@ def shot_key(plan: dict, i: int, asset_hash: dict, env_key: dict | None = None) 
         "prev_asset": asset_hash.get(prev.get("asset")) if prev else None,
         "next_transition": nxt["transition_in"] if nxt else None, "next_f0": nxt["f0"] if nxt else None,
         "marks": plan["marks"][max(0, i - 1): i + 1],
+        "label_start": M.label_starts(plan["marks"])[i],        # A29: it may come from an earlier shot (a label runs on)
         "lower_thirds": [lt for lt in plan["lower_thirds"] if lt["start"] < t1 and lt["end"] > t0],
         "overlays": [o for o in plan["overlays"] if o["start"] < t1 and o["end"] > t0],
         "tools": env_key,
@@ -4780,7 +4870,8 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         # E15: binding on a run that renders the final frames; --draft, --audio-only (no frames) and --until (a check
         # render) journal them as warnings
         advisory = draft or audio_only or until_s is not None
-        lt_refusals = lower_third_time_lints(journal, plan, draft=advisory) + credits_roll_lints(journal, plan, draft=advisory)
+        lt_refusals = (lower_third_time_lints(journal, plan, draft=advisory) + credits_roll_lints(journal, plan, draft=advisory)
+                       + label_rate_lint(journal, plan, draft=advisory) + mark_key_lints(journal, dict(plan, until_s=until_s), draft=advisory))
         if lt_refusals:
             raise Refused(f"on-screen time (pre-flight): {'; '.join(lt_refusals)} (BRAND-KIT 4 and 11c, A20(b); "
                           "render with --draft to accept it)")

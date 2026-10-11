@@ -297,3 +297,53 @@ Correction to 11c (2026-10-11, E15 review of 5a9ee29; append-only): in the dip r
 | One-line texts | a card's title, a chapter line and its dates, a lower third's name, role and flag, an overlay (56% of width), a burned subtitle line (84%), a credit line (the 70% column; a credit broken at 90 characters is broken again by its measured width where it is still wider), a credits heading and a provenance label (ending by 50% of width) each fit their measure with every glyph present, or the plan refuses. The engine never cuts text: no renderer drops a word, a line or a glyph |
 | Missing glyphs | a character the face has no glyph for (FreeType would draw an empty box) is refused wherever text is drawn, maps and count cards included |
 | Credits roll | the roll's constant speed is unchanged; the credits shot lasts until the last line has been fully on screen 2 s, or the render refuses |
+
+## 12. The mark, calmer (2026-10-11, founder; R2, GRAMMAR A29)
+
+Appended; sections 5 and 11 to 11c keep their text and are read with this. Where they conflict, this section wins. The founder: the label "takes too much attention ... shouldn't be jarring"; it moves down, comes only when it says something new, and a key teaches the colours once. `motion.py` implements every number below (`LABEL`, `LABEL_MIN_X`, `MARK_ZONE`, `MARK_GLYPH_ZONE`, `label_plan`, `KEY`, `mark_key_frame`).
+
+### Position: bottom right
+
+| | Value | 1080p | 720p |
+|---|---|---|---|
+| Glyph box | its right edge 4% of width in from the right, its bottom edge 5% of height up from the bottom: the watermark's insets (section 3) mirrored into the opposite corner | x 1834 to 1842, y 1017 to 1025 | x 1223 to 1228, y 678 to 683 |
+| Glyph size, shape, colour, contact disc | unchanged (sections 11, 11a): 0.85% of height | 9 px | 6 px |
+| Label | set flush right against the glyph, 0.55 em left of it, the glyph at the middle of its x-height; it grows leftward and the glyph never moves | | |
+| Label type | Inter 400 at 1.6% of height (was 1.85%), numerals JetBrains Mono at 94%, `--mark-text` at 0.6 opacity (was 0.72); the soft shadow as section 11 | 17 px | 12 px |
+| Label measure | starts right of 60% of width (the lower third's measure, 4% + 56%); a longer label is refused, never cut (E15). Was "ends by 50%" | | |
+| Mark zone | x 60% to 96%, y 93% to 96.5% of the frame; the glyph's own zone x 95.0% to 96.6%, y 93.5% to 95.6% | | |
+
+Why this corner and these numbers. Every other corner is taken: the watermark is top right, lower thirds are bottom left (their measure ends at 60% of width, their wash at 52%), subtitles are bottom centre with their scrim's bottom at 93% of height, and a date or count overlay (section 7) is bottom right with its box bottom at 92%. The mark sits under all of them: its highest pixel, the label's shadow included, is below 93% at 1080p and 720p, so it never meets a subtitle cue, an overlay or a lower third, and a long label stops at 60% of width. The overlay and the glyph share the 96% right edge, so a date over footage and the mark beneath it read as one column. The glyph is inside title safe (5%); the label's descenders and shadow reach 96.5% of height, inside action safe (3.5%), accepted for the reason section 4 gives for the 4% left edge (the film goes to screens that do not overscan). `studio/tests/test_r2_marks.py` holds every bound at 1080p and 720p.
+
+The YouTube branding watermark (section 3, "On YouTube") is withdrawn: YouTube draws it bottom right, over the glyph. The burned watermark top right already carries the channel's mark. YouTube's own player bar covers the bottom of the picture only while the viewer hovers or pauses, which is accepted; on document.voidvision.org the player draws the mark from `sources.json` (A4).
+
+### Behaviour: only when it says something new
+
+| | Value |
+|---|---|
+| When the label surfaces | at the film's first picture shot, and at a cut where the class or the year differs from the previous picture shot's (cards are not compared: a card carries the glyph alone). Never at a cut that repeats them; section 11a's "at every cut" no longer applies |
+| A cut that repeats class and year | the label already up runs on and lets go on its own time; its words swap on the cut frame (within a class the swap is hard, section 5). A label that has gone does not come back |
+| What counts as the year | an ARCHIVE or RECONSTRUCTED shot's item year; DRAWN and AI-GENERATED have none, so a new data source alone does not bring the label up (the glyph and the Sources page carry it) |
+| In | `whisper`, as section 11, the words drifting 0.25 em from beside the glyph to their rest (section 11's drift, mirrored) |
+| Hold | 2.0 s after it has surfaced (was 3.0) |
+| Out | `let_go`, 0.75 s, as section 11; the glyph stays |
+| Whole label | 3.11 s from the cut to gone |
+| AI-GENERATED | unchanged (11a, 11b): full from the cut frame and up for the whole shot, whatever came before; counted once per change for the rate |
+| Rate | at most one surfacing per 15 s of film, over the film (n at most the duration over 15 s, rounded up); the `label-rate` lint counts them, reports them per minute and the busiest minute, and refuses a final render past the cap |
+
+### The key card: "What the marks mean"
+
+A card (`card: mark_key`, CARD, true black, `text: []`) that teaches the glyphs once. The engine draws it from the class table, never from typed words or colours: each picture class's glyph (`GLYPH_SHAPE`, `MARK_HUE`) with its word (`CLASS_WORD`), in the order Archive, Reconstructed, Drawn, AI-generated, so the two cold blues sit side by side and differ by shape.
+
+| | Value | 1080p | 720p |
+|---|---|---|---|
+| Heading | `What the marks mean`, Fraunces 300 at 4.0% of height (the statement card's size), bone, centred | 43 px | 29 px |
+| Rows | the glyph at 1.7% of height, 0.6 em, then the word in Inter 400 at 2.6% (the statement card's second size) in `--mark-text`; a column centred on the frame, rows 5.2% of height apart, the first 4.8% under the heading | 18 / 28 px | 12 / 19 px |
+| Block | centred vertically, inside the statement card's safe band (10% to 90%) and measure (76%); every glyph present or the card is refused (E15) | | |
+| In | the heading on `settle`, rising 0.6% of height; from +0.25 s each row on `whisper`, 4 frames apart, rising 0.35% | | |
+| Out | everything let go together over 0.75 s; nothing moves | | |
+| On screen | at least 4 s; 5 s recommended | | |
+| Where | (1) after the title card, before the next picture shot; (2) in the end sequence, after the last picture shot and before the attribution card (or the credits). The `mark-key` lint refuses a final render of an event film without either; a draft, a check render or a short piece gets a warning | | |
+| Mark and watermark | the bone CARD glyph bottom right, as on every card; no watermark (a CARD) | | |
+
+Do: let the key teach the colours so the label can stay down; keep the overlay and the glyph on one right edge. Don't: bring a label up at a cut that repeats class and year; type a key's words or colours into a screenplay; let a label run past 60% of width; set YouTube's branding watermark.
