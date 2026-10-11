@@ -219,14 +219,23 @@ LABEL = {
     "figure": ("data", 2.4, "text"),
 }
 SIZES = dict(point_label=1.85, point_label_key=2.6, point_sub=1.75, title=2.9, legend=1.7,
-             note=1.55, source=1.5)
+             note=1.55, source=1.5, figure_sub=2.3)   # figure_sub: a data figure's numeral, 1.3x a sub-line
 # Zones (fractions of the frame) no map text may enter: the mark plate and the watermark.
 FORBIDDEN = {"mark": (0.0, 0.0, 0.30, 0.20), "watermark": (0.88, 0.0, 1.0, 0.12)}
 # Zones the film's own text may cover for a few seconds: labels there are warned.
 COVERED = {"lower_third": (0.04, 0.75, 0.60, 0.93), "overlay": (0.60, 0.84, 0.96, 0.93),
            "subtitle": (0.08, 0.80, 0.92, 0.93)}
 PANEL = dict(x=0.715, w=0.245, top=0.15, bottom=0.80, wash_from=0.64, wash_full=0.70, wash_alpha=0.82)
-SOURCE_LINE = dict(x=0.04, baseline=0.972)
+SOURCE_LINE = dict(x=0.04, baseline=0.972)   # film 1's frames; a spec may set `source_at` (film 2: 0.05, 0.94)
+
+
+def source_at(spec: dict) -> dict:
+    at = spec.get("source_at")
+    if at is None:
+        return SOURCE_LINE
+    if not (isinstance(at, dict) and 0.03 <= at.get("x", -1) <= 0.10 and 0.90 <= at.get("baseline", -1) <= 0.972):
+        raise MapRefused(f"{spec.get('id', '')}: source_at is {{x: 0.03 to 0.10, baseline: 0.90 to 0.972}}")
+    return at
 DEFAULT_FRAME = (0.04, 0.12, 0.68, 0.92)  # where the extent is fitted when a panel is shown
 FULL_FRAME = (0.04, 0.08, 0.96, 0.92)     # when there is no panel
 
@@ -397,7 +406,10 @@ def _lint_data_text(spec: dict, views: list) -> None:
     number words: the title may name the data year, a panel figure template its {n} and the data
     year; nothing else may carry a number, which would be uncited."""
     years = {str(v["data"]["year"]) for v in views if "data" in v}
-    texts = [("title", re.sub(r"\b(1[5-9]\d\d|20\d\d)\b", "", spec.get("title", "")))]
+    title = spec.get("title", "")
+    for y in years:
+        title = re.sub(r"(?<!\d)" + y + r"(?!\d)", "", title)
+    texts = [("title", title)]
     texts += [(f"legend[{i}]", e.get("text", "")) for i, e in enumerate(spec.get("legend", []))]
     texts += [(f"notes[{i}]", n) for i, n in enumerate(spec.get("notes", []))]
     texts += [(f"figures[{i}]", f) for i, f in enumerate(spec.get("figures", []))]
@@ -679,9 +691,15 @@ NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven", "
 NUMBER_WORD_RE = re.compile(
     r"(?i)\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|"
     r"sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|"
-    r"thousand|million|billion|dozen|dozens|hundreds|thousands|millions|billions)\b")
-# a number word that says none ("no one", "not one", "any one") is never a count
-NEGATED_WORD = r"(?<!\bno )(?<!\bnot )(?<!\bany )"
+    r"thousand|million|billion|dozen|dozens|hundreds|thousands|millions|billions|lakh|lakhs|crore|crores|"
+    r"nought|naught|nil|none|single|half|once|twice|handful)\b")
+# a quoted numeral's declared span: what may not follow it, stand before it, or negate it
+SCALE_AFTER = re.compile(r"(?i)^[\s\u00a0\u2009]*(hundred|thousand|million|billion|lakh|crore)s?\b")
+GROUP_AFTER = re.compile(r"^[ \u00a0\u2009]\d{3}(?!\d)")
+GROUP_BEFORE = re.compile(r"(?<!\d)\d{1,3}[ \u00a0\u2009]$")
+SEPARATORS = ".,\u00b7\u00a0\u2009"
+NEGATORS = {"no", "not", "never", "nor", "without", "none", "nobody"}
+YEAR4 = re.compile(r"(?<![\d,.])\d{4}(?!\d)")
 
 
 def uncited_numbers(text: str) -> list:
@@ -714,6 +732,40 @@ def _csv_rows(path: str, sha: str) -> tuple:
         return tuple((i + 2, dict(r)) for i, r in enumerate(rd))
 
 
+def doubts_path(csv_path: Path) -> Path:
+    return csv_path.with_name(csv_path.stem + ".doubts.json")
+
+
+@lru_cache(maxsize=16)
+def _sidecar(path: str, sha: str, csv_rel: str, csv_sha: str, data_root: str) -> tuple:
+    d = json.loads(Path(path).read_text(encoding="utf-8"))
+    if d.get("csv_sha256") != csv_sha:
+        raise MapRefused(f"{Path(path).name}: pins {csv_rel} at sha256 {d.get('csv_sha256')}; the file is {csv_sha}. "
+                         "The doubts belong to one copy of the table: re-read them against this one")
+    out = []
+    for c in d.get("conflicts") or []:
+        if not c.get("row") or not c.get("text") or not c.get("why"):
+            raise MapRefused(f"{Path(path).name}: a conflict names its row, the text that contradicts it, and why")
+        q = text_quote(c["text"], data_root)
+        out.append(("conflict", csv_rel, c["row"], f"{csv_rel} {c['row']} against {q['text']} line {q['line']}: "
+                                                   f"\"{q['quote']}\" ({c['why']})"))
+    for z in d.get("zero_suspect") or []:
+        if not z.get("row") or not z.get("why"):
+            raise MapRefused(f"{Path(path).name}: a zero_suspect entry names its row and why")
+        out.append(("zero_suspect", csv_rel, z["row"], f"{csv_rel} {z['row']} ({z['why']})"))
+    return tuple(out)
+
+
+def table_doubts(cite: dict, data_root) -> list:
+    """The doubts that travel with a cited CSV: `<name>.doubts.json` beside it, pinned to the
+    CSV's sha256 and read whenever the CSV is cited. No spec can opt out; a spec may only add."""
+    path = Path(data_root) / cite["csv"]
+    side = doubts_path(path)
+    if not side.exists():
+        return []
+    return list(_sidecar(str(side), file_sha256(str(side)), cite["csv"], file_sha256(str(path)), str(data_root)))
+
+
 def cited_csv(cite: dict, data_root) -> tuple:
     """The rows of a cited CSV as (line, row), after its sha256 is checked."""
     path = _cited_path(cite, "csv", data_root)
@@ -734,10 +786,11 @@ def _years(rows, ycol: str) -> tuple[int, int]:
     return (min(ys), max(ys)) if ys else (0, 0)
 
 
-def csv_cell(cite: dict, data_root) -> dict:
+def csv_cell(cite: dict, data_root, extra=()) -> dict:
     """One cell: the row whose columns equal `row` (e.g. entity and year), the `column`
     named. Refused when no row or several rows match, when the cell is empty (no figure is
-    not zero), or when the citation's `line` is not the line the row sits on."""
+    not zero), when the citation's `line` is not the line the row sits on, or when the table's
+    doubts (its sidecar) or the spec's added doubts name the cell."""
     rows = cited_csv(cite, data_root)
     col, key = cite.get("column"), cite.get("row") or {}
     if not col or not key:
@@ -759,11 +812,14 @@ def csv_cell(cite: dict, data_root) -> dict:
     v = _int_cell(r[col], f"{cite['csv']} line {ln}")
     if v is None:
         raise MapRefused(f"{cite['csv']} line {ln}: the cell {col} is empty: no figure, which is not zero")
+    why = doubt_on(table_doubts(cite, data_root) + list(extra), cite["csv"], key, v)
+    if why:
+        raise MapRefused(f"{cite['csv']} line {ln}: {why}")
     return {"kind": "cell", "csv": cite["csv"], "sha256": cite["sha256"], "line": ln, "column": col,
             "row": key, "value": v}
 
 
-def csv_count(cite: dict, data_root) -> dict:
+def csv_count(cite: dict, data_root, extra=()) -> dict:
     """A derived count: the rows matching `where` whose `column` is over zero and whose
     `code_column` holds an ISO 3166 alpha-3 code (so regions and aggregates, whose codes are
     empty or OWID_*, are never counted as countries)."""
@@ -775,6 +831,11 @@ def csv_count(cite: dict, data_root) -> dict:
     hit = [(ln, r) for ln, r in rows if all(str(r.get(k, "")) == str(v) for k, v in where.items())]
     if not hit:
         raise MapRefused(f"{cite['csv']}: no row where {where}")
+    for kind, csv_, drow, msg in table_doubts(cite, data_root) + list(extra):
+        if (csv_ is None or csv_ == cite["csv"]) and all(str(drow.get(k)) == str(v) for k, v in where.items()
+                                                        if k in drow):
+            raise MapRefused(f"{cite['csv']}: a count where {where} takes in a doubted row ({kind}: {msg}); "
+                             "a count over a doubted cell is not drawn")
     lines = [ln for ln, r in hit if ISO3.match(r.get(ccol) or "") and (_int_cell(r[col], cite["csv"]) or 0) > 0]
     return {"kind": "count", "csv": cite["csv"], "sha256": cite["sha256"], "column": col, "where": where,
             "rule": (f"rows with an ISO3 {ccol} and {col} over 0: countries as the table codes them, by today's "
@@ -800,13 +861,13 @@ def text_quote(cite: dict, data_root) -> dict:
             "quote": cite["quote"]}
 
 
-def resolve_cite(cite: dict, data_root) -> dict:
+def resolve_cite(cite: dict, data_root, extra=()) -> dict:
     if "text" in cite:
         return text_quote(cite, data_root)
     if "csv" in cite and cite.get("count"):
-        return csv_count(cite, data_root)
+        return csv_count(cite, data_root, extra)
     if "csv" in cite:
-        return csv_cell(cite, data_root)
+        return csv_cell(cite, data_root, extra)
     raise MapRefused(f"a citation is a csv cell, a csv count or a text quote: {cite}")
 
 
@@ -815,18 +876,67 @@ def digits(s: str) -> str:
 
 
 def numeral_supported(numeral: str, got: dict) -> bool:
-    """A numeral is supported by a cell or count when it equals the value, and by a quote
-    when the quote prints it as the card does ("11,000"), or as a word for 0 to 12."""
+    """A cell or count supports a numeral when it equals the value. A quote never does by
+    itself: its citation declares the span (quote_numeral)."""
     if got["kind"] in ("cell", "count"):
         n = digits(numeral)
         return n.lstrip("-").isdigit() and int(n) == got["value"]
-    q = got["quote"]
-    # the numeral as printed, never part of a longer number ("1" is not in "1.5 million" or "1,500")
-    if re.search(r"(?<![\d.,])" + re.escape(numeral) + r"(?![\d.]|,\d)", q):
-        return True
+    return False
+
+
+def _declared(cite: dict, key: str) -> tuple:
+    sp = cite.get(key)
+    if not (isinstance(sp, list) and len(sp) == 2 and all(isinstance(x, int) and not isinstance(x, bool) for x in sp)):
+        raise MapRefused(f"{cite.get('text')} line {cite.get('line')}: a text citation declares {key}: [start, end], "
+                         "character offsets into its quote")
+    s_, e_ = sp
+    q = cite["quote"]
+    if not 0 <= s_ < e_ <= len(q):
+        raise MapRefused(f"{cite.get('text')}: {key} {sp} is outside the quote ({len(q)} characters)")
+    return s_, e_, q[s_:e_]
+
+
+def quote_numeral(cite: dict, numeral: str) -> int:
+    """The number a quote's declared span prints, checked: the span is exactly a numeral (digits
+    with optional thousands commas, or one word zero to twelve), equal to the card's; no scale
+    word or digit group follows it; no decimal separator, digit or digit group stands before it;
+    no negator within the four words before it."""
+    s_, e_, sub = _declared(cite, "numeral_at")
+    q = cite["quote"]
+    where = f"{cite.get('text')} line {cite.get('line')}"
+    if re.fullmatch(r"\d{1,3}(,\d{3})+|\d+", sub):
+        val = int(sub.replace(",", ""))
+    elif sub.lower() in NUMBER_WORDS:
+        val = NUMBER_WORDS.index(sub.lower())
+    else:
+        raise MapRefused(f"{where}: the declared span {sub!r} is not a numeral (digits, or one word zero to twelve)")
     n = digits(numeral)
-    return n.isdigit() and int(n) < len(NUMBER_WORDS) and re.search(
-        NEGATED_WORD + r"\b" + NUMBER_WORDS[int(n)] + r"\b", q, re.I) is not None
+    if not n.isdigit() or int(n) != val:
+        raise MapRefused(f"{where}: the card says {numeral}; the declared span prints {sub!r} ({val})")
+    before, after = q[:s_], q[e_:]
+    if before and (before[-1].isalnum() or before[-1] in SEPARATORS) or GROUP_BEFORE.search(before):
+        raise MapRefused(f"{where}: {sub!r} is part of a longer number or word (before it: {before[-6:]!r})")
+    if after and (after[0].isalnum() or re.match(r"[.,\u00b7]\d", after)) or GROUP_AFTER.match(after):
+        raise MapRefused(f"{where}: {sub!r} is part of a longer number or word (after it: {after[:6]!r})")
+    if SCALE_AFTER.match(after):
+        raise MapRefused(f"{where}: {sub!r} is followed by a scale word ({after[:12].strip()!r}); it is not the count")
+    neg = [w for w in re.findall(r"[A-Za-z]+", before)[-4:] if w.lower() in NEGATORS]
+    if neg:
+        raise MapRefused(f"{where}: {sub!r} is negated by {neg[-1]!r} within the four words before it")
+    return val
+
+
+def quote_year(cite: dict, year: str) -> None:
+    """The year a quote's declared span prints: exactly the card's year, and no other four-digit
+    year anywhere in the quote."""
+    s_, e_, sub = _declared(cite, "year_at")
+    where = f"{cite.get('text')} line {cite.get('line')}"
+    if sub != year:
+        raise MapRefused(f"{where}: the card says {year}; the declared year span prints {sub!r}")
+    others = sorted({y for y in YEAR4.findall(cite["quote"]) if y != year})
+    if others:
+        raise MapRefused(f"{where}: the quote also prints {others}; a quote that names two years does not "
+                         "say which the number belongs to")
 
 
 # ---- doubts a film states about its own table
@@ -919,6 +1029,7 @@ def data_state(spec_id: str, data: dict, data_root, geodata: Path) -> dict:
     if rows and any(c not in rows[0][1] for c in (ecol, ccol, ycol, vcol)):
         raise MapRefused(f"{spec_id}: {data['csv']} lacks a named column ({[ecol, ccol, ycol, vcol]})")
     year = str(data["year"])
+    doubts = table_doubts(data, data_root)
     lo, hi = _years(rows, ycol)
     if not any(r[ycol] == year for _, r in rows):
         raise MapRefused(f"{spec_id}: {data['csv']} has no row for any entity in {year}; its {ycol} runs {lo} to {hi}. "
@@ -985,7 +1096,7 @@ def data_state(spec_id: str, data: dict, data_root, geodata: Path) -> dict:
         v = values.get(iso) if iso else None
         states[adm] = ("nodata" if v is None else "zero" if v == 0 else "cases", iso)
     return {"year": int(year), "values": values, "lines": line_of, "rows": row_of, "states": states,
-            "owner_of_adm": owner_of_adm,
+            "owner_of_adm": owner_of_adm, "doubts": doubts,
             "lit": sorted(k for k, v in values.items() if v), "zero": sorted(k for k, v in values.items() if v == 0),
             "csv": data["csv"], "sha256": data["sha256"], "column": vcol, "countries_file": str(cpath)}
 
@@ -998,7 +1109,7 @@ def _draw_data(cv, spec: dict, proj, geodata: Path, data_root, used: dict, recor
     used[data.get("countries_file", NE_COUNTRIES)] = file_sha256(st["countries_file"])
     clip = spec.get("_clip") or (0.0, 0.0, 1.0, 1.0)   # a view is clipped to its frame; a single view fills the frame
     view = proj.box(clip)
-    doubts = check_doubts(spec, data_root)
+    doubts = st["doubts"] + check_doubts(spec, data_root)
     masks = {}
     in_view = {s: set() for s in DATA_STATES}
     terr_in_view = set()
@@ -1015,23 +1126,29 @@ def _draw_data(cv, spec: dict, proj, geodata: Path, data_root, used: dict, recor
             why = doubt_on(doubts, data["csv"], st["rows"][iso], st["values"][iso])
             if why:
                 raise MapRefused(f"{sid}: {iso} in {st['year']} is drawn from line {st['lines'][iso]}, but {why}")
-        if state == "cases" and spec.get("_panel"):
-            # how much of this lit country, inside the frame, lies under the panel's scrim
-            m8 = Image.new("L", (W // S8, H // S8), 0)
+        if state in ("cases", "zero") and spec.get("_panel"):
+            # how much of this country, inside the frame, lies under the panel's scrim
+            xs = [proj(*pt)[0] for poly in _polys_of(g) for pt in poly[0]]
+            ys = [proj(*pt)[1] for poly in _polys_of(g) for pt in poly[0]]
+            small = (max(xs) - min(xs)) < 160 or (max(ys) - min(ys)) < 160
+            sc = 1 if small else 4
+            m8 = Image.new("L", (W // sc, H // sc), 0)
             d8 = ImageDraw.Draw(m8)
             for poly in _polys_of(g):
-                ring = [(x / S8, y / S8) for x, y in (proj(*pt) for pt in poly[0])]
+                ring = [(x / sc, y / sc) for x, y in (proj(*pt) for pt in poly[0])]
                 if len(ring) > 2:
                     d8.polygon(ring, fill=255)
             a8 = np.asarray(m8) > 0
-            x0, y0, x1, y1 = (int(round(c * n / S8)) for c, n in zip(clip, (W, H, W, H)))
+            x0, y0, x1, y1 = (int(round(c * n / sc)) for c, n in zip(clip, (W, H, W, H)))
             a8 = a8[y0:y1, x0:x1]
             tot = int(a8.sum())
             if tot:
-                cut = max(0, int(round(PANEL["wash_from"] * W / S8)) - x0)
-                k = under.setdefault(iso or props.get("ADM0_A3"), [0, 0])
+                cut = max(0, int(round(PANEL["wash_from"] * W / sc)) - x0)
+                full = max(0, int(round(PANEL["wash_full"] * W / sc)) - x0)
+                k = under.setdefault((iso or props.get("ADM0_A3"), state), [0, 0, 0])
                 k[0] += int(a8[:, cut:].sum())
                 k[1] += tot
+                k[2] += int(a8[:, full:].sum())
         if state not in masks:
             masks[state] = (cv.mask(), cv.mask())
         (fm, fmd), (om, omd) = masks[state]
@@ -1055,10 +1172,12 @@ def _draw_data(cv, spec: dict, proj, geodata: Path, data_root, used: dict, recor
             cv.composite(ImageChops.multiply(fm, _hatch(cv.img.size, hatch)), *_hatch_role(state), stroke=True)
         if orole:
             cv.composite(om, orole, 0.9, stroke=True)
-    for iso, (u, tot) in sorted(under.items()):
-        if tot and u / tot > 0.5:
-            raise MapRefused(f"{sid}: {iso} is lit in {st['year']} but {u / tot:.0%} of it lies under the panel's "
-                             "scrim; move the extent, or draw the map in a framed view that stops before the panel")
+    for (iso, state), (u, tot, past) in sorted(under.items()):
+        what = "lit" if state == "cases" else "drawn as zero"
+        if past or (tot and u / tot > 0.25):
+            raise MapRefused(f"{sid}: {iso} is {what} in {st['year']} but {u / tot:.0%} of it lies under the panel's "
+                             f"scrim ({past} px past its full wash); move the extent, or draw the map in a framed "
+                             "view that stops before the panel")
     lit_in_view = sorted(in_view["cases"])
     exp = data.get("expect_lit")
     if exp is not None and sorted(exp) != lit_in_view:
@@ -1095,7 +1214,8 @@ def _data_figures(spec: dict, record: dict) -> list:
         p = feats[0]
         lon, lat = fg.get("lon", p.get("LABEL_X")), fg.get("lat", p.get("LABEL_Y"))
         places.append({"name": fg.get("label") or p.get("NAME"), "lon": lon, "lat": lat, "style": "hidden",
-                       "anchor": fg.get("anchor", "e"), "big": True, "sub": f"{v:,}"})
+                       "anchor": fg.get("anchor", "e"), "big": True, "sub": f"{v:,}",
+                       "sub_size": SIZES["figure_sub"]})
         record.setdefault("figures", []).append({"code": iso, "value": v, "line": record["_lines"].get(iso)})
     return places
 
@@ -1113,10 +1233,10 @@ def panel_data_figures(spec: dict, data_root) -> list:
         cite = {k: data[k] for k in ("csv", "sha256", "licence", "source")}
         cite.update(column=data["columns"]["value"],
                     row={data["columns"]["entity"]: pf["entity"], data["columns"]["year"]: str(data["year"])})
-        got = csv_cell(cite, data_root)
-        why = doubt_on(check_doubts(spec, data_root), got["csv"], got["row"], got["value"])
-        if why:
-            raise MapRefused(f"{spec.get('id', '')}: the panel figure for {pf['entity']}: {why}")
+        try:
+            got = csv_cell(cite, data_root, check_doubts(spec, data_root))
+        except MapRefused as e:
+            raise MapRefused(f"{spec.get('id', '')}: the panel figure for {pf['entity']}: {e}") from None
         out.append(text.replace("{n}", f"{got['value']:,}"))
     return out
 
@@ -1423,7 +1543,7 @@ def _draw_places(cv: Canvas, spec: dict, proj: Projection) -> None:
         asc, desc = f.getmetrics()
         lines = [(name, font, size, role)]
         if p.get("sub"):
-            lines.append((p["sub"], "structure", SIZES["point_sub"],
+            lines.append((p["sub"], "structure", p.get("sub_size", SIZES["point_sub"]),
                           "cold_text" if p.get("sub_role") == "cold" else "text"))
         total = sum(cv.font(fw, sz).getmetrics()[0] + cv.font(fw, sz).getmetrics()[1] * 0.6 for _, fw, sz, _ in lines)
         if oy < 0:
@@ -1651,12 +1771,12 @@ def _draw_view(cv: Canvas, view: dict, proj: Projection, geodata: Path, used: di
 KEEPOUT_PAD = 14  # px at 1080p around the source line
 
 
-def _source_keepout(cv: Canvas, src: str) -> list:
+def _source_keepout(cv: Canvas, src: str, at: dict = SOURCE_LINE) -> list:
     """The 2x rectangle around the source line that no map stroke may cross."""
     f = cv.font("structure", SIZES["source"])
     asc, _ = f.getmetrics()
-    x = SOURCE_LINE["x"] * W * SS
-    base = SOURCE_LINE["baseline"] * H * SS
+    x = at["x"] * W * SS
+    base = at["baseline"] * H * SS
     w = cv.measure(src, "structure", SIZES["source"])
     pad = KEEPOUT_PAD * SS
     return [x - pad, base - asc - pad, x + w + pad, H * SS]
@@ -1695,7 +1815,8 @@ def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
     frame = tuple(spec.get("frame") or (DEFAULT_FRAME if panel else FULL_FRAME))
     used: dict[str, str] = {}
     src = source_line(spec)
-    cv.keepout = _source_keepout(cv, src)
+    at = source_at(spec)
+    cv.keepout = _source_keepout(cv, src, at)
     views = spec.get("views")
     if not views:
         proj = Projection(spec["extent"], frame, (W, H))
@@ -1730,7 +1851,7 @@ def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
         spec = {**spec, "notes": [n for n in spec.get("notes", []) if n not in terr_notes]}
     if panel:
         _draw_panel(cv, spec)
-    cv.text((SOURCE_LINE["x"] * W * SS, SOURCE_LINE["baseline"] * H * SS), src, "structure", SIZES["source"],
+    cv.text((at["x"] * W * SS, at["baseline"] * H * SS), src, "structure", SIZES["source"],
             "muted", halo=True, kind="source")
     if cv.boxes[-1]["box"][2] > 0.96 * W:
         raise MapRefused(f"{spec['id']}: the source line is wider than the frame's safe width")

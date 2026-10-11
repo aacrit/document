@@ -12,12 +12,16 @@ render: the citation names the file, its sha256, its licence, the column and
 the row's key (and, optionally, the line it sits on). A numeral that is not
 that cell is refused; so is a year the table has no row for, unless another
 source is cited the same way (a text file, its sha256, the line and a quote
-that prints the number and the year in the same span). The year is always tied
+that declares where in it the number and the year stand: `numeral_at` and
+`year_at`, character offsets into the quote, checked by maps.quote_numeral and
+maps.quote_year; a quote's free text is never searched for a number). The year is always tied
 to the numeral's own citation: its row, or its quote. Every other number on the
 card (a sub-line such as "36 of today's countries reporting cases") carries its
 own citation for the same year. Captions carry no uncited digit or number word.
-A spec's `conflicts` (a cell a cited text contradicts) and `zero_suspect` (a zero
-the film does not take as a report of no cases) refuse the cells they name.
+A table's doubts live beside it (`<table>.doubts.json`, pinned to its sha256):
+`conflicts` (a cell a cited text contradicts) and `zero_suspect` (a zero not taken
+as a report of no cases) refuse the cells they name whenever the table is cited.
+A spec may add doubts of its own, never remove the table's.
 
 Motion: a count that changes on screen is a sequence of cards, each a cited
 value, joined by cuts (`check_sequence`). The engine never draws a value
@@ -78,13 +82,27 @@ def _year_of(got: dict, cite: dict) -> str | None:
     return None
 
 
-def _year_tied(got: dict, cite: dict, year: str) -> bool:
-    """The year belongs to the number's own citation: the cell's or count's own row year, or
-    printed in the same quoted span that prints the number."""
+def _check_number(cid: str, where: str, numeral: str, year: str, got: dict, cite: dict) -> None:
+    """A number and its year from one citation. A cell or count: the value equals the numeral and
+    its own row (or where) is the year. A quote: its declared `numeral_at` span prints the numeral
+    and its declared `year_at` span the year, with no other year in the quote (maps.quote_numeral,
+    maps.quote_year); the free text of a quote is never searched for either."""
+    if got["kind"] == "quote":
+        try:
+            MP.quote_numeral(cite, numeral)
+            MP.quote_year(cite, year)
+        except MapRefused as e:
+            raise MapRefused(f"{cid}: {where}: {e}") from None
+        return
+    if not MP.numeral_supported(numeral, got):
+        at = (f"{got['csv']} line {got.get('line')} column {got['column']}" if got["kind"] == "cell"
+              else f"{got['csv']} count {got.get('where')}")
+        raise MapRefused(f"{cid}: {where}: the card says {numeral}; the cited {at} holds {got['value']!r}. "
+                         "A number on screen never differs from its data")
     y = _year_of(got, cite)
-    if y is not None:
-        return y == year
-    return re.search(r"(?<!\d)" + year + r"(?!\d)", got["quote"]) is not None
+    if y != year:
+        raise MapRefused(f"{cid}: {where} is cited for {y}; the card says {year}. The year stands in the "
+                         "numeral's own citation, or the card is not drawn")
 
 
 def _words_check(cid: str, where: str, text: str) -> None:
@@ -144,27 +162,16 @@ def check_card(card: dict, data_root) -> dict:
         if s not in used:
             raise MapRefused(f"{cid}: the source {s!r} is on the frame but nothing on the card cites it")
 
-    got = MP.resolve_cite(card["cite"], data_root)
-    if not MP.numeral_supported(card["numeral"], got):
-        held = got.get("value", got.get("quote"))
-        where = (f"{got['csv']} line {got.get('line')} column {got['column']}" if got["kind"] == "cell" else
-                 f"{got['csv']} count {got.get('where')}" if got["kind"] == "count" else
-                 f"{got['text']} line {got['line']}")
-        raise MapRefused(f"{cid}: the card says {card['numeral']}; the cited {where} holds {held!r}. "
-                         "A number on screen never differs from its data")
-    if not _year_tied(got, card["cite"], year):
-        y = _year_of(got, card["cite"])
-        raise MapRefused(f"{cid}: the card says {year}; " + (f"the numeral's cited row is {y}" if y else
-                         "the numeral's quoted span does not print it") +
-                         ". The year stands in the numeral's own citation, or the card is not drawn")
-    doubts = MP.check_doubts(card, data_root)
+    # the table's own doubts (its sidecar) always apply; the card may only add to them
+    extra = MP.check_doubts(card, data_root)
 
-    def doubted(r, where):
-        if r["kind"] == "cell":
-            why = MP.doubt_on(doubts, r["csv"], r["row"], r["value"])
-            if why:
-                raise MapRefused(f"{cid}: {where} ({r['csv']} line {r['line']}): {why}")
-    doubted(got, "the numeral")
+    def resolve(cite, where):
+        try:
+            return MP.resolve_cite(cite, data_root, extra)
+        except MapRefused as e:
+            raise MapRefused(f"{cid}: {where}: {e}") from None
+    got = resolve(card["cite"], "the numeral")
+    _check_number(cid, "the numeral", card["numeral"], year, got, card["cite"])
     lines = []
     for i, ln in enumerate(card.get("lines", [])):
         text = ln.get("text", "")
@@ -173,14 +180,8 @@ def check_card(card: dict, data_root) -> dict:
         _words_check(cid, f"lines[{i}]", text.replace("{n}", ""))
         if not NUMERAL_RE.match(ln["numeral"]):
             raise MapRefused(f"{cid}: lines[{i}] numeral {ln['numeral']!r} is a whole count")
-        r = MP.resolve_cite(ln["cite"], data_root)
-        if not MP.numeral_supported(ln["numeral"], r):
-            raise MapRefused(f"{cid}: lines[{i}] says {ln['numeral']}; its citation holds "
-                             f"{r.get('value', r.get('quote'))!r}")
-        if not _year_tied(r, ln["cite"], year):
-            raise MapRefused(f"{cid}: lines[{i}] is cited for {_year_of(r, ln['cite']) or 'a span without the year'}; "
-                             f"the card is {year}")
-        doubted(r, f"lines[{i}]")
+        r = resolve(ln["cite"], f"lines[{i}]")
+        _check_number(cid, f"lines[{i}]", ln["numeral"], year, r, ln["cite"])
         lines.append(r)
     also = [MP.resolve_cite(c, data_root) for c in card.get("also", [])]
     return {"numeral": got, "year": [], "lines": lines, "also": also}
@@ -247,7 +248,8 @@ def render_card(card: dict, data_root, *, fonts: M.Fonts | None = None,
     for i, ln in enumerate(card.get("lines", [])):
         cv.text((cx, (CARD["line_first"] + i * CARD["line_step"]) * H * SS), ln["text"].replace("{n}", ln["numeral"]),
                 "structure", CARD["line"], "muted", anchor="ms", halo=False, kind="line")
-    cv.text((MP.SOURCE_LINE["x"] * W * SS, MP.SOURCE_LINE["baseline"] * H * SS), src, "structure",
+    at = MP.source_at(card)
+    cv.text((at["x"] * W * SS, at["baseline"] * H * SS), src, "structure",
             MP.SIZES["source"], "muted", halo=False, kind="source")
     for b in cv.boxes:
         bx = b["box"]
