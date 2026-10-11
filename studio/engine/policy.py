@@ -328,13 +328,40 @@ def film_settings(play: dict) -> tuple[dict, dict, list[str]]:
     return settings, stated, problems
 
 
-def printed_shares(text: str) -> list[float]:
-    """Shares a text prints: '16 percent', '16%', '16 per cent', and fractions ('one sixth', 'a fifth')."""
+FLOOR_WORDS = ("asks", "floor", "rule", "grammar", "requires", "at least", "the standard")
+BEFORE_FLOOR = ("under", "below", "short of", "less than")
+CLAUSE = re.compile(r"[^,;:.!?]+")
+
+
+def printed_share_spans(text: str) -> list[tuple[float, int, int]]:
+    """Each share a text prints, with where it stands: '16 percent', '16%',
+    '16 per cent', and fractions ('one sixth', 'a fifth'), in text order."""
     t = str(text or "").lower()
-    out = [float(m.group(1)) / 100 for m in re.finditer(r"(\d+(?:\.\d+)?)\s*(?:%|per\s*cent|percent)", t)]
+    out = [(float(m.group(1)) / 100, m.start(), m.end())
+           for m in re.finditer(r"(\d+(?:\.\d+)?)\s*(?:%|per\s*cent|percent)", t)]
     for word, v in FRACTIONS.items():
-        out += [v] * len(re.findall(rf"\b{word}s?\b", t))
-    return out
+        out += [(v, m.start(), m.end()) for m in re.finditer(rf"\b{word}s?\b", t)]
+    return sorted(out, key=lambda x: x[1])
+
+
+def printed_shares(text: str) -> list[float]:
+    """Shares a text prints (printed_share_spans without positions)."""
+    return [v for v, _, _ in printed_share_spans(text)]
+
+
+def phrased_as_floor(text: str, start: int, end: int) -> bool:
+    """A printed share stands as the rule's floor, not as a measured fact,
+    only when its clause (between , ; : . ! ?) holds a floor word (asks,
+    floor, rule, grammar, requires, at least, the standard) and a shortfall
+    word (under, below, short of, less than) comes before it in that clause:
+    "under the fifth the grammar asks", "under the 30 percent floor"."""
+    t = str(text or "").lower()
+    for m in CLAUSE.finditer(t):
+        if m.start() <= start and end <= m.end():
+            clause, before = m.group(0), t[m.start(): start]
+            return (any(re.search(rf"\b{re.escape(w)}\b", clause) for w in FLOOR_WORDS)
+                    and any(re.search(rf"\b{re.escape(w)}\b", before) for w in BEFORE_FLOOR))
+    return False
 
 
 def _share(x) -> float | None:
@@ -344,16 +371,20 @@ def _share(x) -> float | None:
 def _states(sf: dict, text: str, siblings: list[dict]) -> tuple[bool, dict]:
     """The word-and-number test on one text: it names what is short, says it
     is short (a share within 3 points of the measured one, or a word of
-    shortfall), and prints no share that is neither a measured share of a
-    shortfall stated on this card (within 3 points) nor one of their floors."""
+    shortfall), and every share it prints is within 3 points of a measured
+    share stated on this card, or is exactly one of their floors phrased as
+    the rule's floor (phrased_as_floor). A floor printed as a fact ("Women
+    carry 30 percent of the testimony.") is a false number."""
     t = _norm(text)
     measured = [m for m in (_share(s.get("measured")) for s in siblings) if m is not None]
     floors = [f for f in (_share(s.get("floor")) for s in siblings) if f is not None]
-    nums = printed_shares(t)
-    stray = [n for n in nums if not any(abs(n - m) <= SHORTFALL_TOL for m in measured)
-             and not any(abs(n - f) <= FLOOR_EXACT for f in floors)]
+    spans = printed_share_spans(t)
+    nums = [n for n, _, _ in spans]
+    stray = [n for n, a, b in spans if not any(abs(n - m) <= SHORTFALL_TOL for m in measured)
+             and not (any(abs(n - f) <= FLOOR_EXACT for f in floors) and phrased_as_floor(t, a, b))]
     m0 = _share(sf.get("measured"))
-    mine = [n for n in nums if m0 is not None and abs(n - m0) <= SHORTFALL_TOL]
+    mine = [n for n, a, b in spans if m0 is not None and abs(n - m0) <= SHORTFALL_TOL
+            and not (any(abs(n - f) <= FLOOR_EXACT for f in floors) and phrased_as_floor(t, a, b))]
     names = [w for w in SHORTFALL_WORDS.get(sf.get("what"), ()) if w in t]
     short = [w for w in SHORT_WORDS if re.search(rf"\b{w}\b", t)]
     ok = bool(names) and bool(mine or short) and not stray

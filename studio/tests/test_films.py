@@ -340,7 +340,7 @@ def test_e9_a_shortfall_names_a_card_that_states_it(film):
     with pytest.raises(R.Refused, match=r"stated_as is not on the card, or does not itself"):
         _plan(film, "stated-as-says-nothing")
     _with_card_d(film, [SF_READ], [CARD_D[0], "The readings in this film are 25 percent of its running time, under a fifth."])
-    with pytest.raises(R.Refused, match=r"prints 25.0%, which is no measured share"):
+    with pytest.raises(R.Refused, match=r"prints 25.0%, 20.0%, which is no measured share"):
         _plan(film, "card-false-number")
     _with_card_d(film, [dict(SF_READ, stated_as="a sixth of the film")])
     with pytest.raises(R.Refused, match=r"shortfall-stated"):
@@ -582,3 +582,26 @@ def test_e11_a_cached_span_whose_bytes_changed_is_cut_again(film):
     again = R.cached_span(film, src, 1.0, 2.5, video=False)
     assert again["file"] == first["file"] and R.sha256_file(Path(again["file"])) == first["sha256"]
     assert first["edges"] == R.edge_digest(src)
+
+
+CARD_D_REAL = ("The readings and recordings in this film are about one sixth of its running time, under the fifth the "
+               "grammar asks, and only one of their voices is a woman's. The film says so rather than invent.")
+SMALLPOX_SF = [{"what": "readings", "measured": 0.157, "floor": 0.20}, {"what": "women", "measured": 0.12, "floor": 0.30}]
+
+
+@pytest.mark.parametrize("text, ok", [
+    (CARD_D_REAL, True),                                                        # the founder's card, as written
+    ("Women carry 30 percent of the testimony.", False),                        # the floor printed as a measured fact
+    ("Women's words are under the 30 percent floor.", True),                    # the floor phrased as the rule's floor
+    ("30 percent of voices are women.", False),
+    ("Women's words are 30 percent, under the floor.", False),                  # the value is not in the floor's clause
+    ("Women's words are under 30 percent.", False),                             # no floor word: read as a measured share
+    ("Only 12 percent of the testimony is women's, short of the 30 percent the rule requires.", True),
+])
+def test_e9_a_printed_floor_counts_only_when_phrased_as_the_floor(text, ok):
+    women = SMALLPOX_SF[1]
+    stated, how = POL.shortfall_stated(women, CARD_D_REAL.split(".")[0] + ". " + text if text != CARD_D_REAL else text,
+                                       SMALLPOX_SF)
+    assert stated is ok, how
+    if not ok:
+        assert 0.30 in how["stray_numbers"]

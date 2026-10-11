@@ -1484,7 +1484,7 @@ def shortfall_lints(lint, play: dict, shots: list[dict], settings: dict) -> list
             stated, how = POL.shortfall_stated(sf, " ".join(card.get("text") or []), siblings)
             if how.get("stray_numbers"):
                 probs.append(f"{card['id']} prints {', '.join(f'{n:.1%}' for n in how['stray_numbers'])}, which is no "
-                             "measured share it states (within 3 points) and no floor")
+                             "measured share it states (within 3 points) and no floor phrased as the rule's floor")
             if sf.get("stated_as") and not (how.get("stated_as_on_card") and how["stated_as_test"]["names_it"]
                                             and (how["stated_as_test"]["numbers_of_it"] or how["stated_as_test"]["shortfall_words"])):
                 probs.append("stated_as is not on the card, or does not itself name what is short and say it is short")
