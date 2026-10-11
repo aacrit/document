@@ -453,6 +453,52 @@ def _ws_words(text: str) -> str:
     return " ".join(str(text or "").split())
 
 
+class TextUndrawable(TextOverflow):
+    """A character with no glyph in the font that would draw it: FreeType
+    would draw the font's empty box (.notdef) in its place, which is a word
+    cut as surely as a dropped line (E15)."""
+
+
+SAFE_W = 90.0                      # % of W: a one-line text (a card's title, a chapter line, its dates) stays inside
+
+
+@lru_cache(maxsize=64)
+def _notdef(path: str, size: int) -> tuple:
+    m = _font(path, size).getmask("\U0010FFFD")     # a private-use code point no film face maps
+    return m.size, bytes(m)
+
+
+@lru_cache(maxsize=4096)
+def _has_glyph(path: str, size: int, ch: str) -> bool:
+    if ch.isspace():
+        return True
+    m = _font(path, size).getmask(ch)
+    return (m.size, bytes(m)) != _notdef(path, size)
+
+
+def missing_glyphs(text: str, font, data_font=None) -> list[str]:
+    """The characters of ``text`` that its font has no glyph for (numeral runs
+    are read in ``data_font`` when one is given, as they are drawn)."""
+    out = set()
+    runs = _runs(str(text or "")) if data_font is not None else [(str(text or ""), False)]
+    for frag, num in runs:
+        f = data_font if num else font
+        out |= {ch for ch in frag if not _has_glyph(f.path, f.size, ch)}
+    return sorted(out)
+
+
+def check_text(text: str, font, data_font=None, *, max_w: float | None = None, what: str = "text") -> float:
+    """Every character has a glyph, and the one line fits ``max_w`` px; returns
+    its width. Raises TextUndrawable or TextOverflow: nothing is cut."""
+    miss = missing_glyphs(text, font, data_font)
+    if miss:
+        raise TextUndrawable(f"{what}: no glyph for {''.join(miss)!r} in {Path(font.path).name}: {text!r}")
+    w = _measure(str(text or ""), font, data_font)
+    if max_w is not None and w > max_w + 0.5:
+        raise TextOverflow(f"{what} is {w:.0f} px wide; at most {max_w:.0f} px fit on one line: {text!r}")
+    return w
+
+
 def _scale_alpha(layer: Image.Image, k: float) -> Image.Image:
     if k >= 1.0:
         return layer
@@ -575,6 +621,21 @@ def watermark(img: Image.Image, t: float, *, start: float = 0.0, card_spans=(), 
 # change that is let go after about 3 s, and a small class glyph in the corner
 # that stays on every frame. Together they replace the G2 plate (A1).
 # --------------------------------------------------------------------------
+
+
+LABEL_MAX_W = 50.0                  # % of W: a provenance label ends before the middle of the frame (E15)
+
+
+def label_check(L: Layout, text: str, fonts: Fonts) -> float:
+    """A provenance label is one line from the glyph to at most LABEL_MAX_W of
+    the width, every glyph present, or TextOverflow (E15)."""
+    px = L.px(LABEL["size"])
+    w = check_text(text, _font(fonts.structure, px), _font(fonts.data, max(1, round(px * 0.94))), what="a provenance label")
+    gx, _ = glyph_origin(L)
+    right = gx + glyph_px(L) + LABEL["gap"] * px + w
+    if right > L.w(LABEL_MAX_W) + 0.5:
+        raise TextOverflow(f"a provenance label runs to {100 * right / L.W:.1f}% of the width; at most {LABEL_MAX_W:g}%: {text!r}")
+    return w
 
 
 def mark_label(cls: str, year: str | None = None, extra: str = "") -> str:
@@ -818,6 +879,11 @@ def lower_third_layout(L: Layout, lines, fonts: Fonts, kind: str = "speaker", fl
                 raise TextOverflow(("a flagged lower third's source line must fit on one line: " if flag else "") + str(e)) from None
             for i, wrapped in enumerate(wrapped_src):
                 rows.append(("source" if i == 0 else "source2", wrapped, f_src, f_src_n, LT["source"], LT["lh_source"]))
+    # E15: a name or a role is never wrapped (BRAND-KIT 8) and never cut: it fits LT.max_w or is refused
+    for rk, text, font, dfont, _, _ in rows:
+        check_text(text, font, dfont, max_w=max_w, what=f"a lower third's {rk} line")
+    if flag:
+        check_text(flag, _font(fonts.display_italic, px(LT["flag_f"])), None, max_w=max_w, what="a lower third's flag")
     # Stack from the bottom up so the last line's box bottom sits at LT.bottom.
     y = L.h(LT["bottom"])
     order = 0
@@ -931,7 +997,8 @@ def lower_third_frame(img: Image.Image, t: float, *, start: float, end: float, l
     return Image.alpha_composite(out, layer)
 
 
-OVERLAY = dict(right=4.0, bottom=92.0, size=2.8, wash=0.5, wash_w=40.0, feather=4.0, rise=0.8, exit=0.5)
+OVERLAY = dict(right=4.0, bottom=92.0, size=2.8, wash=0.5, wash_w=40.0, feather=4.0, rise=0.8, exit=0.5,
+               max_w=56.0)          # E15: the lower third's measure, mirrored
 
 
 def overlay_frame(img: Image.Image, t: float, *, start: float, end: float, text: str, fonts: Fonts) -> Image.Image:
@@ -970,6 +1037,14 @@ def overlay_frame(img: Image.Image, t: float, *, start: float, end: float, text:
     return Image.alpha_composite(out, _shift(sub, (1.0 - p) * L.h(OVERLAY["rise"])))
 
 
+def overlay_check(L: Layout, text: str, fonts: Fonts) -> float:
+    """An overlay is one line, flush right at 4% of width: it fits OVERLAY.max_w
+    with every glyph, or TextOverflow (E15). Returns its width."""
+    px = L.px(OVERLAY["size"])
+    return check_text(text, _font(fonts.structure, px), _font(fonts.data, round(px * 0.94)),
+                      max_w=L.w(OVERLAY["max_w"]), what="an overlay")
+
+
 def lower_third_top(L: Layout, lines, fonts: Fonts, kind="speaker", flag=None) -> float:
     """Top edge (px) of a lower third's block, for raising a subtitle above it."""
     return lower_third_layout(L, lines, fonts, kind, flag)[1]
@@ -978,6 +1053,13 @@ def lower_third_top(L: Layout, lines, fonts: Fonts, kind="speaker", flag=None) -
 # --------------------------------------------------------------------------
 # Subtitles (layout only: the film ships subtitles as tracks, never burned in).
 # --------------------------------------------------------------------------
+
+
+def subtitle_check(L: Layout, text: str, font_path: str, *, nastaliq: bool = False) -> list[float]:
+    """A burned cue's lines as written (one per ``\\n``): each fits SUB.max_w of
+    the width with every glyph, or TextOverflow (E15). Returns the widths."""
+    f = _font(font_path, L.px(SUB["size"]))
+    return [check_text(ln, f, max_w=L.w(SUB["max_w"]), what="a burned subtitle line") for ln in str(text).split("\n")]
 
 
 def subtitle_frame(img: Image.Image, text: str, font_path: str, *, rtl: bool = False, nastaliq: bool = False,
@@ -1018,6 +1100,27 @@ def _black(size) -> Image.Image:
     return Image.new("RGBA", size, PALETTE["black"] + (255,))
 
 
+def chapter_card_layout(L: Layout, number: int, title: str, dates: str, fonts: Fonts) -> dict:
+    """The chapter card's two lines as drawn (E15): ``<number>  <title>`` and
+    the dates, each one line inside SAFE_W of the width, every glyph present,
+    or TextOverflow. ``chapter_card_frame`` draws these records."""
+    f_t = _font(fonts.display, L.px(CHAPTER["title"]))
+    f_n = _font(fonts.data, L.px(CHAPTER["title"]))
+    f_d = _font(fonts.data, L.px(CHAPTER["dates"]))
+    num = f"{number}"
+    gap = 0.55 * f_t.size
+    check_text(num, f_n, what="the chapter number")
+    check_text(title, f_t, what="the chapter title")
+    w = f_n.getlength(num) + gap + f_t.getlength(title)
+    if w > L.w(SAFE_W) + 0.5:
+        raise TextOverflow(f"the chapter line is {100 * w / L.W:.1f}% of the width; at most {SAFE_W:g}% fit on one line: "
+                           f"{num}  {title!r}")
+    dw = check_text(dates, f_d, max_w=L.w(SAFE_W), what="the chapter dates") if dates else 0.0
+    return {"fonts": (f_t, f_n, f_d), "gap": gap,
+            "lines": [{"role": "title", "text": f"{num} {title}", "num": num, "title": title, "x": (L.W - w) / 2.0, "w": w},
+                      {"role": "dates", "text": dates, "x": (L.W - dw) / 2.0, "w": dw}]}
+
+
 def chapter_card_frame(img: Image.Image, t: float, *, start: float, end: float, number: int, title: str,
                        dates: str, fonts: Fonts) -> Image.Image:
     """``<number>  <title>`` on one line, the dates beneath in tabular figures
@@ -1029,15 +1132,12 @@ def chapter_card_frame(img: Image.Image, t: float, *, start: float, end: float, 
         return base
     L = Layout(*base.size)
     exit_k = fade_out(t, end, CHAPTER["exit"])
-    f_t = _font(fonts.display, L.px(CHAPTER["title"]))
-    f_n = _font(fonts.data, L.px(CHAPTER["title"]))
-    f_d = _font(fonts.data, L.px(CHAPTER["dates"]))
+    lay = chapter_card_layout(L, number, title, dates, fonts)
+    f_t, f_n, f_d = lay["fonts"]
+    head, dl = lay["lines"]
     layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
-    num = f"{number}"
-    gap = 0.55 * f_t.size
-    w = f_n.getlength(num) + gap + f_t.getlength(title)
-    x = (L.W - w) / 2.0
+    num, title, gap, x = head["num"], head["title"], lay["gap"], head["x"]
     by = L.h(CHAPTER["baseline"])
     p = ARRIVE.progress(t - start)
     a = clamp01(p) * exit_k
@@ -1057,8 +1157,7 @@ def chapter_card_frame(img: Image.Image, t: float, *, start: float, end: float, 
     if dp > 0:
         sub = Image.new("RGBA", base.size, (0, 0, 0, 0))
         sd = ImageDraw.Draw(sub)
-        dw = f_d.getlength(dates)
-        sd.text(((L.W - dw) / 2.0, ry + L.h(1.2) + f_d.size), dates, font=f_d, fill=_rgba(PALETTE["bone"], clamp01(dp) * 0.8 * exit_k), anchor="ls")
+        sd.text((dl["x"], ry + L.h(1.2) + f_d.size), dl["text"], font=f_d, fill=_rgba(PALETTE["bone"], clamp01(dp) * 0.8 * exit_k), anchor="ls")
         layer.alpha_composite(_shift(sub, (1.0 - clamp01(dp)) * L.h(CHAPTER["rise"])))
     return Image.alpha_composite(base, layer)
 
@@ -1083,6 +1182,10 @@ def card_layout(L: Layout, texts, fonts: Fonts, what: str = "card") -> dict:
     them with the intended text. At scale 1 the arithmetic is the G2 card's,
     so a card that always fitted keeps its pixels."""
     texts = [str(x) for x in (texts or [])]
+    for i, tx in enumerate(texts):
+        px = L.px(SILENT["size"] if i == 0 else SILENT["searched"])
+        check_text(tx, _font(fonts.display if i == 0 else fonts.structure, px), _font(fonts.data, round(px * 0.94)),
+                   what=f"{what}, element {i}")
     max_w = L.w(SILENT["max_w"])
     safe_top, safe_bottom = L.h(SILENT["safe_top"]), L.h(SILENT["safe_bottom"])
     steps = int(round((1.0 - SILENT["min_scale"]) / SILENT["scale_step"]))
@@ -1195,6 +1298,15 @@ def draw_wordmark(d: ImageDraw.ImageDraw, x: float, baseline: float, px: int, fo
     d.text((x + f_v.getlength("void") + 0.45 * px, baseline), "document", font=f_d, fill=_rgba(PALETTE["bone"], alpha), anchor="ls")
 
 
+def title_card_layout(L: Layout, title: str, fonts: Fonts) -> dict:
+    """The title card's line as drawn (E15): one line inside SAFE_W, every glyph
+    present, or TextOverflow; the wordmark beneath is fixed."""
+    f_t = _font(fonts.display, L.px(TITLE["size"]))
+    w = check_text(title, f_t, max_w=L.w(SAFE_W), what="the film title")
+    return {"font": f_t, "lines": [{"role": "title", "text": title, "x": (L.W - w) / 2.0, "w": w},
+                                   {"role": "wordmark", "text": "void document"}]}
+
+
 def title_card_frame(img: Image.Image, t: float, *, start: float, end: float, title: str, fonts: Fonts) -> Image.Image:
     """Film title on one line, ``void document`` beneath (GRAMMAR 9), 5 s, CARD.
     In: the title arrives on ARRIVE (rise 0.6% of H); the wordmark on SETTLE
@@ -1204,14 +1316,14 @@ def title_card_frame(img: Image.Image, t: float, *, start: float, end: float, ti
         return base
     L = Layout(*base.size)
     exit_k = fade_out(t, end, TITLE["exit"])
-    f_t = _font(fonts.display, L.px(TITLE["size"]))
+    lay = title_card_layout(L, title, fonts)
+    f_t = lay["font"]
     layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
     p = ARRIVE.progress(t - start)
     sub = Image.new("RGBA", base.size, (0, 0, 0, 0))
     sd = ImageDraw.Draw(sub)
-    w = f_t.getlength(title)
     by = L.h(50.0)
-    sd.text(((L.W - w) / 2.0, by), title, font=f_t, fill=_rgba(PALETTE["bone"], clamp01(p) * exit_k), anchor="ls")
+    sd.text((lay["lines"][0]["x"], by), title, font=f_t, fill=_rgba(PALETTE["bone"], clamp01(p) * exit_k), anchor="ls")
     layer.alpha_composite(_shift(sub, (1.0 - clamp01(p)) * L.h(TITLE["rise"])))
     wp = SETTLE.progress(t - start - 0.4) if t >= start + 0.4 else 0.0
     if wp > 0:
@@ -1222,6 +1334,55 @@ def title_card_frame(img: Image.Image, t: float, *, start: float, end: float, ti
         draw_wordmark(sd, (L.W - ww) / 2.0, by + L.h(TITLE["gap"]) + px, px, fonts, clamp01(wp) * exit_k)
         layer.alpha_composite(_shift(sub, (1.0 - clamp01(wp)) * L.h(CHAPTER["rise"])))
     return Image.alpha_composite(base, layer)
+
+
+def credits_fonts(L: Layout, fonts: Fonts):
+    return (_font(fonts.data, L.px(CREDITS["heading"])), _font(fonts.structure, L.px(CREDITS["size"])),
+            _font(fonts.data, round(L.px(CREDITS["size"]) * 0.94)))
+
+
+def credits_wrap(L: Layout, text: str, fonts: Fonts, chars: int = 90) -> list[str]:
+    """A credit's lines: broken at ``chars`` characters (the G2 credits), and
+    any line still wider than the column (CREDITS.col_w) broken again by its
+    measured width, so every word is drawn inside the column (E15)."""
+    _, f_l, f_n = credits_fonts(L, fonts)
+    col = L.w(CREDITS["col_w"])
+    out, cur = [], ""
+    for w in str(text).split():
+        if cur and len(cur) + 1 + len(w) > chars:
+            out.append(cur)
+            cur = w
+        else:
+            cur = (cur + " " + w).strip()
+    if cur:
+        out.append(cur)
+    final = []
+    for ln in out:
+        final += _wrap(ln, f_l, f_n, col) if _measure(ln, f_l, f_n) > col else [ln]
+    return final
+
+
+def credits_layout(L: Layout, blocks, fonts: Fonts) -> dict:
+    """Where each credit line sits on the roll, from the roll's top (px), and
+    when it has fully entered the frame (s after the credits start). Every
+    line fits the column with its glyphs, or TextOverflow (E15)."""
+    f_h, f_l, f_n = credits_fonts(L, fonts)
+    lh = f_l.size * CREDITS["lh"]
+    col = L.w(CREDITS["col_w"])
+    speed = L.h(CREDITS["speed"])
+    y, lines = 0.0, []
+    for heading, rows in blocks:
+        check_text(heading.upper(), f_h, what="a credits heading")
+        if _tracked_width(heading.upper(), f_h, 0.12) > col + 0.5:
+            raise TextOverflow(f"a credits heading is wider than the column: {heading!r}")
+        y += lh * 1.3
+        for ln in rows:
+            w = check_text(ln, f_l, f_n, max_w=col, what="a credit line")
+            lines.append({"text": ln, "y": y, "w": w, "entered_s": (y + f_l.size * 0.9 + f_l.size * 0.3) / speed})
+            y += lh
+        y += lh * 0.8
+    return {"lines": lines, "height": y, "speed": speed,
+            "last_entered_s": lines[-1]["entered_s"] if lines else 0.0}
 
 
 def credits_frame(img: Image.Image, t: float, *, start: float, blocks, fonts: Fonts) -> Image.Image:

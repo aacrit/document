@@ -584,9 +584,6 @@ def card_kind(shot: dict) -> str:
     return "statement"
 
 
-CARD_SAFE_W = 90.0                  # % of W: a one-line card (title, chapter) stays inside graphics safe
-
-
 def card_text_check(shot: dict, W: int, H: int, fonts: M.Fonts | None = None) -> dict:
     """E15: what a card shot draws of its ``text[]``, from the same layout the
     drawer uses. Returns ``fits`` (False with ``why`` when the text cannot be
@@ -610,24 +607,21 @@ def card_text_check(shot: dict, W: int, H: int, fonts: M.Fonts | None = None) ->
     if ck in ("black", "credits"):          # neither draws the shot's text (the credits draw the plan's blocks)
         out["missing"] = drawn_as([])
         return out
-    if ck == "title":
-        f_t = M._font(fonts.display, L.px(M.TITLE["size"]))
-        title = texts[0] if texts else ""
-        w = f_t.getlength(title)
-        if w > L.w(CARD_SAFE_W):
-            out.update(fits=False, why=f"the title is {100 * w / W:.1f}% of the width; at most {CARD_SAFE_W:g}% on one line")
-        out["missing"] = drawn_as([norm(title)] + ["void document"] * (len(texts) > 1))
-        return out
-    if ck == "chapter":
-        m = CHAPTER_RE.match(texts[0]) if texts else None
-        f_t = M._font(fonts.display, L.px(M.CHAPTER["title"]))
-        f_n = M._font(fonts.data, L.px(M.CHAPTER["title"]))
-        num, title = (m.group(1), m.group(2)) if m else ("0", texts[0] if texts else "")
-        w = f_n.getlength(num) + 0.55 * f_t.size + f_t.getlength(title)
-        if w > L.w(CARD_SAFE_W):
-            out.update(fits=False, why=f"the chapter line is {100 * w / W:.1f}% of the width; at most {CARD_SAFE_W:g}% on one line")
-        drawn = [norm(f"{num} {title}") if m else norm(f"0 {title}")] + [norm(texts[1])] * (len(texts) > 1)
-        out["missing"] = drawn_as(drawn)
+    if ck in ("title", "chapter"):
+        try:
+            if ck == "title":
+                lay = M.title_card_layout(L, texts[0] if texts else "", fonts)
+                recs = lay["lines"][:1] + lay["lines"][1:] * (len(texts) > 1)     # the wordmark stands for text[1]
+            else:
+                # drawn as Pictures.card draws it: the number and title from text[0], the dates from text[1]
+                m = CHAPTER_RE.match(texts[0]) if texts else None
+                lay = M.chapter_card_layout(L, int(m.group(1)) if m else 0, m.group(2) if m else (texts[0] if texts else ""),
+                                            texts[1] if len(texts) > 1 else "", fonts)
+                recs = lay["lines"][:1] + lay["lines"][1:] * (len(texts) > 1)
+        except M.TextOverflow as e:
+            out.update(fits=False, why=str(e), missing=drawn_as([]))
+            return out
+        out["missing"] = drawn_as([norm(r["text"]) for r in recs])
         return out
     try:
         lay = M.card_layout(L, texts, fonts, what=f"card {shot.get('id')}")
@@ -748,17 +742,6 @@ def fit_video(dar: float, W: int, H: int) -> tuple[int, int]:
     return min(W, even(H * dar)), H
 
 
-def _wrap_chars(text: str, n: int = 90) -> list[str]:
-    words, lines, cur = text.split(), [], ""
-    for w in words:
-        if cur and len(cur) + 1 + len(w) > n:
-            lines.append(cur)
-            cur = w
-        else:
-            cur = (cur + " " + w).strip()
-    return lines + ([cur] if cur else [])
-
-
 def narrator_voice(play: dict) -> dict | None:
     """The cast voice the narration is read by (a narration line's
     ``read_by``, else the voice ``v-narrator``)."""
@@ -779,6 +762,14 @@ def credit_year(title: str, year: str | None) -> str:
 
 
 def credits_blocks(plan: dict) -> list:
+    """The credits roll's blocks. Each credit is broken at 90 characters and,
+    where a line is still wider than the column at the plan's size, again by
+    its measured width (E15: ``M.credits_wrap``), so no line leaves the column."""
+    L, fonts = M.Layout(plan.get("W", 1920), plan.get("H", 1080)), M.Fonts()
+
+    def wrap(text):
+        return M.credits_wrap(L, text, fonts)
+
     shots, readings, sound = [], [], []
     for s in plan["shots"]:
         if s["mark"] == "CARD":
@@ -788,7 +779,7 @@ def credits_blocks(plan: dict) -> list:
         title = (it.get("title") or "").strip()
         parts = [s["id"], it.get("archive_short") or it.get("archive") or "", title,
                  credit_year(title, year_of(it)), it.get("licence") or ""] + ([alt] if alt else [])
-        shots += _wrap_chars("  ".join(p for p in parts[:1]) + "  " + ", ".join(p for p in parts[1:] if p))
+        shots += wrap("  ".join(p for p in parts[:1]) + "  " + ", ".join(p for p in parts[1:] if p))
     seen = set()
     for ln in plan["lines"]:
         if ln.get("kind") == "testimony" and ln.get("read_by") and ln.get("speaker") not in seen:
@@ -803,12 +794,12 @@ def credits_blocks(plan: dict) -> list:
             it = plan["assets"].get(ln["clip"], {})
             name = plan["speakers"].get(ln.get("speaker"), {}).get("name", ln.get("speaker"))
             title = (it.get("title") or "").strip()
-            recordings += _wrap_chars(", ".join(b for b in [f"{name}: original recording", title,
+            recordings += wrap(", ".join(b for b in [f"{name}: original recording", title,
                                                             it.get("archive") or "", credit_year(title, year_of(it)),
                                                             it.get("licence") or ""] if b))
     for c in plan["cues"]:
         bits = [c.get("source", ""), c.get("tradition", ""), c.get("performer", ""), c.get("licence", "")]
-        sound += _wrap_chars(", ".join(b for b in bits if b))
+        sound += wrap(", ".join(b for b in bits if b))
     blocks = [("Shots", shots)]
     if readings:
         blocks.append(("Readings", readings))
@@ -1288,6 +1279,25 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         else:
             lint("kind-supported", False, unit=t["id"], grammar="12",
                  evidence={"kind": t["kind"], "drawn": ["lower_third", "overlay", *sorted(CARD_TEXT_KINDS)]})
+    # E15: every renderer that lays out text draws all of it or refuses; these are laid out here, before any frame
+    fonts_ = M.Fonts()
+    L_ = M.Layout(W, H)
+
+    def fits(rule, unit, fn, grammar):
+        try:
+            fn()
+            lint(rule, True, unit=unit, grammar=grammar)
+        except M.TextOverflow as e:
+            lint(rule, False, unit=unit, grammar=grammar, evidence={"why": str(e), "fix": "shorten it; the engine never cuts text"})
+
+    for lt in lower_thirds:
+        fits("lower-third-fits", lt["id"], lambda lt=lt: M.lower_third_layout(L_, lt["lines"], fonts_, lt["kind"], lt["flag"]),
+             "9, BRAND-KIT 4 and 11c")
+    for o in overlays:
+        fits("overlay-fits", o["id"], lambda o=o: M.overlay_check(L_, o["text"], fonts_), "9, BRAND-KIT 11c")
+    for s in shots:
+        if s.get("label"):
+            fits("label-fits", s["id"], lambda s=s: M.label_check(L_, s["label"], fonts_), "A16, BRAND-KIT 11c")
     lt_drawn_end = {lt["id"]: lt["end"] for lt in lower_thirds}
     if burn_subtitles:
         for c in play.get("subtitle_source", []):
@@ -1300,6 +1310,8 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                                    "fix": "start the lower third's cue while the lower third is drawn (A16 clips it to "
                                           f"{M.LT_MAX_S:.2f} s)"})
                 subs.append({"ref": c.get("ref"), "start": float(c["start_s"]), "end": end, "text": c["en"]})
+                fits("subtitle-fits", c.get("ref"), lambda c=c: M.subtitle_check(L_, c["en"], fonts_.structure_medium),
+                     "10, BRAND-KIT 11c")
     screen_text = [x for s in shots for x in (s.get("text") or [])] + [x for lt in lower_thirds for x in lt["lines"] + [lt["flag"] or ""]]
     screen_text += [o["text"] for o in overlays]
     screen_text += [s["detail"] for s in shots] + [s["label"] for s in shots] + [c["text"] for c in subs]
@@ -1390,6 +1402,13 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         "balance": play.get("balance"), "sides": film_sides(play),
     }
     plan["credits"] = credits_blocks(plan)
+    try:
+        M.credits_layout(M.Layout(W, H), plan["credits"], M.Fonts())
+        lint("credits-fits", True, unit="credits", grammar="9, BRAND-KIT 11c")
+    except M.TextOverflow as e:
+        lint("credits-fits", False, unit="credits", grammar="9, BRAND-KIT 11c", evidence={"why": str(e)})
+    if lint_fail:
+        raise Refused("lint failed: " + "; ".join(lint_fail))
     # A26 refined (E15): a speaker whose source names him on screen, and who has no lower third of ours, is still named
     # where the record names every voice: the readings on the sources page (sources.json) and the credits' Recordings
     if named_on_screen:
@@ -1599,13 +1618,21 @@ def archival_lints(lint, film: Path, play: dict, shots: list[dict], lines: list[
         on_screen = None
         if first and not good:
             declared = ln["clip"] in declared_naming or (item or {}).get("names_its_speakers") is True
-            listed = [_ws(str(x)).lower() for x in ((item or {}).get("speakers_on_screen") or [])]
+            entries = (item or {}).get("speakers_on_screen") or []
             if declared:
-                on_screen = bool(name) and _ws(name).lower() in listed
+                mine = [e for e in entries if isinstance(e, dict) and bool(name) and _ws(str(e.get("name", ""))).lower()
+                        == _ws(name).lower()]
+                spans = [(float(e["in_s"]), float(e["out_s"])) for e in mine
+                         if isinstance(e.get("in_s"), (int, float)) and isinstance(e.get("out_s"), (int, float))
+                         and e["in_s"] < e["out_s"]]
+                over = [sp for sp in spans if sp[0] < out_s and sp[1] > in_s]
+                on_screen = bool(over)
                 lint("archival-named-on-screen", on_screen, unit=uid, grammar="6.3, 9, A26 refined",
-                     evidence={"clip": ln["clip"], "speaker_name": name, "speakers_on_screen": (item or {}).get("speakers_on_screen"),
-                               "fix": None if on_screen else "the clip's ledger item lists the speakers its picture names "
-                                                             f"(speakers_on_screen), and that list holds the cast name {name!r}"})
+                     evidence={"clip": ln["clip"], "speaker_name": name, "line_span_s": [in_s, out_s],
+                               "speakers_on_screen": entries, "overlapping": over,
+                               "fix": None if on_screen else "the clip's ledger item lists each speaker its picture names, "
+                                      "with the clip-time span the name is on screen ({name, in_s, out_s} in "
+                                      f"speakers_on_screen), and a span for {name!r} overlaps the line's in_s to out_s"})
                 if on_screen:
                     named_on_screen.append({"id": uid, "clip": ln["clip"], "speaker": ln.get("speaker"), "name": name})
         ok = not read_by and not bad and (bool(good) or not first or bool(on_screen))
@@ -4109,6 +4136,32 @@ def lower_third_time_lints(journal: Journal, plan: dict, *, draft: bool = False)
     return out
 
 
+CREDITS_LAST_LINE_S = 2.0       # E15: the last credit line has been fully on screen this long when the credits shot ends
+
+
+def credits_roll_lints(journal: Journal, plan: dict, *, draft: bool = False) -> list[str]:
+    """credits-roll (E15): the roll finishes inside the credits shot: at the
+    roll's constant speed, its last line has fully entered the frame at least
+    CREDITS_LAST_LINE_S before the shot ends. Blocking on a final render, a
+    warning under --draft. Returns the reasons to refuse."""
+    out = []
+    for s in plan["shots"]:
+        if s.get("_card") != "credits":
+            continue
+        lay = M.credits_layout(M.Layout(plan["W"], plan["H"]), plan["credits"], M.Fonts())
+        need = lay["last_entered_s"] + CREDITS_LAST_LINE_S
+        ok = need <= s["_dur"] + 1e-6
+        journal.lint("credits-roll", ok, stage="scout", phase="preflight", unit=s["id"], severity="warn" if draft else "block",
+                     grammar="9, BRAND-KIT 6 and 11c",
+                     evidence={"lines": len(lay["lines"]), "last_line_entered_s": round(lay["last_entered_s"], 2),
+                               "shot_s": s["_dur"], "needs_s": round(need, 2),
+                               "fix": None if ok else f"lengthen the credits shot to {math.ceil(need)} s; the roll never speeds up"})
+        if not ok and not draft:
+            out.append(f"credits-roll ({s['id']}: the last line enters at {lay['last_entered_s']:.1f} s; the shot is "
+                       f"{s['_dur']:g} s, it needs {need:.1f} s)")
+    return out
+
+
 def card_fill_lints(journal: Journal, plan: dict) -> list[str]:
     """card-fills-drawn (E15): after the fill, every filled card is laid out
     again from its filled text, which must fit and be drawn word for word.
@@ -4719,9 +4772,12 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         with journal.unit("scout", "plan", size={"driver": "items", "value": 0}) as u:
             plan = build_plan(film, W=W, H=H, burn_subtitles=burn_subtitles, journal=journal, play=play)
             u.size = {"driver": "items", "value": len(plan["shots"])}
-        lt_refusals = lower_third_time_lints(journal, plan, draft=draft)
+        # E15: binding on a run that renders the final frames; --draft, --audio-only (no frames) and --until (a check
+        # render) journal them as warnings
+        advisory = draft or audio_only or until_s is not None
+        lt_refusals = lower_third_time_lints(journal, plan, draft=advisory) + credits_roll_lints(journal, plan, draft=advisory)
         if lt_refusals:
-            raise Refused(f"lower thirds (pre-flight): {'; '.join(lt_refusals)} (BRAND-KIT 4, A20(b); "
+            raise Refused(f"on-screen time (pre-flight): {'; '.join(lt_refusals)} (BRAND-KIT 4 and 11c, A20(b); "
                           "render with --draft to accept it)")
         if until_s is not None:
             journal.human("scout", f"--until {until_s:g}: only the shots that start before {until_s:g} s are rendered",

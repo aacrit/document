@@ -289,3 +289,11 @@ Appended; section 6's choreography table keeps its G2 text and is read with this
 | Lower third on screen | a speaker's 4 to 6 s (section 4); a place-and-date one fully visible at least 2.5 s, so on screen at least 3.79 s |
 | Credits | a year once: none after a title that ends with it |
 | Watermark source | `watermark.svg` carries A16's values (group opacity 0.36, halo film black at 0.22); a test rasterises it and `logomark.svg` and holds them to the engine's `watermark()` and `draw_logomark()` within antialiasing, and `motion.py` here is a pure re-export of the engine's |
+
+Correction to 11c (2026-10-11, E15 review of 5a9ee29; append-only): in the dip row, "as before" applies to the 1.0 s dips only. A 0.75 s dip's hold was 0.075 s (1 black frame) and is now 0.083 s (3 black frames); only at 1.0 s are the hold (0.1 s) and its 3 black frames unchanged.
+
+| | Value (E15 review) |
+|---|---|
+| One-line texts | a card's title, a chapter line and its dates, a lower third's name, role and flag, an overlay (56% of width), a burned subtitle line (84%), a credit line (the 70% column; a credit broken at 90 characters is broken again by its measured width where it is still wider), a credits heading and a provenance label (ending by 50% of width) each fit their measure with every glyph present, or the plan refuses. The engine never cuts text: no renderer drops a word, a line or a glyph |
+| Missing glyphs | a character the face has no glyph for (FreeType would draw an empty box) is refused wherever text is drawn, maps and count cards included |
+| Credits roll | the roll's constant speed is unchanged; the credits shot lasts until the last line has been fully on screen 2 s, or the render refuses |

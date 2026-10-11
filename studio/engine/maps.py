@@ -1287,6 +1287,9 @@ class Canvas:
         """Draw at a baseline-left (ls) or other anchor; numerals ride the data face."""
         f = self.font(which, pct_h)
         df = None if which == "data" else self.data_font(pct_h)
+        miss = M.missing_glyphs(text, f, df)
+        if miss:                         # E15: a missing glyph draws as an empty box, a word cut; refuse instead
+            raise MapRefused(f"no glyph for {''.join(miss)!r} in {Path(f.path).name}: {text!r}")
         w = M._measure(text, f, df)
         asc, desc = f.getmetrics()
         x, y = xy

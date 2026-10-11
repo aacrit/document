@@ -941,6 +941,11 @@ def test_e14_an_archival_span_is_placed_again_under_the_derived_ceiling(film, mo
 REEL_NAME = "Fixture reel, original narration"
 
 
+def _on(name, in_s=0.5, out_s=3.0):
+    """A speakers_on_screen entry: the name and the clip-time span the picture shows it."""
+    return {"name": name, "in_s": in_s, "out_s": out_s}
+
+
 def _no_lower_third(film):
     _edit(film, lambda p: p["parts"][1]["text"].remove(next(t for t in p["parts"][1]["text"] if t["id"] == "T3")))
 
@@ -954,7 +959,7 @@ def test_e15_an_archival_line_without_a_lower_third_is_refused_unless_its_source
     _no_lower_third(film)
     with pytest.raises(R.Refused, match=r"archival-lower-third \(A1\)"):
         _plan(film, "named-none")
-    _reel_names(film, speakers_on_screen=[REEL_NAME])                       # listed, but nothing declares the allowance
+    _reel_names(film, speakers_on_screen=[_on(REEL_NAME)])                  # listed, but nothing declares the allowance
     with pytest.raises(R.Refused, match=r"archival-lower-third \(A1\)"):
         _plan(film, "named-undeclared")
 
@@ -963,7 +968,7 @@ def test_e15_an_archival_line_without_a_lower_third_is_refused_unless_its_source
 def test_e15_a_source_that_names_its_speaker_on_screen_needs_no_lower_third(film, declare):
     _archival(film)
     _no_lower_third(film)
-    _reel_names(film, speakers_on_screen=["  fixture reel,  ORIGINAL narration "], **({"names_its_speakers": True}
+    _reel_names(film, speakers_on_screen=[_on("  fixture reel,  ORIGINAL narration ")], **({"names_its_speakers": True}
                                                                                        if declare == "ledger" else {}))
     if declare == "screenplay":
         _edit(film, lambda p: p.update(names_its_speakers=["FX-REEL"]))
@@ -980,9 +985,15 @@ def test_e15_the_ledger_must_list_the_speaker_the_source_names(film):
     _archival(film)
     _no_lower_third(film)
     _edit(film, lambda p: p.update(names_its_speakers=["FX-REEL"]))
-    _reel_names(film, speakers_on_screen=["Someone else"])
+    _reel_names(film, speakers_on_screen=[_on("Someone else")])
     with pytest.raises(R.Refused, match=r"archival-named-on-screen \(A1\)"):
         _plan(film, "named-wrong")
+    _reel_names(film, speakers_on_screen=[_on(REEL_NAME, 2.6, 4.0)])        # named on screen, but not while the line plays
+    with pytest.raises(R.Refused, match=r"archival-named-on-screen \(A1\)"):
+        _plan(film, "named-elsewhen")
+    _reel_names(film, speakers_on_screen=[REEL_NAME])                       # a name with no span
+    with pytest.raises(R.Refused, match=r"archival-named-on-screen \(A1\)"):
+        _plan(film, "named-no-span")
     _reel_names(film, speakers_on_screen=None)
     with pytest.raises(R.Refused, match=r"archival-named-on-screen \(A1\)"):
         _plan(film, "named-missing")
@@ -992,7 +1003,7 @@ def test_e15_a_speaker_named_only_on_screen_must_still_be_in_the_credits(film, m
     _archival(film)
     _no_lower_third(film)
     _edit(film, lambda p: p.update(names_its_speakers=["FX-REEL"]))
-    _reel_names(film, speakers_on_screen=[REEL_NAME])
+    _reel_names(film, speakers_on_screen=[_on(REEL_NAME)])
     real = R.credits_blocks
     monkeypatch.setattr(R, "credits_blocks", lambda plan: [(h, ln) for h, ln in real(plan) if h != "Recordings"])
     with pytest.raises(R.Refused, match=r"archival-named-elsewhere \(A1\)"):
@@ -1011,7 +1022,7 @@ def test_e15_two_speakers_from_one_clip_are_both_credited(film):
                            p["parts"][1]["lines"].append(dict(ARCH_LINE, id="A2", speaker="sp-reel-2", start_s=24.0)),
                            p["subtitle_source"].append({"ref": "A2", "start_s": 24.0, "end_s": 25.5, "en": ARCH_TEXT}),
                            p.update(names_its_speakers=["FX-REEL"])))
-    _reel_names(film, speakers_on_screen=["Second voice"])
+    _reel_names(film, speakers_on_screen=[_on("Second voice")])
     plan, _ = _plan(film, "two-voices")
     rec = dict(plan["credits"])["Recordings"]
     heads = [r.split(": original recording")[0] for r in rec if ": original recording" in r]

@@ -7,8 +7,9 @@
     0.22 (A16; was 0.35), 2 px wider at 1080p, so the mark holds on a white
     sky. The halo exists only in the burned-in watermark, never on the site.
     Colours cite design/tokens.css: --doc-bone #ede2cf, --doc-safelight
-    #eda23c; the halo is film black, all pixels off (founder ruling
-    2026-10-10). studio/tests/test_render.py rasterises this file and the
+    #eda23c; the halo is film black #000000, all pixels off (docs/DECISIONS.md,
+    "2026-10-10: The Trailer, and two picture and sound rules": black is
+    black; GRAMMAR A11), not the site's theatre black. studio/tests/test_render.py rasterises this file and the
     engine's watermark() and holds them within a pixel tolerance (E15).
   -->
   <g opacity="0.36">

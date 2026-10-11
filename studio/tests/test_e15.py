@@ -369,6 +369,27 @@ def test_the_kit_watermark_svg_is_the_engines_watermark(grey):
     g2 = M.watermark(Image.new("RGB", (W, H), (grey,) * 3), 60.0, start=0.0, opacity=0.6)
     if grey != 245:
         assert np.abs(np.asarray(g2.convert("RGB"), dtype=int)[y:y + box, x:x + box] - kit).mean() > 1.5
+    else:
+        assert diff.mean() < 1.0 and abs((engine - kit).mean()) < 0.75          # on a white sky the halo is what shows
+
+
+def test_the_kit_watermark_halo_is_the_engines_halo(monkeypatch):
+    """On a white sky only the halo darkens the frame: the G2 halo (0.35) is caught on its own."""
+    W, H, grey = 1920, 1080, 245
+    L = M.Layout(W, H)
+    box = L.px(M.WM["box"])
+    x, y = int(round(L.W - L.w(M.WM["right"]) - box)), int(round(L.h(M.WM["top"])))
+    kit = _over(rasterise_svg(ROOT / "design" / "brand-kit" / "watermark.svg", box), grey)
+
+    def engine():
+        f = M.watermark(Image.new("RGB", (W, H), (grey,) * 3), 60.0, start=0.0)
+        return np.asarray(f.convert("RGB"), dtype=int)[y:y + box, x:x + box]
+
+    right = engine()
+    monkeypatch.setitem(M.WM, "halo", 0.35)
+    halo_g2 = engine()
+    assert abs((halo_g2 - kit).mean() - (right - kit).mean()) > 0.8               # the halo's darkening, signed
+    assert np.abs(halo_g2 - kit).mean() > np.abs(right - kit).mean() + 0.4
 
 
 def test_the_kit_logomark_svg_is_the_engines_logomark():
@@ -409,3 +430,103 @@ def test_a_map_note_naming_the_studios_geodata_is_refused():
         MP.check_spec(bad)
     good = dict(base, notes=["Bihar's state and district boundaries are not drawn: " + MP.NOT_IN_OPEN_SOURCES + "."])
     MP.check_spec(good)
+
+
+# --------------------------------------------------------------------------
+# E15 review: every renderer that lays out text draws all of it or refuses
+# --------------------------------------------------------------------------
+
+
+def test_a_non_draft_audio_only_run_does_not_refuse_on_screen_time(tmp_path):
+    """--audio-only draws no frame: a short place lower third is a warning there, and refuses a final render."""
+    film = make_film(tmp_path / "film")
+    _edit(film, lambda p: p["parts"][1]["text"].append(
+        {"id": "T9", "kind": "lower_third", "start_s": 6.5, "end_s": 7.7, "lines": ["A fixture place", "1947"]}))
+    j = J.Journal(film="e15-audio-only")
+    s = R.render(film, tmp_path / "out", height=360, workers=1, min_free_gb=1, audio_only=True, journal=j)
+    assert s["frames"] == 0
+    lt = [e for e in lints(j, "lower-third-time") if e["unit"] == "T9"]
+    assert lt and lt[0]["status"] == "fail" and lt[0]["severity"] == "warn"
+    plan, _ = _plan(film, "e15-final")
+    assert any(o.startswith("lower-third-time (T9") for o in R.lower_third_time_lints(J.Journal(film="e15-final-lt"), plan))
+
+
+def test_a_chapter_dates_line_too_wide_is_refused_and_recorded_from_the_layout(tmp_path):
+    film = make_film(tmp_path / "film")
+    dates = "1946 to 1950, " + ", ".join(["and the years of the long aftermath in every district"] * 4)
+    _edit(film, lambda p: _shot(p, "S2").update(text=["1  The fixture", dates]))
+    with pytest.raises(R.Refused, match=r"card-fits \(S2\).*chapter dates"):
+        _plan(film, "e15-dates")
+    with pytest.raises(M.TextOverflow, match="chapter dates"):
+        M.chapter_card_layout(L1080, 1, "The fixture", dates, FONTS)
+    lay = M.chapter_card_layout(L1080, 1, "The fixture", "1946 to 1950", FONTS)
+    assert [r["text"] for r in lay["lines"]] == ["1 The fixture", "1946 to 1950"]
+    shot = {"id": "S2", "kind": "card", "_card": "chapter", "text": ["1  The fixture", "1946 to 1950"]}
+    assert R.card_text_check(shot, 1920, 1080)["missing"] == []
+
+
+@pytest.mark.parametrize("what", ["name", "overlay", "subtitle"])
+def test_a_line_wider_than_its_measure_is_refused_at_plan_time(tmp_path, what):
+    film = make_film(tmp_path / "film")
+    long = "A name far too long to stand in one line of a lower third, which never wraps a name, at any size"
+    if what == "name":
+        _edit(film, lambda p: next(t for t in p["parts"][1]["text"] if t["id"] == "T1")["lines"].__setitem__(0, long))
+        with pytest.raises(R.Refused, match=r"lower-third-fits \(T1\)"):
+            _plan(film, "e15-name")
+    elif what == "overlay":
+        _edit(film, lambda p: p["parts"][1]["text"].append(
+            {"id": "O9", "kind": "overlay", "start_s": 10.5, "end_s": 12.0, "lines": ["14 August 1947, " + long]}))
+        with pytest.raises(R.Refused, match=r"overlay-fits \(O9\)"):
+            _plan(film, "e15-overlay")
+    else:
+        _edit(film, lambda p: p["subtitle_source"][0].update(en=long + " " + long))
+        ref = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))["subtitle_source"][0]["ref"]
+        _plan(film, "e15-sub-tracks")                                             # as a track, the player wraps it
+        with pytest.raises(R.Refused, match=rf"subtitle-fits \({re.escape(ref)}\)"):
+            R.build_plan(film, W=640, H=360, burn_subtitles=True, journal=J.Journal(film="e15-sub-burned"))
+
+
+def test_a_character_with_no_glyph_is_refused_never_drawn_as_a_box():
+    f = M._font(FONTS.display, 43)
+    assert M.missing_glyphs("Smallpox 1977", f) == []
+    assert M.missing_glyphs("गाँव", f)                                        # Devanagari: not in the latin face
+    with pytest.raises(M.TextUndrawable):
+        M.card_layout(L1080, ["The record holds no गाँव."], FONTS)
+    with pytest.raises(M.TextUndrawable):
+        M.lower_third_layout(L1080, ["गाँव", "Place, 1947"], FONTS, "place")
+    with pytest.raises(M.TextUndrawable):
+        M.label_check(L1080, "Archive · गाँव", FONTS)
+
+
+def test_a_provenance_label_past_the_middle_is_refused():
+    assert M.label_check(L1080, "Reconstructed · 1946 · colour cast removed", FONTS) > 0
+    with pytest.raises(M.TextOverflow, match="provenance label"):
+        M.label_check(L1080, "Reconstructed · 1946 · " + ", ".join(["colour cast removed"] * 6), FONTS)
+
+
+def test_credits_wrap_by_their_measured_width():
+    wide = "W" * 40 + " " + "W" * 40                                              # 81 characters, far wider than the column
+    lines = M.credits_wrap(L1080, wide, FONTS)
+    assert len(lines) == 2 and " ".join(lines) == wide
+    _, f_l, f_n = M.credits_fonts(L1080, FONTS)
+    assert all(M._measure(ln, f_l, f_n) <= L1080.w(M.CREDITS["col_w"]) for ln in lines)
+    normal = "S3 test fixture, Test image A (landscape), test fixture, not archival, 2026, CC0"
+    assert M.credits_wrap(L1080, normal, FONTS) == [normal]                       # what fitted keeps its G2 breaks
+
+
+@pytest.mark.parametrize("dur, ok", [(3.0, False), (14.0, True)])
+def test_the_credits_roll_finishes_inside_its_shot(plan, dur, ok):
+    s = dict(next(x for x in plan["shots"] if x.get("_card") == "credits"), _dur=dur)
+    p = dict(plan, shots=[s])
+    j = J.Journal(film="e15-roll")
+    assert (R.credits_roll_lints(j, p) == []) is ok
+    e = lints(j, "credits-roll")[0]
+    assert (e["status"] == "pass") is ok and e["severity"] == "block"
+    assert R.credits_roll_lints(J.Journal(film="e15-roll-draft"), p, draft=True) == []
+
+
+def test_a_map_or_count_text_with_no_glyph_is_refused():
+    cv = MP.Canvas(MP.palette(MP.TOKENS), FONTS)
+    cv.text((100, 100), "Patna", "structure", 2.0, "text")
+    with pytest.raises(MP.MapRefused, match="no glyph"):
+        cv.text((100, 200), "पटना", "structure", 2.0, "text")
