@@ -99,6 +99,8 @@ export interface FilmSources {
   lowerThirds: LowerThird[];
   readings: Reading[];
   narration: Narration[];
+  /** The trailer the release declared (publish.py --trailer), or null: then the site offers no trailer. */
+  trailer: { sha256: string; duration_s: number | null } | null;
   /** The narrator's voice credit ("Narrated by a computer voice"), when the film has narration and records it. */
   narrator: string | null;
 }
@@ -248,7 +250,25 @@ export function parseSources(json: unknown): FilmSources {
     readings,
     narration,
     narrator: narration.length && isObj(json.narrator) ? str(json.narrator.credit) : null,
+    trailer: parseTrailer(json.trailer),
   };
+}
+
+/** The trailer record, only when it names its hash (publish.py records it only with --trailer). */
+function parseTrailer(x: unknown): FilmSources["trailer"] {
+  if (!isObj(x)) return null;
+  const sha256 = str(x.sha256);
+  if (!sha256 || !/^[0-9a-f]{64}$/.test(sha256)) return null;
+  const d = num(x.duration_s);
+  return { sha256, duration_s: d !== null && d > 0 ? d : null };
+}
+
+/** The trailer dialog's note: its length when recorded, rounded to whole minutes. */
+export function trailerNote(t: NonNullable<FilmSources["trailer"]>): string {
+  if (t.duration_s === null) return "Made under the same rules as the film.";
+  const m = Math.max(1, Math.round(t.duration_s / 60));
+  const words = NUMBER_WORDS[m] ? NUMBER_WORDS[m].toLowerCase() : String(m);
+  return `About ${words} ${m === 1 ? "minute" : "minutes"}, made under the same rules as the film.`;
 }
 
 /** The poster record, only when it names its still, licence and hash; otherwise null and no credit is printed. */

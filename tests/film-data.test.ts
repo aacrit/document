@@ -36,6 +36,7 @@ import {
   silentRecord,
   stepChapter,
   transcript,
+  trailerNote,
   type Reading,
 } from "../web/src/film-data";
 
@@ -378,6 +379,18 @@ describe("printed claims are derived from the film", () => {
     expect(voiceSentence(own, narrator)).toBe("The narrator and the readings are computer voices, except one original recording; no recording is imitated.");
     expect(voiceSentence([], narrator)).toBe("The narrator is a computer voice.");
     expect(voiceSentence(film.readings, "Narrated by Tara")).toBe("Voices are read by a computer; no recording is imitated.");
+  });
+
+  it("declares a trailer only when sources.json records its hash, and says its length from the record", () => {
+    expect(film.trailer).toBeNull();
+    const h = "a".repeat(64);
+    const t = parseSources({ ...raw(), trailer: { file: "trailer.mp4", sha256: h, duration_s: 297.625 } }).trailer;
+    expect(t).toEqual({ sha256: h, duration_s: 297.625 });
+    expect(trailerNote(t!)).toBe("About five minutes, made under the same rules as the film.");
+    expect(trailerNote({ sha256: h, duration_s: null })).toBe("Made under the same rules as the film.");
+    expect(trailerNote({ sha256: h, duration_s: 50 })).toBe("About one minute, made under the same rules as the film.");
+    expect(parseSources({ ...raw(), trailer: { file: "trailer.mp4" } }).trailer).toBeNull();
+    expect(parseSources({ ...raw(), trailer: { sha256: "not-a-hash" } }).trailer).toBeNull();
   });
 
   it("reads the narration and the narrator's credit, and credits no narrator without narration", () => {

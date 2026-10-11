@@ -12,6 +12,7 @@ import { runContract } from "../scripts/contract.mjs";
 
 const FILM = Buffer.from("not really a film, but bytes");
 const POSTER = Buffer.from("not really a jpeg");
+const TRAILER = Buffer.from("not really a trailer");
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
 let sources: Record<string, unknown> = {};
@@ -37,6 +38,7 @@ beforeAll(async () => {
       return res.end(FILM);
     }
     if (req.url === "/m/poster.jpg") return res.end(POSTER);
+    if (req.url === "/m/trailer.mp4") return res.end(TRAILER);
     res.writeHead(404);
     res.end();
   });
@@ -68,7 +70,10 @@ describe("media checks", () => {
     const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
     const c = parseYaml(readFileSync(path.join(root, "contract.yaml"), "utf8"));
     const media = c.checks.filter((x: { type: string }) => x.type === "sha256_matches" || x.type === "sources_duration_consistent");
-    expect(media.map((x: { field: string }) => x.field).sort()).toEqual(["poster.sha256", "web.film_duration_s", "web.film_sha256"]);
+    expect(media.map((x: { field: string }) => x.field).sort()).toEqual(["poster.sha256", "trailer.sha256", "web.film_duration_s", "web.film_sha256"]);
+    // The trailer is optional: checked only when sources.json declares one, never required by status alone.
+    expect(media.find((x: { field: string }) => x.field === "trailer.sha256").when_declared).toBe("trailer");
+    expect(c.checks.some((x: { type: string; path?: string }) => x.type === "status" && String(x.path).endsWith("trailer.mp4"))).toBe(false);
     for (const x of media) expect(x.requires).toBe("deployed");
     // The film is checked by two byte ranges, never downloaded whole by the scheduled run.
     expect(media.find((x: { field: string }) => x.field === "web.film_sha256").max_bytes).toBe(1048576);
@@ -83,5 +88,23 @@ describe("media checks", () => {
     expect(ok[0].pass, ok[0].detail).toBe(true);
     sources = { fps: 24, duration_s: 100, web: { film_sha256: sha(FILM), ...edge(POSTER) } };
     expect((await runContract({ checks: ranged }, base))[0].pass).toBe(false);
+  });
+
+  it("check a trailer only when sources.json declares one: n/a without, its bytes with", async () => {
+    const trailer = [{ name: "trailer", type: "sha256_matches", path: "/m/trailer.mp4", sources: "/m/sources.json", field: "trailer.sha256", when_declared: "trailer" }];
+    sources = { fps: 24, duration_s: 100 };
+    const none = (await runContract({ checks: trailer }, base))[0];
+    expect([none.pass, none.undeclared]).toEqual([true, true]);
+    sources = { fps: 24, duration_s: 100, trailer: { sha256: sha(TRAILER) } };
+    const ok = (await runContract({ checks: trailer }, base))[0];
+    expect([ok.pass, ok.undeclared]).toEqual([true, undefined]);
+    sources = { fps: 24, duration_s: 100, trailer: { sha256: sha(FILM) } };
+    expect((await runContract({ checks: trailer }, base))[0].pass).toBe(false);
+    // Declared but not served fails; a sources.json that cannot be read fails rather than passes as undeclared.
+    const missing = [{ ...trailer[0], path: "/m/nothing.mp4" }];
+    sources = { fps: 24, duration_s: 100, trailer: { sha256: sha(TRAILER) } };
+    expect((await runContract({ checks: missing }, base))[0].pass).toBe(false);
+    const unread = [{ ...trailer[0], sources: "/m/none.json" }];
+    expect((await runContract({ checks: unread }, base))[0].pass).toBe(false);
   });
 });

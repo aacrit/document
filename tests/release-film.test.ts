@@ -2,7 +2,7 @@
 // uploads to the film's folder in R2 with --remote and sources.json last, and
 // a dry run is plain data that never runs a command.
 import { describe, expect, it } from "vitest";
-import { BUCKET, UPLOAD_ORDER, WEB_ENCODE, commandLine, parseArgs, planRelease } from "../scripts/release-film.mjs";
+import { BUCKET, PACKET_ROOT, UPLOAD_ORDER, WEB_ENCODE, commandLine, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease } from "../scripts/release-film.mjs";
 
 type Step = { id: string; label: string; exe?: string; args?: string[]; check?: string };
 
@@ -28,8 +28,44 @@ describe("release-film", () => {
     expect(puts[puts.length - 1].label).toBe("upload sources.json");
   });
 
-  it("uploads no trailer without --trailer, and nothing with --no-upload", () => {
-    expect(plan(["r/master.mp4"]).files).not.toContain(expect.stringMatching(/trailer/));
+  it("declares and uploads a trailer only with --trailer", () => {
+    const without = plan(["r/master.mp4"]);
+    expect(without.files.some((f) => /trailer/.test(f))).toBe(false);
+    expect(without.steps.some((s) => s.args?.some((a) => /trailer/.test(a)))).toBe(false);
+    const withT = plan(["r/master.mp4", "--trailer", "t/master.mp4"]);
+    const publish = withT.steps.find((s) => s.args?.includes("studio.engine.publish"));
+    expect(publish?.args?.[publish.args.indexOf("--trailer") + 1]).toMatch(/trailer\.mp4$/);
+    expect(withT.files.some((f) => /trailer\.mp4$/.test(f))).toBe(true);
+  });
+
+  it("puts the packet under D:/document-media/web-packet/<slug> unless --out says otherwise", () => {
+    expect(PACKET_ROOT).toBe("D:/document-media/web-packet");
+    const norm = (x: string) => x.split("\\").join("/");
+    expect(norm((planRelease(parseArgs(["r/master.mp4"]), tools) as { out: string }).out).endsWith("document-media/web-packet/partition-of-india")).toBe(true);
+    expect(norm((planRelease(parseArgs(["r/master.mp4", "--out", "elsewhere/p"]), tools) as { out: string }).out).endsWith("elsewhere/p")).toBe(true);
+  });
+
+  it("refuses to write to D: when it is dirty or the query fails, and writes when it is clean", () => {
+    expect(dirtyVerdict(0, "Volume - D: is NOT Dirty").ok).toBe(true);
+    expect(dirtyVerdict(0, "Volume - D: is Dirty").ok).toBe(false);
+    expect(dirtyVerdict(1, "Error:  Access is denied.").ok).toBe(false);
+    expect(dirtyVerdict(0, "").ok).toBe(false);
+    expect(driveOf("D:/document-media/x", "win32")).toBe("D:");
+    expect(driveOf("/tmp/x", "linux")).toBeNull();
+    if (process.platform === "win32") {
+      const clean = () => ({ status: 0, stdout: "Volume - D: is NOT Dirty" });
+      const dirty = () => ({ status: 0, stdout: "Volume - D: is Dirty" });
+      const failed = () => ({ status: null, error: new Error("spawn fsutil ENOENT"), stdout: "" });
+      expect(driveProblems(["D:/p", "D:/r"], clean)).toEqual([]);
+      expect(driveProblems(["D:/p"], dirty)[0]).toMatch(/refusing to write to D:.*dirty/);
+      expect(driveProblems(["D:/p"], failed)[0]).toMatch(/refusing to write to D:.*failed/);
+      let asked = 0;
+      expect(driveProblems(["C:/p"], () => (asked++, dirty()))).toEqual([]);
+      expect(asked).toBe(0);
+    }
+  });
+
+  it("uploads nothing with --no-upload", () => {
     expect(plan(["r/master.mp4", "--no-upload"]).steps.some((s) => s.args?.includes("put"))).toBe(false);
   });
 

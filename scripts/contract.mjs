@@ -48,6 +48,7 @@ export function isLocalUrl(baseUrl) {
 
 /** The runner's words for a check that does not apply to this host. The /release skill matches them exactly. */
 export const NOT_APPLICABLE = "n/a (production host only)";
+export const NOT_DECLARED = "n/a (not declared)";
 
 /** Whether `baseUrl`'s host is `suffix` or one of its subdomains. */
 export function onHost(baseUrl, suffix) {
@@ -112,6 +113,21 @@ async function runCheck(check, baseUrl, originalBase = baseUrl) {
 
   if (check.requires === "deployed" && isLocalUrl(baseUrl)) {
     return { label, pass: true, skipped: true, detail: "skipped: needs deployed runtime" };
+  }
+
+  // `when_declared` (a dotted path in `sources`): the check applies only when the film's sources.json
+  // declares that record (an optional trailer). Undeclared, it is reported as not declared, never as a
+  // pass; a sources.json that cannot be read fails the check.
+  if (check.when_declared) {
+    try {
+      const r = await contractFetch(joinUrl(baseUrl, check.sources));
+      if (!r.ok) return { label, pass: false, detail: `${check.sources} answered ${r.status}` };
+      const doc = await r.json();
+      const rec = String(check.when_declared).split(".").reduce((o, k) => (o == null ? undefined : o[k]), doc);
+      if (rec == null) return { label, pass: true, undeclared: true, detail: `${NOT_DECLARED}: ${check.sources} declares no ${check.when_declared}` };
+    } catch (err) {
+      return { label, pass: false, detail: `${check.sources}: ${err.message}` };
+    }
   }
 
   // A burst right after the other checks can trip the zone's WAF rule
@@ -383,18 +399,19 @@ async function main() {
   }
 
   const results = await runContract(contract, baseUrl);
-  const passed = results.filter((r) => r.pass && !r.skipped && !r.notApplicable).length;
+  const passed = results.filter((r) => r.pass && !r.skipped && !r.notApplicable && !r.undeclared).length;
   const skipped = results.filter((r) => r.skipped).length;
   const notApplicable = results.filter((r) => r.notApplicable).length;
-  const ran = results.length - skipped - notApplicable;
+  const undeclared = results.filter((r) => r.undeclared).length;
+  const ran = results.length - skipped - notApplicable - undeclared;
   const rerouted = results.filter((r) => r.rerouted).length;
   const buildMatched = !results.some((r) => r.buildMismatch);
 
   for (const r of results) {
-    console.log(`${r.notApplicable ? "N/A " : r.skipped ? "SKIP" : r.pass ? "PASS" : "FAIL"}  ${r.label}${r.detail ? ` - ${r.detail}` : ""}`);
+    console.log(`${r.notApplicable || r.undeclared ? "N/A " : r.skipped ? "SKIP" : r.pass ? "PASS" : "FAIL"}  ${r.label}${r.detail ? ` - ${r.detail}` : ""}`);
   }
   console.log(
-    `\n${passed}/${ran} checks passed against ${baseUrl}${skipped ? `; ${skipped} skipped: needs deployed runtime` : ""}${notApplicable ? `; ${notApplicable} ${NOT_APPLICABLE}` : ""}${rerouted ? `; ${rerouted} burst${rerouted === 1 ? "" : "s"} ran via ${contract.burst_host}${buildMatched ? " (same build)" : " (build did not match)"}` : ""}`,
+    `\n${passed}/${ran} checks passed against ${baseUrl}${skipped ? `; ${skipped} skipped: needs deployed runtime` : ""}${notApplicable ? `; ${notApplicable} ${NOT_APPLICABLE}` : ""}${undeclared ? `; ${undeclared} ${NOT_DECLARED}` : ""}${rerouted ? `; ${rerouted} burst${rerouted === 1 ? "" : "s"} ran via ${contract.burst_host}${buildMatched ? " (same build)" : " (build did not match)"}` : ""}`,
   );
 
   if (passed !== ran) {

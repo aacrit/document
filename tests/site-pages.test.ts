@@ -76,7 +76,13 @@ describe("the public pages", () => {
     expect(read("web/src/home.ts")).toMatch(/byId\("home-ai"\)\.textContent = aiSentence\(data\.shots\)/);
     expect(read("web/index.html")).toContain('href="/f/partition-of-india/"');
     expect(home).toMatch(/\bWatch\b/);
-    expect(home).toMatch(/\bTrailer\b/);
+    // The Trailer button exists but is hidden until sources.json declares a trailer; its note is never typed.
+    expect(html).toMatch(/<button[^>]*id="trailer-open"[^>]*\bhidden\b[^>]*>Trailer<\/button>/);
+    expect(html).toMatch(/<p class="note" id="trailer-note"><\/p>/);
+    expect(html).not.toMatch(/five minutes/);
+    const homeTs = read("web/src/home.ts");
+    expect(homeTs).toMatch(/if \(data\.trailer\) \{[^}]*byId\("trailer-open"\)\.hidden = false;/);
+    expect(homeTs.match(/trailer-open"\)\.hidden = false/g)).toHaveLength(1);
     expect(home).toMatch(/\bSources\b/);
   });
 

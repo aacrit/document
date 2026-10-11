@@ -3,7 +3,7 @@
 // R2, in order, stopping at the first failure.
 //
 //   a. sources.json beside the master   python -m studio.engine.render <film dir> --out <render dir> --sources-only
-//   b. the 720p web encode               ffmpeg -> <packet>/film.mp4 (and trailer.mp4 from --trailer)
+//   b. the 720p web encode               ffmpeg -> <packet>/film.mp4 (and trailer.mp4, only with --trailer)
 //   c. the poster and the packet         ffmpeg (still -> poster.jpg), python -m studio.engine.publish
 //   d. the captions                      captions-en.vtt, written by publish (studio/engine/captions.py); checked here
 //   e. the upload                        wrangler r2 object put document-media/<slug>/<file> --remote, sources.json last
@@ -11,6 +11,14 @@
 //
 //   node scripts/release-film.mjs <render dir>/master.mp4 [--dry-run] [--trailer <trailer master.mp4>]
 //       [--film-dir <dir with screenplay.json>] [--poster-id S-020] [--out <packet dir>] [--no-upload]
+//
+// The trailer is optional. Without --trailer, sources.json declares none, the
+// site hides its Trailer button, and the contract reports the trailer n/a.
+// The packet defaults to D:/document-media/web-packet/<slug> (C: sits at its
+// 10 GB floor). D: is exFAT and once had bitmap corruption, so before any
+// write the script runs `fsutil dirty query` on every drive it writes to
+// (the packet and the render folder) and refuses if one is dirty or the query
+// fails.
 //
 // --dry-run prints every command and runs none. The site reads sources.json
 // to decide whether the film it serves is the cut it describes
@@ -29,6 +37,8 @@ import { resolveBinPath } from "./lib/run-bin.mjs";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 export const BUCKET = "document-media";
+/** Where the web packet goes unless --out says otherwise (C: is at its 10 GB floor). */
+export const PACKET_ROOT = "D:/document-media/web-packet";
 /** wrangler r2 object put refuses a file over 300 MiB (its MAX_UPLOAD_SIZE_BYTES). */
 export const MAX_PUT_BYTES = 300 * 1024 * 1024;
 /** Uploaded in this order: the media first, sources.json last (see above). */
@@ -106,9 +116,8 @@ export function planRelease(o, { python = studioPython(), ffmpeg = process.env.D
   const master = path.resolve(o.master);
   const renderDir = path.dirname(master);
   const filmDir = path.resolve(o.filmDir ?? path.join(os.homedir(), "document-work", "episode-v2"));
-  // The packet goes beside the screenplay on C:, not beside the master (D: is exFAT and has crashed under heavy writes).
-  const out = path.resolve(o.out ?? path.join(filmDir, "web"));
   const slug = o.slug ?? ledgers?.slug ?? "partition-of-india";
+  const out = path.resolve(o.out ?? path.join(PACKET_ROOT, slug));
   const ledgerPath = ledgers?.ledger ?? "<stills ledger: screenplay.json ledgers.stills.path>";
   const stillPath = poster ?? `<${o.posterId} from the stills ledger>`;
   const wr = wrangler ?? { exe: process.execPath, pre: [resolveBinPath("wrangler", "wrangler")] };
@@ -124,7 +133,7 @@ export function planRelease(o, { python = studioPython(), ffmpeg = process.env.D
     args: ["-v", "error", "-y", "-i", stillPath, "-vf", "scale=1920:-1:flags=lanczos", "-q:v", "3", at("poster.jpg")] });
   steps.push({ id: "c", label: "the web packet (publish.py: sources.json with web and poster, captions)", exe: python, cwd: repoRoot,
     args: ["-m", "studio.engine.publish", renderDir, "--film", at("film.mp4"), "--poster", at("poster.jpg"),
-      "--poster-id", o.posterId, "--stills-ledger", ledgerPath, "--out", out] });
+      "--poster-id", o.posterId, "--stills-ledger", ledgerPath, "--out", out, ...(o.trailer ? ["--trailer", at("trailer.mp4")] : [])] });
   steps.push({ id: "d", label: "the captions (captions-en.vtt, written by publish from the render's screenplay)", check: "captions", file: at("captions-en.vtt") });
   const files = UPLOAD_ORDER.filter((f) => f !== "trailer.mp4" || o.trailer);
   steps.push({ id: "e", label: "every file under the put limit", check: "sizes", files: files.map(at) });
@@ -136,6 +145,33 @@ export function planRelease(o, { python = studioPython(), ffmpeg = process.env.D
   }
   steps.push({ id: "f", label: "hashes", check: "hashes", files: files.map(at), sources: at("sources.json"), slug });
   return { steps, out, renderDir, filmDir, slug, files };
+}
+
+/** The drive letter a path is on ("D:"), or null off Windows or on a UNC path. */
+export function driveOf(p, platform = process.platform) {
+  if (platform !== "win32") return null;
+  const m = /^([a-z]):/i.exec(path.win32.resolve(p));
+  return m ? `${m[1].toUpperCase()}:` : null;
+}
+
+/** Only a query that ran and says "is NOT Dirty" clears a volume; a dirty volume or a failed query refuses. */
+export function dirtyVerdict(status, stdout) {
+  if (status !== 0) return { ok: false, why: `fsutil dirty query failed (exit ${status})` };
+  if (/is NOT Dirty/i.test(stdout)) return { ok: true };
+  if (/is Dirty/i.test(stdout)) return { ok: false, why: "the volume is dirty: run chkdsk (founder's call) before writing to it" };
+  return { ok: false, why: `fsutil dirty query said something else: ${stdout.trim()}` };
+}
+
+/** The exFAT guard: every drive the release writes to that is D: must be clean. Returns the problems. */
+export function driveProblems(paths, run = (drive) => spawnSync("fsutil", ["dirty", "query", drive], { encoding: "utf8", shell: false })) {
+  const drives = [...new Set(paths.map((p) => driveOf(p)).filter((d) => d === "D:"))];
+  const problems = [];
+  for (const d of drives) {
+    const r = run(d);
+    const v = dirtyVerdict(r.error ? -1 : r.status, String(r.stdout ?? ""));
+    if (!v.ok) problems.push(`refusing to write to ${d}: ${v.why}`);
+  }
+  return problems;
 }
 
 const quote = (s) => (/^[\w@%+=:,./\\-]+$/.test(s) ? s : `"${String(s).replace(/"/g, '\\"')}"`);
@@ -192,6 +228,7 @@ function main() {
     if (!ledgers) problems.push(`${filmDir} has no screenplay.json naming its stills ledger`);
     if (!poster || !existsSync(poster)) problems.push(`the poster still ${o.posterId} was not found in the stills ledger`);
     if (o.trailer && !existsSync(o.trailer)) problems.push(`${o.trailer} does not exist`);
+    problems.push(...driveProblems([plan.out, plan.renderDir]));
     if (problems.length) {
       for (const p of problems) console.error(`release-film: ${p}`);
       process.exit(2);
@@ -201,7 +238,8 @@ function main() {
 
   console.log(`release-film: ${o.dryRun ? "DRY RUN, nothing is run" : "releasing"} ${plan.slug} from ${plan.renderDir}`);
   console.log(`release-film: packet ${plan.out}; upload ${o.upload ? plan.files.join(", ") : "skipped (--no-upload)"}`);
-  if (!o.trailer) console.log("release-film: no --trailer: trailer.mp4 is not uploaded, and contract.yaml needs one served");
+  if (!o.trailer) console.log("release-film: no --trailer: no trailer is declared or uploaded; the site shows none");
+  if (o.dryRun) for (const d of [...new Set([plan.out, plan.renderDir].map((x) => driveOf(x)).filter((x) => x === "D:"))]) console.log(`release-film: a real run first checks: fsutil dirty query ${d}`);
   for (const step of plan.steps) {
     console.log(`\n[${step.id}] ${step.label}`);
     if (step.check) {

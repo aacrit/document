@@ -117,6 +117,14 @@ def test_publish_ties_the_web_encode_and_the_poster_to_sources_json(film, render
     assert doc["poster"]["ledger_id"] == "S-020" and doc["poster"]["sha256"] == sha256_file(poster)
     assert doc["poster"]["creator"] == "Unknown author" and doc["poster"]["licence"] == "Public domain"
     assert (tmp_path / "packet" / "captions-en.vtt").read_text(encoding="utf-8").startswith("WEBVTT")
+    assert "trailer" not in doc and r["trailer"] is None          # no --trailer: no trailer declared, the site shows none
+    # With a trailer, sources.json declares its bytes (the contract checks them only when declared).
+    r2 = P.packet(out, film=out / "master.mp4", poster=poster, poster_id="S-020", stills_ledger=_ledger(tmp_path),
+                  out=tmp_path / "packet2", trailer=out / "master.mp4")
+    doc2 = json.loads((tmp_path / "packet2" / "sources.json").read_text(encoding="utf-8"))
+    assert doc2["trailer"] == r2["trailer"]
+    assert doc2["trailer"]["file"] == "trailer.mp4" and doc2["trailer"]["sha256"] == sha256_file(out / "master.mp4")
+    assert doc2["trailer"]["sha256_size"] == len(data) and doc2["trailer"]["duration_s"] > 0
 
 
 def test_publish_refuses_a_mismatched_encode_an_unhashed_render_and_a_violent_poster(film, rendered, tmp_path):

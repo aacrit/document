@@ -9,15 +9,20 @@ poster still, it writes to ``--out``:
   name, sha256 and measured duration) and ``poster`` (the still's ledger id,
   title, creator, date, archive, licence, item link, description and
   sha256), so the site prints only what is tied to the bytes it serves;
+  with ``--trailer``, also ``trailer`` (file, sha256, measured duration and
+  the edge hashes the contract compares); without it, no trailer is declared
+  and the site shows none;
 - ``captions-en.vtt`` (studio/engine/captions.py).
 
 It refuses when the web encode's duration differs from the film's by more
 than one frame, when ``sources.json`` does not record the master's hash, or
 when the master's bytes no longer match it. The film, poster and trailer
 are not copied: the printed upload list names them with their hashes.
+scripts/release-film.mjs runs this step and the upload.
 
     python -m studio.engine.publish <render dir> --film <web encode.mp4> --poster <poster.jpg>
         --poster-id S-020 --stills-ledger <stills-ledger.json> --out <packet dir> [--screenplay <file or dir>]
+        [--trailer <trailer web encode.mp4>]
 """
 
 from __future__ import annotations
@@ -32,7 +37,7 @@ from studio.engine import captions as C
 from studio.engine.journal import sha256_file
 from studio.engine.render import Refused, probe_video
 
-UPLOAD = ("film.mp4", "poster.jpg", "trailer.mp4", "sources.json", "captions-en.vtt")
+UPLOAD = ("film.mp4", "poster.jpg", "trailer.mp4", "sources.json", "captions-en.vtt")   # trailer.mp4 only when declared
 
 
 def _creator(text: str | None) -> str | None:
@@ -86,7 +91,7 @@ def poster_record(ledger: Path, poster_id: str, poster: Path) -> dict:
 
 
 def packet(render_dir: Path, *, film: Path, poster: Path, poster_id: str, stills_ledger: Path, out: Path,
-           screenplay: Path | None = None) -> dict:
+           screenplay: Path | None = None, trailer: Path | None = None) -> dict:
     render_dir, out = Path(render_dir), Path(out)
     doc = json.loads((render_dir / "sources.json").read_text(encoding="utf-8"))
     if not doc.get("master_sha256"):
@@ -106,11 +111,17 @@ def packet(render_dir: Path, *, film: Path, poster: Path, poster_id: str, stills
     doc["web"] = {"film": "film.mp4", "film_sha256": sha256_file(film), "film_duration_s": round(web_dur, 4),
                   **edge_hashes(film, "film_sha256")}
     doc["poster"] = poster_record(stills_ledger, poster_id, poster)
+    doc.pop("trailer", None)
+    if trailer is not None:
+        tp = probe_video(trailer)
+        doc["trailer"] = {"file": "trailer.mp4", "sha256": sha256_file(trailer),
+                          "duration_s": round(float(tp["container_duration_s"] or tp["duration_s"]), 4), **edge_hashes(trailer, "sha256")}
     out.mkdir(parents=True, exist_ok=True)
     (out / "sources.json").write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
     vtt = C.captions(Path(screenplay) if screenplay else render_dir)
     (out / "captions-en.vtt").write_text(vtt, encoding="utf-8", newline="\n")
-    return {"sources": out / "sources.json", "captions": out / "captions-en.vtt", "web": doc["web"], "poster": doc["poster"]}
+    return {"sources": out / "sources.json", "captions": out / "captions-en.vtt", "web": doc["web"], "poster": doc["poster"],
+            "trailer": doc.get("trailer")}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -121,17 +132,20 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--poster-id", required=True, help="the poster's stills-ledger id, e.g. S-020")
     ap.add_argument("--stills-ledger", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True, help="where sources.json and captions-en.vtt are written")
+    ap.add_argument("--trailer", type=Path, default=None, help="the trailer's web encode; omitted, sources.json declares no trailer")
     ap.add_argument("--screenplay", type=Path, default=None, help="the screenplay the render used (default: the render folder's fitted one)")
     a = ap.parse_args(argv)
     try:
         r = packet(a.render_dir, film=a.film, poster=a.poster, poster_id=a.poster_id, stills_ledger=a.stills_ledger,
-                   out=a.out, screenplay=a.screenplay)
+                   out=a.out, screenplay=a.screenplay, trailer=a.trailer)
     except (Refused, C.CaptionError, OSError, KeyError, ValueError) as e:
         print(f"publish: refused: {e}", file=sys.stderr)
         return 2
     print(f"publish: wrote {r['sources']} and {r['captions']}")
-    print(f"publish: upload to R2 under <slug>/: {', '.join(UPLOAD)}")
+    files = [f for f in UPLOAD if f != "trailer.mp4" or r["trailer"]]
+    print(f"publish: upload to R2 under <slug>/: {', '.join(files)}")
     print(f"publish: film.mp4 sha256 {r['web']['film_sha256']} ({r['web']['film_duration_s']} s); poster.jpg sha256 {r['poster']['sha256']}")
+    print(f"publish: trailer.mp4 sha256 {r['trailer']['sha256']}" if r["trailer"] else "publish: no trailer declared")
     return 0
 
 

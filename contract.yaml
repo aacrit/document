@@ -143,10 +143,17 @@ checks:
     field: poster.sha256
     requires: deployed
 
-  - name: the trailer is served (deployed only)
-    type: status
+  # The trailer is optional: the old trailer does not ship with the revamped
+  # film (CoS, 2026-10-10), and the revamp trailer brings it back. When the
+  # film's sources.json declares one (publish.py --trailer), it must be served
+  # and be those bytes; when it declares none, the check reports n/a.
+  - name: the trailer sources.json declares is the one served (deployed only)
+    type: sha256_matches
     path: /media/partition-of-india/trailer.mp4
-    expect: 200
+    sources: /media/partition-of-india/sources.json
+    field: trailer.sha256
+    when_declared: trailer
+    max_bytes: 1048576
     requires: deployed
 
   - name: privacy page responds
