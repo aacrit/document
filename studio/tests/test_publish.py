@@ -91,6 +91,9 @@ def _ledger(tmp_path: Path) -> Path:
          "archive": "Wikimedia Commons", "item_url": "https://commons.wikimedia.org/wiki/File:Indian_Independence_Day_at_the_Red_Fort.jpg",
          "licence": "Public domain", "seen": "A crowd before the Red Fort.", "shows_violence_or_bodies": False},
         {"id": "S-099", "title": "x", "licence": "Public domain", "shows_violence_or_bodies": True},
+        {"id": "S-100", "title": "y", "licence": "Public domain", "shows_bodies": True, "shows_violence_or_bodies": False},
+        {"id": "S-101", "title": "z", "licence": "Public domain"},
+        {"id": "S-102", "title": "w", "licence": "Public domain", "shows_bodies": False},
     ]}), encoding="utf-8")
     return p
 
@@ -104,6 +107,11 @@ def test_publish_ties_the_web_encode_and_the_poster_to_sources_json(film, render
     r = P.packet(out, film=out / "master.mp4", poster=poster, poster_id="S-020", stills_ledger=_ledger(tmp_path), out=tmp_path / "packet")
     doc = json.loads((tmp_path / "packet" / "sources.json").read_text(encoding="utf-8"))
     assert doc["web"]["film_sha256"] == sha256_file(out / "master.mp4")
+    data = (out / "master.mp4").read_bytes()
+    import hashlib
+    assert doc["web"]["film_sha256_size"] == len(data)
+    assert doc["web"]["film_sha256_head"] == hashlib.sha256(data[: P.EDGE_BYTES]).hexdigest()
+    assert doc["web"]["film_sha256_tail"] == hashlib.sha256(data[-P.EDGE_BYTES:]).hexdigest()
     assert abs(doc["web"]["film_duration_s"] - doc["duration_s"]) <= 1 / 24
     assert doc["poster"] == r["poster"]
     assert doc["poster"]["ledger_id"] == "S-020" and doc["poster"]["sha256"] == sha256_file(poster)
@@ -126,7 +134,17 @@ def test_publish_refuses_a_mismatched_encode_an_unhashed_render_and_a_violent_po
     subprocess.run([R.ffmpeg(), "-v", "error", "-y", "-i", str(out / "master.mp4"), "-t", "2", "-c", "copy", str(short)], check=True)
     with pytest.raises(R.Refused, match="more than one frame apart"):
         P.packet(out, film=short, poster=poster, poster_id="S-020", stills_ledger=ledger, out=tmp_path / "p1")
-    with pytest.raises(R.Refused, match="violence"):
+    with pytest.raises(R.Refused, match="never a poster"):
         P.packet(out, film=out / "master.mp4", poster=poster, poster_id="S-099", stills_ledger=ledger, out=tmp_path / "p2")
+    # shows_bodies is the ledger's field and wins over the older one; a still with neither field is refused.
+    with pytest.raises(R.Refused, match="shows_bodies: True"):
+        P.packet(out, film=out / "master.mp4", poster=poster, poster_id="S-100", stills_ledger=ledger, out=tmp_path / "p4")
+    with pytest.raises(R.Refused, match="shows_bodies: None"):
+        P.packet(out, film=out / "master.mp4", poster=poster, poster_id="S-101", stills_ledger=ledger, out=tmp_path / "p5")
+    assert P.poster_record(ledger, "S-102", poster)["ledger_id"] == "S-102"
     with pytest.raises(R.Refused, match="not in"):
         P.packet(out, film=out / "master.mp4", poster=poster, poster_id="S-404", stills_ledger=ledger, out=tmp_path / "p3")
+    # No master beside sources.json: refused.
+    (out / "master.mp4").rename(out / "moved.mp4")
+    with pytest.raises(R.Refused, match="no master.mp4"):
+        P.packet(out, film=out / "moved.mp4", poster=poster, poster_id="S-020", stills_ledger=ledger, out=tmp_path / "p6")

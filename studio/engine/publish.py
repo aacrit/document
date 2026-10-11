@@ -43,14 +43,32 @@ def _creator(text: str | None) -> str | None:
     return m.group(1) if m else text.strip()
 
 
+EDGE_BYTES = 1 << 20      # contract.yaml's max_bytes for film.mp4
+
+
+def edge_hashes(path: Path, key: str, n: int = EDGE_BYTES) -> dict:
+    """Size and the sha256 of the first and last n bytes, so a scheduled check can compare a large file by two
+    byte ranges instead of downloading it (scripts/contract.mjs sha256_matches with max_bytes)."""
+    import hashlib
+    size = Path(path).stat().st_size
+    with open(path, "rb") as fh:
+        head = hashlib.sha256(fh.read(n)).hexdigest()
+        fh.seek(max(0, size - n))
+        tail = hashlib.sha256(fh.read(n)).hexdigest()
+    return {f"{key}_size": size, f"{key}_head": head, f"{key}_tail": tail}
+
+
 def poster_record(ledger: Path, poster_id: str, poster: Path) -> dict:
     data = json.loads(ledger.read_text(encoding="utf-8"))
     items = data.get("items", data) if isinstance(data, dict) else data
     item = next((x for x in items if isinstance(x, dict) and x.get("id") == poster_id), None)
     if item is None:
         raise Refused(f"{poster_id} is not in {ledger}")
-    if item.get("shows_violence_or_bodies"):
-        raise Refused(f"{poster_id} shows violence or bodies: never a poster")
+    # The ledger's current field is shows_bodies; older ledgers say shows_violence_or_bodies. Only an explicit
+    # False passes: a still nobody has checked is not a poster.
+    bodies = item.get("shows_bodies", item.get("shows_violence_or_bodies"))
+    if bodies is not False:
+        raise Refused(f"{poster_id} is not recorded as showing no bodies or violence (shows_bodies: {bodies!r}): never a poster")
     if not item.get("licence"):
         raise Refused(f"{poster_id} has no licence in the ledger")
     return {
@@ -74,7 +92,9 @@ def packet(render_dir: Path, *, film: Path, poster: Path, poster_id: str, stills
     if not doc.get("master_sha256"):
         raise Refused("sources.json records no master_sha256: run python -m studio.engine.render <film> --out <render dir> --sources-only")
     master = render_dir / str(doc.get("master") or "master.mp4")
-    if master.exists() and sha256_file(master) != doc["master_sha256"]:
+    if not master.exists():
+        raise Refused(f"no {master.name} in {render_dir}: the packet is checked against the master it describes")
+    if sha256_file(master) != doc["master_sha256"]:
         raise Refused(f"{master.name} is not the master this sources.json describes: run --sources-only again")
     fps = float(doc.get("fps") or 24)
     pr = probe_video(film)
@@ -83,7 +103,8 @@ def packet(render_dir: Path, *, film: Path, poster: Path, poster_id: str, stills
     for what, d in (("container", web_dur), ("picture", float(pr["duration_s"]))):
         if abs(d - float(doc["duration_s"])) > 1.0 / fps + 1e-6:
             raise Refused(f"the web encode's {what} runs {d:.3f} s and the film {doc['duration_s']} s: more than one frame apart")
-    doc["web"] = {"film": "film.mp4", "film_sha256": sha256_file(film), "film_duration_s": round(web_dur, 4)}
+    doc["web"] = {"film": "film.mp4", "film_sha256": sha256_file(film), "film_duration_s": round(web_dur, 4),
+                  **edge_hashes(film, "film_sha256")}
     doc["poster"] = poster_record(stills_ledger, poster_id, poster)
     out.mkdir(parents=True, exist_ok=True)
     (out / "sources.json").write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")

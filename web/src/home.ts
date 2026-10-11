@@ -1,7 +1,7 @@
 // The screening room: the current film on the marquee. The page is static
 // and complete without script; this adds the runtime to Watch (from the
 // film's own sources.json) and plays the trailer in a dialog.
-import { creditsLine, formatTime, posterCredit } from "./film-data";
+import { aiSentence, creditsLine, formatTime, posterCredit, voiceSentence } from "./film-data";
 import { byId, loadSources, mediaUrl, numerals } from "./site";
 import { sendEvent } from "./telemetry";
 
@@ -20,6 +20,8 @@ function setupFromSources(): void {
       runtime.textContent = formatTime(data.duration_s);
       runtime.hidden = false;
       byId("credits-line").replaceChildren(numerals(creditsLine(data)));
+      byId("home-voice").textContent = voiceSentence(data.readings) ?? "";
+      byId("home-ai").textContent = aiSentence(data.shots);
       if (data.poster) {
         const img = byId<HTMLImageElement>("poster");
         img.alt = data.poster.description ?? data.poster.title;

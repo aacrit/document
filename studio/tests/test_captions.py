@@ -148,6 +148,24 @@ def test_a_lower_third_cue_timed_just_before_its_reading_still_folds_into_it():
     assert all(c.end - c.start >= 1.0 for c in cues)
 
 
+def test_a_narration_cue_just_before_the_lower_third_does_not_take_the_name():
+    # The narration brushes the lower third's cue; the reading is under the lower third on screen.
+    play = play_with(
+        [
+            {"ref": "N1", "start_s": 140.0, "end_s": 147.5, "en": "London, 17 March 1947. The House of Commons."},
+            {"ref": "LT-5", "start_s": 147.365, "end_s": 148.565, "en": "[Arthur Henderson, Under-Secretary of State for India, 1947. Read by a computer voice.]"},
+            {"ref": "R1", "start_s": 148.665, "end_s": 155.0, "en": "Verified casualties up to the evening of sixteenth March."},
+        ],
+        [{"id": "LT-5", "kind": "lower_third", "start_s": 148.665, "end_s": 153.665,
+          "lines": ["Arthur Henderson", "Under-Secretary of State for India, 1947", "Hansard  ·  read by a computer voice"]}],
+    )
+    cues = C.build_cues(play)
+    texts = " ".join(c.text.replace("\n", " ") for c in cues)
+    assert "London, 17 March 1947. The House of Commons." in texts
+    assert not any(c.ref.startswith("N1") and "[Arthur Henderson]" in c.text for c in cues)
+    assert next(c for c in cues if c.ref.startswith("R1")).text.startswith("[Arthur Henderson] Verified")
+
+
 def test_an_em_dash_or_a_backwards_cue_is_refused():
     with pytest.raises(C.CaptionError, match="em dash"):
         C.build_cues(play_with([{"ref": "N1", "start_s": 0, "end_s": 2, "en": "Delhi \u2014 1947"}]))

@@ -125,10 +125,12 @@ checks:
     path: /media/partition-of-india/film.mp4
     sources: /media/partition-of-india/sources.json
     field: web.film_sha256
+    # verify-production runs every 6 hours: compare size and the first and last MiB (two byte ranges), not the whole film.
+    max_bytes: 1048576
     requires: deployed
 
-  - name: the web encode runs as long as the film, within a frame (deployed only)
-    type: duration_matches
+  - name: sources.json's recorded web encode runs as long as the film, within a frame (deployed only)
+    type: sources_duration_consistent
     path: /media/partition-of-india/sources.json
     sources: /media/partition-of-india/sources.json
     field: web.film_duration_s

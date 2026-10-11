@@ -113,6 +113,12 @@ def fold_lower_thirds(cues: list[Cue], play: dict) -> list[Cue]:
         if not hits:
             out.append(lt)
             continue
+        # Prefer a cue under the lower third's own time on screen: a narration line that merely
+        # brushes its cue (just before it) is not the speaker's words.
+        if len(spans) > 1:
+            a, b = spans[1]
+            under = [c for c in hits if c.start < b - 1e-9 and c.end > a + 1e-9]
+            hits = under or hits
         first = min(hits, key=lambda c: (c.start, c.ref))
         first.text = f"{_speaker(texts.get(lt.ref), lt)} {first.text}"
     return sorted(out, key=lambda c: (c.start, c.ref))

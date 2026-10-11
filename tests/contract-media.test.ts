@@ -24,7 +24,18 @@ beforeAll(async () => {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify(sources));
     }
-    if (req.url === "/m/film.mp4") return res.end(FILM);
+    if (req.url === "/m/film.mp4") {
+      // Byte ranges as R2 serves them: bytes=a-b and bytes=-n.
+      const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ""));
+      if (m) {
+        const start = m[1] ? Number(m[1]) : FILM.length - Number(m[2]);
+        const end = m[1] && m[2] ? Number(m[2]) : FILM.length - 1;
+        res.writeHead(206, { "content-range": `bytes ${start}-${end}/${FILM.length}`, "content-length": end - start + 1 });
+        return res.end(FILM.subarray(start, end + 1));
+      }
+      res.writeHead(200, { "content-length": FILM.length });
+      return res.end(FILM);
+    }
     if (req.url === "/m/poster.jpg") return res.end(POSTER);
     res.writeHead(404);
     res.end();
@@ -37,7 +48,7 @@ afterAll(() => server.close());
 
 const checks = [
   { name: "film", type: "sha256_matches", path: "/m/film.mp4", sources: "/m/sources.json", field: "web.film_sha256" },
-  { name: "duration", type: "duration_matches", path: "/m/sources.json", sources: "/m/sources.json", field: "web.film_duration_s" },
+  { name: "duration", type: "sources_duration_consistent", path: "/m/sources.json", sources: "/m/sources.json", field: "web.film_duration_s" },
   { name: "poster", type: "sha256_matches", path: "/m/poster.jpg", sources: "/m/sources.json", field: "poster.sha256" },
 ];
 const run = async () => Object.fromEntries((await runContract({ checks }, base)).map((r: { label: string; pass: boolean }) => [r.label, r.pass]));
@@ -56,8 +67,21 @@ describe("media checks", () => {
   it("are in contract.yaml for the pilot, deployed only", () => {
     const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
     const c = parseYaml(readFileSync(path.join(root, "contract.yaml"), "utf8"));
-    const media = c.checks.filter((x: { type: string }) => x.type === "sha256_matches" || x.type === "duration_matches");
+    const media = c.checks.filter((x: { type: string }) => x.type === "sha256_matches" || x.type === "sources_duration_consistent");
     expect(media.map((x: { field: string }) => x.field).sort()).toEqual(["poster.sha256", "web.film_duration_s", "web.film_sha256"]);
     for (const x of media) expect(x.requires).toBe("deployed");
+    // The film is checked by two byte ranges, never downloaded whole by the scheduled run.
+    expect(media.find((x: { field: string }) => x.field === "web.film_sha256").max_bytes).toBe(1048576);
+  });
+
+  it("with max_bytes, compare a large file by size and its first and last bytes, via byte ranges", async () => {
+    const n = 8;
+    const edge = (b: Buffer) => ({ film_sha256_size: b.length, film_sha256_head: sha(b.subarray(0, n)), film_sha256_tail: sha(b.subarray(b.length - n)) });
+    const ranged = [{ name: "film", type: "sha256_matches", path: "/m/film.mp4", sources: "/m/sources.json", field: "web.film_sha256", max_bytes: n }];
+    sources = { fps: 24, duration_s: 100, web: { film_sha256: "not-checked-this-way", ...edge(FILM) } };
+    const ok = await runContract({ checks: ranged }, base);
+    expect(ok[0].pass, ok[0].detail).toBe(true);
+    sources = { fps: 24, duration_s: 100, web: { film_sha256: sha(FILM), ...edge(POSTER) } };
+    expect((await runContract({ checks: ranged }, base))[0].pass).toBe(false);
   });
 });

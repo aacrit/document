@@ -202,15 +202,44 @@ async function runCheck(check, baseUrl, originalBase = baseUrl) {
 
     switch (check.type) {
       case "sha256_matches": {
-        // The served bytes at `path` hash to what sources.json recorded for them.
+        // The served bytes at `path` hash to what sources.json recorded for them. With `max_bytes`, a
+        // file larger than that is checked by its size and the hashes of its first and last
+        // `max_bytes` bytes (fetched as byte ranges) against `field`'s `_head`/`_tail`/`_size`
+        // companions, so a scheduled run never downloads a whole film.
         if (!response.ok) return { label, pass: false, detail: `${target} answered ${response.status}` };
+        if (check.max_bytes) {
+          const len = Number(response.headers.get("content-length") ?? "NaN");
+          if (Number.isFinite(len) && len > check.max_bytes) {
+            await response.body?.cancel();
+            const n = check.max_bytes;
+            const part = async (range) => {
+              const r = await contractFetch(target, { headers: { range } });
+              if (r.status !== 206) throw new Error(`${check.path} answered ${r.status} to a byte range`);
+              return createHash("sha256").update(Buffer.from(await r.arrayBuffer())).digest("hex");
+            };
+            const { doc } = await sourcesField();
+            const base = String(check.field).split(".");
+            const rec = base.slice(0, -1).reduce((o, k) => (o == null ? undefined : o[k]), doc) ?? {};
+            const key = base[base.length - 1];
+            const head = await part(`bytes=0-${n - 1}`);
+            const tail = await part(`bytes=-${n}`);
+            const pass = rec[`${key}_size`] === len && rec[`${key}_head`] === head && rec[`${key}_tail`] === tail;
+            return {
+              label,
+              pass,
+              detail: pass ? undefined : `${check.path}: size ${len}, head ${head.slice(0, 12)}, tail ${tail.slice(0, 12)} do not match ${check.sources}'s ${check.field}_size/_head/_tail`,
+            };
+          }
+        }
         const actual = createHash("sha256").update(Buffer.from(await response.arrayBuffer())).digest("hex");
         const { value } = await sourcesField();
         const pass = typeof value === "string" && value === actual;
         return { label, pass, detail: pass ? undefined : `${check.path} hashes to ${actual}, ${check.sources} records ${value}` };
       }
-      case "duration_matches": {
-        // A duration recorded in sources.json agrees with the film's own within one frame.
+      case "sources_duration_consistent": {
+        // A consistency check inside sources.json: the duration the release step measured on the web
+        // encode (publish.py) agrees with the film's duration_s within one frame. It does not measure
+        // the served film; sha256_matches ties the served bytes to that record.
         await response.arrayBuffer();
         const { doc, value } = await sourcesField();
         const fps = Number(doc.fps) || 24;

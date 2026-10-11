@@ -61,11 +61,19 @@ describe("the public pages", () => {
     }
   });
 
-  it("the home page says what the film shows and does not show, and how it is voiced", () => {
-    const home = visible(read("web/index.html"));
+  it("the home page says what the film shows and does not show; how it is voiced and whether any of it is AI-generated come from sources.json", () => {
+    const html = read("web/index.html");
+    const home = visible(html);
     expect(home).toContain("This film shows no bodies or killing.");
-    expect(home).toContain("Voices are read by a computer; no recording is imitated.");
-    expect(home).toContain("Every second carries a mark that says what it is.");
+    // A dip's black hold carries no mark (A11) and the label fades to a glyph (A16): every shot carries one, not every second.
+    expect(home).toContain("Every shot carries a mark that says what it is.");
+    expect(home).not.toMatch(/Every second/);
+    // Filled by home.ts from voiceSentence and aiSentence (film-data.ts), never typed.
+    expect(html).toMatch(/id="home-voice"><\/span>/);
+    expect(html).toMatch(/id="home-ai"><\/span>/);
+    expect(home).not.toMatch(/read by a computer|AI-generated|no recording is imitated/i);
+    expect(read("web/src/home.ts")).toMatch(/byId\("home-voice"\)\.textContent = voiceSentence\(data\.readings\)/);
+    expect(read("web/src/home.ts")).toMatch(/byId\("home-ai"\)\.textContent = aiSentence\(data\.shots\)/);
     expect(read("web/index.html")).toContain('href="/f/partition-of-india/"');
     expect(home).toMatch(/\bWatch\b/);
     expect(home).toMatch(/\bTrailer\b/);
