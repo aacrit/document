@@ -504,3 +504,6 @@ Shown by: the reviewer's probe (`probe_tpl.py`, each case now a test in `studio/
 - **Women's share:** refused when any testimony has no stated gender (`unknown_s` travels with the values).
 - **Also:** `card_fills` is written only when something was filled; a null `start_s` on a subtitle cue (it crashed the subtitle-overlap check) is the `subtitle-times` lint; `telecine-declared` uses `POL.flag`.
 
+## 2026-10-11 E9 final review of e307f48: hyphenated prefixes; float error under the floor
+Shown by: the reviewer's probe3 (each required case a test in `studio/tests/test_films.py`). The lookbehind `(?<![\w-])` let a hyphen-joined prefix hide a number word ("a less-than-half share", "a sub-fifth", "a non-majority"); it is now `(?<!\w)`. `math.floor(0.29 * 100)` is 28 (28.999...), so 29% under a 30% floor printed "28 percent"; the round-down now adds 1e-9, and a sweep of every share to a hundredth of a point under floors of 10, 20 and 30% is a test. Also: digit, single, decile, quintile, quartile, percentile, handful, lone refused; `card_values_problems` requires `women.unknown_s`; `captions.render_fills` runs `fills_provenance`, the check `--sources-only` uses. Still passing the stray test, by choice: "XXX" (letters, not a numeral the lint can tell from a word), "first", "second" and "few" (ordinary words on a card).
+

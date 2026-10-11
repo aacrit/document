@@ -3534,7 +3534,30 @@ def card_values_problems(values) -> list[str]:
             x = v.get(k)
             if isinstance(x, bool) or not isinstance(x, (int, float)) or not 0 <= float(x) <= 1:
                 out.append(f"{what}.{k} must be a share from 0 to 1, not {x!r}")
+        if what == "women":                       # the seconds of unstated gender travel with women's share (A3)
+            x = v.get("unknown_s")
+            if isinstance(x, bool) or not isinstance(x, (int, float)) or not x >= 0:
+                out.append(f"women.unknown_s must be seconds, 0 or more, not {x!r}")
     return out
+
+
+def fills_provenance(prev: dict, master_sha256: str | None) -> str | None:
+    """Why a previous sources.json's card_fills may not fill this master's
+    cards, or None: it holds none, it is malformed, it describes another
+    master, or it is from a partial render (the one check for --sources-only
+    and for the captions)."""
+    fills = prev.get("card_fills")
+    values = fills.get("values") if isinstance(fills, dict) else None
+    if fills is None:
+        return "the previous sources.json holds no card_fills"
+    probs = card_values_problems(values)
+    if probs:
+        return "the previous sources.json's card_fills is malformed: " + "; ".join(probs)
+    if not master_sha256 or prev.get("master_sha256") != master_sha256:
+        return "the previous sources.json describes another master"
+    if prev.get("partial") or prev.get("until_s"):
+        return "the previous sources.json is from a partial render"
+    return None
 
 
 def fill_cards(plan: dict, values: dict, journal: Journal) -> list[str]:
@@ -4620,12 +4643,7 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
     if plan_has_placeholders(plan):
         fills = prev.get("card_fills")
         values = fills.get("values") if isinstance(fills, dict) else None
-        why = ("the previous sources.json holds no card_fills" if fills is None else
-               "the previous sources.json's card_fills is malformed: " + "; ".join(card_values_problems(values))
-               if card_values_problems(values) else
-               "the previous sources.json describes another master" if prev.get("master_sha256") != extra["master_sha256"]
-               else "the previous sources.json is from a partial render" if prev.get("partial") or prev.get("until_s")
-               else None)
+        why = fills_provenance(prev, extra["master_sha256"])
         journal.lint("shortfall-fill", why is None, stage="assembly", phase="sources-only", grammar="6.5, A25",
                      evidence={"why": why, "values": values})
         if why:

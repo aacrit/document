@@ -240,12 +240,25 @@ def fill_play(play: dict, values: dict | None) -> dict:
 
 
 def render_fills(path: Path) -> dict | None:
-    """The filled values a render recorded beside its screenplay, if any."""
+    """The filled values a render recorded beside its screenplay, if any,
+    checked as --sources-only checks them: the sources.json describes the
+    master beside it (its sha256), from a full render, and its card_fills is
+    well formed. None when there is no sources.json or it holds no fills; a
+    sources.json whose fills fail the check is refused."""
     folder = path if path.is_dir() else path.parent
     src = folder / "sources.json"
     if not src.is_file():
         return None
-    return (json.loads(src.read_text(encoding="utf-8")).get("card_fills") or {}).get("values")
+    prev = json.loads(src.read_text(encoding="utf-8"))
+    if prev.get("card_fills") is None:
+        return None
+    from studio.engine.journal import sha256_file
+    from studio.engine.render import fills_provenance
+    master = folder / str(prev.get("master") or "master.mp4")
+    why = fills_provenance(prev, sha256_file(master) if master.is_file() else None)
+    if why:
+        raise CaptionError(f"the captions take a shortfall card's numbers from the render's own measurement, and {why}")
+    return prev["card_fills"]["values"]
 
 
 def captions(path: Path, fills: dict | None = None) -> str:

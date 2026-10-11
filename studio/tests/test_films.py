@@ -735,6 +735,19 @@ PROBE_STRAYS = [
     "{women_share} women, once in the film",
     "{women_share} women, the ninetieth part",
     "{women_share} women, under 3⁄4",
+    # final review (probe3): a prefix joined by a hyphen no longer hides the word
+    "{women_share} women, a less-than-half share",
+    "{women_share} women, a near-half of the testimony",
+    "{readings_share} readings, a sub-fifth of the film",
+    "{readings_share} readings, an under-tenth share",
+    "{women_share} women, a non-majority",
+    "{women_share} women, in the single digits",
+    "{women_share} women, the bottom decile",
+    "{women_share} women, the lowest quintile",
+    "{women_share} women, a lower quartile",
+    "{women_share} women, the tenth percentile",
+    "{women_share} women, a handful of voices",
+    "{women_share} women, a lone woman among men",
 ]
 
 
@@ -858,3 +871,42 @@ def test_review_telecined_is_a_real_bool(film):
     _edit(film, lambda d: next(x for x in d["items"] if x["id"] == "FX-TESTSRC").update(telecined=0), "footage-ledger.json")
     with pytest.raises(R.Refused, match=r"telecine-declared \(S6\)"):
         _plan(film, "telecined-0")
+
+
+def test_final_a_share_just_under_its_floor_is_not_lost_to_float_error():
+    assert POL.format_share(0.29, "pct", 0.30) == "29 percent" and POL.format_share(0.29, "words", 0.30) == "twenty-nine percent"
+    assert POL.fill_placeholders("{women_share:pct}", {"women": {"share": 0.29, "floor": 0.30, "unknown_s": 0}}) == "29 percent"
+    import math
+    for k in range(1, 3000):                                                    # every share to a hundredth of a point
+        v = k / 10000
+        for fl in (0.1, 0.2, 0.3):
+            if v < fl:
+                assert POL.format_share(v, "pct", fl) in (f"{math.floor(round(v * 100, 9))} percent", "under 1 percent"), (v, fl)
+
+
+def test_final_card_values_carry_womens_unknown_seconds():
+    good = {"readings": {"share": 0.1, "floor": 0.2}, "voiceless": {"share": 0.5, "floor": 0.1},
+            "women": {"share": 0.1, "floor": 0.3, "unknown_s": 0}}
+    assert R.card_values_problems(good) == []
+    no_unknown = dict(good, women={"share": 0.1, "floor": 0.3})
+    assert any("unknown_s" in p for p in R.card_values_problems(no_unknown))
+
+
+def test_final_the_captions_check_the_fills_provenance(film, tmp_path):
+    from studio.engine import captions as C
+    _with_card_d(film, [SF_READ])
+    _edit(film, lambda p: p["subtitle_source"].append({"ref": "S7", "start_s": 17.75, "end_s": 20.2, "en": CARD_R[1]}))
+    plan, _ = _plan(film, "cap-prov")
+    out = tmp_path / "out"
+    master = _master(out, plan["frames"])
+    shutil.copy(film / "screenplay.json", out / "screenplay.json")
+    values = {"readings": {"share": 0.11, "floor": 0.2}, "voiceless": {"share": 0.5, "floor": 0.1},
+              "women": {"share": 0.0, "floor": 0.3, "unknown_s": 0}}
+    good = {"master": "master.mp4", "master_sha256": R.sha256_file(master), "card_fills": {"values": values, "texts": {}}}
+    (out / "sources.json").write_text(json.dumps(good), encoding="utf-8")
+    assert "11 percent" in C.captions(out)
+    for bad, why in ((dict(good, master_sha256="0" * 64), "another master"), (dict(good, partial=True), "partial render"),
+                     (dict(good, card_fills={"values": {"women": {}}}), "malformed")):
+        (out / "sources.json").write_text(json.dumps(bad), encoding="utf-8")
+        with pytest.raises(C.CaptionError, match=why):
+            C.captions(out)

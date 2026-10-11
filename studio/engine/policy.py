@@ -311,9 +311,10 @@ _ORDINALS = ("fourth fifth sixth seventh eighth ninth tenth eleventh twelfth thi
 _STRAY_WORDS = (_ONES + _TENS + _ORDINALS
                 + ["hundred", "thousand", "million", "billion", "dozen", "half", "halves", "third", "quarter",
                    "once", "twice", "thrice", "double", "triple", "quadruple", "majority", "minority", "most",
-                   "percent", "percentage", "per cent"])
+                   "percent", "percentage", "per cent", "digit", "single", "decile", "quintile", "quartile",
+                   "percentile", "handful", "lone"])
 # number, ordinal, fraction and multiplicative words, with an optional plural; percent signs; the fraction slash
-STRAY_NUMBER = re.compile(r"\d|[%\uff05\u2030\u2044]|(?<![\w-])(?:"
+STRAY_NUMBER = re.compile(r"\d|[%\uff05\u2030\u2044]|(?<!\w)(?:"
                           + "|".join(re.escape(w).replace("\\ ", "\\s+") for w in sorted(_STRAY_WORDS, key=len, reverse=True))
                           + r")s?(?![\w])", re.I)
 
@@ -358,7 +359,7 @@ def format_share(v: float, fmt: str | None, floor: float | None = None) -> str:
     the floor; a share above 0 and under 1% prints "under 1 percent"."""
     v = float(v)
     short = floor is not None and v < float(floor)
-    n = int(math.floor(v * 100)) if short else int(math.floor(v * 100 + 0.5))
+    n = int(math.floor(v * 100 + 1e-9)) if short else int(math.floor(v * 100 + 0.5))   # 0.29 * 100 is 28.999...
     if fmt == "fraction":
         for f, words in FRACTION_FORMS:
             if abs(v - f) <= FRACTION_EXACT and not (short and f >= float(floor) - 1e-9):
