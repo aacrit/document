@@ -351,3 +351,26 @@ A card (`card: mark_key`, CARD, true black, `text: []`) that teaches the glyphs 
 | Mark and watermark | the bone CARD ring bottom right, as on every card; no watermark (a CARD) | | |
 
 Do: let the key teach the colours so the label can stay down; keep the overlay and the glyph on one right edge. Don't: draw a card's mark as a dot; bring a label up at a cut that repeats class and year; type a key's words or colours into a screenplay; let a label run past 60% of width; set YouTube's branding watermark.
+
+## 13. Marks over archive maps (2026-10-11, R5b; GRAMMAR A32)
+
+A period map sheet is shown as it was printed, and what the film points to is drawn over it, quietly. `studio/engine/overlays.py` implements every number here; `studio/engine/georef.py` holds the georeferencing.
+
+**One drawing language.** Every mark is drawn as the provenance label is drawn: `--mark-text` over a soft black contact band. That holds on a paper sheet (most period maps are cream paper) and on a dark print alike. No saturated colour (the class hues are the glyph's), no arrows, no flashing, and no fill that hides the paper.
+
+| Mark | Look (% of frame height; 1080p) | Enter | Exit |
+|---|---|---|---|
+| Line drawn on (a boundary where the cited record runs) | `--mark-text` at 0.55 (0.40 to 0.60), 0.19% wide (2 px), round caps, over a black band at 0.30 whose half-width is the mark's claimed precision at the shot's closest framing, never under 0.30% (3.2 px) and never over 1.2%; the sheet's printed line stays visible under it | along its length on `trace`; the draw-on is clamped at its end, so the spring's 0.31% overshoot never draws past the cited end | `let_go`, 0.6 s |
+| Halo (a named place) | a ring around the place, never a disc over it: radius 2.4% (26 px; clear of a 1:250,000 sheet's town symbol at the 1.3 push, which the R5b brand audit found the first 1.6% ring touching), the line's 0.19% stroke in `--mark-text` at 0.50 (0.30 to 0.55) over a 0.30% black band at 0.30; the place's own symbol and name stay untouched | opacity on `whisper` (or `settle`), the ring closing from 1.06 to 1.0 of its radius on `settle` | `let_go`, 0.6 s |
+| Outline (a boundary as the sheet prints it) | `--mark-text` at 0.40 (0.30 to 0.50), 0.14% wide, over a band at 0.24; an optional black wash inside, at most 0.10 | opacity on `settle` (or `whisper`); no travel | `let_go`, 0.6 s |
+| Camera, `FIND` | the whole sheet first (A7), then on the rostrum curve through `via` extents to the `to` extent, all in longitude and latitude; at most 1.3 of the largest 16:9 window (7.2) | | |
+| Stagger | marks entering together come in reading order (the record's order), `order` 0, 1, 2 and on, `LT["stagger"]` (4 frames) apart | | |
+| Calm tier | a shot's `motion: calm`: every mark arrives by opacity on `settle`, with no draw-on and no scale | | |
+
+**`trace`** (`motion.TRACE`, k 14, c 7.5, m 1.3): zeta 0.88, settles in 1.56 s (38 frames at 24 fps), overshoot 0.31%. It is the one slow arrival, for a line the eye should follow across the frame; `drift` (0.93 s) is too quick for that and `rostrum` is a camera curve. The R5 scout's note gave 2.6 s for these constants; measured, it is 1.56 s.
+
+**Why a ring, not a glow.** The scout's halo (a bone disc at 0.18, blurred) moves a paper sheet's pixels by under 2% (bone over cream paper), so on the R5b proof frames it could not be seen. A ring in the label's language reads on paper and on a dark print, and leaves the place's own symbol and printed name untouched.
+
+**The band is the truth.** A line is never drawn thinner than it is known. Its band is as wide as its claimed precision (the georef's worst residual, the sheet's own drawing, the tracing and the source's precision) at the closest zoom, so a coarser source draws a softer, wider line, and a line too coarse for the zoom is not drawn.
+
+Do: draw a line only where the cited record runs, over the sheet's own printed line; ring places in the order the record names them; keep the sheet's printed names as they are. Don't: draw today's border on a period sheet; fill a district; draw a mark on a sheet without a georef; move a mark on anything but the house springs.

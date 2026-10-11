@@ -61,6 +61,7 @@ import numpy as np
 from PIL import Image
 
 from studio.engine import motion as M
+from studio.engine import overlays as OV
 from studio.engine import policy as POL
 from studio.engine import score as SC
 from studio.engine.journal import Journal, sha256_file
@@ -189,7 +190,8 @@ PRESETS = {                         # GRAMMAR 7.2, zoom relative to the largest 
     "TILT": ({"z": 1.2, "y": 0.0}, {"z": 1.2, "y": 1.0}),
     "DETAIL": ({"z": 1.3}, {"z": 1.3}),
 }
-PRESET_ZMAX = {"HOLD": 1.0, "PUSH": 1.12, "PULL": 1.12, "DRIFT": 1.15, "TILT": 1.2, "DETAIL": 1.3}   # 7.2, max 1.3
+PRESET_ZMAX = {"HOLD": 1.0, "PUSH": 1.12, "PULL": 1.12, "DRIFT": 1.15, "TILT": 1.2, "DETAIL": 1.3,
+               OV.FIND: OV.FIND_ZMAX}   # 7.2, max 1.3; FIND: a georeferenced sheet between extents (A32)
 SILENT_RE = re.compile(r"^The record holds no .+\.$")
 FLAG_RE = re.compile(r"^Account of .+, \d{4}$")
 CARD_TEXT_KINDS = {"chapter_card", "title_card", "silent_record"}
@@ -198,7 +200,7 @@ LT_SUFFIXES = ("  ·  read by a computer voice", "  ·  original recording")
 EM_DASH = "—"
 
 _HERE = Path(__file__).resolve().parent
-ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py", "score.py"))).hexdigest()[:12]
+ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py", "score.py", "overlays.py", "georef.py"))).hexdigest()[:12]
 ENGINE_MODEL = {"name": "studio.engine.render", "version": f"{ENGINE_VERSION}+{ENGINE_HASH}"}
 
 
@@ -558,6 +560,8 @@ def mark_label(shot: dict, item: dict | None) -> str:
                or (item or {}).get("mark_detail_source") or "")
         return M.mark_label(cls, None, f"from {src}" if src else "")
     extra = ", ".join(shot.get("alterations") or []) if cls == "RECONSTRUCTED" else ""
+    if shot.get("marks"):                     # A32: an archive sheet with marks drawn over it says so
+        return M.mark_label(cls, OV.label_year(item), ", ".join(x for x in (extra, OV.MARKS_DRAWN) if x))
     return M.mark_label(cls, year_of(item or {}), extra)
 
 
@@ -697,6 +701,8 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int) -> dict:
     fill = shot.get("fill_ok") is True
     base = max(W / fw, H / fh) if fill else 1.0
     preset = str(shot.get("preset", "HOLD")).upper()
+    if preset == OV.FIND:                     # A32: between geographic extents on a georeferenced sheet
+        return OV.find_camera(shot, img_size, W, H, open_s=OPEN_S)
     if preset not in PRESETS:
         raise Refused(f"shot {shot['id']}: unknown preset {preset!r} (GRAMMAR 7.2)")
     frm, to = (dict(k) for k in PRESETS[preset])
@@ -839,6 +845,9 @@ def credits_blocks(plan: dict) -> list:
         blocks.append(("Recordings", recordings))
     if sound:
         blocks.append(("Sound", sound))
+    drawn = [w for ln in OV.credit_lines(plan["shots"]) for w in wrap(ln)]     # A32: every mark and its source
+    if drawn:
+        blocks.append(("Marks drawn", drawn))
     blocks.append(("Studio", [f"void document studio engine {ENGINE_VERSION} ({ENGINE_HASH})"]))
     return [(h, [ln.replace(EM_DASH, ", ") for ln in lines]) for h, lines in blocks]
 
@@ -1198,6 +1207,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                              evidence={"fill_ok": cam["fill_ok"], "preset": cam["preset"],
                                        "check": ("Every person in the photograph is inside the frame at some point in this shot."
                                                  if cam["fill_ok"] else "No fill: the move stays inside the photograph's own shape.")})
+    OV.lints(lint, shots, W, H, play)                # A32: marks drawn over a georeferenced archive sheet
     if lint_fail:
         raise Refused("lint failed: " + "; ".join(lint_fail))
 
@@ -1980,11 +1990,9 @@ class Pictures:
             return self.video(s, t_local)
         cam = s["_cam"]
         img = self.still(s)
-        p = cam["path"]
-        if len(p) == 1 or t_local < cam["open_s"]:
-            return M.fit_still(img, self.L, z=p[0]["z"], cx=p[0]["x"], cy=p[0]["y"], clamp=cam["clamp"])
-        return M.rostrum_move(img, self.L, t_local - cam["open_s"], s["_dur"] - cam["open_s"], p[0], p[-1],
-                              via=p[1:-1], clamp=cam["clamp"])
+        f = OV.framing_at(cam, t_local, s["_dur"])          # the opening framing, then the rostrum move
+        pic = M.fit_still(img, self.L, z=f["z"], cx=f["x"], cy=f["y"], clamp=cam["clamp"])
+        return OV.draw(pic, s, t_local, f, self.L, img.size) if s.get("_overlay") else pic   # A32: marks on the sheet
 
     def _retire(self, r: VideoReader) -> None:
         self._held[r.shot_id] = self._held.get(r.shot_id, 0) + r.held
@@ -5001,6 +5009,7 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             "resampler": s.get("_resampler"), "conform": (s.get("_video") or {}).get("conform"),
             "neutralise_cast": (s.get("_video") or {}).get("neutralise_cast"),
             "test_fixture": is_synthetic(it),
+            **OV.sources_fields(s),
             "text": s.get("text"),
         })
     track = []

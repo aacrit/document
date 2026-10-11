@@ -679,3 +679,12 @@ Shown by: the reviewer's `r1r4_probe3.py` (a 55 and 110 Hz drone, scaled to the 
 
   It also states the tolerances used for beds and transitions.
 - **Both films' offline reports are unchanged:** Partition, 25 of 87 checks fail; Nought, 23 of 101. Neither has an ambience cue.
+
+## 2026-10-11 R5b: an affine fit on degrees cannot georeference a Transverse Mercator sheet
+Shown by: the R5b georef of AMS U502 NI 43-15 Pathankot (35 control points from the printed 15' graticule) and `test_an_affine_on_degrees_cannot_fit_a_tm_sheet`. The scout's note that an affine is enough on a 1.5 by 1 degree sheet does not hold: the sheet's meridians converge (its neatline is 3,730 px wide at 33°N and 3,772 px at 32°N) and its parallels bow by 3 to 4 px, so an affine on longitude and latitude leaves 5.5 px rms (12.6 px worst). Projected first (Transverse Mercator, Everest 1830, central meridian 75°E) the same points fit to 1.01 px rms (1.64 px worst). `georef.py` fits `tm` and `polyconic` sheets in their own projection.
+
+## 2026-10-11 R5b: the scout's bone halo is invisible on a paper sheet
+Shown by: the first R5b proof frames. A bone disc at 0.18 alpha over a cream paper sheet changes its pixels by under 2%. Halos are drawn as a ring in the label's language (`--mark-text` over a soft black band), BRAND-KIT 13.
+
+## 2026-10-11 R5b: a macron in a sheet's printed name has no glyph in the credits face
+Shown by: the R5b proof film refused at `credits-fits` ("no glyph for 'Ā' in inter-latin-400-normal.woff") with the halos named as the U502 sheet prints them (PATHĀNKOT, GURDĀSPUR). The credits use Inter's latin subset. The proof names the halos in the record's spelling (Pathankot, Gurdaspur, citing the award), which A32(f) allows. Open: a printed name with a diacritic needs the latin-ext subset in the credits face (with R6's names.json).

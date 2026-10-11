@@ -166,7 +166,11 @@ DRIFT = Spring("drift", 48, 14, 1.2, says="the watermark settles at the open; th
 # third's lines arrive on `whisper`: a quiet, near-critical spring that settles in 9 frames with no visible
 # travel, so the words seem to surface rather than land.
 WHISPER = Spring("whisper", 380, 38, 1.0, says="a provenance label or a lower third's line surfaces, then is let go")
-PRESETS = (STAMP, SETTLE, ARRIVE, DRIFT, WHISPER)
+# A32 (R5b, BRAND-KIT 13): a line drawn on over an archive map arrives along its length on `trace`, slow
+# enough for the eye to follow it across the frame (zeta 0.88, settles in 1.56 s; its 0.31% overshoot is
+# clamped, so a line never draws past its cited end). `drift` is too quick for that and `rostrum` is a camera curve.
+TRACE = Spring("trace", 14, 7.5, 1.3, says="a line is drawn on over an archive map, along its length")
+PRESETS = (STAMP, SETTLE, ARRIVE, DRIFT, WHISPER, TRACE)
 
 # --------------------------------------------------------------------------
 # Eases (closed form) for fades, dissolves, dips and the rostrum move.
