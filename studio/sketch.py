@@ -11,7 +11,8 @@ void-history's score.py manifest format). Outputs land in `<film>/out/`:
 Rules enforced here, before anything renders:
   - every shot cites an asset id that exists in the dossier, with a licence
     on the allowlist (public domain, CC0, CC-BY)
-  - narration covers at most 35% of the runtime (the narration ceiling)
+  (the narration ceiling it once enforced is lifted by GRAMMAR A17: narration
+  is reported in sources.json as narration_share, never capped)
 
 Moves are computed per frame with sub-pixel affine sampling (PIL), so there is
 none of ffmpeg zoompan's integer-step jitter. A move is two framings,
@@ -36,7 +37,6 @@ from PIL import Image
 W, H, FPS = 1280, 720, 30
 AUDIO_RATE = 48000
 LICENCES = {"public domain", "CC0", "CC-BY-2.0", "CC-BY-4.0"}  # CC BY requires the credit line, which sources.json carries
-NARRATION_CEILING = 0.35
 VOID_ROOT = Path(os.environ.get("VOID_ROOT", "C:/Users/aacri/claudeprojects/voidnews"))
 # Every unit of work is timed into this ledger; the Director's Lens predicts
 # from it (design/spec.md, "timing ledger"). Data, never committed.
@@ -233,8 +233,6 @@ def render(film: Path) -> None:
         work = Path(tmp)
         voice = narrate(play.get("narration", []), play.get("voice", "am_michael"), float(play.get("speed", 1.0)), work, timer)
         spoken = sum(len(x) for _, x in voice) / AUDIO_RATE
-        if spoken > NARRATION_CEILING * total:
-            fail(f"narration is {spoken:.1f}s of {total:.1f}s ({spoken / total:.0%}), over the {NARRATION_CEILING:.0%} ceiling")
         t0 = time.perf_counter()
         cue = score_cue(film, play.get("score", {}), work)
         if cue is not None:

@@ -190,3 +190,88 @@ Don't: put a hue in text on film; animate the mark plate; bounce anything; slide
 4. **spec.md, Film page:** the paused credit (player chrome, top right) starts below the watermark zone: its top edge at 13% of frame height or lower.
 5. **sketch.py:** master at 1920 x 1080 and 24 fps as GRAMMAR 7.5 says (it renders 1280 x 720 at 30 today); import the moves, plates and cards from `motion.py` instead of its own `ease`.
 6. **Subtitle faces:** add `@fontsource/noto-sans-devanagari` and `@fontsource/noto-nastaliq-urdu` (already a build ticket). Pillow on this machine lacks libraqm, so `motion.py` lays out Devanagari and Nastaliq without shaping; it is for layout checks only, and subtitles ship as tracks.
+
+## 11. Subtle on-screen information (2026-10-10, founder revamp; GRAMMAR A16)
+
+Appended; sections 3 to 6 above keep their G2 text and are read with this. Where they conflict, this section wins: the always-on mark plate (section 5, A1) is replaced by a label and a glyph, and the lower third and watermark are quieter. The measure is void news's restraint: information is there when you look for it and gone when you don't. `motion.py` implements every number below (`LABEL`, `GLYPH_SHAPE`, `LT`, `WM`, `WHISPER`, `let_go`).
+
+### The provenance label and the class glyph
+
+At each shot change a short label surfaces top left, holds about 3 s and is let go, leaving a small glyph in the class hue that stays for the rest of the shot. Every frame carries its provenance: the label, the glyph, or both. The glyph is the mark the mark-coverage lint reads.
+
+| | Value | 1080p | 720p |
+|---|---|---|---|
+| Glyph position | its box's top-left at 4% of width, 5% of height (the old plate's corner) | 77, 54 px | 51, 36 px |
+| Glyph size | 0.85% of height, never under 4 px | 9 px | 6 px |
+| Glyph shape | ARCHIVE, RECONSTRUCTED and CARD a dot; DRAWN a square (inset 9% of its box); AI-GENERATED a diamond. Classes that share a hue (DRAWN and AI-GENERATED are both cold blue) differ in shape. Every shape is solid at its centre. | | |
+| Glyph colour | the class hue at full opacity (amber, bone, cold blue, as section 5), drawn 4x and box-filtered | | |
+| Glyph contact disc | a round disc beneath the glyph, black at 0.42 alpha, its diameter the glyph box plus 0.12% of height on each side (at least 1 px), antialiased at its edge; it is round under every shape, so it shows as a thin dark rim around the dot and the diamond, and the square's corners overhang it | 11 px across | 8 px across |
+| Label words | class and year, sentence case, joined by ` · `: `Archive · 1947`; RECONSTRUCTED adds its alterations (`Reconstructed · 1946 · colour cast removed`); DRAWN its data source (`Drawn · from Natural Earth`). The archive's name stays in the credits and on the Sources page. | | |
+| Label type | Inter 400 at 1.85% of height, numerals JetBrains Mono at 94%, `--mark-text` at 0.72 opacity (the G2 plate was mono 600 at 3.1%, opaque on a 60% scrim) | 20 px | 13 px |
+| Label position | 0.55 em right of the glyph; the glyph sits at the middle of the x-height | | |
+| Label ground | no box: a soft shadow, the words' own shape blurred by 0.11% of height (at least 1 px) in black at 0.42 alpha | | |
+| In | on `whisper` (below): opacity follows the spring while the words drift 0.25 em toward their rest | 9 frames | |
+| Hold | 3.0 s after it has surfaced | | |
+| Out | `let_go`: a 0.75 s sine in-out fade, nothing moves; the glyph stays | | |
+| Whole label | 4.11 s from the cut to gone | | |
+| Repeated words | a cut into a shot whose label is word for word the outgoing one (two stills of one class and year) does not bring the label up again: the same words again at a cut are noise, and the glyph carries them | | |
+| CARD | the glyph alone (bone dot), never a label: a card's own words say what it is | | |
+| Class change | the glyph crossfades linearly over 4 frames (GRAMMAR 4.1); within a class the swap is hard | | |
+| Dip to black | the hold of a dip is all black, glyph and label included (A11) | | |
+
+### Lower thirds, quieter
+
+Same grammar as section 4 (no box, a short rule, flush left with the glyph, the flag first), smaller, softer and brief: a lower third comes and goes.
+
+| | G2 kit | A16 | 1080p | 720p |
+|---|---|---|---|---|
+| Name | Fraunces 300, 4.4% of height, opaque | 3.3%, 0.88 opacity | 36 px | 24 px |
+| Role, year | Inter 400, 2.8% | 2.1%, 0.74 | 23 px | 15 px |
+| Source | Inter 400, 2.3% | 1.8%, 0.62 (the suffix after the dot at 70% of that) | 19 px | 13 px |
+| Flag (flagged form) | Fraunces 300 italic, 3.6% | 2.9%, 0.94: still the first and the largest line, above the rule, and the most opaque | 31 px | 21 px |
+| Name under a flag | 3.6% | 2.7% | 29 px | 19 px |
+| Rule | 7.5% of width, 0.19% of height, bone 0.85 | 5% of width, 0.14% of height, bone 0.55 | 96 x 2 px | 64 x 1 px |
+| Gaps (plain) | rule 0.7, name 0.7, role 0.5% | 0.6, 0.5, 0.4% | | |
+| Gaps (flagged) | flag 0.5, rule 0.6, role 0.4% | 0.4, 0.5, 0.35% | | |
+| Wash | black 0.5 at the left edge to 0 at 62% of width | 0.36 to 0 at 52% | | |
+| Block top | 78.4% plain, 75.06% flagged | 81.7% plain, 78.9% flagged | | |
+| In | flag and rule at 0 (rule on `stamp`), lines at +4, +8, +12 frames on `settle`, rising 0.8% of height | the same order and stagger on `whisper`, rising 0.35% | | |
+| Hold | the screenplay's span (4 to 6 s) | 4.0 s after the last line has surfaced, then it goes, whatever the screenplay's `end_s` (an earlier `end_s` ends it sooner) | | |
+| Out | last 0.5 s, ease-in | `let_go`, 0.6 s sine in-out, all together | | |
+| On screen at most | | 5.46 s | | |
+
+### Watermark, quieter
+
+The logomark top right as section 3, at 0.36 opacity (was 0.6), with its halo at 0.22 alpha (was 0.35). Everything else, including the settle and the card fades, is unchanged.
+
+### New motion preset and ease
+
+| preset | k | c | m | zeta | overshoot | settle (s) | 24 fps | 25 fps | 30 fps | says |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `whisper` | 380 | 38 | 1 | 0.975 | 0.00% | 0.357 | 9 | 9 | 11 | a provenance label or a lower third's line surfaces, then is let go |
+
+| name | formula | used for |
+|---|---|---|
+| let go | 1 - (0.5 - 0.5 cos(pi u)) over the last `dur` seconds | the label's departure (0.75 s), the lower third's (0.6 s): a quiet element thins out instead of dropping |
+
+Do: let the glyph do the work once the label has gone; keep the flag the strongest line of a partisan lower third. Don't: put a box behind the label; animate the glyph; bring the same label back at a cut; let a lower third stay past its hold.
+
+### 11a. Refined after the T1e review (2026-10-10, Chief of Staff; GRAMMAR A16 refined)
+
+These values replace section 11's where they differ.
+
+| | Value |
+|---|---|
+| Label at a cut | it surfaces at every cut, even when its words repeat the outgoing shot's (section 11's "repeated words" row no longer applies) |
+| AI-GENERATED label | never fades: it surfaces on `whisper` and stays up for the whole shot, because at 4 to 9 px the diamond and the square read alike |
+| DRAWN glyph | a square filling its whole box (no inset), so its top-left pixel is solid; no other shape's is |
+| Shape check | see 11b |
+| Lower third's bracketed cue | a burned subtitle cue for a lower third ends when the drawn lower third does |
+
+### 11b. Refined after the T1e re-review (2026-10-10, Chief of Staff)
+
+| | Value |
+|---|---|
+| AI-GENERATED label | full opacity from the cut frame (no `whisper` arrival, no drift) and up for the whole shot, through a dissolve too (a dissolve joins two shots of one class) |
+| Shape check | mark-coverage reads the hue at the glyph's centre and the shape at two pixels: the glyph box's top-left pixel and the one to its right. Each must equal what the shot's own class glyph composes there over the same pixels of the frame before the mark was drawn. The square leaves its hue at both; the dot and the diamond leave the picture under two different edge alphas, so no flat picture can pass a wrong shape, and a correct frame passes over any picture. |
+| Drawing | the glyph and the label are drawn on small tiles (the label and its shadow on a crop around the words) and composited in place, never as full-frame layers: about 2 ms a frame at 1080p, down from 41 ms, with identical pixels |

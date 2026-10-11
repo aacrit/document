@@ -37,11 +37,15 @@ def _isolated_logs(tmp_path_factory):
 
 
 def tone(path: Path, seconds: float, hz: float = 440.0) -> Path:
-    """A test tone standing in for a voice WAV."""
+    """A test tone standing in for a voice WAV, shaped like a take: 0.25 s of
+    silence at each end (inside ``seconds``), so A19's cleanup can measure a
+    floor and the line passes voice-clean as a clean take does."""
     import soundfile as sf
     path.parent.mkdir(parents=True, exist_ok=True)
     t = np.arange(int(48000 * seconds)) / 48000
-    sf.write(str(path), (0.2 * np.sin(2 * np.pi * hz * t)).astype("float32"), 48000)
+    x = 0.2 * np.sin(2 * np.pi * hz * t)
+    x[(t < 0.25) | (t >= seconds - 0.25)] = 0.0
+    sf.write(str(path), x.astype("float32"), 48000)
     return path
 
 

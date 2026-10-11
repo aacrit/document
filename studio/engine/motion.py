@@ -162,7 +162,11 @@ STAMP = Spring("stamp", 420, 40, 1.0, says="a rule is drawn; the watermark's cor
 SETTLE = Spring("settle", 170, 24, 1.0, says="a line of a lower third or a card takes its place")
 ARRIVE = Spring("arrive", 110, 20, 1.1, says="a title, the largest thing on the frame, arrives")
 DRIFT = Spring("drift", 48, 14, 1.2, says="the watermark settles at the open; the chapter rule grows")
-PRESETS = (STAMP, SETTLE, ARRIVE, DRIFT)
+# A16 (founder revamp, 2026-10-10): on-screen information is subtle. The provenance label and the lower
+# third's lines arrive on `whisper`: a quiet, near-critical spring that settles in 9 frames with no visible
+# travel, so the words seem to surface rather than land.
+WHISPER = Spring("whisper", 380, 38, 1.0, says="a provenance label or a lower third's line surfaces, then is let go")
+PRESETS = (STAMP, SETTLE, ARRIVE, DRIFT, WHISPER)
 
 # --------------------------------------------------------------------------
 # Eases (closed form) for fades, dissolves, dips and the rostrum move.
@@ -257,6 +261,17 @@ def fade_in(t: float, start: float, dur: float, ease=ease_out_sine) -> float:
     return ease((t - start) / dur)
 
 
+def let_go(t: float, end: float, dur: float) -> float:
+    """A16's departure ("ease out"): 1 until end - dur, then a sine in-out fade
+    to 0 at ``end``. Gentler than ``fade_out``'s ease-in: a quiet element is
+    let go, not released, so its last frames thin out instead of dropping."""
+    if t <= end - dur:
+        return 1.0
+    if t >= end:
+        return 0.0
+    return 1.0 - sine_inout((t - (end - dur)) / dur)
+
+
 # --------------------------------------------------------------------------
 # Layout in fractions of the frame. BRAND-KIT.md section 3 and 4 are the spec;
 # these numbers are that spec.
@@ -278,29 +293,56 @@ class Layout:
         return max(1, round(pct_h / 100.0 * self.H))
 
 
-LT = dict(                 # lower third
-    x=4.0,                 # % of W, left edge (aligned with the mark plate)
+LT = dict(                 # lower third (A16: quieter than the G2 kit in size, weight and opacity; it comes and goes)
+    x=4.0,                 # % of W, left edge (aligned with the provenance glyph)
     bottom=92.0,           # % of H, bottom edge of the last line's box
     max_w=56.0,            # % of W
-    rule_len=7.5,          # % of W
-    rule_h=0.19,           # % of H (2 px at 1080p)
-    flag=2.0, name=4.4, role=2.8, source=2.3,        # font sizes, % of H
+    rule_len=5.0,          # % of W (was 7.5)
+    rule_h=0.14,           # % of H (1.5 px at 1080p; was 0.19)
+    flag=2.0, name=3.3, role=2.1, source=1.8,        # font sizes, % of H (were 4.4, 2.8, 2.3)
     lh_flag=1.4, lh_name=1.1, lh_role=1.3, lh_source=1.3,
-    gap_flag=0.5, gap_rule=0.7, gap_name=0.7, gap_role=0.5,   # % of H
-    # Flagged (partisan-source) form: the flag is the first and largest line, set in
-    # Fraunces 300 italic at the name's size; the name steps down to match it, gaps
-    # tighten and the source must fit one line, so the block top stays at 75.06% of H.
-    flag_f=3.6, name_f=3.6, lh_flag_f=1.1, gap_flag_f=0.5, gap_rule_f=0.6, gap_role_f=0.4,
-    # block top: 78.4% of H plain, 75.06% with a flag (GRAMMAR 4.1: never above 75%)
-    rise=0.8,              # % of H, the vertical travel of an arriving line
+    gap_flag=0.5, gap_rule=0.6, gap_name=0.5, gap_role=0.4,   # % of H
+    # Flagged (partisan-source) form: the flag stays the first and largest line, set in
+    # Fraunces 300 italic above the rule; the name steps down under it, so the viewer
+    # learns whose account this is before who speaks. The source must fit one line.
+    flag_f=2.9, name_f=2.7, lh_flag_f=1.1, gap_flag_f=0.4, gap_rule_f=0.5, gap_role_f=0.35,
+    rise=0.35,             # % of H, the vertical travel of an arriving line (was 0.8)
     stagger=4 / 24,        # s between arrivals (4 frames at 24 fps)
-    exit=0.5,              # s, the fade out
-    wash=0.5,              # peak alpha of the wash
-    wash_w=62.0,           # % of W the wash reaches
+    exit=0.6,              # s, the departure (let_go, sine in-out; was a 0.5 s ease-in)
+    hold=4.0,              # s the block holds after its last line settles, then it goes (A16)
+    wash=0.36,             # peak alpha of the wash (was 0.5)
+    wash_w=52.0,           # % of W the wash reaches (was 62)
     wash_feather=4.0,      # % of H above the block
+    a_flag=0.94, a_name=0.88, a_role=0.74, a_source=0.62, a_rule=0.55,   # text opacity per line (was 1.0; rule 0.85)
 )
-MARK = dict(x=4.0, y=5.0, size=3.1, size_card=2.4, pad=0.6, radius=0.55, bar_px_1080=3, fade=4 / 24)
-WM = dict(box=6.0, right=4.0, top=5.0, opacity=0.6, spread=0.08, halo=0.35, fade=0.5)
+# A16's lower third is on screen for at most its arrival, LT.hold and its departure, whatever the screenplay's end.
+LT_MAX_S = 3 * LT["stagger"] + WHISPER.settle_time() + LT["hold"] + LT["exit"]
+# A16: the provenance label and the class glyph. The label ("Archive · 1947") surfaces at a shot change on
+# `whisper`, holds about 3 s and is let go; the glyph (a small mark in the class hue) stays on every frame.
+LABEL = dict(
+    x=4.0, y=5.0,          # % of W and H: the glyph's top-left, the old plate's corner
+    glyph=0.85,            # % of H, the glyph's diameter (9 px at 1080p, 6 at 720p), never under 4 px
+    glyph_min_px=4,
+    size=1.85,             # % of H, the label's text (20 px at 1080p, 13 at 720p; the G2 plate was 3.1)
+    gap=0.55,              # em of the label's size between the glyph and the text
+    alpha=0.72,            # the label text's opacity (the G2 plate's text was opaque on a 60% scrim)
+    drift=0.25,            # em: the text surfaces this far left of its rest, toward the glyph, as it arrives
+    shadow=0.42,           # alpha of the soft black shadow under the text and around the glyph (no box)
+    blur=0.11,             # % of H, the shadow's blur radius
+    halo=0.12,             # % of H, the dark contact ring around the glyph (at least 1 px)
+    hold=3.0,              # s the label holds after it has surfaced
+    exit=0.75,             # s, its departure (let_go)
+    fade=4 / 24,           # s, the glyph's linear crossfade when the class changes (GRAMMAR 4.1, 4 frames)
+)
+LABEL_MAX_S = WHISPER.settle_time() + LABEL["hold"] + LABEL["exit"]
+# The class glyph's shape, so classes that share a hue still differ (DRAWN and AI-GENERATED are both cold blue).
+# Every shape is solid at its centre, where the mark-coverage lint reads the hue; only the square is solid at its
+# top-left corner, where the lint reads the shape. At 4 to 9 px a dot and a diamond read alike, so an AI-GENERATED
+# shot also keeps its label up for the whole shot (A16 refined): the words, not the glyph, say it is generated.
+GLYPH_SHAPE = {"ARCHIVE": "dot", "RECONSTRUCTED": "dot", "CARD": "dot", "DRAWN": "square", "AI-GENERATED": "diamond"}
+CLASS_WORD = {"ARCHIVE": "Archive", "RECONSTRUCTED": "Reconstructed", "AI-GENERATED": "AI-generated", "DRAWN": "Drawn",
+              "CARD": "void document"}
+WM = dict(box=6.0, right=4.0, top=5.0, opacity=0.36, spread=0.08, halo=0.22, fade=0.5)   # A16: was 0.6 and 0.35
 SUB = dict(size=3.9, bottom=93.0, max_w=84.0, gap=1.2, lh=1.45, lh_nastaliq=1.9)
 CHAPTER = dict(title=5.6, dates=2.6, rule_len=6.0, rule_h=0.19, baseline=47.0, rise=0.6, exit=0.4)
 SILENT = dict(size=4.0, lh=1.35, searched=2.6, max_w=76.0, fade=0.75, stagger=0.33)
@@ -467,8 +509,8 @@ def watermark_level(t: float, card_spans=(), fade: float = WM["fade"]) -> float:
 
 def watermark(img: Image.Image, t: float, *, start: float = 0.0, card_spans=(), settle: bool = True,
               opacity: float = WM["opacity"], fonts: Fonts | None = None) -> Image.Image:
-    """The in-film watermark: the logomark, top right, bone at 60% with a black
-    halo, 6% of frame height. At ``start`` it settles once (corners close from
+    """The in-film watermark: the logomark, top right, bone at 36% (A16; the G2
+    kit had 60%) with a faint black halo, 6% of frame height. At ``start`` it settles once (corners close from
     an 8% spread with DRIFT; the ember appears in the last tenth); afterwards
     it is static. Hidden over CARD spans with a 12-frame fade."""
     base = _as_rgba(img)
@@ -492,66 +534,206 @@ def watermark(img: Image.Image, t: float, *, start: float = 0.0, card_spans=(), 
 
 
 # --------------------------------------------------------------------------
-# The provenance mark plate (GRAMMAR 4). Stamp, not graphic.
+# The provenance mark (GRAMMAR 4, amendment A16): a quiet label at each shot
+# change that is let go after about 3 s, and a small class glyph in the corner
+# that stays on every frame. Together they replace the G2 plate (A1).
 # --------------------------------------------------------------------------
 
 
-def _mark_plate(L: Layout, cls: str, detail: str, fonts: Fonts) -> Image.Image:
-    small = cls == "CARD"
-    px = L.px(MARK["size_card"] if small else MARK["size"])
-    f_cls = _font(fonts.data_semibold, px)
-    f_det = _font(fonts.data, px)
-    word = "VOID DOCUMENT" if small else cls
-    track = 0.06
-    w_cls = _tracked_width(word, f_cls, track)
-    gap = 0.9 * px if detail else 0.0
-    w_det = f_det.getlength(detail) if detail else 0.0
-    pad = MARK["pad"] * px
-    bar = max(2, round(MARK["bar_px_1080"] * L.H / 1080))
-    w = int(round(bar + 0.7 * px + w_cls + gap + w_det + 0.75 * px))
-    h = int(round(px + 2 * pad))
-    plate = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    d = ImageDraw.Draw(plate)
-    r = L.px(MARK["radius"])
-    d.rounded_rectangle([0, 0, w - 1, h - 1], radius=r, fill=(0, 0, 0, int(255 * MARK_SCRIM_ALPHA)))
-    d.rectangle([0, 0, bar - 1, h - 1], fill=MARK_HUE[cls] + (255,))
-    base_y = pad + 0.78 * px
-    x = bar + 0.7 * px
-    x = _draw_tracked(d, (x, base_y), word, f_cls, PALETTE["mark_text"] + (255,), track)
-    if detail:
-        d.text((x + gap - track * px, base_y), detail, font=f_det, fill=PALETTE["mark_text"] + (255,), anchor="ls")
-    return plate
+def mark_label(cls: str, year: str | None = None, extra: str = "") -> str:
+    """The label's words, sentence case: ``Archive · 1947``,
+    ``Reconstructed · 1946 · colour cast removed``, ``Drawn · from Natural
+    Earth``. A CARD carries the glyph alone (``label_starts`` gives it no
+    label): the card's own words say what it is."""
+    parts = [CLASS_WORD[cls]] + [p for p in (year, extra) if p]
+    return " · ".join(parts)
 
 
-def mark_plate_frame(img: Image.Image, t: float, shots, fonts: Fonts) -> Image.Image:
-    """Draw the current shot's mark. ``shots`` is a list of dicts with
-    ``start`` (s), ``cls`` and ``detail``. The label changes on the cut frame.
-    When the class changes, the outgoing and incoming plates crossfade over
-    4 frames (GRAMMAR 4.1); within a class the swap is hard. The first shot's
-    mark is full from its first frame: no frame goes unmarked."""
-    base = _as_rgba(img)
-    L = Layout(*base.size)
-    cur = prev = None
-    for s in sorted(shots, key=lambda s: s["start"]):
-        if s["start"] <= t:
-            prev, cur = cur, s
-    if cur is None:
-        return base
-    x, y = int(round(L.w(MARK["x"]))), int(round(L.h(MARK["y"])))
-    layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
-    u = (t - cur["start"]) / MARK["fade"]
-    if prev is not None and prev["cls"] != cur["cls"] and u < 1.0:
-        # a true linear crossfade of the two plates: where both are opaque (the
-        # colour bar) the pixel is exactly the mix of the two hues, never the
-        # picture showing through
-        out = Image.new("RGBA", base.size, (0, 0, 0, 0))
-        out.paste(_mark_plate(L, prev["cls"], prev.get("detail", ""), fonts), (x, y))
-        inc = Image.new("RGBA", base.size, (0, 0, 0, 0))
-        inc.paste(_mark_plate(L, cur["cls"], cur.get("detail", ""), fonts), (x, y))
-        layer = Image.blend(out, inc, clamp01(u))
+def glyph_px(L: Layout) -> int:
+    return max(LABEL["glyph_min_px"], L.px(LABEL["glyph"]))
+
+
+def glyph_origin(L: Layout) -> tuple[int, int]:
+    """Top-left pixel of the glyph's box."""
+    return int(round(L.w(LABEL["x"]))), int(round(L.h(LABEL["y"])))
+
+
+def glyph_corner(L: Layout) -> tuple[int, int]:
+    """The glyph box's top-left pixel: solid only in the square (DRAWN)."""
+    return glyph_origin(L)
+
+
+def glyph_shape_probes(L: Layout) -> list[tuple[int, int]]:
+    """Where the mark-coverage lint reads the shape: the glyph box's top-left
+    pixel and the one right of it. Both are solid in the square; in the dot
+    and the diamond they lie under different alphas of the glyph's edge and
+    its contact disc, so no flat picture can make both read as the square."""
+    x, y = glyph_origin(L)
+    return [(x, y), (x + 1, y)]
+
+
+def glyph_centre(L: Layout) -> tuple[int, int]:
+    """The pixel at the glyph's centre, solid in every shape: the
+    mark-coverage lint reads the class hue here."""
+    x, y = glyph_origin(L)
+    d = glyph_px(L)
+    return x + d // 2, y + d // 2
+
+
+def _glyph(cls: str, d: int, ss: int = 4) -> Image.Image:
+    """The class glyph, d x d px: the hue in every pixel and the shape in the
+    alpha only, so a fully covered pixel is exactly the class hue. Drawn 4x
+    and box-filtered down, which keeps the centre opaque at any size."""
+    big = d * ss
+    mask = Image.new("L", (big, big), 0)
+    dm = ImageDraw.Draw(mask)
+    shape = GLYPH_SHAPE[cls]
+    if shape == "square":
+        dm.rectangle([0, 0, big - 1, big - 1], fill=255)   # the whole box: its corner pixel is solid, which no other shape's is
+    elif shape == "diamond":
+        c = (big - 1) / 2.0
+        dm.polygon([(c, 0), (big - 1, c), (c, big - 1), (0, c)], fill=255)
     else:
-        layer.paste(_mark_plate(L, cur["cls"], cur.get("detail", ""), fonts), (x, y))
-    return Image.alpha_composite(base, layer)
+        dm.ellipse([0, 0, big - 1, big - 1], fill=255)
+    img = Image.new("RGBA", (d, d), MARK_HUE[cls] + (0,))
+    img.putalpha(mask.resize((d, d), Image.BOX))
+    return img
+
+
+@lru_cache(maxsize=32)
+def glyph_tile(W: int, H: int, cls: str) -> tuple[Image.Image, tuple[int, int]]:
+    """The glyph over its dark contact disc, as a small tile and the frame
+    pixel its top-left lands on. The disc is round for every shape, 0.12% of
+    height (at least 1 px) wider than the glyph on each side, black at
+    LABEL.shadow alpha, antialiased; a square's corners overhang it."""
+    L = Layout(W, H)
+    d = glyph_px(L)
+    x, y = glyph_origin(L)
+    ring = max(1, L.px(LABEL["halo"]))
+    size = d + 2 * ring
+    big = size * 4
+    halo = Image.new("L", (big, big), 0)
+    ImageDraw.Draw(halo).ellipse([0, 0, big - 1, big - 1], fill=int(round(255 * LABEL["shadow"])))
+    tile = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    tile.putalpha(halo.resize((size, size), Image.BOX))
+    tile.alpha_composite(_glyph(cls, d), (ring, ring))
+    return tile, (x - ring, y - ring)
+
+
+def _glyph_layer(W: int, H: int, cls: str) -> Image.Image:
+    """The glyph tile on a full-frame transparent layer (for tests and the kit)."""
+    tile, at = glyph_tile(W, H, cls)
+    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    layer.alpha_composite(tile, at)
+    return layer
+
+
+LABEL_STAYS = {"AI-GENERATED"}       # A16 refined (CoS, T1e review): this label never fades; it stays the whole shot
+
+
+def label_alpha(t: float, start: float, cls: str | None = None) -> float:
+    """The label's opacity factor (0..1) at ``t`` for a label that surfaced at
+    ``start``: up on `whisper`, held LABEL.hold s, let go over LABEL.exit s;
+    0 from LABEL_MAX_S on. An AI-GENERATED label is at full opacity from
+    the cut frame and never goes (a dissolve joins two shots of one class
+    (GRAMMAR 4.4), so it stays up through one too)."""
+    if t < start:
+        return 0.0
+    u = t - start
+    if cls in LABEL_STAYS:
+        return 1.0                       # the class is never hidden: full from the cut frame, no arrival
+    if u >= LABEL_MAX_S:
+        return 0.0
+    return clamp01(WHISPER.progress(u)) * let_go(u, LABEL_MAX_S, LABEL["exit"])
+
+
+def label_starts(shots) -> list[float | None]:
+    """When each shot's label surfaces (``shots`` sorted by start): at every
+    cut, its own start, as A16 says, even when the words repeat the outgoing
+    shot's. A CARD has no label (the card's own words say what it is)."""
+    return [None if s["cls"] == "CARD" or not s.get("label") else s["start"] for s in shots]
+
+
+def mark_state(t: float, shots) -> dict | None:
+    """What the mark shows at ``t``. ``shots`` are dicts with ``start``,
+    ``cls`` and ``label``. Returns the class, the outgoing class and the
+    glyph's crossfade weight, and the label with its opacity factor."""
+    ss = sorted(shots, key=lambda s: s["start"])
+    starts = label_starts(ss)
+    cur = prev = None
+    for k, s in enumerate(ss):
+        if s["start"] <= t:
+            prev, cur = cur, k
+    if cur is None:
+        return None
+    s = ss[cur]
+    p = ss[prev] if prev is not None else None
+    u = (t - s["start"]) / LABEL["fade"]
+    mix = clamp01(u) if (p is not None and p["cls"] != s["cls"] and u < 1.0) else 1.0
+    la = label_alpha(t, starts[cur], s["cls"]) if starts[cur] is not None else 0.0
+    return {"cls": s["cls"], "prev_cls": p["cls"] if p is not None else None, "mix": mix,
+            "label": s.get("label") or "", "label_alpha": la, "label_start": starts[cur]}
+
+
+
+def _label_tile(L: Layout, text: str, alpha: float, dx: float, fonts: Fonts) -> tuple[Image.Image, tuple[int, int]]:
+    """The label's words beside the glyph, near-white at LABEL.alpha over a soft
+    black shadow (no box), numerals in the data face, drawn and blurred on a
+    crop around the words only, and the frame pixel the crop lands on."""
+    from PIL import ImageFilter
+    px = L.px(LABEL["size"])
+    f_txt = _font(fonts.structure, px)
+    f_num = _font(fonts.data, max(1, round(px * 0.94)))
+    d = glyph_px(L)
+    gx, gy = glyph_origin(L)
+    x = gx + d + LABEL["gap"] * px + dx
+    baseline = gy + d / 2.0 + 0.36 * px           # the glyph sits at the middle of the x-height
+    radius = max(1.0, L.h(LABEL["blur"]))
+    margin = int(math.ceil(3 * radius)) + 2
+    x0, y0 = max(0, int(math.floor(x)) - margin), max(0, int(math.floor(baseline - 1.1 * px)) - margin)
+    x1 = min(L.W, int(math.ceil(x + _measure(text, f_txt, f_num))) + margin + 1)
+    y1 = min(L.H, int(math.ceil(baseline + 0.4 * px)) + margin + 1)
+    words = Image.new("RGBA", (x1 - x0, y1 - y0), (0, 0, 0, 0))
+    _draw_mixed(ImageDraw.Draw(words), (x - x0, baseline - y0), text, f_txt, f_num,
+                _rgba(PALETTE["mark_text"], LABEL["alpha"] * alpha))
+    # the shadow: the words' own coverage, blurred, in black at LABEL.shadow (scaled with the label's opacity)
+    cover = np.asarray(words.getchannel("A"), dtype=np.float32) / max(LABEL["alpha"] * alpha, 1e-6)
+    blurred = Image.fromarray(np.clip(cover, 0, 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(radius))
+    sh = np.clip(np.asarray(blurred, dtype=np.float32) * 1.8, 0, 255) * (LABEL["shadow"] * alpha)
+    out = Image.new("RGBA", words.size, (0, 0, 0, 0))
+    out.putalpha(Image.fromarray(sh.astype(np.uint8)))
+    out.alpha_composite(words)
+    return out, (x0, y0)
+
+
+def mark_frame(img: Image.Image, t: float, shots, fonts: Fonts) -> Image.Image:
+    """Draw the provenance mark at ``t`` (A16). ``shots`` holds dicts with
+    ``start`` (s), ``cls`` and ``label``. The glyph is on every frame: a hard
+    swap within a class, a 4-frame linear crossfade when the class changes
+    (both glyphs are opaque at the centre, so the pixel there is exactly the
+    mix of the two hues). The label surfaces at the shot change, drifting a
+    quarter em toward its rest, and is let go after about 3 s; an
+    AI-GENERATED label is full from the cut frame and stays. Only small tiles
+    are drawn and composited, never full-frame layers."""
+    out = _as_rgba(img)
+    st = mark_state(t, shots)
+    if st is None:
+        return out
+    L = Layout(*out.size)
+    tile, at = glyph_tile(L.W, L.H, st["cls"])
+    if st["mix"] < 1.0:
+        tile = Image.blend(glyph_tile(L.W, L.H, st["prev_cls"])[0], tile, st["mix"])
+    out.alpha_composite(tile, at)
+    if st["label_alpha"] > 0.0 and st["label"]:
+        u = t - st["label_start"]
+        arriving = st["cls"] not in LABEL_STAYS
+        dx = -(1.0 - clamp01(WHISPER.progress(u))) * LABEL["drift"] * L.px(LABEL["size"]) if arriving else 0.0
+        words, wat = _label_tile(L, st["label"], st["label_alpha"], dx, fonts)
+        out.alpha_composite(words, wat)
+    return out
+
+
+mark_plate_frame = mark_frame        # the G2 name, kept so the kit's callers still resolve
 
 
 # --------------------------------------------------------------------------
@@ -633,6 +815,13 @@ def _wash(L: Layout, top: float, alpha: float) -> Image.Image:
     return Image.fromarray(rgba)
 
 
+def lower_third_span(start: float, end: float) -> tuple[float, float]:
+    """A16: a lower third comes and goes. It is on screen from ``start`` for
+    at most LT_MAX_S (arrival, a 4 s hold, departure), or until ``end`` when
+    the screenplay ends it sooner."""
+    return start, min(end, start + LT_MAX_S)
+
+
 def lower_third_frame(img: Image.Image, t: float, *, start: float, end: float, lines, fonts: Fonts,
                       kind: str = "speaker", flag: str | None = None) -> Image.Image:
     """Draw a lower third at time t. ``lines`` are GRAMMAR 9's lines: for a
@@ -640,20 +829,24 @@ def lower_third_frame(img: Image.Image, t: float, *, start: float, end: float, l
     for a place [place, date]. ``flag`` is the partisan-source eyebrow
     ("Account of the Government of West Punjab, 1948").
 
-    In: the flag and the rule arrive first (STAMP draws the rule from the left),
-    then each line 4 frames after the last, rising 0.8% of frame height on
-    SETTLE while fading in. Out: everything fades together over 0.5 s with an
-    ease-in; the rule shrinks back to its anchor. Nothing leaves by moving."""
+    A16, quieter than the G2 kit: smaller type, each line at its own opacity
+    (LT.a_*), a lighter wash and a shorter, fainter rule. In: the flag and the
+    rule first (the rule draws from its left anchor on `stamp`), then each line
+    4 frames after the last, surfacing on `whisper` with a 0.35% of height
+    rise. It holds LT.hold s and is let go over LT.exit s (sine in-out), all
+    together; nothing leaves by moving. ``end`` is clipped by
+    ``lower_third_span``, so a long screenplay span still comes and goes."""
     base = _as_rgba(img)
+    start, end = lower_third_span(start, end)
     if t < start or t >= end:
         return base
     L = Layout(*base.size)
     els, top = lower_third_layout(L, lines, fonts, kind, flag)
     x0 = L.w(LT["x"])
-    exit_k = fade_out(t, end, LT["exit"])
+    exit_k = let_go(t, end, LT["exit"])
     layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
     rule_p = STAMP.progress(t - start)
-    out = Image.alpha_composite(base, _wash(L, top, clamp01(rule_p) * exit_k))
+    out = Image.alpha_composite(base, _wash(L, top, clamp01(WHISPER.progress(t - start)) * exit_k))
     d = ImageDraw.Draw(layer)
     for e in els:
         t0 = start + e["order"] * LT["stagger"]
@@ -661,12 +854,13 @@ def lower_third_frame(img: Image.Image, t: float, *, start: float, end: float, l
             p = clamp01(rule_p) * exit_k
             w = e["len"] * p
             if w >= 1:
-                d.rectangle([x0, e["top"], x0 + w, e["top"] + e["h"]], fill=_rgba(PALETTE["bone"], 0.85))
+                d.rectangle([x0, e["top"], x0 + w, e["top"] + e["h"]], fill=_rgba(PALETTE["bone"], LT["a_rule"] * exit_k))
             continue
-        p = SETTLE.progress(t - t0) if t >= t0 else 0.0
+        p = WHISPER.progress(t - t0) if t >= t0 else 0.0
         if p <= 0.0:
             continue
-        a = clamp01(p) * exit_k
+        line_a = LT["a_flag"] if e["kind"] == "flag" else LT["a_name"] if e["kind"] == "name" else             LT["a_role"] if e["kind"] == "role" else LT["a_source"]
+        a = clamp01(p) * exit_k * line_a
         dy = (1.0 - clamp01(p)) * L.h(LT["rise"])
         sub = Image.new("RGBA", base.size, (0, 0, 0, 0))
         sd = ImageDraw.Draw(sub)
@@ -764,8 +958,8 @@ def subtitle_frame(img: Image.Image, text: str, font_path: str, *, rtl: bool = F
 
 
 # --------------------------------------------------------------------------
-# Cards over black: chapter, record-is-silent, title. All are CARD (the mark
-# plate is drawn separately by mark_plate_frame so no card forgets it).
+# Cards over black: chapter, record-is-silent, title. All are CARD (the
+# mark's glyph is drawn separately by mark_frame so no card forgets it).
 # --------------------------------------------------------------------------
 
 
@@ -1055,9 +1249,9 @@ def _demo(out_dir: Path, media: Path, fps: int = 24, seconds: float = 6.0, every
     b = Image.open(media / "S-036.jpg").convert("RGB")
     # Demo text is layout sample only: never attribute invented words to a real
     # person or document (GRAMMAR section 1). Dates are the year depicted.
-    shots = [dict(start=0.0, cls="ARCHIVE", detail="Wikimedia Commons 1947"),
-             dict(start=3.0, cls="ARCHIVE", detail="Wikimedia Commons 1947"),
-             dict(start=5.0, cls="CARD", detail="")]
+    shots = [dict(start=0.0, cls="ARCHIVE", label=mark_label("ARCHIVE", "1947")),
+             dict(start=3.0, cls="RECONSTRUCTED", label=mark_label("RECONSTRUCTED", "1947", "stabilised")),
+             dict(start=5.0, cls="CARD", label="")]
     lt_lines = ["Sample speaker", "Role, year (layout sample)",
                 "Source title, archive  ·  read by a computer voice"]
     flag = "Account of a named government, year (layout sample)"
@@ -1088,7 +1282,7 @@ def _demo(out_dir: Path, media: Path, fps: int = 24, seconds: float = 6.0, every
         else:
             frame = chapter_card_frame(frame, t, start=5.0, end=9.0, number=4, title="The roads",
                                        dates="August to November 1947", fonts=fonts)
-        frame = mark_plate_frame(frame, t, shots, fonts)
+        frame = mark_frame(frame, t, shots, fonts)
         frame.convert("RGB").save(out_dir / f"f{f:04d}.png")
     print(f"demo: {len(range(0, n, every))} frames -> {out_dir}")
 

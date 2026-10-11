@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from PIL import Image
 
 from studio.engine import journal as J
 from studio.engine import motion as M
@@ -124,19 +125,134 @@ def test_mark_plate_on_every_frame_matches_the_shot(plan):
     assert changes and crossfades > 0 and dips > 0
 
 
-def test_card_plate_is_the_small_void_document_plate(plan):
-    # CARD and imagery plates differ in size (BRAND-KIT 5: 2.4% vs 3.1% of height).
+def _label_box(plan):
+    """The zone right of the glyph where the A16 label is drawn."""
     L = M.Layout(plan["W"], plan["H"])
-    card = M._mark_plate(L, "CARD", "", M.Fonts())
-    arch = M._mark_plate(L, "DRAWN", "from PIL test image, test fixture", M.Fonts())
-    assert card.height < arch.height
-    f_card, f_arch = plan["shots"][0]["f0"] + 5, plan["shots"][2]["f0"] + 30
+    gx, gy = M.glyph_origin(L)
+    d = M.glyph_px(L)
+    return gy - 2, gy + d + L.px(M.LABEL["size"]), gx + d + 1, int(L.w(30))
+
+
+def test_a16_a_card_carries_the_glyph_alone_and_imagery_its_label_then_the_glyph(plan):
+    L = M.Layout(plan["W"], plan["H"])
     x, y = R.mark_probe(plan)
-    a = R.render_frame(plan, f_card)
-    b = R.render_frame(plan, f_arch)
-    bar_h = lambda arr, hue: int(np.sum(np.all(np.abs(arr[:, x].astype(int) - np.array(hue)) <= 2, axis=1)))
-    assert bar_h(a, M.MARK_HUE["CARD"]) == card.height
-    assert bar_h(b, M.MARK_HUE["DRAWN"]) == arch.height
+    y0, y1, x0, x1 = _label_box(plan)
+    card = R.render_frame(plan, plan["shots"][0]["f0"] + 5)
+    assert np.max(np.abs(card[y, x].astype(int) - np.array(M.MARK_HUE["CARD"]))) <= 2
+    assert not card[y0:y1, x0:x1].any(), "a CARD has no label: its own words say what it is"
+    s3 = next(s for s in plan["shots"] if s["id"] == "S3")
+    assert s3["label"] == "Drawn · from PIL test image, test fixture"
+    up = R.render_frame(plan, s3["f0"] + 30).astype(int)                       # 1.25 s in: the label is up
+    assert up[y0:y1, x0:x1].max() > 150
+    st = M.mark_state((s3["f0"] + 30) / 24, plan["marks"])
+    assert st["label"] == s3["label"] and st["label_alpha"] > 0.99
+    # the G2 plate set its text at 3.1% of height, opaque on a scrim; the label is smaller, translucent and boxless
+    assert M.LABEL["size"] < 3.1 and M.LABEL["alpha"] < 1.0
+
+
+def test_a16_the_label_surfaces_holds_about_3_s_and_is_let_go_to_the_glyph():
+    shots = [{"start": 0.0, "cls": "ARCHIVE", "label": "Archive · 1947"}]
+    a = [M.label_alpha(f / 24, 0.0) for f in range(0, 24 * 6)]
+    assert a[0] == 0.0 and 0.3 < a[2] < 0.95 and a[9] > 0.98                  # up in a few frames, on whisper
+    assert all(x > 0.98 for x in a[10:24 * 3])                                  # held about 3 s
+    gone = next(f for f in range(24 * 3, len(a)) if a[f] == 0.0)
+    assert 3.9 <= gone / 24 <= 4.3 and all(x == 0.0 for x in a[gone:])        # let go, then glyph only
+    assert all(b <= c + 1e-9 for b, c in zip(a[24 * 3 + 9:gone], a[24 * 3 + 8:gone - 1]))   # it never comes back up
+    L = M.Layout(640, 360)
+    img = Image.new("RGB", (640, 360), (255, 255, 255))
+    for t in (0.0, 1.0, 5.0, 60.0):                                             # the glyph is on every frame, label or not
+        px = M.mark_frame(img, t, shots, M.Fonts()).getpixel(M.glyph_centre(L))[:3]
+        assert px == M.MARK_HUE["ARCHIVE"], (t, px)
+    y0, y1, x0, x1 = 16, 30, 32, 192
+    held = np.asarray(M.mark_frame(img, 1.0, shots, M.Fonts()).convert("RGB")).astype(int)
+    after = np.asarray(M.mark_frame(img, 5.0, shots, M.Fonts()).convert("RGB")).astype(int)
+    assert (255 - held[y0:y1, x0:x1]).max() > 60 and (255 - after[y0:y1, x0:x1]).max() == 0
+
+
+def test_a16_the_label_surfaces_at_every_cut_even_with_the_same_words():
+    shots = [{"start": 0.0, "cls": "ARCHIVE", "label": "Archive · 1947"},
+             {"start": 6.0, "cls": "ARCHIVE", "label": "Archive · 1947"},
+             {"start": 9.0, "cls": "ARCHIVE", "label": "Archive · 1948"},
+             {"start": 12.0, "cls": "CARD", "label": ""}]
+    assert M.label_starts(shots) == [0.0, 6.0, 9.0, None]
+    assert M.mark_state(6.5, shots)["label_alpha"] > 0.9 and M.mark_state(12.5, shots)["label_alpha"] == 0.0
+
+
+def test_a16_refined_an_ai_generated_label_never_fades():
+    shots = [{"start": 0.0, "cls": "AI-GENERATED", "label": "AI-generated · context"},
+             {"start": 30.0, "cls": "AI-GENERATED", "label": "AI-generated · context"}]
+    for t in (0.0, 1 / 24, 4.2, 10.0, 29.9, 30.0, 30.5, 59.0):               # full on each cut frame, never fading
+        assert M.mark_state(t, shots)["label_alpha"] == 1.0, t
+    assert M.label_alpha(10.0, 0.0, "DRAWN") == 0.0 and M.label_alpha(10.0, 0.0, "AI-GENERATED") > 0.99
+
+
+def _corner_alpha(W, H, cls):
+    tile, (ox, oy) = M.glyph_tile(W, H, cls)
+    cx, cy = M.glyph_corner(M.Layout(W, H))
+    return tile.getpixel((cx - ox, cy - oy))[3] / 255.0
+
+
+def _trip_backgrounds(W, H):
+    """Every background that could make a dot's or a diamond's corner read as
+    the cold blue or amber hue: the hue divided by (1 - corner alpha), a few
+    steps around it, plus the hue itself and black, white and grey."""
+    out = {(0, 0, 0), (255, 255, 255), (128, 128, 128)}
+    for c in M.GLYPH_SHAPE:
+        out.add(M.MARK_HUE[c])
+        a = _corner_alpha(W, H, c)
+        for hue in {M.MARK_HUE[k] for k in M.GLYPH_SHAPE}:
+            base = np.array(hue) / max(1.0 - a, 1e-6)
+            for d in (-3, -1, 0, 1, 3):
+                out.add(tuple(int(v) for v in np.clip(np.round(base + d), 0, 255)))
+    return sorted(out)
+
+
+@pytest.mark.parametrize("height", [360, 720, 1080, 1440, 2160])
+def test_a16_the_shape_check_holds_over_any_background(height):
+    """Re-review blocker: the corner of a dot or a diamond is the picture under
+    an almost clear disc edge (alpha 0.08 at 1080p), so over a background of
+    hue / (1 - alpha) it reads as the hue. The check now compares the corner
+    with what the class's own glyph composes over the bare pixel."""
+    W = round(height * 16 / 9)
+    L = M.Layout(W, height)
+    plan = {"W": W, "H": height}
+    assert M.MARK_HUE["DRAWN"] == M.MARK_HUE["AI-GENERATED"]
+    x, y = M.glyph_corner(L)
+    cx, cy = M.glyph_centre(L)
+    for bg in _trip_backgrounds(W, height):
+        img = Image.new("RGBA", (W, height), bg + (255,))
+        for drawn in M.GLYPH_SHAPE:
+            arr = np.asarray(M.mark_frame(img, 1.0, [{"start": 0.0, "cls": drawn, "label": ""}], M.Fonts()).convert("RGB"))
+            assert tuple(arr[cy, cx]) == M.MARK_HUE[drawn], (height, bg, drawn)            # solid hue at the centre
+            assert R.glyph_shape_ok(plan, arr, drawn, bg), (height, bg, drawn)             # a correct frame always passes
+            for claimed in M.GLYPH_SHAPE:
+                if claimed == drawn or M.MARK_HUE[claimed] != M.MARK_HUE[drawn]:
+                    continue
+                square = {M.GLYPH_SHAPE[claimed], M.GLYPH_SHAPE[drawn]} & {"square"}
+                if square and M.GLYPH_SHAPE[claimed] != M.GLYPH_SHAPE[drawn]:
+                    # a square for a dot or a diamond (or the reverse) is caught unless the picture is the hue itself
+                    if max(abs(int(v) - h) for v, h in zip(bg, M.MARK_HUE[drawn])) > 3:
+                        assert not R.glyph_shape_ok(plan, arr, claimed, bg), (height, bg, drawn, claimed)
+
+
+def test_a16_the_ai_and_drawn_glyphs_differ_at_720p():
+    L = M.Layout(1280, 720)
+    d = M.glyph_px(L)
+    assert d == 6
+    ai, dr = (np.asarray(M._glyph(c, d).getchannel("A")) for c in ("AI-GENERATED", "DRAWN"))
+    assert dr[0, 0] == 255 and ai[0, 0] == 0 and ai[d // 2, d // 2] == 255 and not np.array_equal(ai, dr)
+
+
+def test_a16_refined_coverage_refuses_a_drawn_glyph_on_an_ai_generated_shot(plan):
+    i = next(k for k, s in enumerate(plan["shots"]) if s["id"] == "S3")       # DRAWN
+    f = plan["shots"][i]["f0"] + 30
+    probe = {}
+    arr = R.render_frame(plan, f, probe=probe)
+    assert R.check_mark(plan, arr, f, i, probe["bare_corner"]) == "ok"
+    assert R.check_mark(plan, arr, f, i) == "fail"                              # no bare pixel, no judgement: never a pass
+    ai = json.loads(json.dumps(plan))
+    ai["shots"][i]["mark"] = "AI-GENERATED"                                    # the same cold blue, the wrong shape
+    assert R.check_mark(ai, arr, f, i, probe["bare_corner"]) == "shape"
 
 
 # --------------------------------------------------------------------------
@@ -361,7 +477,8 @@ def test_sources_timeline(rendered, plan):
     assert shots[0]["start_s"] == 0 and shots[-1]["end_s"] == doc["duration_s"] == 24.75
     assert all(a["end_s"] == b["start_s"] for a, b in zip(shots, shots[1:]))
     by = {s["id"]: s for s in shots}
-    assert by["S3"]["mark"] == {"class": "DRAWN", "detail": "from PIL test image, test fixture"}
+    assert by["S3"]["mark"] == {"class": "DRAWN", "detail": "from PIL test image, test fixture",
+                                "label": "Drawn · from PIL test image, test fixture"}
     assert by["S3"]["ledger_id"] == "FX-STILL-A" and by["S3"]["licence"] == "CC0" and by["S3"]["credit"]
     assert by["S3"]["test_fixture"] is True
     assert by["S4"]["licence"] == "CC0" and by["S4"]["transition_in"] == {"type": "dissolve", "s": 0.75}
@@ -400,7 +517,8 @@ def test_lower_third_at_its_times_and_watermark_off_on_cards(plan):
         card = at(1.5)
         assert np.max(np.abs(card[wm[0]:wm[1], wm[2]:wm[3]] - np.array(M.PALETTE["black"]))) <= 2
         image = at(16.0)
-        assert image[wm[0]:wm[1], wm[2]:wm[3]].max() > 120
+        # A16: the watermark is quieter (bone at 36%, was 60%), still there over imagery
+        assert 60 < image[wm[0]:wm[1], wm[2]:wm[3]].max() < 120
     finally:
         pics.close()
     assert without is not None
@@ -721,10 +839,10 @@ def test_black_under_a_voice_is_all_zero_outside_the_mark(plan):
     s8 = next(s for s in plan["shots"] if s["id"] == "S8" and s["kind"] == "black")
     f, arr = _at(plan, (s8["f0"] + s8["f1"]) / 2 / 24)
     L = M.Layout(plan["W"], plan["H"])
-    card = M._mark_plate(L, "CARD", "", M.Fonts())
-    x0, y0 = int(round(L.w(M.MARK["x"]))), int(round(L.h(M.MARK["y"])))
+    x0, y0 = M.glyph_origin(L)
+    d, ring = M.glyph_px(L), max(1, L.px(M.LABEL["halo"]))
     mask = np.ones(arr.shape[:2], bool)
-    mask[y0:y0 + card.height, x0:x0 + card.width] = False
+    mask[y0 - ring:y0 + d + ring, x0 - ring:x0 + d + ring] = False
     assert arr[~mask].any(), "the CARD mark is still drawn"
     assert not arr[mask].any(), "every pixel outside the mark is 0,0,0"
 
@@ -1067,7 +1185,15 @@ def test_a13_a_peaky_voice_line_is_peak_controlled(tmp_path):
     assert quiet_peak is None
 
 
-def test_a13_a_single_click_is_peak_control_not_a_bad_take(tmp_path):
+def _no_a19_verdict(monkeypatch):
+    """These A13 lines (a steady buzz, a 0.25 s burst, all zeros) have no
+    pause, so A19's voice-clean would refuse them before A13 is reached; the
+    tests are about A13, so the cleanup's verdict is set aside."""
+    monkeypatch.setattr(R, "_journal_clean", lambda *a, **k: [])
+
+
+def test_a13_a_single_click_is_peak_control_not_a_bad_take(tmp_path, monkeypatch):
+    _no_a19_verdict(monkeypatch)
     x = _voice()
     x[48000] += 1.0                                                   # one click far over the line's own level
     x[48001] -= 1.0
@@ -1462,13 +1588,13 @@ def _line(play_or_plan, lid):
     return next(ln for ln in play_or_plan["lines"] if ln["id"] == lid)
 
 
-def test_a14_a_mood_offset_moves_only_the_level_after_levelling(plan, film):
+def test_a14_a_mood_offset_moves_only_the_level_after_levelling(plan, film, tmp_path):
     span = slice(int(5.2 * 48000), int(6.8 * 48000))                 # inside L1 (5.0 to 7.0 s), where nothing else plays
     mixes = {}
     for mood in ("plain", "measured", "grave", "hushed", "close"):
         p = json.loads(json.dumps(plan))
         _line(p, "L1")["delivery"] = {"mood": mood, "intensity": 2, "pace": "slower", "pause_after_s": 1.5}
-        j = J.Journal(film=f"mood-{mood}")
+        j = J.Journal(film=f"mood-{mood}", directory=tmp_path / mood)
         mix, placed = R.build_mix(p, film, j)
         assert next(ln for ln in placed["lines"] if ln["id"] == "L1")["mood_offset_db"] == R.MOOD_OFFSET_DB[mood]
         dec = [e for e in J.read(j.path) if e["kind"] == "decision" and e["unit"] == "L1" and "delivery" in e["what"]][0]
@@ -1526,7 +1652,8 @@ def test_a13_only_the_3_db_bound_fails(tmp_path):
         R.build_mix(plan, film, J.Journal(film="three-db"))
 
 
-def test_a13_a_short_line_is_levelled_and_peak_controlled(tmp_path):
+def test_a13_a_short_line_is_levelled_and_peak_controlled(tmp_path, monkeypatch):
+    _no_a19_verdict(monkeypatch)
     x = _voice(0.25, 0.05)                                            # under one 400 ms gating block
     i = int(0.1 * 48000)
     x[i:i + 96] += 0.25 * np.sin(np.linspace(0, np.pi, 96))
@@ -1547,7 +1674,8 @@ def test_a13_a_short_line_is_levelled_and_peak_controlled(tmp_path):
     assert [e for e in lints(evs, "voice-peak-control") if e["unit"] == "L2"]
 
 
-def test_a13_a_silent_line_warns_that_it_was_not_levelled(tmp_path):
+def test_a13_a_silent_line_warns_that_it_was_not_levelled(tmp_path, monkeypatch):
+    _no_a19_verdict(monkeypatch)
     film = make_film(tmp_path / "film")
     _wav(film / "audio" / "L2.wav", np.zeros(48000))
     plan, _ = _plan(film)
@@ -2013,3 +2141,320 @@ def test_narrator_drift_is_inconclusive_when_no_line_has_both_f0_and_centroid(tm
     d = lints(J.read(j.path), "narrator-drift")
     assert off == [] and len(d) == 1 and d[0]["status"] == "inconclusive" and d[0]["severity"] == "block"
     assert d[0]["evidence"]["check"] == "no line has both f0 and centroid"
+
+
+# --------------------------------------------------------------------------
+# T1e: the founder's revamp (A16 subtle marks, A17 and A18 narration, A19 sound)
+# --------------------------------------------------------------------------
+
+
+def test_a16_a_lower_third_comes_and_goes_and_the_flag_stays_first():
+    assert M.lower_third_span(10.0, 20.0) == (10.0, 10.0 + M.LT_MAX_S) and 5.0 < M.LT_MAX_S < 6.0
+    assert M.lower_third_span(10.0, 13.0) == (10.0, 13.0)                  # a shorter screenplay span ends it sooner
+    img = Image.new("RGB", (640, 360), (40, 40, 40))
+    lines = ["Sample speaker", "Role, 1947", "Source title, archive  ·  read by a computer voice"]
+    flag = "Account of a sample government, 1948"
+    kw = dict(start=0.0, end=12.0, lines=lines, fonts=M.Fonts(), flag=flag)
+    up = np.asarray(M.lower_third_frame(img, 2.0, **kw).convert("RGB")).astype(int)
+    gone = np.asarray(M.lower_third_frame(img, M.LT_MAX_S + 0.01, **kw).convert("RGB")).astype(int)
+    assert up.max() > 150 and np.array_equal(gone, np.asarray(img).astype(int))
+    els, top = M.lower_third_layout(M.Layout(640, 360), lines, M.Fonts(), "speaker", flag)
+    assert els[0]["kind"] == "flag" and els[0]["size"] >= max(e["size"] for e in els if e["kind"] != "rule")
+    assert M.LT["a_flag"] >= max(M.LT["a_name"], M.LT["a_role"], M.LT["a_source"])
+    # quieter than the G2 kit: name 4.4% and opaque, wash 0.5, watermark 0.6
+    assert M.LT["name"] < 4.4 and M.LT["a_name"] < 1.0 and M.LT["wash"] < 0.5 and M.WM["opacity"] < 0.6
+
+
+def test_a16_the_lower_third_drawn_by_the_engine_is_clipped_to_its_hold(film, plan):
+    lt = plan["lower_thirds"][0]
+    assert lt["end"] == min(lt["end_s"], lt["start"] + M.LT_MAX_S)
+
+
+def _speechlike(seed=0, words=6, word_s=0.35, gap_s=0.6, hiss_db=-60.0):
+    """Words (a 140 Hz-plus harmonic stack with a 20 ms rise and a 60 ms
+    exponential tail) between gaps, all under white hiss at ``hiss_db``.
+    Returns the line and each word's span in samples (rise to end of tail)."""
+    rng = np.random.default_rng(seed)
+    rate = 48000
+    parts, spans, t = [np.zeros(int(0.5 * rate))], [], int(0.5 * rate)
+    for w in range(words):
+        n = int(word_s * rate)
+        tt = np.arange(n) / rate
+        sig = sum(np.sin(2 * np.pi * (140 + 20 * w) * h * tt) / h for h in range(1, 12))
+        env = np.minimum(1, tt / 0.02) * np.exp(-np.maximum(0, tt - word_s * 0.6) / 0.06)
+        parts.append(0.1 * sig * env)
+        spans.append((t, t + n))
+        t += n
+        parts.append(np.zeros(int(gap_s * rate)))
+        t += int(gap_s * rate)
+    x = np.concatenate(parts)
+    return (x + rng.normal(0, 10 ** (hiss_db / 20), len(x))).astype(np.float32), spans
+
+
+def _db(x):
+    return 10 * np.log10(np.mean(np.asarray(x, dtype=float) ** 2) + 1e-30)
+
+
+def test_a19_a_hissy_synthetic_line_falls_under_minus_80_dbfs_between_words():
+    x, spans = _speechlike()
+    y, rep = R.clean_voice(x)
+    assert rep["cleaned"] and rep["chopped_frames"] == 0
+    gain, _ = R.level_gain(y, R.DIALOGUE_LUFS)
+    for (a, b), (c, _) in zip(spans, spans[1:]):
+        mid = b + (c - b) // 2
+        assert _db(x[mid - 4800: mid + 4800]) > -61                           # the hiss was there
+        assert _db(y[mid - 4800: mid + 4800]) + gain < -80                     # gone, even after levelling
+    assert rep["after"]["floor_dbfs"] + gain < R.CLEAN_FLOOR_MAX_DBFS
+    assert rep["before"]["floor_dbfs"] == pytest.approx(-60, abs=1.0) and rep["before"]["snr_db"] > 30
+
+
+def test_a19_speech_energy_and_word_tails_are_kept_within_half_a_db():
+    x, spans = _speechlike(seed=3)
+    y, rep = R.clean_voice(x)
+    assert abs(rep["speech_change_db"]) <= 0.5
+    for a, b in spans:
+        assert abs(_db(y[a:b]) - _db(x[a:b])) <= 0.5                           # each word, its 60 ms tail included
+        tail = slice(b - int(0.08 * 48000), b)                                  # the last 80 ms: the tail's decay
+        assert abs(_db(y[tail]) - _db(x[tail])) <= 1.0
+
+
+def test_a19_a_take_with_no_clean_pause_is_left_alone():
+    t = np.arange(48000 * 2) / 48000
+    x = (0.2 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)               # the fixture's tone: no pause to learn from
+    y, rep = R.clean_voice(x)
+    assert y is x and rep["cleaned"] is False and "no pause" in rep["why"]
+
+
+def _hissy(path, seed=0):
+    import soundfile as sf
+    x, _ = _speechlike(seed=seed)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(str(path), x, 48000, subtype="FLOAT")
+    return x
+
+
+def test_a19_every_synthetic_line_is_cleaned_and_journaled_and_archival_audio_never(tmp_path):
+    film = make_film(tmp_path / "film")
+    _hissy(film / "audio" / "L1.wav")                                          # narration, synthetic
+    raw = _hissy(film / "audio" / "L2.wav", seed=1)                            # testimony, made archival below
+    _edit_play(film, lambda p: next(ln for part in p["parts"] for ln in part.get("lines", []) if ln["id"] == "L2")
+               .update(archival_audio=True))
+    plan, j = _plan(film, "clean")
+    mix, placed = R.build_mix(plan, film, j)
+    evs = J.read(j.path)
+    by = {ln["id"]: ln for ln in placed["lines"]}
+    assert by["L1"]["cleaned"] is True and by["L1"]["floor_after_dbfs"] < by["L1"]["floor_before_dbfs"] - 30
+    dec = [e for e in evs if e["kind"] == "decision" and e.get("unit") == "L1" and "cleaned" in e["what"]]
+    assert len(dec) == 1 and dec[0]["evidence"]["before"]["snr_db"] and dec[0]["evidence"]["after"]["snr_db"]
+    assert dec[0]["evidence"]["floor_after_level_dbfs"] < -80
+    vc = [e for e in lints(evs, "voice-clean") if e["unit"] == "L1"]
+    assert vc and vc[0]["status"] == "pass"
+    # archival audio: not cleaned, not journaled as cleaned, and placed sample for sample
+    assert by["L2"]["cleaned"] is None and not [e for e in evs if e.get("unit") == "L2" and "cleaned" in e.get("what", "")]
+    at = int(round(by["L2"]["at_s"] * 48000))
+    assert np.array_equal(mix[at: at + len(raw)], raw[: len(mix) - at])
+
+
+def test_a19_ducking_holds_still_under_a_long_bed():
+    rate = 48000
+    voice = np.zeros(60 * rate, np.float32)
+    groups = []
+    for g0 in (5.0, 25.0):                                                      # two scenes, 3 lines each, 0.8 s apart
+        t = g0
+        for _ in range(3):
+            for _w in range(5):                                                 # words of 0.3 s with 0.25 s gaps of zero
+                voice[int(t * rate): int((t + 0.3) * rate)] = 0.1
+                t += 0.55
+            t += 0.8 - 0.25
+        groups.append((g0, t - 0.8))
+    g = R.duck_gain(voice)
+    floor = 10 ** (-R.DUCK_DB / 20)
+    for a, b in groups:
+        inside = g[int((a + R.DUCK_SMOOTH_S / 2) * rate): int((b - R.DUCK_SMOOTH_S / 2) * rate)]   # past the ramps
+        assert np.allclose(inside, floor, atol=1e-6), "the bed pumps between words or lines"
+        assert g[int((b + 1.0) * rate)] == pytest.approx(1.0) and g[int((a - 0.5) * rate)] == pytest.approx(1.0)
+    step = np.abs(np.diff(g.astype(np.float64))).max()
+    assert step <= (1 - floor) / (R.DUCK_SMOOTH_S * rate) * 1.01               # a 250 ms ramp, never a jump
+    edges = np.flatnonzero(np.abs(np.diff(g.astype(np.float64))) > 1e-9)
+    runs = np.split(edges, np.flatnonzero(np.diff(edges) > 1) + 1)
+    assert len(runs) == 4                                                       # down and up once per scene, nothing else
+
+
+def test_a19_a_music_cue_spans_parts_with_fades_at_the_bed_level(tmp_path):
+    film = make_film(tmp_path / "film")
+    import soundfile as sf
+    t = np.arange(48000 * 22) / 48000
+    sf.write(str(film / "audio" / "M1.wav"), (0.3 * np.sin(2 * np.pi * 220 * t)).astype("float32"), 48000)
+    cue = {"id": "M1", "kind": "music", "role": "palette", "source": "test tone", "licence": "CC0", "start_s": 1.0,
+           "end_s": 21.0, "fade_in_s": 2.0, "fade_out_s": 3.0, "gain_db": -2.0}
+    _edit_play(film, lambda p: p.update(music=[cue]))
+    plan, j = _plan(film, "underscore")
+    m1 = next(c for c in plan["cues"] if c["id"] == "M1")
+    assert m1["_part"] is None and m1["kind"] == "music"
+    assert {s["_part"] for s in plan["shots"] if s["f0"] / 24 < 21.0 and s["f1"] / 24 > 1.0} >= {"p-title", "ch-1"}
+    _, placed = R.build_mix(plan, film, j)
+    pc = next(c for c in placed["cues"] if c["id"] == "M1")
+    assert pc["part"] is None and pc["fade_in_s"] == 2.0 and pc["fade_out_s"] == 3.0
+    lv = [e for e in J.read(j.path) if e["kind"] == "decision" and e.get("unit") == "M1" and "levelled to" in e["what"]]
+    assert lv and lv[0]["evidence"]["target"] == R.MUSIC_LUFS                  # the bed; gain_db is an offset from it
+    f = R.cue_fades(np.ones(48000 * 10, np.float32), 10.0, 2.0, 3.0)
+    assert f[0] < 1e-3 and f[48000 * 2] == 1.0 and f[48000 * 5] == 1.0 and f[-1] < 1e-3
+    assert np.all(np.diff(f[: 48000 * 2]) >= 0) and np.all(np.diff(f[-48000 * 3:]) <= 0)
+
+
+def test_a19_a_cue_whose_fades_do_not_fit_is_refused(tmp_path):
+    film = make_film(tmp_path / "film")
+    _edit_play(film, lambda p: p.update(music=[{"id": "M1", "source": "t", "licence": "CC0", "start_s": 1.0, "end_s": 3.0,
+                                                "fade_in_s": 2.0, "fade_out_s": 2.0}]))
+    with pytest.raises(R.Refused, match=r"cue-span \(M1\)"):
+        _plan(film, "bad-fades")
+
+
+def test_a19_digital_silence_over_4_s_warns_unless_intended():
+    rate = 48000
+    mix = np.full(20 * rate, 1e-3, np.float32)
+    mix[2 * rate: 7 * rate] = 0.0                                               # 5 s of digital zero
+    mix[10 * rate: 13 * rate] = 0.0                                             # 3 s: allowed
+    runs = R.digital_silence(mix, [])
+    assert [(r["from_s"], r["to_s"]) for r in runs] == [(2.0, 7.0)]
+    assert R.digital_silence(mix, [(1.5, 7.5)]) == []
+    assert R.digital_silence(mix, [(2.0, 4.0)]) == []                           # what is left (3 s) is under the limit
+
+
+def test_a19_a_shot_or_moment_marked_silence_intended_is_carried_in_the_plan(tmp_path):
+    film = make_film(tmp_path / "film")
+    _edit_play(film, lambda p: (_shot(p, "S7").update(silence="intended"),
+                                p.update(moments=[{"start_s": 1.0, "end_s": 2.0, "silence": "intended"}])))
+    plan, _ = _plan(film, "silence")
+    s7 = next(s for s in plan["shots"] if s["id"] == "S7")
+    assert (s7["f0"] / 24, s7["f1"] / 24) in plan["silences"] and (1.0, 2.0) in plan["silences"]
+
+
+def test_a17_a18_the_shares_bind_an_event_film_and_the_narration_ceiling_is_gone(plan):
+    placed = {"lines": [{"id": "N", "kind": "narration", "at_s": 0.0, "dur_s": plan["duration_s"] * 0.85}]}
+    mix = np.full(int(plan["duration_s"] * 48000), 1e-3, np.float32)
+    j = J.Journal(film="shares-short")
+    assert R.sound_lints(j, plan, mix, placed) == []                            # the fixture is not an event film: warnings
+    evs = J.read(j.path)
+    assert {e["severity"] for e in lints(evs, "voiceless-floor") + lints(evs, "readings-floor")} == {"warn"}
+    assert not [e for e in evs if e["kind"] == "lint" and "narration" in str(e.get("rule"))]   # no narration ceiling lint
+    film_plan = dict(plan, runtime_target_s=1200)
+    j2 = J.Journal(film="shares-event")
+    out = R.sound_lints(j2, film_plan, mix, placed)
+    assert any(o.startswith("readings-floor") for o in out) and not any(o.startswith("voiceless-floor") for o in out)
+    ok = {"lines": [{"id": "N", "kind": "narration", "at_s": 0.0, "dur_s": plan["duration_s"] * 0.55},
+                    {"id": "R", "kind": "reading", "at_s": plan["duration_s"] * 0.55, "dur_s": plan["duration_s"] * 0.32}]}
+    assert R.sound_lints(J.Journal(film="shares-ok"), film_plan, mix, ok) == []   # narration 55%: most of the film, allowed
+    assert R.sound_lints(J.Journal(film="shares-draft"), film_plan, mix, placed, draft=True) == []
+
+
+
+def test_a16_a_lower_thirds_burned_cue_ends_with_the_drawn_span(film, plan, tmp_path):
+    f2 = make_film(tmp_path / "film")
+    _edit_play(f2, lambda p: next(t for part in p["parts"] for t in part.get("text", []) if t["id"] == "T1").update(end_s=14.0))
+    _edit_play(f2, lambda p: next(c for c in p["subtitle_source"] if c["ref"] == "T1").update(end_s=14.0))
+    j = J.Journal(film="lt-cue")
+    burned = R.build_plan(f2, W=640, H=360, burn_subtitles=True, journal=j)
+    lt = next(x for x in burned["lower_thirds"] if x["id"] == "T1")
+    cue = next(c for c in burned["subtitles"] if c["ref"] == "T1")
+    assert lt["end"] == pytest.approx(8.0 + M.LT_MAX_S) and cue["end"] == lt["end"]
+
+
+def test_a17_a18_a_short_target_cannot_dodge_the_floors_on_a_long_film(plan):
+    placed = {"lines": [{"id": "N", "kind": "narration", "at_s": 0.0, "dur_s": 700.0}]}
+    long_film = dict(plan, duration_s=720.0, runtime_target_s=60)            # a 12 min film claiming a 1 min target
+    out = R.sound_lints(J.Journal(film="dodge"), long_film, np.full(48000, 1e-3, np.float32), placed)
+    assert any(o.startswith("readings-floor") for o in out) and any(o.startswith("voiceless-floor") for o in out)
+    no_target = dict(plan, duration_s=720.0, runtime_target_s=None)
+    assert R.sound_lints(J.Journal(film="dodge2"), no_target, np.full(48000, 1e-3, np.float32), placed)
+
+
+def test_a19_a_take_that_stays_noisy_refuses_a_final_render_and_warns_under_draft(tmp_path):
+    film = make_film(tmp_path / "film")
+    import soundfile as sf
+    rng = np.random.default_rng(5)
+    x, _ = _speechlike(seed=2)
+    x = (x + rng.normal(0, 10 ** (-38 / 20), len(x))).astype(np.float32)      # hiss 38 dB up: no pause clean enough
+    sf.write(str(film / "audio" / "L1.wav"), x, 48000, subtype="FLOAT")
+    plan, j = _plan(film, "noisy")
+    with pytest.raises(R.Refused, match=r"voice-clean and voice-chop \(A19\).*L1"):
+        R.build_mix(plan, film, j)
+    assert {e["severity"] for e in lints(J.read(j.path), "voice-clean") if e["unit"] == "L1"} == {"block"}
+    jd = J.Journal(film="noisy-draft")
+    R.build_mix(plan, film, jd, draft=True)
+    vc = [e for e in lints(J.read(jd.path), "voice-clean") if e["unit"] == "L1"]
+    assert vc and vc[0]["status"] == "fail" and vc[0]["severity"] == "warn"
+
+
+def test_a19_the_expander_turns_a_breath_down_without_cutting_it():
+    """A breath 10 dB over the hiss between two words: an expander keeps it
+    (turned down, not gone), the hiss falls by the expander's range."""
+    rate = 48000
+    x, spans = _speechlike(seed=7, words=2, gap_s=1.2, hiss_db=-66.0)
+    a = spans[0][1] + int(0.45 * rate)
+    rng = np.random.default_rng(9)
+    x[a: a + int(0.25 * rate)] += rng.normal(0, 10 ** (-56 / 20), int(0.25 * rate)).astype(np.float32)   # the breath
+    y, rep = R.clean_voice(x)
+    br = slice(a + 2400, a + int(0.25 * rate) - 2400)
+    assert -40 < _db(y[br]) - _db(x[br]) < -1                                   # kept, quieter
+    assert rep["gate"]["kind"] == "downward expander" and 20 <= rep["gate"]["range_db"] <= 30
+    assert 0.05 <= rep["gate"]["lookahead_ms"] / 1000 <= 0.08
+    assert rep["chopped_audible_share"] <= R.CLEAN_CHOP_MAX_SHARE
+
+
+
+def test_a16_refined_an_ai_label_stays_through_a_dissolve(plan):
+    """A dissolve joins two shots of one class (GRAMMAR 4.4), so out of an
+    AI-GENERATED shot it is into one: the label is full on every frame of it."""
+    shots = [{"start": 0.0, "cls": "AI-GENERATED", "label": "AI-generated · context"},
+             {"start": 5.0, "cls": "AI-GENERATED", "label": "AI-generated · context"}]
+    for f in range(int(4.0 * 24), int(6.5 * 24)):                             # the dissolve's frames on both sides of 5 s
+        assert M.mark_state(f / 24, shots)["label_alpha"] == 1.0, f
+    assert R.KIND_CLASSES["generated"] == {"AI-GENERATED"}
+
+
+def test_a16_a_lower_third_cue_that_starts_after_the_drawn_span_is_refused(tmp_path):
+    f2 = make_film(tmp_path / "film")
+    _edit_play(f2, lambda p: next(c for c in p["subtitle_source"] if c["ref"] == "T1").update(start_s=13.6, end_s=14.5))
+    with pytest.raises(R.Refused, match=r"subtitle-lower-third-span \(T1\)"):
+        R.build_plan(f2, W=640, H=360, burn_subtitles=True, journal=J.Journal(film="lt-cue-late"))
+    R.build_plan(f2, W=640, H=360, burn_subtitles=False, journal=J.Journal(film="lt-cue-tracks"))   # only a burned cue draws
+
+
+def test_a19_voice_chop_refuses_a_take_with_too_few_pauses_or_an_unsteady_floor():
+    rng = np.random.default_rng(11)
+    tt = np.arange(48000 * 6) / 48000                                          # 6 s of speech that never pauses: its
+    am = 0.05 + 0.95 * np.abs(np.sin(2 * np.pi * 1.7 * tt)) ** 4               # quietest frames are speech 25 dB down
+    x = (0.1 * am * sum(np.sin(2 * np.pi * 150 * h * tt) / h for h in range(1, 10))
+         + rng.normal(0, 1e-4, len(tt))).astype(np.float32)
+    y, rep = R.clean_voice(x)
+    assert rep["cleaned"] and rep["pause_share"] < R.CLEAN_PAUSE_MIN_SHARE and not rep["measure_ok"]
+    assert "pauses are" in rep["measure_why"][0]
+    j = J.Journal(film="few-pauses")
+    out = R._journal_clean(j, "L9", rep, 0.0)
+    assert any("pauses are" in o for o in out)
+    vc = [e for e in lints(J.read(j.path), "voice-chop") if e["unit"] == "L9"][0]
+    assert vc["status"] == "fail" and vc["evidence"]["near_floor_frames"] >= 0 and vc["evidence"]["why"]
+    x2, spans = _speechlike(seed=5)
+    x2[: int(0.42 * 48000)] = 0.0                                              # the hiss drops out for 0.42 s: two floors
+    _, rep2 = R.clean_voice(x2)
+    assert rep2["floor_spread_db"] > R.CLEAN_FLOOR_SPREAD_MAX_DB and any("spread" in w for w in rep2["measure_why"])
+
+
+def test_a19_voice_clean_reports_the_p90_and_names_its_measure():
+    x, _ = _speechlike(seed=6)
+    y, rep = R.clean_voice(x)
+    j = J.Journal(film="p90")
+    R._journal_clean(j, "L8", rep, 3.0)
+    ev = [e for e in lints(J.read(j.path), "voice-clean") if e["unit"] == "L8"][0]["evidence"]
+    assert "median" in ev["measure"] and "p90" in ev["measure"]
+    assert ev["floor_p90_after_level_dbfs"] == pytest.approx(rep["after"]["floor_p90_dbfs"] + 3.0, abs=0.01)
+
+
+def test_a17_shares_count_voice_kinds_over_their_speech_only(plan):
+    placed = {"lines": [
+        {"id": "N", "kind": "narration", "line_kind": "narration", "at_s": 0.0, "dur_s": 10.0, "speech_from_s": 1.0, "speech_to_s": 9.0},
+        {"id": "R", "kind": "reading", "line_kind": "testimony", "at_s": 10.0, "dur_s": 5.0, "speech_from_s": 10.5, "speech_to_s": 14.5},
+        {"id": "X", "kind": "reading", "line_kind": "sfx", "at_s": 15.0, "dur_s": 5.0, "speech_from_s": 15.0, "speech_to_s": 20.0}]}
+    sh = R.voice_shares(dict(plan, duration_s=20.0), placed)
+    assert sh == {"narration": 0.4, "readings": 0.2, "voiceless": 0.4}

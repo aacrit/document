@@ -55,7 +55,7 @@ def _iso() -> str:
 
 
 def new_run_id() -> str:
-    return "r-" + time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:4]
+    return "r-" + time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
 
 
 # --------------------------------------------------------------------------
