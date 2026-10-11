@@ -165,7 +165,7 @@ export function planRelease(o, { python = studioPython(), ffmpeg = process.env.D
     args: ["-v", "error", "-y", "-i", stillPath, "-vf", "scale=1920:-1:flags=lanczos", "-q:v", "3", at("poster.jpg")] });
   steps.push({ id: "c", label: "the web packet (publish.py: sources.json with web and poster, captions)", exe: python, cwd: repoRoot,
     args: ["-m", "studio.engine.publish", renderDir, "--film", at("film.mp4"), "--poster", at("poster.jpg"),
-      "--poster-id", o.posterId, "--stills-ledger", ledgerPath, "--out", out, ...(o.trailer ? ["--trailer", at("trailer.mp4")] : [])] });
+      "--poster-id", o.posterId, "--stills-ledger", ledgerPath, "--out", out, "--screenplay", path.join(filmDir, "screenplay.json"), ...(o.trailer ? ["--trailer", at("trailer.mp4")] : [])] });
   steps.push({ id: "d", label: "the captions (captions-en.vtt, written by publish from the render's screenplay)", check: "captions", file: at("captions-en.vtt") });
   const files = UPLOAD_ORDER.filter((f) => f !== "trailer.mp4" || o.trailer);
   steps.push({ id: "e", label: "every file under the put limit", check: "sizes", files: files.map(at) });
