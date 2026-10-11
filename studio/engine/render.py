@@ -190,8 +190,9 @@ PRESETS = {                         # GRAMMAR 7.2, zoom relative to the largest 
     "TILT": ({"z": 1.2, "y": 0.0}, {"z": 1.2, "y": 1.0}),
     "DETAIL": ({"z": 1.3}, {"z": 1.3}),
 }
-PRESET_ZMAX = {"HOLD": 1.0, "PUSH": 1.12, "PULL": 1.12, "DRIFT": 1.15, "TILT": 1.2, "DETAIL": 1.3,
-               OV.FIND: OV.FIND_ZMAX}   # 7.2, max 1.3; FIND: a georeferenced sheet between extents (A32)
+PRESET_ZMAX = {"HOLD": 1.0, "PUSH": 1.12, "PULL": 1.12, "DRIFT": 1.15, "TILT": 1.2, "DETAIL": 1.3}
+# 7.2, max 1.3. FIND (A32, a georeferenced sheet between extents) is not here: its limit is the
+# scan's own resolution, per shot and per delivery resolution (OV.scan_zmax, A32 refined, CoS 2026-10-11).
 SILENT_RE = re.compile(r"^The record holds no .+\.$")
 FLAG_RE = re.compile(r"^Account of .+, \d{4}$")
 CARD_TEXT_KINDS = {"chapter_card", "title_card", "silent_record"}
@@ -1189,10 +1190,18 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                 size = im.size
             cam = still_camera(s, size, W, H)
             s["_cam"] = cam
-            limit = PRESET_ZMAX[cam["preset"]]
-            lint("still-zoom-limit", cam["z_rel_max"] <= limit + 1e-9 and cam["z_rel_max"] <= 1.3 + 1e-9, unit=s["id"],
-                 stage="motion", grammar="7.2", evidence={"preset": cam["preset"], "z_max": round(cam["z_rel_max"], 4),
-                                                          "limit": limit, "face": bool(s.get("face"))})
+            if cam["preset"] == OV.FIND:
+                # A32 refined (CoS 2026-10-11): an archive sheet's camera may push as deep as its own
+                # scan resolution, not the 1.3 still cap; find_camera already clamps to it, and
+                # OV.lints' overlay-zoom refuses a request that asked for more than the scan supports.
+                limit = cam["scan_zmax"]
+                ok = cam["z_rel_max"] <= limit + 1e-9
+            else:
+                limit = PRESET_ZMAX[cam["preset"]]
+                ok = cam["z_rel_max"] <= limit + 1e-9 and cam["z_rel_max"] <= 1.3 + 1e-9
+            lint("still-zoom-limit", ok, unit=s["id"], stage="motion", grammar="7.2",
+                 evidence={"preset": cam["preset"], "z_max": round(cam["z_rel_max"], 4),
+                           "limit": round(limit, 4), "face": bool(s.get("face"))})
             src, dst = M.still_view(size, M.Layout(W, H), z=cam["path"][0]["z"], cx=cam["path"][0]["x"],
                                     cy=cam["path"][0]["y"], clamp=cam["clamp"])
             whole = still_is_whole(size, src, dst, W, H)

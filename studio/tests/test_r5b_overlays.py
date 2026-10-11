@@ -404,9 +404,87 @@ def test_find_opens_whole_and_ends_on_the_extent(georef):
     assert OV.framing_at(cam, 0.5, 6.0) == cam["path"][0]       # A7: whole until the move begins
 
 
-def test_find_past_the_zoom_limit_is_reported(georef):
+def test_find_past_the_old_still_cap_is_allowed_up_to_the_scans_own_resolution(georef):
+    """A32 refined (CoS 2026-10-11): a push deeper than the old flat 1.3 still
+    cap is now allowed on a georeferenced archive sheet, as long as it stays
+    inside what the scan's own resolution supports at this delivery frame."""
+    s = shot_for(georef, [], extent=(75.3, 32.5, 75.7, 32.8))
+    cam = s["_cam"]
+    assert cam["z_rel_max"] > 1.3                   # deeper than the superseded still cap
+    assert cam["requested_z_max"] <= cam["scan_zmax"] + 1e-9    # and still inside the scan's own support
+    assert cam["z_max"] == pytest.approx(cam["requested_z_max"])  # so nothing was clamped
+
+
+def test_find_past_the_scans_resolution_is_clamped_and_reported(georef):
     s = shot_for(georef, [], extent=(75.4, 32.3, 75.6, 32.4))
-    assert s["_cam"]["z_rel_max"] > OV.FIND_ZMAX
+    cam = s["_cam"]
+    assert cam["requested_z_max"] > cam["scan_zmax"]             # asked for more than the scan supports
+    assert cam["z_max"] == pytest.approx(cam["scan_zmax"])       # the camera clamps to it, never past it
+    assert cam["z_max"] < cam["requested_z_max"]
+
+
+@pytest.mark.parametrize("size, W, H, want", [
+    ((3900, 3100), 1280, 720, 720 / 3100),
+    ((3900, 3100), 1920, 1080, 1080 / 3100),
+    ((100, 80), 1280, 720, None),            # a scan already smaller than the frame: never under 1.0
+])
+def test_scan_zmax_is_the_scans_own_resolution_against_the_frame(size, W, H, want):
+    z = OV.scan_zmax(size, W, H)
+    if want is None:
+        assert z == 1.0
+    else:
+        assert z == pytest.approx(1.0 / want)
+
+
+def test_scan_zmax_is_lower_at_a_higher_delivery_resolution():
+    """The same scan supports a shallower relative push at 1080p than at
+    720p: more of its own pixels are already spent fitting the bigger frame
+    at z = 1 (A32 refined, CoS 2026-10-11: computed per delivery resolution)."""
+    z720 = OV.scan_zmax(SIZE, 1280, 720)
+    z1080 = OV.scan_zmax(SIZE, 1920, 1080)
+    assert z720 > 1.3 and z1080 > 1.3           # both still deeper than the old flat cap
+    assert z1080 < z720
+
+
+def test_overlay_zoom_passes_a_request_the_scan_supports(georef):
+    lint = Lints()
+    s = shot_for(georef, [], extent=(75.3, 32.5, 75.7, 32.8))
+    OV.lints(lint, [s], W, H, PLAY)
+    assert "overlay-zoom" not in lint.failed()
+
+
+def test_overlay_zoom_refuses_a_request_tighter_than_the_scan_supports(georef):
+    lint = Lints()
+    s = shot_for(georef, [], extent=(75.4, 32.3, 75.6, 32.4))
+    OV.lints(lint, [s], W, H, PLAY)
+    assert "overlay-zoom" in lint.failed()
+
+
+def test_overlay_zoom_is_per_delivery_resolution(georef):
+    """The same extent can fit 720p's scan support and miss 1080p's."""
+    ext = (75.3, 32.5, 75.7, 32.8)
+    lint720, lint1080 = Lints(), Lints()
+    s720 = shot_for(georef, [], extent=ext)
+    OV.lints(lint720, [s720], 1280, 720, PLAY)
+    s1080 = shot_for(georef, [], extent=ext)
+    s1080["_cam"] = OV.find_camera(s1080, SIZE, 1920, 1080, open_s=1.5)
+    OV.lints(lint1080, [s1080], 1920, 1080, PLAY)
+    assert "overlay-zoom" not in lint720.failed()
+    assert "overlay-zoom" in lint1080.failed()
+
+
+def test_overlay_precision_still_binds_at_the_deeper_zoom(georef):
+    """GRAMMAR A32(c) is unchanged by the deeper push: a mark's claimed
+    precision still has to fit the frame it is actually shown at, now that
+    the frame can be a much deeper one than 1.3 allowed."""
+    s = shot_for(georef, [line_mark(precision_m=380)], extent=(75.3, 32.5, 75.7, 32.8))
+    fit, _ = OV.sheet_fit(s["_item"])
+    p = OV.mark_problems(s, s["marks"][0], fit, s["_item"]["georef"], s["_cam"], W, H, PLAY)
+    assert p["overlay-precision"] == []          # fine at this deeper zoom
+    s2 = shot_for(georef, [line_mark(precision_m=500)], extent=(75.3, 32.5, 75.7, 32.8))
+    fit2, _ = OV.sheet_fit(s2["_item"])
+    p2 = OV.mark_problems(s2, s2["marks"][0], fit2, s2["_item"]["georef"], s2["_cam"], W, H, PLAY)
+    assert any("too coarse" in x for x in p2["overlay-precision"])   # too coarse once pushed this deep
 
 
 def sheet_png(path: Path) -> Path:
@@ -479,6 +557,94 @@ def test_the_halo_is_a_ring_that_leaves_the_place_itself_uncovered(drawn_shot, g
     r = M.Layout(W, H).h(OV.STYLE["halo"]["radius"])
     assert diff[int(fy), int(fx)] == 0                          # the place's own pixels are untouched
     assert diff[int(fy), int(round(fx + r))] > 10               # the ring is at its radius
+
+
+# --------------------------------------------------------------------------
+# A32 refined (CoS 2026-10-11): a ring kept clear of the printed place name
+# at the deeper zoom (a low finding from the proof), in both directions.
+# --------------------------------------------------------------------------
+
+
+def test_halo_ring_geometry_keeps_the_default_clearance_when_the_label_is_unknown():
+    centre, safe = OV.halo_ring_geometry({}, [100.0, 200.0])
+    assert centre == [100.0, 200.0] and safe == OV.HALO_LABEL_CLEAR_PX
+
+
+def test_halo_ring_geometry_keeps_its_full_reach_when_a_known_label_is_far():
+    """A known box, unlike an unknown one, is a real boundary: when it is
+    far away it imposes no clearance cap of its own (resolve()'s min against
+    STYLE's own radius is what keeps the ring sane)."""
+    box = {"sheet_px": [100.0 + 500.0, 200.0, 100.0 + 560.0, 220.0]}
+    centre, safe = OV.halo_ring_geometry({"label_box": box}, [100.0, 200.0])
+    assert centre == [100.0, 200.0]
+    assert safe > OV.HALO_LABEL_CLEAR_PX                         # far past the unknown-box default clearance
+
+
+def test_halo_ring_geometry_sizes_down_to_clear_a_near_label():
+    box = {"sheet_px": [120.0, 190.0, 180.0, 210.0]}            # 20 px east of the point
+    centre, safe = OV.halo_ring_geometry({"label_box": box}, [100.0, 200.0])
+    assert centre == [100.0, 200.0]                             # sized, not offset: the point itself is clear
+    assert OV.HALO_MIN_RADIUS_PX <= safe < OV.HALO_LABEL_CLEAR_PX
+    x0, y0, x1, y1 = box["sheet_px"]
+    gap = math.hypot(max(x0 - centre[0], 0.0, centre[0] - x1), max(y0 - centre[1], 0.0, centre[1] - y1))
+    assert safe <= gap                                          # the ring never reaches into the box
+
+
+def test_halo_ring_geometry_offsets_away_when_the_point_sits_on_the_label():
+    box = {"sheet_px": [95.0, 185.0, 125.0, 205.0]}             # the point (100, 200) is inside this box
+    centre, safe = OV.halo_ring_geometry({"label_box": box}, [100.0, 200.0])
+    assert centre != [100.0, 200.0]                             # offset, since sizing alone cannot clear it
+    cx, cy = centre
+    x0, y0, x1, y1 = box["sheet_px"]
+    gap = math.hypot(max(x0 - cx, 0.0, cx - x1), max(y0 - cy, 0.0, cy - y1))
+    assert gap >= safe - 1e-6                                   # the offset centre's own ring still clears it
+
+
+def test_a_halo_ring_keeps_its_usual_size_when_a_known_label_is_far(georef, tmp_path_factory):
+    path = sheet_png(tmp_path_factory.mktemp("sheet-halo-far") / "sheet.png")
+    px, py = true_px(75.95, 32.45)
+    m = halo_mark(label_box={"sheet_px": [px + 500, py + 500, px + 560, py + 520]})
+    s = shot_for(georef, [m], path=str(path))
+    lint = Lints()
+    OV.lints(lint, [s], W, H, PLAY)
+    assert lint.failed() == set()
+    assert s["_overlay"]["marks"][0]["style"]["radius"] == pytest.approx(OV.STYLE["halo"]["radius"])
+
+
+def test_a_halo_ring_does_not_cross_into_a_known_nearby_label_box(georef, tmp_path_factory):
+    """The proof's low finding: at this shot's deepest zoom, a ring drawn
+    at its usual (fixed frame %) radius would reach a label only 50 sheet
+    px from the place it marks; sized down by its own label_box, it does
+    not, and the place's own symbol stays uncovered (A32(e): a ring, never
+    a disc, over the place)."""
+    path = sheet_png(tmp_path_factory.mktemp("sheet-halo-near") / "sheet.png")
+    px, py = true_px(75.95, 32.45)
+    box = [px + 50, py - 10, px + 110, py + 10]          # a label close enough to be at risk, east of the place
+    m = halo_mark(label_box={"sheet_px": box})
+    s = shot_for(georef, [m], path=str(path))
+    lint = Lints()
+    OV.lints(lint, [s], W, H, PLAY)
+    assert lint.failed() == set()
+    resolved = s["_overlay"]["marks"][0]
+    assert resolved["style"]["radius"] < OV.STYLE["halo"]["radius"]        # sized down from its usual radius
+
+    bare, drawn = frame(s, 5.0)
+    diff = np.abs(np.asarray(drawn, dtype=int) - np.asarray(bare, dtype=int)).sum(2)
+    f = OV.framing_at(s["_cam"], 5.0, 6.0)
+    src, dst = M.still_view(SIZE, M.Layout(W, H), z=f["z"], cx=f["x"], cy=f["y"], clamp=s["_cam"]["clamp"])
+
+    def to_frame(x, y):
+        fx = dst[0] + (x - src[0]) * (dst[2] - dst[0]) / (src[2] - src[0])
+        fy = dst[1] + (y - src[1]) * (dst[3] - dst[1]) / (src[3] - src[1])
+        return fx, fy
+
+    x0f, y0f = to_frame(box[0], box[1])
+    x1f, y1f = to_frame(box[2], box[3])
+    xa, xb = sorted((int(round(x0f)), int(round(x1f))))
+    ya, yb = sorted((int(round(y0f)), int(round(y1f))))
+    assert diff[max(0, ya):yb + 1, max(0, xa):xb + 1].max() == 0           # nothing drawn over the label's box
+    fx, fy = to_frame(px, py)
+    assert diff[int(fy), int(fx)] == 0                                    # the place itself stays uncovered
 
 
 # --------------------------------------------------------------------------
@@ -585,11 +751,30 @@ def test_a_sheet_without_a_georef_and_without_marks_is_shown_plain(tmp_path, geo
     assert plan["shots"][0]["label"] == "Archive · 1955" and not plan["shots"][0].get("_overlay")
 
 
-def test_the_renderer_refuses_a_find_past_the_zoom_limit(tmp_path, georef):
+def test_the_renderer_refuses_a_find_tighter_than_the_scan_supports(tmp_path, georef):
+    """A32 refined (CoS 2026-10-11): still-zoom-limit's flat 1.3 no longer
+    governs FIND; a request past the scan's own resolution is refused by
+    overlay-zoom instead."""
     from studio.engine.render import Refused
     film = mini_film(tmp_path, georef, marks=False)
     play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
     play["parts"][0]["shots"][0]["find"]["to"]["extent"] = [75.4, 32.3, 75.6, 32.4]
     (film / "screenplay.json").write_text(json.dumps(play), encoding="utf-8")
-    with pytest.raises(Refused, match="still-zoom-limit"):
+    with pytest.raises(Refused, match="overlay-zoom"):
         build(film)
+
+
+def test_the_render_still_camera_wires_find_to_the_scans_resolution(georef, tmp_path_factory):
+    """render.still_camera (what build_plan actually calls to set ``_cam``)
+    dispatches FIND to OV.find_camera, so the full pipeline's camera carries
+    scan_zmax too, and a push past the old 1.3 still cap goes through it
+    unclamped as long as the scan supports it."""
+    from studio.engine.render import still_camera
+    path = sheet_png(tmp_path_factory.mktemp("sheet3") / "sheet.png")
+    item = {"id": "SHEET", "year": 1955, "georef": georef, "_path": str(path)}
+    shot = {"id": "S1", "kind": "archive_still", "asset": "SHEET", "mark": "ARCHIVE", "fill_ok": True,
+            "preset": "FIND", "find": {"to": {"extent": [75.3, 32.5, 75.7, 32.8]}}, "_dur": 9.0, "_item": item}
+    cam = still_camera(shot, SIZE, W, H)
+    assert cam["preset"] == "FIND" and cam["z_rel_max"] > 1.3
+    assert cam["scan_zmax"] > 1.3
+    assert cam["z_max"] == pytest.approx(cam["requested_z_max"])
