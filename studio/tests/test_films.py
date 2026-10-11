@@ -390,8 +390,8 @@ def test_e9_the_formatter_table():
     assert POL.format_share(0.21, "fraction") == "21 percent"
     values = {"readings": {"share": 0.157, "floor": 0.2}, "women": {"share": 0.119, "floor": 0.3}}
     assert POL.fill_placeholders(CARD_D[1], values) == (
-        "The readings and recordings in this film are about 16 percent of its running time, under a fifth the grammar "
-        "asks, and a woman's voice carries only 12 percent of them. The film says so rather than invent.")
+        "The readings and recordings in this film are about 15 percent of its running time, under a fifth the grammar "
+        "asks, and a woman's voice carries only 11 percent of them. The film says so rather than invent.")
 
 
 def test_e9_the_card_is_filled_from_the_cut_and_sources_json_carries_it(film):
@@ -403,7 +403,7 @@ def test_e9_the_card_is_filled_from_the_cut_and_sources_json_carries_it(film):
     assert values["women"]["share"] == pytest.approx(30 / 135, abs=1e-3) and values["readings"]["floor"] == 0.2
     changed = R.fill_cards(plan, values, j)
     s7 = next(s for s in plan["shots"] if s["id"] == "S7")
-    assert changed == ["S7"] and "about 14 percent of its running time" in s7["text"][1] and "22 percent" in s7["text"][1]
+    assert changed == ["S7"] and "about 13 percent of its running time" in s7["text"][1] and "22 percent" in s7["text"][1]
     assert any("S7 filled from the cut" in e.get("what", "") for e in J.read(j.path) if e["kind"] == "decision")
     doc = R.sources_doc(plan, j, {})
     assert next(s for s in doc["shots"] if s["id"] == "S7")["text"] == s7["text"]
@@ -412,7 +412,7 @@ def test_e9_the_card_is_filled_from_the_cut_and_sources_json_carries_it(film):
     # the captions take the same values; with none, a placeholder is refused, never published as written
     from studio.engine import captions as C
     vtt = C.captions(film / "screenplay.json", fills=values)
-    assert "14 percent" in vtt and "{" not in vtt
+    assert "13 percent" in vtt and "{" not in vtt
     with pytest.raises(C.CaptionError, match="placeholder"):
         C.captions(film / "screenplay.json")
 
@@ -688,3 +688,173 @@ def test_e3_a_flag_is_a_real_bool_never_1_or_0():
 def test_e3_a_hyphen_is_part_of_a_name():
     assert not POL.says_name("Jean-Paul Martin, 1975", "Paul") and not POL.says_name("Paul-Henri, 1975", "Paul")
     assert POL.says_name("Paul Martin, 1975", "Paul") and POL.says_name("Jean-Paul Martin", "Jean-Paul")
+
+
+
+# --------------------------------------------------------------------------
+# Re-review of f42cecd: the reviewer's probes (scratchpad probe_tpl.py), each a test
+# --------------------------------------------------------------------------
+
+
+PROBE_STRAYS = [
+    "Readings are about one sixth of the film, under the fifth the grammar asks.",
+    "Women carry 30 percent of the testimony, only that.",
+    "Readings fall under the fifth the grammar asks Women 30 percent of testimony",
+    "Readings fall under the rule and still make up a fifth of the film.",
+    "Women fall short of the rule and carry 30 percent of the testimony",
+    "Readings are never under the fifth the grammar asks.",
+    "Readings sit above rather than under the fifth the grammar asks.",
+    "Women carry only thirty percent of the testimony.",
+    "Readings fall short at forty per cent.",
+    "Women carry only 30％ of the testimony.",
+    "Women carry only a 30-percent share of testimony.",
+    "Women carry only 0.30 of the testimony.",
+    "Readings fall short: one in five words? no, three in ten.",
+    "Readings are only two sixths of the film.",
+    "Women are short of the rule, under three fifths the grammar asks.",
+    "Readings fall short at 12 percent.",
+    "Silence falls under the 30 percent floor.",
+    "Under the rule, women carry 30 percent.",
+    "Readings fall under the 20.0 percent floor.",
+    "Women fall under the rule, 30 percent of the testimony",
+    "Women carry 30% under the rule.",
+    "Women: under 30 percent of testimony.",
+    "{readings_share} of readings, under a fourth the grammar asks",
+    "{readings_share} of readings, under a twentieth",
+    "{women_share} women, a hundredth of what it should be",
+    "{women_share} women, twice fewer than men",
+    "{women_share} women, under three-tenths",
+    "{women_share} women, under ³⁄₁₀",
+    "{women_share} women, under Ⅲ tenths",
+    "{women_share} women, under thirty​percent",
+    "{women_share} women, under thi​rty percent",
+    "{women_share} women, under ٣٠ percent",
+    "{women_share} women, under XXX percent",
+    "{women_share} women, a majority of men",
+    "{women_share} women, the most of any year",
+    "{women_share} women, once in the film",
+    "{women_share} women, the ninetieth part",
+    "{women_share} women, under 3⁄4",
+]
+
+
+@pytest.mark.parametrize("text", PROBE_STRAYS)
+def test_review_every_probe_is_refused(text):
+    probs, info = POL.template_problems(text, {"readings", "women"}, needs_share=False)
+    assert probs and info["stray"], text
+
+
+def test_review_a_share_under_its_floor_never_prints_as_the_floor():
+    for v in (0.195, 0.1951, 0.196, 0.1996, 0.1999):
+        assert POL.format_share(v, "pct", 0.2) == "19 percent" and POL.format_share(v, "words", 0.2) == "nineteen percent"
+        assert POL.format_share(v, "fraction", 0.2) == "19 percent"                 # never "a fifth", the floor's fraction
+    for v in (0.2951, 0.2999):
+        assert POL.format_share(v, "pct", 0.3) == "29 percent"
+    assert POL.format_share(0.2049, "pct") == "20 percent"                          # no floor given: rounded to nearest
+    assert POL.format_share(0.0995, "fraction", 0.2) == "a tenth"                   # a fraction under the floor's may print
+    assert POL.format_share(0.004, "pct", 0.2) == "under 1 percent" and POL.format_share(0.004, "words", 0.2) == "under one percent"
+    assert POL.format_share(0.0, "pct", 0.2) == "0 percent"
+    assert POL.fill_placeholders("about {readings_share:pct}, under {readings_floor:fraction} the grammar asks",
+                                 {"readings": {"share": 0.1996, "floor": 0.2}}) == "about 19 percent, under a fifth the grammar asks"
+    assert POL.fill_placeholders("about {readings_share:fraction}, under {readings_floor:fraction}",
+                                 {"readings": {"share": 0.197, "floor": 0.2}}) == "about 19 percent, under a fifth"
+
+
+def test_review_the_fill_refuses_a_share_printed_as_its_floor(monkeypatch):
+    monkeypatch.setattr(POL, "format_share", lambda v, fmt, floor=None: "20 percent")      # a formatter that rounds up
+    with pytest.raises(POL.FillError, match="the floor itself"):
+        POL.fill_placeholders("{readings_share:pct}", {"readings": {"share": 0.199, "floor": 0.2}})
+
+
+def test_review_womens_share_is_refused_when_any_gender_is_unstated(film):
+    _with_card_d(film, [SF_READ, SF_WOMEN])
+    plan, j = _plan(film, "unknown-gender")
+    plan = _event(plan, speakers={"sp-m": {"name": "M", "side": "usa"}})          # no gender stated for sp-m
+    values = R.shortfall_values(plan, _placed(0.135, women_s=30.0))
+    assert values["women"]["unknown_s"] > 0
+    with pytest.raises(R.Refused, match=r"shortfall-fill.*no stated gender"):
+        R.fill_cards(plan, values, j)
+    assert lints(j, "shortfall-fill")[0]["status"] == "fail"
+
+
+def test_review_every_shot_is_keyed_with_the_filled_values(film):
+    _with_card_d(film, [SF_READ])
+    plan_a, j = _plan(film, "key-a")
+    plan_b, _ = _plan(film, "key-b")
+    assert R.plan_has_placeholders(plan_a)
+    va = {"readings": {"share": 0.11, "floor": 0.2}, "voiceless": {"share": 0.5, "floor": 0.1},
+          "women": {"share": 0.0, "floor": 0.3, "unknown_s": 0}}
+    vb = dict(va, readings={"share": 0.12, "floor": 0.2})
+    R.fill_cards(plan_a, va, j)
+    R.fill_cards(plan_b, vb, j)
+    n = len(plan_a["shots"])
+    ka = [R.shot_key(plan_a, i, {}, None) for i in range(n)]
+    kb = [R.shot_key(plan_b, i, {}, None) for i in range(n)]
+    assert all(a != b for a, b in zip(ka, kb))                                     # S8 too, whose prev is the card
+
+
+def test_review_card_fills_only_when_something_was_filled(film):
+    plan, j = _plan(film, "no-fill")
+    assert R.fill_cards(plan, R.shortfall_values(plan, {"lines": []}), j) == [] and "card_fills" not in plan
+    assert "card_fills" not in R.sources_doc(plan, j, {})
+
+
+@pytest.mark.parametrize("element", [
+    {"id": "T9", "kind": "lower_third", "start_s": 18.0, "end_s": 19.0, "lines": ["Fixture", "{readings_share:pct}"]},
+    {"id": "T9", "kind": "overlay", "start_s": 18.0, "end_s": 19.0, "lines": ["{readings_share:pct}"]},
+])
+def test_review_a_placeholder_only_on_the_card_and_its_subtitles(film, element):
+    _with_card_d(film, [SF_READ])
+    _edit(film, lambda p: p["parts"][1]["text"].append(element))
+    with pytest.raises(R.Refused, match=r"shortfall-card \(text:T9\).*only in a shortfall card's own text"):
+        _plan(film, "placeholder-near-card")
+    _edit(film, lambda p: (p["parts"][1]["text"].pop(), p["subtitle_source"].append(
+        {"ref": "S7", "start_s": 18.0, "end_s": 20.0, "en": "Readings are {readings_share:pct} of the film."})))
+    _plan(film, "subtitle-placeholder")                                          # a subtitle cue of the card may carry one
+
+
+def test_review_a_null_time_is_a_lint_failure_not_a_crash(film):
+    _with_card_d(film, [SF_READ])
+    _edit(film, lambda p: p["subtitle_source"].append({"ref": "S7", "start_s": None, "end_s": 20.0, "en": "Readings."}))
+    with pytest.raises(R.Refused, match=r"shortfall-card \(subtitle:S7\).*must be numbers"):
+        _plan(film, "null-time")
+
+
+def _master(out: Path, frames: int) -> Path:
+    import subprocess
+    out.mkdir(parents=True, exist_ok=True)
+    m = out / "master.mp4"
+    subprocess.run([R.ffmpeg(), "-v", "error", "-y", "-f", "lavfi", "-i", f"color=c=black:s=64x36:r=24:d={frames / 24}",
+                    "-frames:v", str(frames), "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(m)], check=True)
+    return m
+
+
+def test_review_sources_only_refills_only_from_this_masters_full_render(film, tmp_path):
+    _with_card_d(film, [SF_READ])
+    plan, _ = _plan(film, "so-plan")
+    out = tmp_path / "out"
+    master = _master(out, plan["frames"])
+    values = {"readings": {"share": 0.11, "floor": 0.2}, "voiceless": {"share": 0.5, "floor": 0.1},
+              "women": {"share": 0.0, "floor": 0.3, "unknown_s": 0}}
+    good = {"master_sha256": R.sha256_file(master), "card_fills": {"values": values, "texts": {}}}
+
+    def prev(doc):
+        (out / "sources.json").write_text(json.dumps(doc), encoding="utf-8")
+
+    prev(good)
+    R.sources_only(film, out)
+    doc = json.loads((out / "sources.json").read_text(encoding="utf-8"))
+    assert "about 11 percent" in " ".join(next(s for s in doc["shots"] if s["id"] == "S7")["text"])
+    stale = {"master_sha256": R.sha256_file(master)}
+    for bad, why in ((dict(good, master_sha256="0" * 64), "another master"), (dict(good, partial=True), "partial render"),
+                     (dict(good, card_fills={"values": {"readings": {"share": "x"}}}), "malformed"),
+                     (dict(good, card_fills="x"), "malformed"), (stale, "no card_fills")):
+        prev(bad)
+        with pytest.raises(R.Refused, match=why):
+            R.sources_only(film, out)
+
+
+def test_review_telecined_is_a_real_bool(film):
+    _edit(film, lambda d: next(x for x in d["items"] if x["id"] == "FX-TESTSRC").update(telecined=0), "footage-ledger.json")
+    with pytest.raises(R.Refused, match=r"telecine-declared \(S6\)"):
+        _plan(film, "telecined-0")

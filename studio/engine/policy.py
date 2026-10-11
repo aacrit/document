@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import math
 import re
+import unicodedata
 
 # --------------------------------------------------------------------------
 # The imagery rule (E3, GRAMMAR A21)
@@ -304,14 +305,38 @@ FRACTION_EXACT = 0.005                    # a share within half a point of a fra
 _ONES = ("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen "
          "seventeen eighteen nineteen").split()
 _TENS = "twenty thirty forty fifty sixty seventy eighty ninety".split()
-_STRAY_WORDS = (_ONES + _TENS + ["hundred", "hundreds", "thousand", "thousands", "million", "dozen", "half", "halves",
-                                 "third", "thirds", "quarter", "quarters", "fifth", "fifths", "sixth", "sixths", "seventh",
-                                 "sevenths", "eighth", "eighths", "ninth", "ninths", "tenth", "tenths", "percent",
-                                 "percentage", "per cent"])
-# digits in any script, number and fraction words, percent signs, vulgar fractions: none may stand on a shortfall card
-STRAY_NUMBER = re.compile(r"\d|[%\uff05\u2030\u00bc-\u00be\u2150-\u215e]|(?<![\w-])(?:"
+_ORDINALS = ("fourth fifth sixth seventh eighth ninth tenth eleventh twelfth thirteenth fourteenth fifteenth sixteenth "
+             "seventeenth eighteenth nineteenth twentieth thirtieth fortieth fiftieth sixtieth seventieth eightieth "
+             "ninetieth hundredth thousandth millionth").split()
+_STRAY_WORDS = (_ONES + _TENS + _ORDINALS
+                + ["hundred", "thousand", "million", "billion", "dozen", "half", "halves", "third", "quarter",
+                   "once", "twice", "thrice", "double", "triple", "quadruple", "majority", "minority", "most",
+                   "percent", "percentage", "per cent"])
+# number, ordinal, fraction and multiplicative words, with an optional plural; percent signs; the fraction slash
+STRAY_NUMBER = re.compile(r"\d|[%\uff05\u2030\u2044]|(?<![\w-])(?:"
                           + "|".join(re.escape(w).replace("\\ ", "\\s+") for w in sorted(_STRAY_WORDS, key=len, reverse=True))
                           + r")s?(?![\w])", re.I)
+
+
+def stray_numbers(text: str) -> list[str]:
+    """Every number a text prints outside a placeholder: any character with
+    a numeric value (digits in any script, superscripts, subscripts, vulgar
+    fractions, Roman numeral signs), then, on the text normalised (NFKC,
+    zero-width and other format characters removed, so "thi\u200brty" is
+    "thirty"), any digit, number, ordinal, fraction or multiplicative word,
+    percent sign or fraction slash."""
+    t = str(text or "")
+    out = [c for c in t if unicodedata.numeric(c, None) is not None]
+    nfkc = unicodedata.normalize("NFKC", t)
+    for joiner in ("", " "):              # a format character inside a word ("thi​rty") or between two ("thirty​percent")
+        norm = "".join(joiner if unicodedata.category(c) == "Cf" else c for c in nfkc)
+        out += [m.group(0) for m in STRAY_NUMBER.finditer(norm)]
+    seen, uniq = set(), []
+    for x in out:
+        if x.lower() not in seen:
+            seen.add(x.lower())
+            uniq.append(x)
+    return uniq
 
 
 def number_words(n: int) -> str:
@@ -324,25 +349,52 @@ def number_words(n: int) -> str:
     return _TENS[tens - 2] + (f"-{_ONES[ones]}" if ones else "")
 
 
-def format_share(v: float, fmt: str | None) -> str:
+def format_share(v: float, fmt: str | None, floor: float | None = None) -> str:
     """The fixed formatter table: ``pct`` "12 percent" (the default),
     ``words`` "twelve percent", ``fraction`` "a fifth" for a half, a third,
-    a quarter, a fifth or a tenth within half a point, else pct."""
-    n = int(math.floor(float(v) * 100 + 0.5))
-    if fmt == "words":
-        return f"{number_words(max(0, min(100, n)))} percent"
+    a quarter, a fifth or a tenth within half a point, else pct. A share
+    under its ``floor`` is rounded down, so it never prints as the floor
+    (19.96% under 20 is "19 percent"), and never as a fraction at or above
+    the floor; a share above 0 and under 1% prints "under 1 percent"."""
+    v = float(v)
+    short = floor is not None and v < float(floor)
+    n = int(math.floor(v * 100)) if short else int(math.floor(v * 100 + 0.5))
     if fmt == "fraction":
         for f, words in FRACTION_FORMS:
-            if abs(float(v) - f) <= FRACTION_EXACT:
+            if abs(v - f) <= FRACTION_EXACT and not (short and f >= float(floor) - 1e-9):
                 return words
+    if 0 < v < 0.01:
+        return "under one percent" if fmt == "words" else "under 1 percent"
+    if fmt == "words":
+        return f"{number_words(max(0, min(100, n)))} percent"
     return f"{n} percent"
 
 
+class FillError(ValueError):
+    """A placeholder that cannot be filled truthfully."""
+
+
 def fill_placeholders(text: str, values: dict) -> str:
-    """Every placeholder filled from ``values`` ({what: {"share", "floor"}})."""
+    """Every placeholder filled from ``values`` ({what: {"share", "floor"}}).
+    A share is formatted against its floor (rounded down under it); as a
+    backstop, a share under its floor whose text equals the floor's in any
+    format is refused (it would print the floor as the measurement). A
+    ``{women_share}`` is refused when any testimony's speaker states no
+    gender (``unknown_s`` > 0): gender is never inferred (A3)."""
     def one(m):
         what, kind, fmt = m.group(1), m.group(2), m.group(3)
-        return format_share(values[what][kind], fmt)
+        if what not in values or kind not in values[what]:
+            raise FillError(f"no measured value for {m.group(0)}")
+        v, floor = float(values[what][kind]), values[what].get("floor")
+        if kind == "floor":
+            return format_share(v, fmt)
+        if what == "women" and float(values[what].get("unknown_s") or 0) > 0:
+            raise FillError(f"{m.group(0)}: {values[what]['unknown_s']:g} s of testimony has no stated gender, so women's "
+                            "share cannot be printed (gender is never inferred, A3)")
+        out = format_share(v, fmt, floor)
+        if floor is not None and v < float(floor) and out in {format_share(float(floor), f) for f in ("pct", "words", "fraction")}:
+            raise FillError(f"{m.group(0)} would print {out!r}, the floor itself, for a share of {v:.4f} under it")
+        return out
     return PLACEHOLDER.sub(one, str(text or ""))
 
 
@@ -365,7 +417,7 @@ def template_problems(text: str, whats: set | list, *, needs_share: bool) -> tup
     others = sorted(used - set(whats))
     if others:
         probs.append(f"placeholders for {', '.join(others)}, which no shortfall stated on this card declares")
-    stray = [m.group(0) for m in STRAY_NUMBER.finditer(ANY_BRACE.sub(" ", t))]
+    stray = stray_numbers(ANY_BRACE.sub(" ", t))
     if stray:
         probs.append(f"numbers outside a placeholder: {stray}; a shortfall card prints numbers only through placeholders")
     missing = sorted(w for w in whats if needs_share and not re.search(rf"\{{{w}_share(?::\w+)?\}}", t))

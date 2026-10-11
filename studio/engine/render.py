@@ -1098,7 +1098,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             conf = conform_plan(item, pr)
             ntsc = any(abs(pr["fps"] - r) < 0.02 for r in (29.97, 59.94))
             if ntsc:
-                lint("telecine-declared", item.get("telecined") in (True, False), unit=s["id"], stage="conform", grammar="A6",
+                lint("telecine-declared", POL.flag(item.get("telecined")), unit=s["id"], stage="conform", grammar="A6",
                      evidence={"fps": round(pr["fps"], 3), "telecined": item.get("telecined"),
                                "fix": "state telecined: true|false in the ledger"})
             if conf["method"] == "ivtc":
@@ -1204,7 +1204,17 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     screen_text += [s["detail"] for s in shots] + [s["label"] for s in shots] + [c["text"] for c in subs]
     dashes = [x for x in screen_text if EM_DASH in x]
     lint("no-em-dash", not dashes, evidence=dashes[:5], grammar="9")
-    subcues = sorted(((float(c["start_s"]), float(c["end_s"]), c.get("ref")) for c in play.get("subtitle_source", [])))
+    def _cue_time(c):
+        try:
+            a, b = float(c["start_s"]), float(c["end_s"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        return (a, b) if math.isfinite(a) and math.isfinite(b) else None
+
+    bad_times = [c.get("ref") for c in play.get("subtitle_source", []) if _cue_time(c) is None]
+    if bad_times:
+        lint("subtitle-times", False, grammar="10, 12", evidence={"refs": bad_times, "why": "start_s and end_s must be numbers"})
+    subcues = sorted((*_cue_time(c), c.get("ref")) for c in play.get("subtitle_source", []) if _cue_time(c) is not None)
     clash = [{"a": a[2], "b": b[2], "overlap_s": round(a[1] - b[0], 3)} for a, b in zip(subcues, subcues[1:]) if b[0] < a[1] - 1e-9]
     # burned in, two cues would draw over each other; as tracks, a player shows them stacked
     lint("subtitle-overlap", not clash, severity="block" if burn_subtitles else "warn", grammar="10",
@@ -1498,24 +1508,45 @@ def shortfall_lints(lint, play: dict, shots: list[dict], settings: dict) -> list
         lint("shortfall-stated", not probs, unit=f"shortfall:{sf.get('what')}", grammar="6.5, A25",
              evidence={"shortfall": sf, "found": how, "problems": probs})
         out.append(dict(sf, stated=not probs))
-    # every surface that can print a number: the cards themselves, then text elements and subtitles shown with them
+    # every surface that can print a number: the cards themselves, then text elements and subtitles shown with them.
+    # A placeholder may stand only in a shortfall card's own text and in a subtitle cue shown with that card; a lower
+    # third, an overlay or any other text element is drawn as written, so a placeholder there is refused.
+    def span(x):
+        try:
+            a, b = float(x["start_s"]), float(x["end_s"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        return (a, b) if math.isfinite(a) and math.isfinite(b) else None
+
     surfaces = [("card", s["id"], " ".join(s.get("text") or []), (s["start_s"], s["start_s"] + s["_dur"]))
                 for s in shots if s.get("text")]
     for part in play.get("parts", []):
         for t in part.get("text", []):
-            surfaces.append(("text", t.get("id"), " ".join(t.get("lines") or []), (float(t.get("start_s", 0)), float(t.get("end_s", 0)))))
+            surfaces.append(("text", t.get("id"), " ".join(str(x) for x in t.get("lines") or []), span(t)))
     for c in play.get("subtitle_source", []):
-        surfaces.append(("subtitle", c.get("ref"), str(c.get("en") or ""), (float(c.get("start_s", 0)), float(c.get("end_s", 0)))))
-    for kind, sid, text, (a, b) in surfaces:
+        surfaces.append(("subtitle", c.get("ref"), str(c.get("en") or ""), span(c)))
+    for kind, sid, text, ab in surfaces:
+        if ab is None:
+            if on_card or POL.has_placeholder(text):
+                lint("shortfall-card", False, unit=f"{kind}:{sid}", grammar="6.5, A25",
+                     evidence={"text": text, "why": "start_s and end_s must be numbers, so the card it is shown with is known"})
+            continue
+        a, b = ab
         if kind == "card" and sid in on_card:
             whats, own = on_card[sid], True
         else:
             near = [cid for cid, (ca, cb) in spans.items() if a < cb and b > ca]
             whats, own = set().union(*(on_card[c] for c in near)) if near else set(), False
+            if kind != "subtitle" and POL.has_placeholder(text):
+                lint("shortfall-card", False, unit=f"{kind}:{sid}", grammar="6.5, A25",
+                     evidence={"text": text, "why": "a placeholder may stand only in a shortfall card's own text and in its "
+                                                    "subtitle cues; here it would be printed as written"})
+                continue
             if not near:
                 if POL.has_placeholder(text):
                     lint("shortfall-card", False, unit=f"{kind}:{sid}", grammar="6.5, A25",
-                         evidence={"text": text, "why": "a placeholder outside a shortfall card would be printed as written"})
+                         evidence={"text": text, "why": "a subtitle placeholder outside a shortfall card's time would print "
+                                                        "a number no card states"})
                 continue
         probs, info = POL.template_problems(text, whats, needs_share=own)
         lint("shortfall-card", not probs, unit=f"{kind}:{sid}", grammar="6.5, A25",
@@ -3476,36 +3507,80 @@ def shortfall_values(plan: dict, placed: dict) -> dict:
     """The values a shortfall card's placeholders print: each share as the
     film measures it (voice_shares, women_share) and each floor as it sets it."""
     sh = voice_shares(plan, placed)
+    women = women_share(plan, placed)
     settings = plan.get("settings") or POL.DEFAULT_SETTINGS
     return {"readings": {"share": sh["readings"], "floor": settings["readings_floor"]},
             "voiceless": {"share": sh["voiceless"], "floor": settings["voiceless_floor"]},
-            "women": {"share": women_share(plan, placed)["share"], "floor": settings["women_floor"]}}
+            "women": {"share": women["share"], "floor": settings["women_floor"], "unknown_s": women["by_gender_s"]["unknown"]}}
+
+
+def plan_has_placeholders(plan: dict) -> bool:
+    """Any placeholder on a card or in a subtitle cue of the plan."""
+    return (any(POL.has_placeholder(x) for sh in plan["shots"] for x in sh.get("text") or [])
+            or any(POL.has_placeholder(c.get("text")) for c in plan.get("subtitles", [])))
+
+
+def card_values_problems(values) -> list[str]:
+    """What is wrong with a card_fills ``values`` block (from a previous sources.json)."""
+    if not isinstance(values, dict):
+        return [f"values must be an object, not {type(values).__name__}"]
+    out = []
+    for what in POL.SHORTFALL_WHAT:
+        v = values.get(what)
+        if not isinstance(v, dict):
+            out.append(f"{what}: missing")
+            continue
+        for k in ("share", "floor"):
+            x = v.get(k)
+            if isinstance(x, bool) or not isinstance(x, (int, float)) or not 0 <= float(x) <= 1:
+                out.append(f"{what}.{k} must be a share from 0 to 1, not {x!r}")
+    return out
 
 
 def fill_cards(plan: dict, values: dict, journal: Journal) -> list[str]:
     """A25 refined: fill every placeholder in the cards and the burned
     subtitles from ``values``, before any card is drawn, and journal each
     filled card. The filled text is what the frames, the credits and
-    sources.json carry. Returns the ids of the shots whose text changed."""
-    changed = []
-    texts = {}
-    for s in plan["shots"]:
-        if any(POL.has_placeholder(x) for x in s.get("text") or []):
-            s["text"] = [POL.fill_placeholders(x, values) for x in s["text"]]
-            changed.append(s["id"])
-            texts[s["id"]] = s["text"]
-            journal.decision("assembly", f"{s['id']} filled from the cut: {' / '.join(s['text'])}",
-                             "A25 refined: a shortfall card prints the film's own measurement, never a typed number",
-                             unit=s["id"], evidence={"values": values, "text": s["text"]})
-    for c in plan.get("subtitles", []):
-        if POL.has_placeholder(c.get("text")):
-            c["text"] = POL.fill_placeholders(c["text"], values)
+    sources.json carry; ``card_fills`` is set only when something was filled
+    (a film without placeholders keeps its sources.json as it was). A
+    placeholder that cannot be filled truthfully (a share that would print as
+    its floor, women's share with testimony of unstated gender) or that is
+    left anywhere drawn (cards, subtitles, lower thirds, overlays) refuses
+    the run. Returns the ids of the shots whose text changed."""
+    if not plan_has_placeholders(plan):
+        left = [x["id"] for x in plan.get("lower_thirds", []) + plan.get("overlays", [])
+                if any(POL.has_placeholder(t) for t in (x.get("lines") or [x.get("text")]))]
+        if left:
+            raise Refused(f"placeholders on {', '.join(left)}, which are drawn as written (A25 refined)")
+        return []
+    changed, texts = [], {}
+    try:
+        for s in plan["shots"]:
+            if any(POL.has_placeholder(x) for x in s.get("text") or []):
+                s["text"] = [POL.fill_placeholders(x, values) for x in s["text"]]
+                changed.append(s["id"])
+                texts[s["id"]] = s["text"]
+                journal.decision("assembly", f"{s['id']} filled from the cut: {' / '.join(s['text'])}",
+                                 "A25 refined: a shortfall card prints the film's own measurement, never a typed number",
+                                 unit=s["id"], evidence={"values": values, "text": s["text"]})
+        for c in plan.get("subtitles", []):
+            if POL.has_placeholder(c.get("text")):
+                c["text"] = POL.fill_placeholders(c["text"], values)
+    except (POL.FillError, KeyError, TypeError, ValueError) as e:
+        journal.lint("shortfall-fill", False, stage="assembly", phase="preflight", grammar="6.5, A3, A25",
+                     evidence={"values": values, "why": str(e)})
+        raise Refused(f"shortfall-fill (A25 refined): {e}") from None
+    journal.lint("shortfall-fill", True, stage="assembly", phase="preflight", grammar="6.5, A25",
+                 evidence={"values": values, "cards": texts})
     for sf in plan.get("shortfalls") or []:
         if isinstance(sf, dict) and sf.get("what") in values:
             sf["measured_cut"] = values[sf["what"]]["share"]
             sf["filled"] = texts.get(sf.get("stated_on"))
     plan["card_fills"] = {"values": values, "texts": texts}
-    left = [s["id"] for s in plan["shots"] if any(POL.has_placeholder(x) for x in s.get("text") or [])]
+    left = [x["id"] for x in plan["shots"] if any(POL.has_placeholder(t) for t in x.get("text") or [])]
+    left += [f"subtitle {c.get('ref')}" for c in plan.get("subtitles", []) if POL.has_placeholder(c.get("text"))]
+    left += [x["id"] for x in plan.get("lower_thirds", []) + plan.get("overlays", [])
+             if any(POL.has_placeholder(t) for t in (x.get("lines") or [x.get("text")]))]
     if left:
         raise Refused(f"placeholders left unfilled on {', '.join(left)}")
     return changed
@@ -4135,6 +4210,8 @@ def shot_key(plan: dict, i: int, asset_hash: dict, env_key: dict | None = None) 
         "wm": [plan["wm_start"], plan["card_spans"]],
         "credits": plan["credits"] if s.get("_card") == "credits" else None,
     }
+    if plan.get("card_fills"):                      # A25 refined: the filled numbers are part of what is drawn
+        rec["card_fills"] = plan["card_fills"]["values"]
     return hashlib.sha256(json.dumps(rec, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
 
@@ -4252,8 +4329,9 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
             else:
                 todo.append(i)
 
-        # A25 refined: a card with placeholders is keyed once the mix has filled it (its text is its pixels)
-        pending = [i for i, s in enumerate(plan["shots"]) if any(POL.has_placeholder(x) for x in s.get("text") or [])]
+        # A25 refined: a film with placeholders is keyed once the mix has filled them (a card's text is its pixels, and a
+        # neighbour's key reads it through prev and the subtitles), so every shot of such a film waits for the fill
+        pending = list(range(len(plan["shots"]))) if plan_has_placeholders(plan) else []
         for i in range(len(plan["shots"])):
             if i not in pending:
                 key_shot(i)
@@ -4538,13 +4616,21 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
     path = out / "sources.json"
     prev = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     extra.update({k: prev[k] for k in ("loudness",) if k in prev})
-    if any(POL.has_placeholder(x) for s in plan["shots"] for x in s.get("text") or []):
-        values = (prev.get("card_fills") or {}).get("values")
-        if not values:
-            raise Refused("a shortfall card's numbers come from the render's measurement, and the previous sources.json "
-                          "holds none: render the film")
-        fill_cards(plan, values, journal)
     extra.update(master="master.mp4", master_sha256=sha256_file(master))
+    if plan_has_placeholders(plan):
+        fills = prev.get("card_fills")
+        values = fills.get("values") if isinstance(fills, dict) else None
+        why = ("the previous sources.json holds no card_fills" if fills is None else
+               "the previous sources.json's card_fills is malformed: " + "; ".join(card_values_problems(values))
+               if card_values_problems(values) else
+               "the previous sources.json describes another master" if prev.get("master_sha256") != extra["master_sha256"]
+               else "the previous sources.json is from a partial render" if prev.get("partial") or prev.get("until_s")
+               else None)
+        journal.lint("shortfall-fill", why is None, stage="assembly", phase="sources-only", grammar="6.5, A25",
+                     evidence={"why": why, "values": values})
+        if why:
+            raise Refused(f"a shortfall card's numbers come from the render's own measurement and {why}: render the film")
+        fill_cards(plan, values, journal)
     doc = sources_doc(plan, journal, extra)
     path.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
     journal.artifact("assembly", path, role="sources")
