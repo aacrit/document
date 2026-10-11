@@ -528,13 +528,8 @@ def _load(path: str) -> tuple:
 
 
 def file_sha256(path: str) -> str:
-    """A file's sha256, cached on its path, size and mtime, so a file rewritten in place is hashed again."""
-    st = Path(path).stat()
-    return _file_sha256(str(path), st.st_size, st.st_mtime_ns)
-
-
-@lru_cache(maxsize=64)
-def _file_sha256(path: str, size: int, mtime_ns: int) -> str:
+    """A file's sha256, read every time: the cited files are small, and a cache keyed on anything but
+    the bytes can go stale when a file is rewritten in place."""
     h = hashlib.sha256()
     with open(path, "rb") as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
@@ -708,16 +703,6 @@ NUMBER_WORD_RE = re.compile(
     r"thousand|million|billion|dozen|dozens|hundreds|thousands|millions|billions|lakh|lakhs|crore|crores|"
     r"nought|naught|nil|none|single|half|once|twice|handful)\b")
 # a quoted numeral's declared span: what may not follow it, stand before it, or negate it
-# A text citation for a numeral is one or more whole sentences holding exactly one number and one year.
-SENTENCE_END = re.compile(r"[.!?][\"\u201d\u2019)\]]*$")
-SENTENCE_GAP = re.compile(r"[.!?][\"\u201d\u2019)\]]*\s+$")
-DIGIT_TOKEN = re.compile(r"[0-9]+(?:[,.\u00b7][0-9]+)*")
-NEGATORS = re.compile(r"(?i)\b(no|not|never|nor|without|none|nobody)\b|n't\b")
-QUALIFIERS = re.compile(r"(?i)\b(more than|less than|fewer than|at least|at most|over|under|about|around|nearly|"
-                        r"almost|roughly|up to|some|approximately|estimated)\b")
-RELATIVE_YEAR = re.compile(r"(?i)\b(next|following|previous|same|that|this|last) year\b|\ba year (later|earlier|before|after)\b")
-YEAR_RANGE = re.compile(r"[0-9]{4}\s*[-\u2010-\u2015/]\s*[0-9]{2,4}")
-PERCENT_AFTER = re.compile(r"(?i)^\s*(%|per ?cent\b)")
 
 
 def uncited_numbers(text: str) -> list:
@@ -885,11 +870,8 @@ def text_quote(cite: dict, data_root) -> dict:
     span = " ".join(x.strip() for x in lines[a - 1:a - 1 + n])
     if cite["quote"] not in span:
         raise MapRefused(f"{cite['text']} line {a}: {cite['quote']!r} is not in the cited lines ({span!r})")
-    out = {"kind": "quote", "text": cite["text"], "sha256": cite["sha256"], "line": a, "lines": n,
-           "quote": cite["quote"], "_span": span}
-    if cite.get("attested"):
-        out["attested"] = cite["attested"]
-    return out
+    return {"kind": "quote", "text": cite["text"], "sha256": cite["sha256"], "line": a, "lines": n,
+            "quote": cite["quote"]}
 
 
 def resolve_cite(cite: dict, data_root, extra=()) -> dict:
@@ -907,85 +889,16 @@ def digits(s: str) -> str:
 
 
 def numeral_supported(numeral: str, got: dict) -> bool:
-    """A cell or count supports a numeral when it equals the value. A quote never does by
-    itself: check_numeral_sentence judges a quoted count."""
+    """A cell or count supports a numeral when it equals the value. A quote never does: a quoted
+    number is not accepted as a count (QUOTED_COUNT_REFUSED)."""
     if got["kind"] in ("cell", "count"):
         n = digits(numeral)
         return n.lstrip("-").isdigit() and int(n) == got["value"]
     return False
 
 
-def _declared(cite: dict, key: str) -> tuple:
-    sp = cite.get(key)
-    if not (isinstance(sp, list) and len(sp) == 2 and all(isinstance(x, int) and not isinstance(x, bool) for x in sp)):
-        raise MapRefused(f"{cite.get('text')} line {cite.get('line')}: a text citation declares {key}: [start, end], "
-                         "character offsets into its quote")
-    s_, e_ = sp
-    if not 0 <= s_ < e_ <= len(cite["quote"]):
-        raise MapRefused(f"{cite.get('text')}: {key} {sp} is outside the quote ({len(cite['quote'])} characters)")
-    return s_, e_
-
-
-def sentence_tokens(q: str) -> tuple:
-    """Every number token in a quote: digit runs (with their , . and middle-dot groups, so 1,500
-    and 1.5 are one token each) and number words; a bare four-digit run is a year."""
-    nums, years = [], []
-    for m in DIGIT_TOKEN.finditer(q):
-        (years if re.fullmatch(r"[0-9]{4}", m.group(0)) else nums).append((m.start(), m.end(), m.group(0)))
-    for m in NUMBER_WORD_RE.finditer(q):
-        nums.append((m.start(), m.end(), m.group(0)))
-    return sorted(nums), years
-
-
-def check_numeral_sentence(cite: dict, got: dict, numeral: str, year: str) -> None:
-    """A text citation for a count, so strict nothing is left to interpret (CoS ruling on PR #16):
-    the quote is one or more whole sentences of the cited lines; it holds exactly one number token
-    and exactly one four-digit year (no other number of any kind, no two-digit year, no year range,
-    no relative year); no negator and no qualifier anywhere in it; the declared spans `numeral_at`
-    and `year_at` are exactly those two tokens; the number equals the card's and the year the card's;
-    and a person has attested that the sentence means this count for this year (`attested`)."""
-    q, span = cite["quote"], got["_span"]
-    where = f"{cite.get('text')} line {cite.get('line')}"
-    att = cite.get("attested")
-    if not (isinstance(att, dict) and all(str(att.get(k) or "").strip() for k in ("by", "date", "note"))):
-        raise MapRefused(f"{where}: a count from a text needs `attested: {{by, date, note}}`: a person's statement that "
-                         "the sentence means this count for this year")
-    starts = [i for i in range(len(span)) if span.startswith(q, i)
-              and (i == 0 or SENTENCE_GAP.search(span[:i])) and (i + len(q) == len(span) or span[i + len(q)].isspace())]
-    if not starts or not SENTENCE_END.search(q):
-        raise MapRefused(f"{where}: the quote is not one or more whole sentences of the cited lines; a count is "
-                         "quoted whole, never trimmed")
-    if any(ch.isdigit() and not ("0" <= ch <= "9") for ch in q):
-        raise MapRefused(f"{where}: the quote holds digits of another script; a count is read from ASCII digits only")
-    for rx, what in ((NEGATORS, "a negator"), (QUALIFIERS, "a qualifier"), (RELATIVE_YEAR, "a relative year"),
-                     (YEAR_RANGE, "a year range")):
-        m = rx.search(q)
-        if m:
-            raise MapRefused(f"{where}: the sentence holds {what} ({m.group(0)!r}); it does not state one count")
-    nums, years = sentence_tokens(q)
-    if len(nums) != 1:
-        raise MapRefused(f"{where}: the sentence holds {len(nums)} numbers ({[t[2] for t in nums]}); a count is "
-                         "cited from a sentence with exactly one")
-    if len(years) != 1:
-        raise MapRefused(f"{where}: the sentence holds {len(years)} years ({[t[2] for t in years]}); exactly one")
-    (ns, ne, ntext), (ys, ye, ytext) = nums[0], years[0]
-    if [ns, ne] != list(_declared(cite, "numeral_at")):
-        raise MapRefused(f"{where}: numeral_at {cite['numeral_at']} is not the sentence's number {ntext!r} at {[ns, ne]}")
-    if [ys, ye] != list(_declared(cite, "year_at")):
-        raise MapRefused(f"{where}: year_at {cite['year_at']} is not the sentence's year {ytext!r} at {[ys, ye]}")
-    if PERCENT_AFTER.match(q[ne:]):
-        raise MapRefused(f"{where}: {ntext!r} is a percentage, not a count")
-    if re.fullmatch(r"[0-9]{1,3}(,[0-9]{3})+|[0-9]+", ntext):
-        val = int(ntext.replace(",", ""))
-    elif ntext.lower() in NUMBER_WORDS:
-        val = NUMBER_WORDS.index(ntext.lower())
-    else:
-        raise MapRefused(f"{where}: {ntext!r} is not a whole count (digits, or one word zero to twelve)")
-    n = digits(numeral)
-    if not n.isdigit() or int(n) != val:
-        raise MapRefused(f"{where}: the card says {numeral}; the sentence's number is {ntext!r} ({val})")
-    if ytext != year:
-        raise MapRefused(f"{where}: the card says {year}; the sentence's year is {ytext}")
+QUOTED_COUNT_REFUSED = ("a quoted number is not accepted as a count (CoS 2026-10-11); cite a data cell, or set the "
+                        "sentence as typeset text")
 
 
 # ---- doubts a film states about its own table

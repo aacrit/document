@@ -7,23 +7,20 @@ A count card is a spec with "kind": "count_card", rendered by the same command
 as the maps (maps.render_map dispatches here) and recorded the same way in
 maps-render.json, so make_drawn-style ledgers read one record for both.
 
-Truth: the numeral on the card is a cell of a cited file, checked at every
-render: the citation names the file, its sha256, its licence, the column and
-the row's key (and, optionally, the line it sits on). A numeral that is not
-that cell is refused; so is a year the table has no row for, unless another
-source is cited the same way (a text file, its sha256, the line and a quote
-that is one or more whole sentences holding exactly one number and one year,
-with no negator or qualifier, whose declared `numeral_at` and `year_at` spans
-are those two tokens, and which a person has attested means this count for this
-year; maps.check_numeral_sentence. A sentence that fails is refused as a count;
-a typeset DRAWN text line may still quote it). The year is always tied
-to the numeral's own citation: its row, or its quote. Every other number on the
-card (a sub-line such as "36 of today's countries reporting cases") carries its
-own citation for the same year. Captions carry no uncited digit or number word.
-A table's doubts live beside it (`<table>.doubts.json`, pinned to its sha256):
-`conflicts` (a cell a cited text contradicts) and `zero_suspect` (a zero not taken
-as a report of no cases) refuse the cells they name whenever the table is cited.
-A spec may add doubts of its own, never remove the table's.
+Truth: the numeral on the card is a cell of a cited table (or a count of its
+rows), checked at every render: the citation names the file, its sha256, the
+sha256 of the table's doubts file beside it, its licence, the column and the
+row's key (and, optionally, the line it sits on). A numeral that is not that
+cell is refused; so is a year the table has no row for. A quoted number is
+never a count (CoS 2026-10-11): a numeral, a line's {n} or a map figure cited to
+a text is refused, and the sentence may be set as typeset text instead. Text
+citations stay for what is not a count (`also`). The year is the numeral's own
+row's. Every other number on the card (a sub-line such as "36 of today's
+countries reporting cases") carries its own cell citation for the same year.
+Captions carry no uncited digit or number word. A table's doubts live beside it
+(`<table>.doubts.json`, pinned by every citation): `conflicts` and
+`zero_suspect` refuse the cells they name; a spec may add doubts, never remove
+the table's.
 
 Motion: a count that changes on screen is a sequence of cards, each a cited
 value, joined by cuts (`check_sequence`). The engine never draws a value
@@ -85,15 +82,10 @@ def _year_of(got: dict, cite: dict) -> str | None:
 
 
 def _check_number(cid: str, where: str, numeral: str, year: str, got: dict, cite: dict) -> None:
-    """A number and its year from one citation. A cell or count: the value equals the numeral and
-    its own row (or where) is the year. A quote: whole sentences with exactly one number and one
-    year, attested (maps.check_numeral_sentence)."""
+    """A number and its year from one citation: a data cell or count, whose value equals the numeral
+    and whose own row (or where) is the year. A quoted number is never a count (CoS 2026-10-11)."""
     if got["kind"] == "quote":
-        try:
-            MP.check_numeral_sentence(cite, got, numeral, year)
-        except MapRefused as e:
-            raise MapRefused(f"{cid}: {where}: {e}") from None
-        return
+        raise MapRefused(f"{cid}: {where} ({got['text']} line {got['line']}): {MP.QUOTED_COUNT_REFUSED}")
     if not MP.numeral_supported(numeral, got):
         at = (f"{got['csv']} line {got.get('line')} column {got['column']}" if got["kind"] == "cell"
               else f"{got['csv']} count {got.get('where')}")
@@ -200,9 +192,7 @@ def method(card: dict, resolved: dict | None = None) -> dict:
             return f"{r['csv']} line {r['line']}, column {r['column']} = {r['value']} (sha256 {r['sha256'][:12]})"
         if r["kind"] == "count":
             return (f"{r['csv']}: {r['value']} {r['rule']} where {r['where']} (sha256 {r['sha256'][:12]})")
-        att = r.get("attested")
-        return (f"{r['text']} line {r['line']}: \"{r['quote']}\" (sha256 {r['sha256'][:12]})"
-                + (f", attested by {att['by']} on {att['date']}: {att['note']}" if att else ""))
+        return f"{r['text']} line {r['line']}: \"{r['quote']}\" (sha256 {r['sha256'][:12]})"
     out = {"kind": "count_card", "numeral": card["numeral"], "year": card["year"]}
     if resolved:
         out["cites"] = {"numeral": resolved["numeral"], "year": resolved["year"], "lines": resolved["lines"],

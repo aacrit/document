@@ -426,14 +426,6 @@ def test_the_count_of_countries_says_it_counts_by_todays_codes(root):
 
 # ---------------------------------------------------------------- re-review of 58aea22: declared spans (N1 to N10)
 
-def at(quote: str, sub: str, nth: int = 0) -> list:
-    """The [start, end] offsets of the nth occurrence of sub in quote."""
-    i = -1
-    for _ in range(nth + 1):
-        i = quote.index(sub, i + 1)
-    return [i, i + len(sub)]
-
-
 
 
 
@@ -574,137 +566,82 @@ def test_an_in_map_figure_is_drawn_larger_than_a_sub_line(root):
     assert fig[3] - fig[1] > 1.2 * (1.75 / 100 * 1080), "the figure's numeral is about 1.3x a sub-line"
 
 
-# ---------------------------------------------------------------- PR #16 review of a14dcc8: whole sentences, attested
-
-ATTEST = {"by": "test", "date": "2026-10-11", "note": "the sentence states this count for this year"}
-
-
-def sentence_cite(path_root, rel, line, quote, numeral_sub, year_sub="1975", nth=0, adj=(0, 0), attested=ATTEST):
-    ns = at(quote, numeral_sub, nth)
-    c = {"text": rel, "sha256": sha(path_root, rel), "licence": "public domain", "source": TXT, "line": line,
-         "quote": quote, "numeral_at": [ns[0] + adj[0], ns[1] + adj[1]], "year_at": at(quote, year_sub)}
-    if attested is not None:
-        c["attested"] = attested
-    return c
-
+# ---------------------------------------------------------------- PR #16: a quoted number is never a count (CoS 2026-10-11)
 
 def qcard(r, numeral, cite, **kw):
     return {"id": "Q", "kind": "count_card", "year": "1975", "numeral": numeral, "caption": "outbreaks",
             "cite": cite, "source_short": "Fixture history", "sources": [{"id": TXT, "licence": "public domain"}], **kw}
 
 
-def one_line(tmp_path, text):
-    (tmp_path / "data").mkdir(exist_ok=True)
-    (tmp_path / "data" / "q.txt").write_text(text + "\n", encoding="utf-8")
+# Every sentence of the reviewer's probe4 and probe5 (and their controls, which a sentence rule passed): none
+# may supply a count, whatever its wording, spans or attestation.
+PROBE5_LINES = [
+    "About 1.5 million died in 1975.", "There were no cases in 1975.", "No one was left in 1975.", "Zero cases in 1975.",
+    "5 million died in 1975.", "About 1·5 million in 1975.", "1 500 cases in 1975.", "Not even one case in 1975.",
+    "In 1976 there were 3 cases, against 0 in 1975.", "1975: about 300 thousand cases.", "No one in 1975.",
+    "In 1975 there were 12 cases; the next year, 3.", "12 cases among 19751 people.", "In 1975 smallpox ended.",
+    "12% of cases in 1975.", "12–15 cases in 1975.", "More than 12 cases in 1975.", "12 cases in 1975, as in 1975.",
+    "12 cases in 1975 (revised in 1976).", "There were 1,500 cases in 1975.", "١٢ cases in 1975.",
+    "12 cases in 1975-76.", "Nought cases in 1975.", " 12 cases in 1975.", "In ’76 there were 3 cases; 1975 had 12.",
+    "12 cases were reported in 1975.", "12m people died in 1975.", "Approx. 12 cases were reported in 1975.",
+    "c. 12 cases were reported in 1975.", "12 cases were reported in the 1970s.", "Officials didn’t record 12 cases in 1975.",
+    "12 or more cases were reported in 1975.", "12 cases had been reported since 1975.", "12+ cases were reported in 1975.",
+    "12k cases were reported in 1975.", "The 12th case was reported in 1975.", "Twelve cases were reported in 1975.",
+    "12 cases were reported by 1975.", "Upwards of 12 cases were reported in 1975.", "As many as 12 cases were reported in 1975.",
+    "Was it true 12 cases were reported in 1975?", "It is false that 12 cases were reported in 1975.",
+    "Cases rose 12-fold in 1975.", "12 times as many cases were seen in 1975.", "Perhaps 12 cases were reported in 1975.",
+    "An estimated 12 cases were reported in 1975.", "12 cases a week were reported in 1975.",
+    "Dr. Rao said 12 cases were reported in 1975.", "12 cases were reported in 1975 A.D.",
+    "Est. 12 cases were reported in 1975.", "12 cases, give or take, were reported in 1975."]
+
+
+def text_cite(r, line, quote, **kw):
+    return {"text": "data/q.txt", "sha256": sha(r, "data/q.txt"), "licence": "public domain", "source": TXT,
+            "line": line, "quote": quote, **kw}
+
+
+@pytest.fixture()
+def proot(tmp_path):
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "q.txt").write_text("\n".join(PROBE5_LINES) + "\n", encoding="utf-8")
     return tmp_path
 
 
-def test_a_year_outside_the_data_passes_only_on_a_whole_attested_sentence(root):
-    qt = "In May 1972, 7 cases were found in Gamma."
-    q = sentence_cite(root, "data/history.txt", 2, qt, "7", "1972", nth=1)   # the first 7 is in 1972
+@pytest.mark.parametrize("i", range(len(PROBE5_LINES)), ids=[f"probe5-{i + 1}" for i in range(len(PROBE5_LINES))])
+def test_probe5_no_quoted_sentence_supplies_a_count(proot, i):
+    q = PROBE5_LINES[i].strip()
+    extra = {"numeral_at": [0, 2], "year_at": [0, 4], "attested": {"by": "x", "date": "y", "note": "z"}}
+    with pytest.raises(maps.MapRefused, match=r"a quoted number is not accepted as a count \(CoS 2026-10-11\)"):
+        counts.check_card(qcard(proot, "12", text_cite(proot, i + 1, q, **extra)), proot)
+
+
+def test_a_quoted_number_is_refused_for_a_lines_n_too(root, proot):
+    ln = {"text": "Gamma, {n}", "numeral": "12", "cite": text_cite(proot, 26, "12 cases were reported in 1975.")}
+    c = card(root, lines=[ln], sources=[{"id": SRC, "licence": "CC BY 4.0"}, {"id": TXT, "licence": "public domain"}])
+    for f in ("data/q.txt",):
+        (root / f).parent.mkdir(parents=True, exist_ok=True)
+        (root / f).write_bytes((proot / f).read_bytes())
+    with pytest.raises(maps.MapRefused, match=r"lines\[0\].*a quoted number is not accepted as a count"):
+        counts.check_card(c, root)
+
+
+def test_a_year_outside_the_data_has_no_count_card(root):
+    q = {"text": "data/history.txt", "sha256": sha(root, "data/history.txt"), "licence": "public domain",
+         "source": TXT, "line": 2, "quote": "In May 1972, 7 cases were found in Gamma."}
     c = card(root, year="May 1972", numeral="7", caption="cases found, Gamma", cite=q,
              sources=[{"id": TXT, "licence": "public domain"}])
+    with pytest.raises(maps.MapRefused, match="a quoted number is not accepted as a count"):
+        counts.check_card(c, root)
+
+
+def test_a_text_citation_still_supports_what_is_not_a_count(root):
+    q = {"text": "data/history.txt", "sha256": sha(root, "data/history.txt"), "licence": "public domain",
+         "source": TXT, "line": 2, "quote": "7 cases were found in Gamma"}
+    c = card(root, also=[q], sources=[{"id": SRC, "licence": "CC BY 4.0"}, {"id": TXT, "licence": "public domain"}])
     got = counts.check_card(c, root)
-    assert got["numeral"]["kind"] == "quote" and got["numeral"]["attested"] == ATTEST and "_span" not in got["numeral"]
-    assert "attested by test" in counts.ledger_fields(c, got)["method"]["text"]
-    with pytest.raises(maps.MapRefused, match="attested"):
-        counts.check_card({**c, "cite": {k: v for k, v in q.items() if k != "attested"}}, root)
-    with pytest.raises(maps.MapRefused, match="attested"):
-        counts.check_card({**c, "cite": {**q, "attested": {"by": "test", "date": "", "note": "x"}}}, root)
-    with pytest.raises(maps.MapRefused, match="the card says 8"):
-        counts.check_card({**c, "numeral": "8"}, root)
+    assert got["also"][0]["kind"] == "quote" and got["numeral"]["kind"] == "cell"
     with pytest.raises(maps.MapRefused, match="not in the cited lines"):
-        counts.check_card({**c, "cite": {**q, "line": 1}}, root)
-
-
-# Every probe of probe4.py, as the reviewer wrote it (no sentence end: refused as not whole) ...
-PROBE4_LINES = ["about 1.5 million died in 1975", "there were no cases in 1975", "no one was left in 1975",
-                "zero cases in 1975", "5 million died in 1975", "about 1·5 million in 1975", "1 500 cases in 1975",
-                "not even one case in 1975", "in 1976 there were 3 cases, against 0 in 1975",
-                "1975: about 300 thousand cases", "No one in 1975", "In 1975 there were 12 cases; the next year, 3.",
-                "12 cases among 19751 people", "In 1975 smallpox ended", "12% of cases in 1975", "12–15 cases in 1975",
-                "more than 12 cases in 1975", "12 cases in 1975, as in 1975", "12 cases in 1975 (revised in 1976)",
-                "there were 1,500 cases in 1975", "١٢ cases in 1975", "12 cases in 1975-76",
-                "nought cases in 1975", " 12 cases in 1975", "In '76 there were 3 cases; 1975 had 12"]
-
-
-@pytest.mark.parametrize("line", PROBE4_LINES)
-def test_probe4_every_probe_as_written_is_refused(tmp_path, line):
-    r = one_line(tmp_path, line)
-    toks, years = maps.sentence_tokens(line)
-    nsub = toks[0][2] if toks else "1975"
-    c = {"text": "data/q.txt", "sha256": sha(r, "data/q.txt"), "licence": "public domain", "source": TXT, "line": 1,
-         "quote": line, "numeral_at": [toks[0][0], toks[0][1]] if toks else at(line, "1975"),
-         "year_at": at(line, "1975") if "1975" in line else [0, 1], "attested": ATTEST}
-    with pytest.raises(maps.MapRefused):
-        counts.check_card(qcard(r, nsub if nsub[0].isdigit() else "1", c), r)
-
-
-# ... and as whole sentences, so each rule is what refuses it.
-SENTENCES = [
-    # (name, line in the file, quote (None = the line), numeral, its span text, nth, span adjust, refusal)
-    ("N1 1.5 million", "About 1.5 million died in 1975.", None, "1", "1.5", 0, (0, 0), "qualifier"),
-    ("F no cases", "There were no cases in 1975.", None, "0", "no", 0, (0, 0), "negator"),
-    ("G no one", "No one was left in 1975.", None, "1", "one", 0, (0, 0), "negator"),
-    ("N1b 5 million", "Then 5 million died in 1975.", None, "5", "5", 0, (0, 0), "2 numbers"),
-    ("N2 1·5 million", "Then 1·5 million died in 1975.", None, "5", "1·5", 0, (0, 0), "2 numbers"),
-    ("N3 1 500", "Then 1 500 cases were found in 1975.", None, "500", "500", 0, (0, 0), "2 numbers"),
-    ("N4 not even one", "Not even one case was found in 1975.", None, "1", "one", 0, (0, 0), "negator"),
-    ("N5 two years", "In 1976 there were 3 cases, against 0 in 1975.", None, "3", "3", 0, (0, 0), "2 numbers"),
-    ("N6 300 thousand", "In 1975 there were 300 thousand cases.", None, "300", "300", 0, (0, 0), "2 numbers"),
-    ("N7 No one", "No one was found in 1975.", None, "1", "one", 0, (0, 0), "negator"),
-    ("Y-cl next year", "In 1975 there were 12 cases; the next year, 3.", None, "12", "12", 0, (0, 0), "relative year"),
-    ("OB1 off left", "In 1975 there were 12 cases.", None, "12", "12", 0, (-1, 0), "numeral_at"),
-    ("OB2 off right", "In 1975 there were 12 cases.", None, "12", "12", 0, (0, 1), "numeral_at"),
-    ("OB3 shrink", "In 1975 there were 12 cases.", None, "2", "12", 0, (1, 0), "numeral_at"),
-    ("YS 19751", "In 1975 there were 12 cases among 19751 people.", None, "12", "12", 0, (0, 0), "2 numbers"),
-    ("YS2 the year as the count", "In 1975 smallpox ended.", None, "1975", "1975", 0, (0, 0), "whole count|0 numbers"),
-    ("PCT", "In 1975 there were 12% of cases.", None, "12", "12", 0, (0, 0), "percentage"),
-    ("RNG", "In 1975 there were 12–15 cases.", None, "12", "12", 0, (0, 0), "2 numbers"),
-    ("QUAL more than", "In 1975 there were more than 12 cases.", None, "12", "12", 0, (0, 0), "qualifier"),
-    ("QUAL some", "In 1975 some 12 cases were found.", None, "12", "12", 0, (0, 0), "qualifier"),
-    ("YY same year twice", "In 1975 there were 12 cases, as in 1975.", None, "12", "12", 0, (0, 0), "2 years"),
-    ("YY2 other year", "In 1975 there were 12 cases (revised in 1976).", None, "12", "12", 0, (0, 0), "2 years"),
-    ("TQ1 trimmed 1,500", "There were 1,500 cases in 1975.", "500 cases in 1975.", "500", "500", 0, (0, 0), "whole sentences"),
-    ("TQ2 trimmed not even one", "Not even one case in 1975.", "one case in 1975.", "1", "one", 0, (0, 0), "whole sentences"),
-    ("TQ3 trimmed 1976", "In 1976 there were 3 cases, against 0 in 1975.", "3 cases, against 0 in 1975.", "3", "3", 0,
-     (0, 0), "whole sentences"),
-    ("TQ4 ends mid-sentence", "In 1975 there were 12 cases, said the report.", "In 1975 there were 12 cases,", "12",
-     "12", 0, (0, 0), "whole sentences"),
-    ("UNI arabic-indic", "In 1975 there were ١٢ cases.", None, "12", "١٢", 0, (0, 0), "another script"),
-    ("SEASON 1975-76", "There were 12 cases in 1975-76.", None, "12", "12", 0, (0, 0), "year range"),
-    ("NOUGHT", "In 1975 there were nought cases.", None, "0", "nought", 0, (0, 0), "not a whole count"),
-    ("TWO-DIGIT-YEAR", "In '76 there were 3 cases; 1975 had 12.", None, "3", "3", 0, (0, 0), "3 numbers"),
-    ("n't", "In 1975 there weren't 12 cases.", None, "12", "12", 0, (0, 0), "negator"),
-]
-
-
-@pytest.mark.parametrize("name,line,quote,numeral,sub,nth,adj,why", SENTENCES, ids=[s[0] for s in SENTENCES])
-def test_probe4_as_whole_sentences_each_rule_refuses(tmp_path, name, line, quote, numeral, sub, nth, adj, why):
-    r = one_line(tmp_path, line)
-    q = quote or line
-    ysub = "1975"
-    c = sentence_cite(r, "data/q.txt", 1, q, sub, ysub, nth=nth, adj=adj)
-    with pytest.raises(maps.MapRefused, match=why):
-        counts.check_card(qcard(r, numeral, c), r)
-
-
-@pytest.mark.parametrize("line,sub,numeral", [("Zero cases were found in 1975.", "Zero", "0"),
-                                              ("In 1975, 12 cases were found.", "12", "12"),
-                                              ("In 1975 there were 1,500 cases.", "1,500", "1,500")])
-def test_a_whole_sentence_with_one_count_and_one_year_passes(tmp_path, line, sub, numeral):
-    r = one_line(tmp_path, line)
-    assert counts.check_card(qcard(r, numeral, sentence_cite(r, "data/q.txt", 1, line, sub)), r)
-
-
-def test_a_sentence_may_continue_across_cited_lines(tmp_path):
-    (tmp_path / "data").mkdir()
-    (tmp_path / "data" / "q.txt").write_text("Before it. In 1975 there\nwere 12 cases. After it.\n", encoding="utf-8")
-    q = "In 1975 there were 12 cases."
-    c = sentence_cite(tmp_path, "data/q.txt", 1, q, "12")
-    assert counts.check_card(qcard(tmp_path, "12", {**c, "lines": 2}), tmp_path)
-    with pytest.raises(maps.MapRefused, match="not in the cited lines"):
-        counts.check_card(qcard(tmp_path, "12", c), tmp_path)
+        counts.check_card({**c, "also": [{**q, "quote": "8 cases"}]}, root)
 
 
 # ---------------------------------------------------------------- the sidecar is pinned (SC1 to SC4)
@@ -760,13 +697,13 @@ def test_the_render_record_carries_the_doubts_pin(root, tmp_path):
 
 
 def test_a_file_rewritten_in_place_is_hashed_again(tmp_path):
-    f = tmp_path / "f.txt"
-    f.write_text("a", encoding="utf-8")
-    first = maps.file_sha256(str(f))
+    """No cache: a same-size rewrite with its mtime put back is still hashed from its bytes (probe5)."""
     import os
-    import time
-    f.write_text("b", encoding="utf-8")
-    os.utime(f, ns=(time.time_ns(), time.time_ns() + 10_000_000))
+    f = tmp_path / "f.txt"
+    f.write_bytes(b"AAAA")
+    first, st = maps.file_sha256(str(f)), os.stat(f)
+    f.write_bytes(b"BBBB")
+    os.utime(f, ns=(st.st_atime_ns, st.st_mtime_ns))
     assert maps.file_sha256(str(f)) != first
 
 
