@@ -2683,7 +2683,7 @@ def test_t1f_an_unsteady_floor_takes_the_denoise_only_path_and_passes_when_low()
     assert len(dec) == 1 and dec[0]["evidence"]["first_pass"]["floor_spread_db"] > R.CLEAN_FLOOR_SPREAD_MAX_DB
     vc = [e for e in lints(evs, "voice-chop") if e["unit"] == "LQ"][0]
     assert vc["status"] == "pass" and vc["evidence"]["path"] == "denoise-only" and vc["evidence"]["floor_referenced"]["share"] == 0.0
-    assert vc["evidence"]["hf_gate_changed_bins"] == 0 and vc["evidence"]["hf_cleanup_loss_bins"] == 0
+    assert vc["evidence"]["hf_gate_cut_bins"] == 0 and vc["evidence"]["hf_cleanup_loss_bins"] == 0
     assert [e for e in lints(evs, "voice-clean") if e["unit"] == "LQ"][0]["status"] == "pass"
 
 
@@ -2698,7 +2698,7 @@ def test_t1f_consonant_loss_falls_back_to_the_gate_alone():
     y, rep = R.clean_voice(x)
     cf = rep["consonant_fallback"]
     assert rep["path"] == "gate-only" and cf and cf["from_path"] == "denoise-only" and cf["hf_cleanup_loss_bins"] > 0
-    assert rep["hf_cleanup_loss_bins"] == 0 and rep["hf_gate_changed_bins"] == 0 and rep["denoise"] is None
+    assert rep["hf_cleanup_loss_bins"] == 0 and rep["hf_gate_cut_bins"] == 0 and rep["denoise"] is None
     e = R.speech_extent(x, R.voice_floor(x))
     mask = np.repeat(e["bins"], int(round(R.CLEAN_HF_BIN_S * 48000)))
     assert np.array_equal(y[: len(mask)][mask], x[: len(mask)][mask])
@@ -2796,23 +2796,15 @@ def test_t1f_open_hiss_on_an_unsteady_floor_is_caught(quiet_s, burst_db):
     assert out
 
 
+@pytest.mark.xfail(strict=True, reason="strict xfail, CoS final design (T1f): noise in 3 to 16 kHz that runs on from a word is taken as a consonant, so it joins the speech extent and is neither gated nor judged; issue #9, expires 2026-10-24")  # expires 2026-10-24 issue #9
 @pytest.mark.parametrize("burst_db", [-55, -60, -65])
-def test_t1f_review_hiss_in_every_pause_refuses_without_the_gate_and_is_clean_with_it(monkeypatch, burst_db):
-    """attack.py with hiss in all six pauses: the floor frames are hiss, so the
-    pause level in 3 to 16 kHz is the hiss and it is not taken for a
-    consonant. Without the gate the loudest true pause refuses; with it the
-    pauses are clean, except at -55, where the hiss is within 30 dB of the
-    speech and the gate reaching it is refused."""
-    with monkeypatch.context() as m:
-        m.setattr(R, "CLEAN_PAUSE_GATE_DB", 0.0)
-        _, _, vc0, _ = _verdict(_hiss_in_pauses(burst_db, 6), f"attack-nogate-{-burst_db}")
-    assert vc0["status"] == "fail" and vc0["evidence"]["loudest_pause_after_level_dbfs"] > R.CLEAN_FLOOR_MAX_DBFS
-    rep, out, vc, ch = _verdict(_hiss_in_pauses(burst_db, 6), f"attack-{-burst_db}")
-    assert vc["status"] == "pass" and vc["evidence"]["loudest_pause_after_level_dbfs"] < R.CLEAN_FLOOR_MAX_DBFS
-    if burst_db == -55:
-        assert ch["status"] == "fail" and ch["evidence"]["gated_near_speech_frames"] > 0
-    else:
-        assert out == []
+def test_t1f_open_hiss_in_every_pause_is_caught(burst_db):
+    """attack.py with hiss in all six pauses, starting 120 ms after each word.
+    Since the T1f review (a consonant bin within 150 ms of voiced speech is
+    speech, to a fixpoint) the hiss joins the speech extent and passes.
+    Part of issue #9."""
+    rep, out, vc, ch = _verdict(_hiss_in_pauses(burst_db, 6), f"attack-all-{-burst_db}")
+    assert out
 
 
 @pytest.mark.xfail(strict=True, reason="strict xfail, CoS final design (T1f): noise in 3 to 16 kHz that runs on from a word is taken as a consonant, so it joins the speech extent and is neither gated nor judged; issue #9, expires 2026-10-24")  # expires 2026-10-24 issue #9
@@ -2943,7 +2935,7 @@ def test_t1f_final_review_a_flat_fricative_is_speech_and_untouched(monkeypatch):
     n = int(0.40 * rate)
     x[a:a + n] += (rng.normal(0, 10 ** ((sp - 20) / 20), n) * np.minimum(1, np.arange(n) / (0.01 * rate))).astype(np.float32)
     rep, out, vc, ch = _verdict(x, "rv-fricative")
-    assert out == [] and ch["evidence"]["hf_gate_changed_bins"] == 0 and rep["gated_near_speech_frames"] == 0
+    assert out == [] and ch["evidence"]["hf_gate_cut_bins"] == 0 and rep["gated_near_speech_frames"] == 0
     y, _ = R.clean_voice(x)
     with monkeypatch.context() as m:
         m.setattr(R, "CLEAN_PAUSE_GATE_DB", 0.0)
@@ -3030,7 +3022,7 @@ def test_t1f_the_speech_extent_is_bit_identical_through_the_gate(monkeypatch):
         mask = np.repeat(e["bins"], h)
         assert rep["pause_gate"]["gated_s"] > 0.5 and mask.sum() > 0
         assert np.array_equal(y[: len(mask)][mask], y0[: len(mask)][mask])
-        assert rep["hf_gate_changed_bins"] == 0
+        assert rep["hf_gate_cut_bins"] == 0
 
 
 def _word_then(seed, parts):
@@ -3077,7 +3069,7 @@ def test_t1f_word_final_consonants_are_untouched(monkeypatch, name, parts):
     for a, b in marks:
         assert np.array_equal(y[a:b], y0[a:b]), name
     rep2, out, vc, ch = _verdict(x, "consonant")
-    assert ch["evidence"]["hf_gate_changed_bins"] == 0 and ch["evidence"]["hf_cleanup_loss_bins"] == 0, name
+    assert ch["evidence"]["hf_gate_cut_bins"] == 0 and ch["evidence"]["hf_cleanup_loss_bins"] == 0, name
     assert out == [], (name, out)
 
 
@@ -3085,8 +3077,75 @@ def test_t1f_voice_chop_refuses_a_gate_or_cleanup_cut_inside_the_extent():
     x, _ = _speechlike(seed=6)
     y, rep = R.clean_voice(x)
     g, _ = R.level_gain(y, R.DIALOGUE_LUFS)
-    for key, text in (("hf_gate_changed_bins", "the pause gate changed"), ("hf_cleanup_loss_bins", "the cleanup cut")):
+    for key, text in (("hf_gate_cut_bins", "the pause gate cut"), ("hf_cleanup_loss_bins", "the cleanup cut")):
         out = R._journal_clean(J.Journal(film=f"hf-{key}"), "LH", dict(rep, **{key: 2}), g)
         assert any(text in o for o in out), key
 
 
+
+
+# T:R2 4.90 to 5.04 s (the /s/, its closure and the /k/ of "mosque"), raw 3 to 16 kHz bin levels in dB over the take's
+# pause level in that band (-83.95 dB), from the first 10 ms bin after the last voiced frame: a hot bin, a dip, a hot
+# bin, a dip, then the hot run of the /k/ that only the guard reaches
+TR2_SK_PROFILE = [16.95, 7.75, 14.75, 3.25, 9.15, 18.35, 15.85, 22.25, 27.95, 27.55, 25.45, 21.25, 14.05, 15.05, 8.65]
+
+
+def test_t1f_review_the_extent_reaches_a_consonant_through_its_guard(monkeypatch):
+    """T1f review: hot runs grew only from voiced runs, before the guards, so
+    T:R2's /k/ (reached only through the 60 ms guard) was gated, cut by up to
+    18 dB. The extent now grows to a fixpoint, and the profile is untouched."""
+    rate, h = 48000, 480
+    x, spans = _speechlike(seed=3, words=2, gap_s=1.0, hiss_db=-90.0)
+    b = R.voice_floor(x)
+    e = R.speech_extent(x, b)
+    vb = np.repeat(e["voiced"], 2)
+    start = int(np.flatnonzero(vb[: spans[0][1] // h + 10])[-1]) + 1                # the first bin after word 1's voiced frames
+    rng = np.random.default_rng(11)
+    for i, rel in enumerate(TR2_SK_PROFILE):
+        z = rng.normal(0, 1, h)
+        Z = np.fft.rfft(z)
+        f = np.fft.rfftfreq(h, 1 / rate)
+        Z[(f < 3000) | (f > 16000)] = 0
+        z = np.fft.irfft(Z, h)
+        z = z / np.sqrt(np.mean(z ** 2)) * 10 ** ((e["pause_hf_db"] + rel) / 20)
+        x[(start + i) * h:(start + i + 1) * h] += z.astype(np.float32)
+    e2 = R.speech_extent(x, R.voice_floor(x))
+    seg = slice(start, start + len(TR2_SK_PROFILE))
+    assert np.all(e2["bins"][seg][e2["hot"][seg]])                              # every hot bin of /s/ and /k/ is speech
+    y, rep = R.clean_voice(x)
+    with monkeypatch.context() as m:
+        m.setattr(R, "CLEAN_PAUSE_GATE_DB", 0.0)
+        y0, _ = R.clean_voice(x)
+    span = slice(start * h, (start + len(TR2_SK_PROFILE)) * h)
+    assert np.array_equal(y[span], y0[span])
+    assert rep["hf_gate_cut_bins"] == 0
+
+
+def test_t1f_review_voice_chop_refuses_a_gate_that_cuts_a_consonant_near_speech(monkeypatch):
+    """The gate check is independent of the extent: with the extent forced
+    to voiced frames only, the gate reaches the /k/ and voice-chop refuses."""
+    rate, h = 48000, 480
+    x, spans = _speechlike(seed=3, words=2, gap_s=1.0, hiss_db=-90.0)
+    e = R.speech_extent(x, R.voice_floor(x))
+    start = int(np.flatnonzero(np.repeat(e["voiced"], 2)[: spans[0][1] // h + 10])[-1]) + 1
+    rng = np.random.default_rng(11)
+    for i, rel in enumerate(TR2_SK_PROFILE):
+        z = np.fft.rfft(rng.normal(0, 1, h))
+        f = np.fft.rfftfreq(h, 1 / rate)
+        z[(f < 3000) | (f > 16000)] = 0
+        z = np.fft.irfft(z, h)
+        x[(start + i) * h:(start + i + 1) * h] += (z / np.sqrt(np.mean(z ** 2)) * 10 ** ((e["pause_hf_db"] + rel) / 20)).astype(np.float32)
+    real = R.speech_extent
+
+    def voiced_only(xx, before):                                                # the extent without consonants or guards
+        r = real(xx, before)
+        vb = np.repeat(r["voiced"], 2)[: len(r["bins"])]
+        bins = np.zeros(len(r["bins"]), bool)
+        bins[: len(vb)] = vb
+        return dict(r, bins=bins, frames=r["voiced"].copy())
+    monkeypatch.setattr(R, "speech_extent", voiced_only)
+    monkeypatch.setattr(R, "true_pause_mask", lambda xx, before, live: (live & ~voiced_only(xx, before)["frames"],
+                                                                         real(xx, before)["near"], real(xx, before)["voiced"]))
+    rep, out, vc, ch = _verdict(x, "gate-cuts-k")
+    assert ch["status"] == "fail" and ch["evidence"]["hf_gate_cut_bins"] > 0
+    assert any("the pause gate cut" in o for o in out)

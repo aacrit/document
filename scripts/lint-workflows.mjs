@@ -5,6 +5,7 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { walk } from "./lib/walk.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -12,8 +13,9 @@ const FORBIDDEN_WORKFLOW_PATTERNS = [/continue-on-error:\s*true/, /\|\|\s*true\b
 
 const SKIP_PATTERN = /\b(it\.skip|test\.skip|describe\.skip|xit)\s*\(/;
 const EXPIRY_PATTERN = /\/\/\s*expires\s+(\d{4}-\d{2}-\d{2})\s+issue\s+#\d+/;
-// pytest (studio/tests): skip, skipif and xfail marks, and pytest.skip/xfail calls, need a "# expires ..." comment
-const PY_SKIP_PATTERN = /\bpytest\.mark\.(skip|skipif|xfail)\b|\bpytest\.(skip|xfail)\s*\(/;
+// pytest (studio/tests, every .py file, conftest.py included): skip, skipif and xfail marks however imported
+// (pytest.mark.x, mark.x), pytest.skip/xfail calls and importorskip, need a "# expires ..." comment
+const PY_SKIP_PATTERN = /\bmark\.(skip|skipif|xfail)\b|\bpytest\.(skip|xfail)\s*\(|\bimportorskip\b/;
 const PY_EXPIRY_PATTERN = /#\s*expires\s+(\d{4}-\d{2}-\d{2})\s+issue\s+#\d+/;
 const MAX_EXPIRY_DAYS = 14;
 
@@ -74,9 +76,7 @@ function listTestFiles() {
 function listPythonTestFiles() {
   const dir = path.join(repoRoot, "studio", "tests");
   if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .filter((f) => /^test_.*\.py$/.test(f))
-    .map((f) => path.join(dir, f));
+  return [...walk(dir, new Set(["__pycache__"]))].filter((f) => f.endsWith(".py"));
 }
 
 function main() {

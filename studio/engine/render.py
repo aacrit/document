@@ -1835,6 +1835,7 @@ CLEAN_GUARD_BEFORE_S = 0.040        # ... and 40 ms of onset before (CoS final d
 CLEAN_HF_LO_HZ, CLEAN_HF_HI_HZ = 3000.0, 16000.0   # the consonant band: fricatives, plosive bursts, aspiration
 CLEAN_HF_BIN_S = 0.010              # judged in 10 ms bins
 CLEAN_HF_OVER_PAUSE_DB = 12.0       # a bin 12 dB or more over the take's pause level in that band extends a word
+CLEAN_GATE_NEAR_VOICED_S = 0.150    # a consonant bin this close to voiced speech is in the extent; voice-chop refuses a gate cut there
 CLEAN_HF_LOSS_DB = 3.0              # voice-chop: a consonant bin inside the extent may lose at most this to the cleanup
 CLEAN_TRUE_PAUSE_MIN = 5            # ... and with fewer than 5 of them the floor frames' p90 stands in
 CLEAN_NOISE_FLATNESS = 0.4          # a frame this spectrally flat (white noise reads about 0.56, voiced speech under 0.05)
@@ -2050,7 +2051,9 @@ def speech_extent(x: np.ndarray, before: dict) -> dict:
     out): consonants, plosive
     bursts, aspiration. Then CLEAN_GUARD_AFTER_S of decay after and
     CLEAN_GUARD_BEFORE_S of onset before. Returns the extent per 10 ms bin
-    and per 20 ms frame (a frame is in it when either of its bins is), the
+    and per 20 ms frame (a frame is in it when either of its bins is); a
+    consonant run that reaches the extent through a guard joins it, to a
+    fixpoint (T1f review); the
     consonant-band levels, the pause level in that band, and the near-speech
     and voiced frames."""
     n = int(round(CLEAN_FRAME_S * AUDIO_RATE))
@@ -2068,21 +2071,35 @@ def speech_extent(x: np.ndarray, before: dict) -> dict:
     gb &= hx > CLEAN_SILENT_DBFS                  # digital silence has no level: it is not the pause level
     pause_hf = float(np.median(hx[gb])) if gb.any() else float(np.median(hx[hx > CLEAN_SILENT_DBFS] if (hx > CLEAN_SILENT_DBFS).any() else hx))
     hot = hx >= pause_hf + CLEAN_HF_OVER_PAUSE_DB
-    ext = vb.copy()
-    for a, b in _runs(vb):
-        while a > 0 and hot[a - 1] and not ext[a - 1]:
-            a -= 1
-            ext[a] = True
-        while b < nb and hot[b] and not ext[b]:
-            ext[b] = True
-            b += 1
     after = int(round(CLEAN_GUARD_AFTER_S / CLEAN_HF_BIN_S))
     bef = int(round(CLEAN_GUARD_BEFORE_S / CLEAN_HF_BIN_S))
-    core = ext.copy()
-    for sh in range(1, after + 1):
-        ext[sh:] |= core[: nb - sh]
-    for sh in range(1, bef + 1):
-        ext[: nb - sh] |= core[sh:]
+
+    def guarded(core_: np.ndarray) -> np.ndarray:
+        g = core_.copy()
+        for sh in range(1, after + 1):
+            g[sh:] |= core_[: nb - sh]
+        for sh in range(1, bef + 1):
+            g[: nb - sh] |= core_[sh:]
+        return g
+
+    # T1f review: to a fixpoint. A hot run that touches the guarded extent (inside it or next to it) joins the core,
+    # the guards are applied again, and so on until nothing changes, so a consonant reached only through a guard
+    # (T:R2's /k/ after the /s/ and its closure) is speech too
+    hot_runs = _runs(hot)
+    # a consonant bin within CLEAN_GATE_NEAR_VOICED_S of voiced speech is speech even across a dip (V:N10 5.04 s,
+    # E:R09 7.48 s): the voice-chop gate check refuses a gate that cuts one, so the extent never lets it be gated
+    w = int(round(CLEAN_GATE_NEAR_VOICED_S / CLEAN_HF_BIN_S))
+    near_v = np.convolve(vb.astype(np.int32), np.ones(2 * w + 1, np.int32), mode="same") > 0
+    core = vb | (hot & near_v)
+    while True:
+        ext = guarded(core)
+        grown = core.copy()
+        for a, b in hot_runs:
+            if ext[a:b].any() or (a > 0 and ext[a - 1]) or (b < nb and ext[b]):
+                grown[a:b] = True
+        if np.array_equal(grown, core):
+            break
+        core = grown
     ef = np.zeros(k, bool)
     m = min(k, nb // per)
     ef[:m] = ext[: m * per].reshape(m, per).any(axis=1)
@@ -2200,24 +2217,32 @@ def beside_words(x: np.ndarray, y: np.ndarray, before: dict, live: np.ndarray, g
 
 
 def hf_chop(x: np.ndarray, y_pre: np.ndarray, y: np.ndarray, before: dict) -> dict:
-    """T1f (CoS final design), for voice-chop: inside the speech extent, any
-    10 ms bin the pause gate changed (``y_pre`` is the take before the
-    gate), and any consonant bin (3 to 16 kHz energy CLEAN_HF_OVER_PAUSE_DB
-    or more over the pause level) the cleanup cut by more than
-    CLEAN_HF_LOSS_DB in that band."""
+    """T1f, for voice-chop, two checks in 3 to 16 kHz. The gate (independent
+    of the speech extent, T1f review): any raw consonant bin (the raw take's
+    band energy CLEAN_HF_OVER_PAUSE_DB or more over its pause level) within
+    CLEAN_GATE_NEAR_VOICED_S of a voiced frame that the pause gate cut by
+    more than CLEAN_HF_LOSS_DB (``y_pre`` is the take before the gate, ``y``
+    after it). The cleanup: any consonant bin inside the speech extent that
+    the denoise and expander cut by more than CLEAN_HF_LOSS_DB."""
     e = speech_extent(x, before)
-    h = int(round(CLEAN_HF_BIN_S * AUDIO_RATE))
     nb = len(e["bins"])
-    diff = np.zeros(nb, bool)
-    m = min(len(y), len(y_pre)) // h
-    diff[:m] = (y[: m * h] != y_pre[: m * h]).reshape(m, h).any(axis=1)
-    gate_hit = np.flatnonzero(e["bins"] & diff)
+    hp, hg = hf_bins(y_pre)[:nb], hf_bins(y)[:nb]
+    m = min(nb, len(hp), len(hg))
+    per = int(round(CLEAN_FRAME_S / CLEAN_HF_BIN_S))
+    vb = np.zeros(nb, bool)
+    vb[: min(nb, len(e["voiced"]) * per)] = np.repeat(e["voiced"], per)[:nb]
+    w = int(round(CLEAN_GATE_NEAR_VOICED_S / CLEAN_HF_BIN_S))
+    near_v = np.convolve(vb.astype(np.int32), np.ones(2 * w + 1, np.int32), mode="same") > 0
+    gate_loss = np.zeros(nb)
+    gate_loss[:m] = hp[:m] - hg[:m]
+    gate_hit = np.flatnonzero(e["hot"] & near_v & (gate_loss > CLEAN_HF_LOSS_DB))
     loss = e["hf"] - hf_bins(y_pre)[:nb]
     cons = e["bins"] & e["hot"]
     lost = np.flatnonzero(cons & (loss > CLEAN_HF_LOSS_DB))
     return {"hf_pause_db": round(e["pause_hf_db"], 2), "hf_extent_bins": int(e["bins"].sum()),
-            "hf_consonant_bins": int(cons.sum()), "hf_gate_changed_bins": int(len(gate_hit)),
-            "hf_gate_changed_at_s": [round(float(i) * CLEAN_HF_BIN_S, 3) for i in gate_hit[:20]],
+            "hf_consonant_bins": int(cons.sum()), "hf_gate_cut_bins": int(len(gate_hit)),
+            "hf_gate_cut_max_db": round(float(gate_loss[e["hot"] & near_v].max()), 2) if (e["hot"] & near_v).any() else None,
+            "hf_gate_cut_at_s": [round(float(i) * CLEAN_HF_BIN_S, 3) for i in gate_hit[:20]],
             "hf_cleanup_loss_bins": int(len(lost)),
             "hf_cleanup_loss_max_db": round(float(loss[cons].max()), 2) if cons.any() else None,
             "hf_cleanup_loss_at_s": [round(float(i) * CLEAN_HF_BIN_S, 3) for i in lost[:20]]}
@@ -2470,14 +2495,15 @@ def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, 
     sc = rep.get("speech_chop_share", 0.0)
     chop_bad = sc > CLEAN_CHOP_MAX_SHARE
     gated_near = rep.get("gated_near_speech_frames", 0)
-    hf_gate, hf_loss = rep.get("hf_gate_changed_bins", 0), rep.get("hf_cleanup_loss_bins", 0)
+    hf_gate, hf_loss = rep.get("hf_gate_cut_bins", 0), rep.get("hf_cleanup_loss_bins", 0)
     chop_ok = not pause_why and not chop_bad and not gated_near and not hf_gate and not hf_loss
     journal.lint("voice-chop", chop_ok, stage="assembly", phase="preflight", unit=unit, severity=sev, grammar="A19, T1f",
                  evidence={"path": rep.get("path", "expander"),
                            "measure": "frames within 30 dB of the take's speech level cut by more than 3 dB, at most 2%",
                            "speech_chop_share": sc, "near_speech_frames": rep.get("near_speech_frames"),
                            "gated_near_speech_frames": gated_near, "gated_near_speech_at_s": rep.get("gated_near_speech_at_s"),
-                           "hf_gate_changed_bins": hf_gate, "hf_gate_changed_at_s": rep.get("hf_gate_changed_at_s"),
+                           "hf_gate_cut_bins": hf_gate, "hf_gate_cut_at_s": rep.get("hf_gate_cut_at_s"),
+                           "hf_gate_cut_max_db": rep.get("hf_gate_cut_max_db"),
                            "hf_cleanup_loss_bins": hf_loss, "hf_cleanup_loss_at_s": rep.get("hf_cleanup_loss_at_s"),
                            "hf_cleanup_loss_max_db": rep.get("hf_cleanup_loss_max_db"), "hf_loss_max_db": CLEAN_HF_LOSS_DB,
                            "hf_pause_db": rep.get("hf_pause_db"), "hf_consonant_bins": rep.get("hf_consonant_bins"),
@@ -2498,8 +2524,9 @@ def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, 
         out.append(f"{unit} (voice-chop: {rep.get('near_speech_cut')} of {rep.get('near_speech_frames')} frames within "
                    f"{CLEAN_NEAR_SPEECH_DB:g} dB of the speech cut over {CLEAN_CHOP_CUT_DB:g} dB)")
     if hf_gate:
-        out.append(f"{unit} (voice-chop: the pause gate changed {hf_gate} 10 ms bins inside the speech extent, at "
-                   f"{rep.get('hf_gate_changed_at_s')} s)")
+        out.append(f"{unit} (voice-chop: the pause gate cut {hf_gate} consonant bins within "
+                   f"{CLEAN_GATE_NEAR_VOICED_S * 1000:g} ms of voiced speech by over {CLEAN_HF_LOSS_DB:g} dB in 3 to 16 kHz, at "
+                   f"{rep.get('hf_gate_cut_at_s')} s)")
     if hf_loss:
         out.append(f"{unit} (voice-chop: the cleanup cut {hf_loss} consonant bins inside the speech extent by over "
                    f"{CLEAN_HF_LOSS_DB:g} dB in 3 to 16 kHz (up to {rep.get('hf_cleanup_loss_max_db')} dB), at "
