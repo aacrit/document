@@ -566,8 +566,11 @@ def glyph_corner(L: Layout) -> tuple[int, int]:
 def glyph_shape_probes(L: Layout) -> list[tuple[int, int]]:
     """Where the mark-coverage lint reads the shape: the glyph box's top-left
     pixel and the one right of it. Both are solid in the square; in the dot
-    and the diamond they lie under different alphas of the glyph's edge and
-    its contact disc, so no flat picture can make both read as the square."""
+    and the diamond they lie under the glyph's edge and its contact disc. At
+    every engine resolution, the second probe's blue channel of the square
+    and of the diamond (both cold blue) differ by more than 1 over every
+    picture value 0 to 255, so no picture makes one pass for the other
+    (test_a16_the_shape_check_cannot_be_reached_by_any_picture_at_the_film_resolutions)."""
     x, y = glyph_origin(L)
     return [(x, y), (x + 1, y)]
 

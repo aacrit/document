@@ -77,7 +77,7 @@ def test_every_lint_t1_enforces_ran_and_passed(rendered):
                  "clip-aspect", "dissolve-same-class", "conform-logged", "resampler-plain", "master-format",
                  "silent-card-form", "lower-third-format", "no-em-dash", "licence-allowlist", "no-bodies",
                  "still-zoom-limit", "cross-class-dip", "overlay-format", "clip-hold-rendered", "telecine-declared",
-                 "loudnorm-linear", "mark-class-valid", "clip-in-out"):
+                 "loudnorm-linear", "mark-class-valid", "clip-in-out", "still-hold"):
         found = lints(evs, rule)
         assert found, rule
         if rule == "still-first-frame-whole-pixels":
@@ -1591,7 +1591,7 @@ def _line(play_or_plan, lid):
 def test_a14_a_mood_offset_moves_only_the_level_after_levelling(plan, film, tmp_path):
     span = slice(int(5.2 * 48000), int(6.8 * 48000))                 # inside L1 (5.0 to 7.0 s), where nothing else plays
     mixes = {}
-    for mood in ("plain", "measured", "grave", "hushed", "close"):
+    for mood in ("plain", "measured", "warm", "grave", "hushed", "close"):
         p = json.loads(json.dumps(plan))
         _line(p, "L1")["delivery"] = {"mood": mood, "intensity": 2, "pace": "slower", "pause_after_s": 1.5}
         j = J.Journal(film=f"mood-{mood}", directory=tmp_path / mood)
@@ -1602,7 +1602,18 @@ def test_a14_a_mood_offset_moves_only_the_level_after_levelling(plan, film, tmp_
         mixes[mood] = mix
     for mood, off in R.MOOD_OFFSET_DB.items():
         assert _rms_db(mixes[mood][span]) - _rms_db(mixes["plain"][span]) == pytest.approx(off, abs=0.05)
-    assert R.MOOD_OFFSET_DB == {"plain": 0.0, "measured": 0.0, "grave": -0.5, "hushed": -2.0, "close": -1.0}
+    assert R.MOOD_OFFSET_DB == {"plain": 0.0, "measured": 0.0, "warm": 0.0, "grave": -0.5, "hushed": -2.0, "close": -1.0}
+
+
+def test_a14_the_warm_mood_is_plain_and_passes_the_delivery_lint(tmp_path):
+    """CoS (2026-10-10): warm joins A14's list at 0 dB; it is judged like a
+    plain line (not one of the lower moods) and adds nothing to the baseline."""
+    film = make_film(tmp_path / "film")
+    _edit_play(film, lambda p: _line(p, "L1").update(delivery={"mood": "warm"}))
+    plan, j = _plan(film, "warm")
+    nd = [e for e in lints(J.read(j.path), "narrator-delivery") if e["unit"] == "L1"]
+    assert nd and nd[0]["status"] == "pass" and nd[0]["evidence"]["offset_db"] == 0.0
+    assert "warm" not in R.MOOD_MAY_BE_LOWER and "warm" not in R.BASELINE_MOODS
 
 
 @pytest.mark.parametrize("lid,delivery", [("L1", {"mood": "angry"}), ("L2", {"mood": "grave"})])   # L2 is a reading
@@ -2386,9 +2397,11 @@ def test_a19_a_take_that_stays_noisy_refuses_a_final_render_and_warns_under_draf
     assert vc and vc[0]["status"] == "fail" and vc[0]["severity"] == "warn"
 
 
-def test_a19_the_expander_turns_a_breath_down_without_cutting_it():
+def test_a19_the_expander_turns_a_breath_down_without_cutting_it(monkeypatch):
     """A breath 10 dB over the hiss between two words: an expander keeps it
-    (turned down, not gone), the hiss falls by the expander's range."""
+    (turned down, not gone), the hiss falls by the expander's range. The
+    pause gate (T1f) is set aside here; see the breath test below."""
+    monkeypatch.setattr(R, "CLEAN_PAUSE_GATE_DB", 0.0)
     rate = 48000
     x, spans = _speechlike(seed=7, words=2, gap_s=1.2, hiss_db=-66.0)
     a = spans[0][1] + int(0.45 * rate)
@@ -2429,14 +2442,15 @@ def test_a19_voice_chop_refuses_a_take_with_too_few_pauses_or_an_unsteady_floor(
          + rng.normal(0, 1e-4, len(tt))).astype(np.float32)
     y, rep = R.clean_voice(x)
     assert rep["cleaned"] and rep["pause_share"] < R.CLEAN_PAUSE_MIN_SHARE and not rep["measure_ok"]
-    assert "pauses are" in rep["measure_why"][0]
+    assert rep["measure_why"][0].startswith("the take's floor is within 30 dB of its speech: no pause quiet enough to measure")
     j = J.Journal(film="few-pauses")
     out = R._journal_clean(j, "L9", rep, 0.0)
-    assert any("pauses are" in o for o in out)
+    assert any("no pause quiet enough to measure" in o for o in out)
     vc = [e for e in lints(J.read(j.path), "voice-chop") if e["unit"] == "L9"][0]
     assert vc["status"] == "fail" and vc["evidence"]["near_floor_frames"] >= 0 and vc["evidence"]["why"]
     x2, spans = _speechlike(seed=5)
-    x2[: int(0.42 * 48000)] = 0.0                                              # the hiss drops out for 0.42 s: two floors
+    a = spans[0][1] + int(0.05 * 48000)                                        # inside the first pause, after the tail
+    x2[a: a + int(0.42 * 48000)] = 0.0                                         # the hiss drops out for 0.42 s: two floors
     _, rep2 = R.clean_voice(x2)
     assert rep2["floor_spread_db"] > R.CLEAN_FLOOR_SPREAD_MAX_DB and any("spread" in w for w in rep2["measure_why"])
 
@@ -2458,3 +2472,680 @@ def test_a17_shares_count_voice_kinds_over_their_speech_only(plan):
         {"id": "X", "kind": "reading", "line_kind": "sfx", "at_s": 15.0, "dur_s": 5.0, "speech_from_s": 15.0, "speech_to_s": 20.0}]}
     sh = R.voice_shares(dict(plan, duration_s=20.0), placed)
     assert sh == {"narration": 0.4, "readings": 0.2, "voiceless": 0.4}
+
+
+# --------------------------------------------------------------------------
+# T1f: the founder's revamp rulings (2026-10-10) and the T1e review advisories
+# --------------------------------------------------------------------------
+
+
+def test_6_1_the_readings_floor_is_20_percent(plan):
+    """Founder ruling (2026-10-10): readings carry at least 20% of the runtime, not 30%."""
+    assert R.READINGS_FLOOR == 0.20
+    d = 1000.0
+    event = dict(plan, duration_s=d, runtime_target_s=1200)
+    mix = np.full(48000, 1e-3, np.float32)
+
+    def placed(share):
+        return {"lines": [{"id": "N", "kind": "narration", "line_kind": "narration", "at_s": 0.0, "dur_s": 500.0,
+                           "speech_from_s": 0.0, "speech_to_s": 500.0},
+                          {"id": "R", "kind": "reading", "line_kind": "testimony", "at_s": 501.0, "dur_s": d * share,
+                           "speech_from_s": 501.0, "speech_to_s": 501.0 + d * share}]}
+    assert R.sound_lints(J.Journal(film="floor-21"), event, mix, placed(0.21)) == []          # 21%: passes (it failed at 30%)
+    out = R.sound_lints(J.Journal(film="floor-19"), event, mix, placed(0.19))
+    assert any(o.startswith("readings-floor") and "'min': 0.2" in o for o in out)
+
+
+def _still_plan(dur, start=0.0):
+    return {"shots": [{"id": "P1", "kind": "archive_still", "start_s": start, "end_s": start + dur},
+                      {"id": "M1", "kind": "drawn", "start_s": start + dur, "end_s": start + dur + 25.0}]}
+
+
+def _spoken(kind, a, b):
+    return {"id": f"{kind}-{a}", "kind": "narration" if kind == "narration" else "reading",
+            "line_kind": kind, "at_s": a - 0.3, "dur_s": b - a + 0.6, "speech_from_s": a, "speech_to_s": b}
+
+
+@pytest.mark.parametrize("dur,lines,ok", [
+    (10.0, [], True), (10.5, [], False),                                         # A9: 10 s with nothing spoken over it
+    (19.9, [("narration", 2.0, 15.0)], True), (20.5, [("narration", 2.0, 15.0)], False),   # A20(a): 20 s under narration
+    (14.0, [("narration", 14.2, 18.0)], False),                                  # narration after the cut is not over it
+    (29.0, [("testimony", 1.0, 27.0)], True), (31.0, [("testimony", 1.0, 27.0)], False),  # A9: 30 s under a reading
+    (25.0, [("sfx", 1.0, 20.0)], False),                                         # only the voice kinds count
+    (29.9, [("testimony", -5.0, 0.2)], False),                                   # T1f review: a reading's tail, then 29.7 s silent
+    (25.2, [("testimony", -5.0, 0.2)], False),                                   # the tail of a reading plus 25 s of silence
+    (19.0, [("narration", 0.0, 3.0), ("narration", 15.0, 19.0)], False),        # narration plus a 12 s pause
+    (19.0, [("narration", 0.0, 8.0), ("narration", 8.5, 9.5), ("narration", 9.2, 12.0)], True),  # 7 s silent at the end
+    (29.0, [("testimony", 0.5, 10.0), ("narration", 9.0, 19.5)], True),         # overlapping spans merge; 9.5 s silent
+    (25.0, [("testimony", -5.0, 0.2), ("narration", 0.5, 24.8)], False),        # T1f review: a reading's 0.2 s tail does not
+    (25.0, [("testimony", -5.0, 5.2), ("narration", 5.5, 24.8)], True),         # lift a narrated still to 30 s; 19.8 s unread is fine
+    (30.5, [("testimony", 0.0, 30.5)], False),                                   # a hold is at most 30 s, read or not
+])
+def test_a20a_a_still_holds_by_what_is_spoken_over_it(dur, lines, ok):
+    plan = _still_plan(dur)
+    placed = {"lines": [_spoken(*ln) for ln in lines]}
+    h = R.still_holds(plan, placed)
+    assert [x["id"] for x in h] == ["P1"]                                       # archive stills only; a drawn map is not one
+    assert h[0]["ok"] is ok, h
+    j = J.Journal(film="still-hold")
+    out = R.still_hold_lints(j, plan, placed)
+    ev = lints(J.read(j.path), "still-hold")[0]
+    assert ev["status"] == ("pass" if ok else "fail") and ev["severity"] == "block"
+    assert bool(out) is not ok
+    assert R.still_hold_lints(J.Journal(film="still-hold-draft"), plan, placed, draft=True) == []   # a warning under --draft
+
+
+def test_a20a_stills_of_one_asset_are_one_hold_and_a_detail_is_at_most_5_s():
+    shots = [{"id": "P1", "kind": "archive_still", "asset": "A", "start_s": 0.0, "end_s": 8.0},
+             {"id": "P2", "kind": "archive_still", "asset": "A", "start_s": 8.0, "end_s": 16.0, "transition_in": {"type": "cut"}},
+             {"id": "P3", "kind": "archive_still", "asset": "B", "start_s": 16.0, "end_s": 24.0, "transition_in": {"type": "cut"}}]
+    h = R.still_holds({"shots": shots}, {"lines": []})
+    assert [x["shots"] for x in h] == [["P1", "P2"], ["P3"]]
+    assert h[0]["ok"] is False and h[0]["dur_s"] == 16.0 and h[1]["ok"] is True   # 8 + 8 s of one photograph, silent
+    dissolved = [dict(shots[0]), dict(shots[1], start_s=7.25, transition_in={"type": "dissolve", "s": 0.75})]
+    assert R.still_holds({"shots": dissolved}, {"lines": []})[0]["shots"] == ["P1", "P2"]
+    dipped = [dict(shots[0]), dict(shots[1], transition_in={"type": "dip", "s": 0.5})]
+    hdip = R.still_holds({"shots": dipped}, {"lines": []})
+    assert [x["shots"] for x in hdip] == [["P1", "P2"]] and [x["shots"] for x in hdip[0]["holds"]] == [["P1"], ["P2"]]
+    assert hdip[0]["longest_voiceless_s"] == 16.0 and hdip[0]["ok"] is False   # a dip does not reset the 10 s silence
+    talk = {"lines": [_spoken("narration", 0.5, 7.5), _spoken("narration", 8.5, 15.5)]}
+    assert R.still_holds({"shots": dipped}, talk)[0]["ok"] is True
+    narr = {"lines": [_spoken("narration", 0.5, 15.5)]}
+    assert R.still_holds({"shots": shots[:2]}, narr)[0]["ok"] is True              # one 16 s hold under narration
+    detail = [dict(shots[0]), dict(shots[1], end_s=14.0, preset="DETAIL")]
+    hd = R.still_holds({"shots": detail}, narr)[0]
+    assert hd["ok"] is False and any("DETAIL P2 6 s" in w for w in hd["why"])
+    assert R.still_holds({"shots": [dict(shots[0]), dict(shots[1], end_s=13.0, preset="DETAIL")]}, narr)[0]["ok"] is True
+
+
+def test_a20a_a_final_render_with_a_silent_still_over_10_s_is_refused(tmp_path):
+    film = make_film(tmp_path / "film")
+
+    def stretch(p):                                                            # S5 (no voice over it) runs 11 s, not 3
+        shots = [sh for part in p["parts"] for sh in part.get("shots", [])]
+        i = next(k for k, sh in enumerate(shots) if sh["id"] == "S5")
+        shots[i]["dur_s"] = 11.0
+        for sh in shots[i + 1:]:
+            sh["start_s"] += 8.0
+        for part in p["parts"]:
+            for x in part.get("lines", []) + part.get("cues", []) + part.get("text", []):
+                if x["start_s"] >= 14.0:
+                    x["start_s"] += 8.0
+                    if "end_s" in x:
+                        x["end_s"] += 8.0
+        for c in p["subtitle_source"]:
+            if c["start_s"] >= 14.0:
+                c["start_s"] += 8.0
+                c["end_s"] += 8.0
+    _edit_play(film, stretch)
+    from studio.engine.render import render
+    with pytest.raises(R.Refused, match=r"still-hold \(S5: 11 s with no voice"):
+        render(film, tmp_path / "out", height=360, workers=1, min_free_gb=1, encode_preset="veryfast", audio_only=True)
+
+
+def test_a20a_the_still_hold_lint_runs_on_the_fixture_and_passes(plan):
+    placed = {"lines": [_spoken("narration", 5.0, 7.0)]}
+    holds = R.still_holds(plan, placed)
+    assert {h["id"] for h in holds} == {"S3", "S4", "S5"} and all(h["ok"] for h in holds)
+    assert next(h for h in holds if h["id"] == "S3")["longest_voiceless_s"] < 4.0          # L1 speaks over S3
+
+
+def test_a19_a_zero_padded_noisy_take_now_fails_voice_clean():
+    """T1e review: the quietest 10% of frames were the digital zero padding a
+    take's ends, so a hissy take measured a floor of -300 dBFS and passed.
+    The floor is now measured inside the take's live span."""
+    rng = np.random.default_rng(5)
+    x, _ = _speechlike(seed=2)
+    x = (x + rng.normal(0, 10 ** (-38 / 20), len(x))).astype(np.float32)      # hiss 38 dB up: no pause clean enough
+    pad = np.zeros(int(1.5 * 48000), np.float32)
+    padded = np.concatenate([pad, x, pad])                                     # zero frames: 1.5 + 1.5 of 9.2 s, over 10%
+    _, rep = R.clean_voice(padded)
+    assert rep["before"]["floor_dbfs"] > -60                                   # the hiss, not the padding (-300 before)
+    gain, _ = R.level_gain(padded, R.DIALOGUE_LUFS)
+    j = J.Journal(film="zero-padded")
+    out = R._journal_clean(j, "LZ", rep, gain)
+    vc = [e for e in lints(J.read(j.path), "voice-clean") if e["unit"] == "LZ"][0]
+    assert vc["status"] == "fail" and any("voice-clean" in o for o in out)
+    # the same take unpadded measures the same floor, within a dB
+    _, rep0 = R.clean_voice(x)
+    assert rep["before"]["floor_dbfs"] == pytest.approx(rep0["before"]["floor_dbfs"], abs=1.0)
+
+
+def test_a19_a_clean_take_silent_between_words_still_passes():
+    """Digital silence inside the live span (a take that is truly silent in its
+    pauses) is still the floor: only the padding at the ends is set aside."""
+    x, spans = _speechlike(seed=4, hiss_db=-200.0)                              # no hiss at all
+    x = np.concatenate([np.zeros(48000, np.float32), x, np.zeros(48000, np.float32)])
+    _, rep = R.clean_voice(x)
+    gain, _ = R.level_gain(x, R.DIALOGUE_LUFS)
+    assert rep["cleaned"] and rep["after"]["floor_dbfs"] + gain < R.CLEAN_FLOOR_MAX_DBFS
+    assert R.live_span(x)[0] == 48000 + 24000                                    # the pad and the take's own lead-in
+
+
+def test_t1e_review_the_speech_span_is_measured_after_the_placement_gain():
+    """A sample at -59 dBFS in the take counts as speech at 0 dB, but a hushed
+    line is placed 2 dB down, where the mix hears it at -61: not speech."""
+    x = np.zeros(48000, np.float32)
+    x[1000:2000] = 0.5
+    x[30000:31000] = 10 ** (-59 / 20)                                           # a quiet tail
+    assert R.speech_active(x, 0.0)[-1] == 30999
+    assert R.speech_active(x, R.MOOD_OFFSET_DB["hushed"])[-1] == 1999
+
+
+def test_a16_the_shape_check_cannot_be_reached_by_any_picture_at_the_film_resolutions():
+    """T1e review: the guarantee, stated exactly. For every resolution the
+    engine renders and every pair of classes that share a hue and differ in
+    shape, some probe has a channel where no bare value from 0 to 255 brings
+    the wrong class's composite within 1 of the drawn class's. So whatever
+    the picture under the glyph, a wrong shape fails the lint."""
+    for height, (W, H) in R.RESOLUTIONS.items():
+        plan = {"W": W, "H": H}
+        probes = M.glyph_shape_probes(M.Layout(W, H))
+        for drawn in M.GLYPH_SHAPE:
+            for claimed in M.GLYPH_SHAPE:
+                if M.MARK_HUE[claimed] != M.MARK_HUE[drawn] or M.GLYPH_SHAPE[claimed] == M.GLYPH_SHAPE[drawn]:
+                    continue
+                guarded = []
+                for at in probes:
+                    for ch in range(3):
+                        reach = []
+                        for v in range(256):
+                            bare = [0, 0, 0]
+                            bare[ch] = v
+                            d = abs(int(R.expected_probe(plan, drawn, at, bare)[ch]) - int(R.expected_probe(plan, claimed, at, bare)[ch]))
+                            if d <= 1:
+                                reach.append(v)
+                        if not reach:
+                            guarded.append((at, ch))
+                assert guarded, (height, drawn, claimed)
+
+
+def _spread_take(hiss_db, seed=5):
+    """A take whose hiss drops out for 0.42 s inside its first pause: its floor frames spread far over 6 dB."""
+    x, spans = _speechlike(seed=seed, hiss_db=hiss_db)
+    a = spans[0][1] + int(0.05 * 48000)
+    x[a: a + int(0.42 * 48000)] = 0.0
+    return x
+
+
+def test_t1f_an_unsteady_floor_takes_the_denoise_only_path_and_passes_when_low():
+    x = _spread_take(-100.0)                                                    # spread far over 6 dB, hiss far under -80
+    y, rep = R.clean_voice(x)
+    y_dn, _ = R.spectral_denoise(x)
+    keep = _ungated_samples(rep, len(y))
+    assert rep["path"] == "denoise-only" and np.array_equal(y[keep], y_dn[keep]) and rep["gate"] is None
+    assert "not one steady floor" in rep["first_pass"]["why"] and rep["first_pass"]["floor_spread_db"] == rep["floor_spread_db"]
+    gain, _ = R.level_gain(y, R.DIALOGUE_LUFS)
+    j = J.Journal(film="denoise-only-low")
+    assert R._journal_clean(j, "LQ", rep, gain) == []
+    evs = J.read(j.path)
+    dec = [e for e in evs if e["kind"] == "decision" and e.get("unit") == "LQ" and "denoise alone" in e["what"]]
+    assert len(dec) == 1 and dec[0]["evidence"]["first_pass"]["floor_spread_db"] > R.CLEAN_FLOOR_SPREAD_MAX_DB
+    vc = [e for e in lints(evs, "voice-chop") if e["unit"] == "LQ"][0]
+    assert vc["status"] == "pass" and vc["evidence"]["path"] == "denoise-only" and vc["evidence"]["floor_referenced"]["share"] == 0.0
+    assert vc["evidence"]["hf_gate_cut_bins"] == 0 and vc["evidence"]["hf_cleanup_loss_bins"] == 0
+    assert [e for e in lints(evs, "voice-clean") if e["unit"] == "LQ"][0]["status"] == "pass"
+
+
+def test_t1f_consonant_loss_falls_back_to_the_gate_alone():
+    """CoS (2026-10-10): when the denoise cuts consonant bins inside the
+    speech extent by over 3 dB, the take is cleaned again by the pause gate
+    alone (no denoise, no expander), journaled, and judged by the same
+    lints. Here the hiss of an unsteady take runs on from the words, so the
+    denoise cut it as consonant; the gate-only take keeps every sample of
+    the extent as recorded."""
+    x = _spread_take(-60.0)
+    y, rep = R.clean_voice(x)
+    cf = rep["consonant_fallback"]
+    assert rep["path"] == "gate-only" and cf and cf["from_path"] == "denoise-only" and cf["hf_cleanup_loss_bins"] > 0
+    assert rep["hf_cleanup_loss_bins"] == 0 and rep["hf_gate_cut_bins"] == 0 and rep["denoise"] is None
+    e = R.speech_extent(x, R.voice_floor(x))
+    mask = np.repeat(e["bins"], int(round(R.CLEAN_HF_BIN_S * 48000)))
+    assert np.array_equal(y[: len(mask)][mask], x[: len(mask)][mask])
+    keep = _ungated_samples(rep, len(y))
+    assert np.array_equal(y[keep], x[keep])                                      # nothing but the gate touched it
+    g, _ = R.level_gain(y, R.DIALOGUE_LUFS)
+    j = J.Journal(film="gate-only")
+    R._journal_clean(j, "LG", rep, g)
+    evs = J.read(j.path)
+    assert [e_ for e_ in evs if e_["kind"] == "decision" and "pause gate alone" in e_["what"]]
+    assert {e_["rule"] for e_ in evs if e_["kind"] == "lint"} >= {"voice-clean", "voice-chop", "voice-beside"}
+
+
+def test_t1f_a_gate_only_take_that_fails_voice_clean_refuses(monkeypatch):
+    """A take whose fallback is the gate alone is judged by the same lints:
+    a steady hiss between words too close together to gate stays in its
+    floor, and voice-clean refuses it (as E:R16 does on the revamp)."""
+    x, _ = _speechlike(seed=6, gap_s=0.16, hiss_db=-55.0)
+    real = R.hf_chop
+    calls = []
+
+    def first_cuts(*a, **k):                                                    # the first pass is said to cut consonants
+        r = real(*a, **k)
+        calls.append(1)
+        return dict(r, hf_cleanup_loss_bins=3, hf_cleanup_loss_max_db=4.0) if len(calls) == 1 else r
+    monkeypatch.setattr(R, "hf_chop", first_cuts)
+    rep, out, vc, ch = _verdict(x, "gate-only-fails")
+    assert rep["path"] == "gate-only" and rep["consonant_fallback"]
+    assert vc["status"] == "fail" and any("voice-clean" in o for o in out)
+
+
+def test_t1f_a_steady_hiss_take_still_gets_the_expander():
+    x, _ = _speechlike(seed=6)                                                  # Tara-like: steady hiss at -60
+    y, rep = R.clean_voice(x)
+    assert rep["path"] == "expander" and rep["first_pass"] is None and rep["gate"]["kind"] == "downward expander"
+    gain, _ = R.level_gain(y, R.DIALOGUE_LUFS)
+    j = J.Journal(film="steady")
+    assert R._journal_clean(j, "LS", rep, gain) == []
+    assert lints(J.read(j.path), "voice-chop")[0]["evidence"]["path"] == "expander"
+
+
+def test_t1f_an_e_r01_like_take_with_too_few_pauses_is_refused_whatever_its_floor():
+    rng = np.random.default_rng(11)
+    tt = np.arange(48000 * 6) / 48000
+    am = 0.05 + 0.95 * np.abs(np.sin(2 * np.pi * 1.7 * tt)) ** 4
+    x = (0.1 * am * sum(np.sin(2 * np.pi * 150 * h * tt) / h for h in range(1, 10))
+         + rng.normal(0, 1e-4, len(tt))).astype(np.float32)
+    _, rep = R.clean_voice(x)
+    assert rep["pause_why"]
+    for lift in (0.0, -80.0):                                                       # audible, and pushed far under -80
+        j = J.Journal(film=f"few-pauses-{int(-lift)}")
+        out = R._journal_clean(j, "LR", rep, lift)
+        assert any("no pause quiet enough to measure" in o for o in out)
+        assert lints(J.read(j.path), "voice-chop")[0]["status"] == "fail"
+
+
+def _hiss_in_pauses(burst_db, gaps=6, seed=3):
+    """The reviewer's attack.py: a clean take with white hiss filling its pauses after each word's tail."""
+    x, spans = _speechlike(seed=seed, hiss_db=-110.0)
+    rng = np.random.default_rng(9)
+    for i in range(gaps):
+        a = spans[i][1] + int(0.12 * 48000)
+        b = spans[i + 1][0] if i + 1 < len(spans) else len(x)
+        x[a:b] += rng.normal(0, 10 ** (burst_db / 20), b - a).astype(np.float32)
+    return x
+
+
+def _one_quiet_stretch(burst_db, quiet_s, seed=3):
+    """The reviewer's attack2.py: white hiss everywhere but one 0.4 to 0.5 s stretch at -92 dBFS (an unsteady floor)."""
+    x, spans = _speechlike(seed=seed, hiss_db=-110.0)
+    rng = np.random.default_rng(9)
+    hiss = rng.normal(0, 10 ** (burst_db / 20), len(x)).astype(np.float32)
+    q0 = spans[2][1] + int(0.12 * 48000)
+    q1 = q0 + int(quiet_s * 48000)
+    hiss[q0:q1] = rng.normal(0, 10 ** (-92 / 20), q1 - q0)
+    return x + hiss
+
+
+def _verdict(x, name):
+    y, rep = R.clean_voice(x)
+    g, _ = R.level_gain(y, R.DIALOGUE_LUFS)
+    j = J.Journal(film=name)
+    out = R._journal_clean(j, "LT", rep, g)
+    evs = J.read(j.path)
+    return rep, out, lints(evs, "voice-clean")[-1], lints(evs, "voice-chop")[-1]
+
+
+@pytest.mark.xfail(strict=True, reason="strict xfail, CoS final design (T1f): noise in 3 to 16 kHz that runs on from a word is taken as a consonant, so it joins the speech extent and is neither gated nor judged; issue #9, expires 2026-10-24")  # expires 2026-10-24 issue #9
+@pytest.mark.parametrize("quiet_s,burst_db", [(0.4, -55), (0.4, -62), (0.5, -55)])
+def test_t1f_open_hiss_on_an_unsteady_floor_is_caught(quiet_s, burst_db):
+    """attack2.py: the hiss runs on from the words, so it joins the speech
+    extent; the denoise's cut of it sends the take to the gate alone, which
+    keeps it. Part of issue #9."""
+    rep, out, vc, ch = _verdict(_one_quiet_stretch(burst_db, quiet_s), f"attack2-{quiet_s}-{-burst_db}")
+    assert out
+
+
+@pytest.mark.xfail(strict=True, reason="strict xfail, CoS final design (T1f): noise in 3 to 16 kHz that runs on from a word is taken as a consonant, so it joins the speech extent and is neither gated nor judged; issue #9, expires 2026-10-24")  # expires 2026-10-24 issue #9
+@pytest.mark.parametrize("burst_db", [-55, -60, -65])
+def test_t1f_open_hiss_in_every_pause_is_caught(burst_db):
+    """attack.py with hiss in all six pauses, starting 120 ms after each word.
+    Since the T1f review (a consonant bin within 150 ms of voiced speech is
+    speech, to a fixpoint) the hiss joins the speech extent and passes.
+    Part of issue #9."""
+    rep, out, vc, ch = _verdict(_hiss_in_pauses(burst_db, 6), f"attack-all-{-burst_db}")
+    assert out
+
+
+@pytest.mark.xfail(strict=True, reason="strict xfail, CoS final design (T1f): noise in 3 to 16 kHz that runs on from a word is taken as a consonant, so it joins the speech extent and is neither gated nor judged; issue #9, expires 2026-10-24")  # expires 2026-10-24 issue #9
+@pytest.mark.parametrize("gaps", [3, 1])
+@pytest.mark.parametrize("burst_db", [-55, -60, -65])
+def test_t1f_open_hiss_in_some_pauses_is_caught(burst_db, gaps):
+    rep, out, vc, ch = _verdict(_hiss_in_pauses(burst_db, gaps), f"attack-some-{-burst_db}-{gaps}")
+    assert out
+
+
+def test_t1f_review_true_pauses_fall_back_to_the_floor_p90_when_there_are_too_few():
+    t = np.arange(int(1.2 * 48000)) / 48000                                    # a tone with one 0.12 s pause: under 5
+    x = (0.2 * np.sin(2 * np.pi * 330 * t)).astype(np.float32)                 # true-pause frames once the word guard
+    x[(t < 0.25) | (t >= 0.95) | (np.abs(t - 0.6) < 0.06)] = 0.0               # (60 ms after, 40 ms before) is taken out
+    rep, out, vc, _ = _verdict(x, "few-true-pauses")
+    assert rep["true_pause_frames"] < R.CLEAN_TRUE_PAUSE_MIN and vc["evidence"]["true_pause_fallback_p90"] is True
+    assert vc["status"] == "pass" and out == []
+
+
+def test_t1f_review_voice_chop_is_speech_referenced_on_both_paths():
+    x, _ = _speechlike(seed=6)
+    _, rep = R.clean_voice(x)
+    assert rep["path"] == "expander" and rep["speech_chop_share"] <= R.CLEAN_CHOP_MAX_SHARE
+    old_only = dict(rep, chopped_audible_share=0.05, chopped_audible=99)          # the floor-referenced share: journal only
+    j = J.Journal(film="chop-old")
+    assert not [o for o in R._journal_clean(j, "LO", old_only, 0.0) if "voice-chop" in o]
+    ch = lints(J.read(j.path), "voice-chop")[0]
+    assert ch["status"] == "pass" and ch["evidence"]["floor_referenced"]["share"] == 0.05
+    for path in ("expander", "denoise-only"):
+        bad = dict(rep, path=path, speech_chop_share=0.03, near_speech_cut=9, near_speech_frames=300,
+                   first_pass=rep.get("first_pass") or {"why": "test"})
+        j2 = J.Journal(film=f"chop-{path}")
+        out = R._journal_clean(j2, "LC", bad, 0.0)
+        assert any("within 30 dB of the speech cut over 3 dB" in o for o in out), path
+        assert lints(J.read(j2.path), "voice-chop")[0]["status"] == "fail"
+
+
+def _ungated_samples(rep, n):
+    keep = np.ones(n, bool)
+    for a, b in rep["pause_gate"]["regions_s"]:
+        keep[int(round(a * 48000)): int(round(b * 48000))] = False
+    return keep
+
+
+def test_t1f_pause_gate_leaves_every_sample_near_speech_identical(monkeypatch):
+    """Every sample outside the gated regions is the same with and without the
+    gate, every sample of a frame within 30 dB of the speech level too, and
+    every gated sample starts 60 ms or more after a voiced frame and ends
+    40 ms or more before one (T1f review: the gate reaches closer)."""
+    x, spans = _speechlike(seed=6, gap_s=0.8)
+    y, rep = R.clean_voice(x)
+    with monkeypatch.context() as m:
+        m.setattr(R, "CLEAN_PAUSE_GATE_DB", 0.0)
+        y0, _ = R.clean_voice(x)
+    pg = rep["pause_gate"]
+    assert pg["regions"] >= 5 and pg["gated_s"] > 1.0 and pg["depth_db"] == R.CLEAN_PAUSE_GATE_DB and pg["boost"] is False
+    keep = _ungated_samples(rep, len(y))
+    assert np.array_equal(y[keep], y0[keep])
+    assert np.all(np.abs(y[~keep]) <= np.abs(y0[~keep]) + 1e-12)               # never a boost
+    b = R.voice_floor(x)
+    _, _, voiced = R.true_pause_mask(x, b, R._live_frames(b["frames"], R.live_span(x)))
+    vs = np.zeros(len(y), bool)
+    for f in np.flatnonzero(voiced):
+        vs[max(0, f * 960 - 1920): f * 960 + 960 + 2880] = True                    # 40 ms before each voiced frame, 60 ms after
+    assert not np.any(vs & ~keep)
+    _, near, _ = R.true_pause_mask(x, b, R._live_frames(b["frames"], R.live_span(x)))
+    nm = np.repeat(near, 960)
+    assert np.array_equal(y[: len(nm)][nm], y0[: len(nm)][nm])
+    for a, bb in spans:                                                         # each word's onset and body untouched
+        assert np.array_equal(y[a:bb - int(0.06 * 48000)], y0[a:bb - int(0.06 * 48000)])
+
+
+def test_t1f_pause_gate_turns_a_breath_in_a_true_pause_down_and_that_is_accepted():
+    """A breath (white, 10 dB over the hiss) 450 ms after a word is a true
+    pause by the flatness rule, so the gate turns it down by its full depth.
+    The founder's ask is silence between Tara's words; the breath goes too."""
+    rate = 48000
+    x, spans = _speechlike(seed=7, words=2, gap_s=1.2, hiss_db=-66.0)
+    a = spans[0][1] + int(0.45 * rate)
+    rng = np.random.default_rng(9)
+    x[a: a + int(0.25 * rate)] += rng.normal(0, 10 ** (-56 / 20), int(0.25 * rate)).astype(np.float32)
+    y, rep = R.clean_voice(x)
+    br = slice(a + 2400, a + int(0.25 * rate) - 2400)
+    assert _db(y[br]) - _db(x[br]) < -R.CLEAN_PAUSE_GATE_DB + 3                   # turned down by about the gate's depth
+    assert any(s0 * rate <= a and a + int(0.25 * rate) <= s1 * rate for s0, s1 in rep["pause_gate"]["regions_s"])
+    g, _ = R.level_gain(y, R.DIALOGUE_LUFS)
+    j = J.Journal(film="breath-gate")
+    assert R._journal_clean(j, "LB", rep, g) == []
+    dec = [e for e in J.read(j.path) if e["kind"] == "decision" and "pause gate" in e["what"]]
+    assert dec and dec[0]["evidence"]["gated_s"] == rep["pause_gate"]["gated_s"] and dec[0]["evidence"]["regions_s"]
+
+
+def test_t1f_a_pause_shorter_than_two_ramps_and_a_frame_is_left_as_it_is():
+    tp = np.zeros(40, bool)
+    tp[3:7] = True                                                              # 80 ms: two 40 ms ramps, no full-depth frame
+    tp[10:15] = True                                                            # 100 ms: gated
+    assert R.pause_regions(tp) == [(10, 15)]
+    y = np.ones(40 * 960, np.float32)
+    g, pg = R.pause_gate(y, R.pause_regions(tp))
+    assert np.array_equal(g[: 10 * 960], y[: 10 * 960]) and np.array_equal(g[15 * 960:], y[15 * 960:])
+    assert np.allclose(g[12 * 960: 13 * 960], 10 ** (-R.CLEAN_PAUSE_GATE_DB / 20))   # the core at full depth
+    assert pg["min_region_ms"] == 100 and pg["gated_s"] == 0.1
+
+
+def test_t1f_archival_audio_is_never_gated(tmp_path):
+    film = make_film(tmp_path / "film")
+    raw = _hissy(film / "audio" / "L2.wav", seed=1)
+    _edit_play(film, lambda p: next(ln for part in p["parts"] for ln in part.get("lines", []) if ln["id"] == "L2")
+               .update(archival_audio=True))
+    plan, j = _plan(film, "archival-gate")
+    mix, placed = R.build_mix(plan, film, j)
+    by = {ln["id"]: ln for ln in placed["lines"]}
+    at = int(round(by["L2"]["at_s"] * 48000))
+    assert np.array_equal(mix[at: at + len(raw)], raw[: len(mix) - at])
+    assert not [e for e in J.read(j.path) if e.get("unit") == "L2" and "pause gate" in e.get("what", "")]
+
+
+def test_t1f_final_review_a_flat_fricative_is_speech_and_untouched(monkeypatch):
+    """The reviewer's rv_fricative.py: a word-final fricative 20 dB under the
+    speech, 400 ms, flat as noise. Its 3 to 16 kHz energy keeps it inside the
+    speech extent, so the gate never reaches it: every sample is the same
+    with and without the gate, and the take passes."""
+    rate = 48000
+    x, spans = _speechlike(seed=3, hiss_db=-90.0)
+    sp = R.voice_floor(x)["speech_dbfs"]
+    rng = np.random.default_rng(1)
+    a = spans[2][1] - int(0.10 * rate)
+    n = int(0.40 * rate)
+    x[a:a + n] += (rng.normal(0, 10 ** ((sp - 20) / 20), n) * np.minimum(1, np.arange(n) / (0.01 * rate))).astype(np.float32)
+    rep, out, vc, ch = _verdict(x, "rv-fricative")
+    assert out == [] and ch["evidence"]["hf_gate_cut_bins"] == 0 and rep["gated_near_speech_frames"] == 0
+    y, _ = R.clean_voice(x)
+    with monkeypatch.context() as m:
+        m.setattr(R, "CLEAN_PAUSE_GATE_DB", 0.0)
+        y0, _ = R.clean_voice(x)
+    assert np.array_equal(y[a:a + n], y0[a:a + n])
+
+
+def _hum_between_words(level_db, run_s=0.02, seed=4):
+    """Two words 60 + run + 40 ms apart, with a 200 Hz hum at ``level_db``
+    (raw, more than 30 dB under the speech) filling that gap: tonal, so not a
+    consonant, and too short to gate once the decay and onset are taken out."""
+    rate = 48000
+    x, spans = _speechlike(seed=seed, words=2, gap_s=0.06 + run_s + 0.04 + 0.06, hiss_db=-110.0)
+    a, b = spans[0][1], spans[1][0]
+    t = np.arange(b - a) / rate
+    x[a:b] += (10 ** (level_db / 20) * np.sqrt(2) * np.sin(2 * np.pi * 200 * t)).astype(np.float32)
+    return x
+
+
+def test_t1f_final_review_noise_beside_words_has_its_own_limit():
+    """Judged on the frames themselves, however few (CoS final design), as a
+    warning (CoS 2026-10-10); with none, everything outside speech is gated
+    and the take passes, saying so."""
+    assert (R.CLEAN_BESIDE_MAX_DBFS, R.CLEAN_BESIDE_P90_MAX_DBFS) == (-60.0, -55.0)
+    x, _ = _speechlike(seed=6)
+    rep, out, vc, _ = _verdict(x, "beside-none")
+    ev = vc["evidence"]
+    assert out == [] and ev["beside_frames"] == 0
+    assert ev["beside_verdict"] == "0 ungated frames beside words: everything outside speech is gated"
+    rep2, out2, vc2, _ = _verdict(_hum_between_words(-60.0), "beside-loud")
+    ev2 = vc2["evidence"]
+    assert 1 <= ev2["beside_frames"] <= 4 and ev2["beside_after_level_dbfs"] > R.CLEAN_BESIDE_MAX_DBFS
+    # CoS (2026-10-10): the beside-word limit warns, never refuses
+    assert vc2["status"] == "pass" and not [o for o in out2 if "beside" in o]
+    jb = J.Journal(film="beside-warn")
+    R._journal_clean(jb, "LW", rep2, R.level_gain(R.clean_voice(_hum_between_words(-60.0))[0], R.DIALOGUE_LUFS)[0])
+    vb = lints(J.read(jb.path), "voice-beside")[0]
+    assert vb["status"] == "fail" and vb["severity"] == "warn" and vb["evidence"]["beside_frames"] == ev2["beside_frames"]
+    rep3, out3, vc3, _ = _verdict(_hum_between_words(-80.0), "beside-quiet")
+    assert vc3["evidence"]["beside_frames"] >= 1 and vc3["status"] == "pass" and out3 == []
+
+
+def _hiss_beside_words(h_db, dropout=False):
+    """The reviewer's rv_final.py: clean pauses (-110), hiss only in the 120 ms
+    either side of every word, where the gate cannot reach; with ``dropout``
+    one pause goes to digital zero, so the floor is unsteady (denoise only)."""
+    x, spans = _speechlike(seed=3, hiss_db=-110.0)
+    rng = np.random.default_rng(7)
+    w = int(0.12 * 48000)
+    for a, b in spans:
+        x[a - w:a] += rng.normal(0, 10 ** (h_db / 20), w).astype(np.float32)
+        x[b:b + w] += rng.normal(0, 10 ** (h_db / 20), w).astype(np.float32)
+    if dropout:                                                                 # an unsteady floor: hiss at -85 with
+        rng2 = np.random.default_rng(9)                                         # one 0.4 s stretch at -112
+        base = rng2.normal(0, 10 ** (-85 / 20), len(x)).astype(np.float32)
+        q0 = spans[2][1] + int(0.12 * 48000)
+        base[q0: q0 + int(0.4 * 48000)] = rng2.normal(0, 10 ** (-112 / 20), int(0.4 * 48000))
+        x = x + base
+    return x
+
+
+@pytest.mark.xfail(strict=True, reason="strict xfail, CoS final design (T1f): noise in 3 to 16 kHz that runs on from a word is taken as a consonant, so it joins the speech extent and is neither gated nor judged; issue #9, expires 2026-10-24")  # expires 2026-10-24 issue #9
+def test_t1f_open_hiss_beside_words_on_the_denoise_only_path_is_caught():
+    rep, out, vc, ch = _verdict(_hiss_beside_words(-60.0, True), "beside-60-dn")
+    assert out
+
+
+@pytest.mark.xfail(strict=True, reason="strict xfail, CoS final design (T1f): noise in 3 to 16 kHz that runs on from a word is taken as a consonant, so it joins the speech extent and is neither gated nor judged; issue #9, expires 2026-10-24")  # expires 2026-10-24 issue #9
+def test_t1f_open_hiss_beside_words_on_the_expander_path_is_caught():
+    rep, out, vc, ch = _verdict(_hiss_beside_words(-60.0, False), "beside-60-exp")
+    assert rep["path"] == "expander" and out
+
+
+def test_t1f_the_speech_extent_is_bit_identical_through_the_gate(monkeypatch):
+    """CoS final design: every sample inside the speech extent is the cleaned
+    take before gating, bit for bit."""
+    for x in (_speechlike(seed=6)[0], _speechlike(seed=7, words=4, gap_s=0.9)[0]):
+        y, rep = R.clean_voice(x)
+        with monkeypatch.context() as m:
+            m.setattr(R, "CLEAN_PAUSE_GATE_DB", 0.0)
+            y0, _ = R.clean_voice(x)
+        e = R.speech_extent(x, R.voice_floor(x))
+        h = int(round(R.CLEAN_HF_BIN_S * 48000))
+        mask = np.repeat(e["bins"], h)
+        assert rep["pause_gate"]["gated_s"] > 0.5 and mask.sum() > 0
+        assert np.array_equal(y[: len(mask)][mask], y0[: len(mask)][mask])
+        assert rep["hf_gate_cut_bins"] == 0
+
+
+def _word_then(seed, parts):
+    """One word, then ``parts`` (seconds, kind, level dB under the speech):
+    "hf" is noise high-passed to 3 to 16 kHz, "gap" is silence."""
+    rate = 48000
+    x, spans = _speechlike(seed=seed, words=2, gap_s=1.0, hiss_db=-100.0)
+    sp = R.voice_floor(x)["speech_dbfs"]
+    rng = np.random.default_rng(seed)
+    at = spans[0][1] - int(0.03 * rate)
+    marks = []
+    for dur, kind, under in parts:
+        n = int(dur * rate)
+        if kind == "hf":
+            z = rng.normal(0, 1, n)
+            Z = np.fft.rfft(z)
+            f = np.fft.rfftfreq(n, 1 / rate)
+            Z[(f < 3000) | (f > 16000)] = 0
+            z = np.fft.irfft(Z, n)
+            z = z / np.sqrt(np.mean(z ** 2)) * 10 ** ((sp - under) / 20)
+            x[at:at + n] += z.astype(np.float32)
+            marks.append((at, at + n))
+        at += n
+    return x, marks
+
+
+@pytest.mark.parametrize("name,parts", [
+    ("s 150 ms over 30 dB under", [(0.15, "hf", 32)]),
+    ("mosque /sk/ (T:R2)", [(0.10, "hf", 20), (0.03, "gap", 0), (0.02, "hf", 15), (0.06, "hf", 28)]),
+    ("fricative and aspiration (V:R02)", [(0.12, "hf", 22), (0.08, "hf", 30)]),
+    ("burst after the word (E:R02)", [(0.04, "gap", 0), (0.03, "hf", 18), (0.05, "hf", 26)]),
+])
+def test_t1f_word_final_consonants_are_untouched(monkeypatch, name, parts):
+    """B2 (rv_fric_edge.py on T:R2, V:R02 and E:R02, as synthetic equivalents),
+    and the CoS's case: a 150 ms word-final /s/ more than 30 dB under the
+    speech level across the whole band. Each consonant lies inside the speech
+    extent, the gate changes no bin of it, the cleanup costs it no more than
+    3 dB in 3 to 16 kHz, and the take passes."""
+    x, marks = _word_then(5, parts)
+    y, rep = R.clean_voice(x)
+    with monkeypatch.context() as m:
+        m.setattr(R, "CLEAN_PAUSE_GATE_DB", 0.0)
+        y0, _ = R.clean_voice(x)
+    for a, b in marks:
+        assert np.array_equal(y[a:b], y0[a:b]), name
+    rep2, out, vc, ch = _verdict(x, "consonant")
+    assert ch["evidence"]["hf_gate_cut_bins"] == 0 and ch["evidence"]["hf_cleanup_loss_bins"] == 0, name
+    assert out == [], (name, out)
+
+
+def test_t1f_voice_chop_refuses_a_gate_or_cleanup_cut_inside_the_extent():
+    x, _ = _speechlike(seed=6)
+    y, rep = R.clean_voice(x)
+    g, _ = R.level_gain(y, R.DIALOGUE_LUFS)
+    for key, text in (("hf_gate_cut_bins", "the pause gate cut"), ("hf_cleanup_loss_bins", "the cleanup cut")):
+        out = R._journal_clean(J.Journal(film=f"hf-{key}"), "LH", dict(rep, **{key: 2}), g)
+        assert any(text in o for o in out), key
+
+
+
+
+# T:R2 4.90 to 5.04 s (the /s/, its closure and the /k/ of "mosque"), raw 3 to 16 kHz bin levels in dB over the take's
+# pause level in that band (-83.95 dB), from the first 10 ms bin after the last voiced frame: a hot bin, a dip, a hot
+# bin, a dip, then the hot run of the /k/ that only the guard reaches
+TR2_SK_PROFILE = [16.95, 7.75, 14.75, 3.25, 9.15, 18.35, 15.85, 22.25, 27.95, 27.55, 25.45, 21.25, 14.05, 15.05, 8.65]
+
+
+def test_t1f_review_the_extent_reaches_a_consonant_through_its_guard(monkeypatch):
+    """T1f review: hot runs grew only from voiced runs, before the guards, so
+    T:R2's /k/ (reached only through the 60 ms guard) was gated, cut by up to
+    18 dB. The extent now grows to a fixpoint, and the profile is untouched."""
+    rate, h = 48000, 480
+    x, spans = _speechlike(seed=3, words=2, gap_s=1.0, hiss_db=-90.0)
+    b = R.voice_floor(x)
+    e = R.speech_extent(x, b)
+    vb = np.repeat(e["voiced"], 2)
+    start = int(np.flatnonzero(vb[: spans[0][1] // h + 10])[-1]) + 1                # the first bin after word 1's voiced frames
+    rng = np.random.default_rng(11)
+    for i, rel in enumerate(TR2_SK_PROFILE):
+        z = rng.normal(0, 1, h)
+        Z = np.fft.rfft(z)
+        f = np.fft.rfftfreq(h, 1 / rate)
+        Z[(f < 3000) | (f > 16000)] = 0
+        z = np.fft.irfft(Z, h)
+        z = z / np.sqrt(np.mean(z ** 2)) * 10 ** ((e["pause_hf_db"] + rel) / 20)
+        x[(start + i) * h:(start + i + 1) * h] += z.astype(np.float32)
+    e2 = R.speech_extent(x, R.voice_floor(x))
+    seg = slice(start, start + len(TR2_SK_PROFILE))
+    assert np.all(e2["bins"][seg][e2["hot"][seg]])                              # every hot bin of /s/ and /k/ is speech
+    y, rep = R.clean_voice(x)
+    with monkeypatch.context() as m:
+        m.setattr(R, "CLEAN_PAUSE_GATE_DB", 0.0)
+        y0, _ = R.clean_voice(x)
+    span = slice(start * h, (start + len(TR2_SK_PROFILE)) * h)
+    assert np.array_equal(y[span], y0[span])
+    assert rep["hf_gate_cut_bins"] == 0
+
+
+def test_t1f_review_voice_chop_refuses_a_gate_that_cuts_a_consonant_near_speech(monkeypatch):
+    """The gate check is independent of the extent: with the extent forced
+    to voiced frames only, the gate reaches the /k/ and voice-chop refuses."""
+    rate, h = 48000, 480
+    x, spans = _speechlike(seed=3, words=2, gap_s=1.0, hiss_db=-90.0)
+    e = R.speech_extent(x, R.voice_floor(x))
+    start = int(np.flatnonzero(np.repeat(e["voiced"], 2)[: spans[0][1] // h + 10])[-1]) + 1
+    rng = np.random.default_rng(11)
+    for i, rel in enumerate(TR2_SK_PROFILE):
+        z = np.fft.rfft(rng.normal(0, 1, h))
+        f = np.fft.rfftfreq(h, 1 / rate)
+        z[(f < 3000) | (f > 16000)] = 0
+        z = np.fft.irfft(z, h)
+        x[(start + i) * h:(start + i + 1) * h] += (z / np.sqrt(np.mean(z ** 2)) * 10 ** ((e["pause_hf_db"] + rel) / 20)).astype(np.float32)
+    real = R.speech_extent
+
+    def voiced_only(xx, before):                                                # the extent without consonants or guards
+        r = real(xx, before)
+        vb = np.repeat(r["voiced"], 2)[: len(r["bins"])]
+        bins = np.zeros(len(r["bins"]), bool)
+        bins[: len(vb)] = vb
+        return dict(r, bins=bins, frames=r["voiced"].copy())
+    monkeypatch.setattr(R, "speech_extent", voiced_only)
+    monkeypatch.setattr(R, "true_pause_mask", lambda xx, before, live: (live & ~voiced_only(xx, before)["frames"],
+                                                                         real(xx, before)["near"], real(xx, before)["voiced"]))
+    rep, out, vc, ch = _verdict(x, "gate-cuts-k")
+    assert ch["status"] == "fail" and ch["evidence"]["hf_gate_cut_bins"] > 0
+    assert any("the pause gate cut" in o for o in out)
