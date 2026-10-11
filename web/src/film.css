@@ -39,6 +39,7 @@
 .after-wrap { background: var(--color-bg); }
 .after { max-width: 1040px; margin: 0 auto; padding: 40px 16px 24px; display: grid; gap: 32px; align-items: start; }
 .after .titlecard .title { font-size: clamp(36px, 5.4vw, 64px); }
+.after .synopsis { font-size: 16px; line-height: 1.5; color: var(--color-cream); max-width: 60ch; margin-top: 12px; }
 .after .note { font-size: 14px; color: var(--color-cream-muted); max-width: 60ch; }
 .onward { display: grid; border-top: 1px solid var(--color-border); }
 .onward a { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--color-border); text-decoration: none; min-height: 60px; }

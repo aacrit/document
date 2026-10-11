@@ -3490,13 +3490,19 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
                              "start_s": ln.get("start_s"), "text": ln.get("text"),
                              "credit": (f"Read by a computer voice. No recording of {sp.get('name', ln.get('speaker'))} was used."
                                         if ln.get("read_by") else "original recording")})
+    # The narrator's words, so the site's transcript holds everything spoken, and the narrator's voice credit, so
+    # the site can say the narration is a computer voice from the film's own record (web/src/film-data.ts).
+    narration = [{"id": ln["id"], "start_s": ln.get("start_s"), "text": ln.get("text")}
+                 for ln in plan["lines"] if ln.get("kind") == "narration" and ln.get("text")]
+    nv = plan.get("narrator_voice") or {}
+    narrator = {"credit": nv.get("credit"), "engine": nv.get("engine"), "voice": nv.get("voice")} if narration and nv.get("credit") else None
     return {"v": 2, "title": plan["title"], "slug": plan["slug"], "run": journal.run,
             "engine": {"version": ENGINE_VERSION, "hash": ENGINE_HASH},
             "width": plan["W"], "height": plan["H"], "fps": FPS, "frames": total, "duration_s": round(total / FPS, 4),
             "shots": shots, "marks": track, "share": share,
             "lower_thirds": [{"id": lt["id"], "start_s": lt["start"], "end_s": lt["end"], "lines": lt["lines"], "flag": lt["flag"]}
                              for lt in plan["lower_thirds"]],
-            "readings": readings,
+            "readings": readings, "narration": narration, "narrator": narrator,
             "cues": [{k: c.get(k) for k in ("id", "kind", "role", "source", "licence", "tradition", "performer", "start_s", "end_s")}
                      for c in plan["cues"]],
             "credits": [{"heading": h, "lines": ln} for h, ln in plan["credits"]], **extra}
