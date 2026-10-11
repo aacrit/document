@@ -12,6 +12,12 @@ const BAD_HOME = `<!doctype html><html><head></head><body>Demo Product TODO fix 
 
 let currentHome = GOOD_HOME;
 let currentFrameHeader = "DENY";
+const MANIFEST = {
+  id: "/", name: "Demo", short_name: "Demo", start_url: "/", scope: "/", display: "fullscreen", background_color: "#000000", theme_color: "#000000",
+  icons: [192, 512].flatMap((n) => ["any", "maskable"].map((purpose) => ({ src: `/icons/${purpose}-${n}.png`, sizes: `${n}x${n}`, type: "image/png", purpose }))),
+};
+let currentManifest: unknown = MANIFEST;
+const servedIcons = new Set(MANIFEST.icons.map((i) => i.src));
 
 beforeAll(async () => {
   server = createServer((req, res) => {
@@ -29,6 +35,21 @@ beforeAll(async () => {
     if (req.url === "/healthz") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: true, build: "abc123" }));
+      return;
+    }
+    if (req.url === "/manifest.webmanifest") {
+      res.writeHead(200, { "content-type": "application/manifest+json" });
+      res.end(JSON.stringify(currentManifest));
+      return;
+    }
+    if (req.url?.startsWith("/icons/") && servedIcons.has(req.url)) {
+      res.writeHead(200, { "content-type": "image/png" });
+      res.end("png");
+      return;
+    }
+    if (req.url?.startsWith("/icons/")) {
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.end("not found");
       return;
     }
     res.writeHead(200, { "content-type": "text/html", "x-frame-options": currentFrameHeader });
@@ -143,5 +164,32 @@ describe("bursts on the production zone (transplanted from Dial)", () => {
     expect(burstBase(c, "https://document.voidvision.org")).toBe("https://document.aacrit.workers.dev");
     expect(burstBase(c, "https://document.aacrit.workers.dev")).toBe("https://document.aacrit.workers.dev");
     expect(burstBase({ checks: [] }, "https://document.voidvision.org")).toBe("https://document.voidvision.org");
+  });
+});
+
+describe("app_manifest check", () => {
+  const check = { checks: [{ name: "manifest", type: "app_manifest", path: "/manifest.webmanifest" }] };
+
+  it("passes a manifest with what an install needs whose icons are all served as PNGs", async () => {
+    currentManifest = MANIFEST;
+    const [r] = await runContract(check, baseUrl);
+    expect(r).toMatchObject({ pass: true });
+  });
+
+  it("fails when an icon the manifest names is not served", async () => {
+    servedIcons.delete("/icons/maskable-512.png");
+    const [r] = await runContract(check, baseUrl);
+    servedIcons.add("/icons/maskable-512.png");
+    expect(r.pass).toBe(false);
+    expect(r.detail).toContain("/icons/maskable-512.png answered 404 text/plain");
+  });
+
+  it("fails a manifest missing what an install needs", async () => {
+    currentManifest = { ...MANIFEST, short_name: undefined, orientation: "landscape" };
+    const [r] = await runContract(check, baseUrl);
+    currentManifest = MANIFEST;
+    expect(r.pass).toBe(false);
+    expect(r.detail).toContain("no short_name");
+    expect(r.detail).toContain("an orientation lock");
   });
 });

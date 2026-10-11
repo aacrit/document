@@ -21,7 +21,7 @@ import { runBin } from "./lib/run-bin.mjs";
 import { cspViolations, headersFile, injectCsp } from "./lib/csp.mjs";
 import { writeSite } from "./lib/films.mjs";
 import { appIcons, injectAppHead, manifest, readTokens } from "./lib/pwa.mjs";
-import { swSource } from "./lib/sw.mjs";
+import { precacheList, swSource } from "./lib/sw.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const webDir = path.join(repoRoot, "web");
@@ -63,7 +63,8 @@ function main() {
   mkdirSync(path.join(distDir, "icons"), { recursive: true });
   const logomark = readFileSync(path.join(repoRoot, "design", "brand-kit", "logomark.svg"), "utf8");
   for (const icon of appIcons(logomark, tokens)) writeFileSync(path.join(distDir, "icons", icon.file), icon.png);
-  writeFileSync(path.join(distDir, "sw.js"), swSource(tag));
+  const precache = precacheList(readFileSync(path.join(distDir, "index.html"), "utf8"), (p) => readFileSync(path.join(distDir, p), "utf8"));
+  writeFileSync(path.join(distDir, "sw.js"), swSource(tag, precache));
 
   // Every page in dist/, at any depth, gets the one policy.
   const htmlFiles = readdirSync(distDir, { recursive: true, encoding: "utf8" }).filter((f) => f.endsWith(".html"));

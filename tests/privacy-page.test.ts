@@ -63,6 +63,11 @@ describe("web/privacy.html, claim by claim", () => {
   it("copies on the device: the service worker keeps public files only, never a film, a caption file or a sources list", () => {
     expect(text).toContain("your browser keeps copies of this site's pages, scripts, styles, fonts, icons and posters on your device");
     expect(text).toContain("Films, caption files and sources lists are never kept this way, and a film's sources list is checked with the server every time it loads.");
+    // On Android an installed app shares Chrome's storage, and on desktop removal is opt-in: uninstalling alone is never claimed.
+    expect(text).toContain("Clearing this site's data in your browser removes them. Uninstalling the app does not, on its own.");
+    expect(text).not.toMatch(/uninstalling the app[^.]*removes/i);
+    // The copies are the worker's own build cache, removed only by clearing site data or a newer build.
+    expect(read("scripts/lib/sw.mjs")).toContain("keys.filter((k) => k.startsWith(prefix) && k !== cache)");
     const origin = "https://document.voidvision.org";
     const r = (p: string) => routeFor({ method: "GET", url: `${origin}${p}`, mode: "cors", headers: new Headers() }, origin);
     expect([r("/media/x/film.mp4"), r("/media/x/captions-en.vtt"), r("/media/x/trailer.mp4")]).toEqual(["pass", "pass", "pass"]);

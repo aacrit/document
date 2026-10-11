@@ -17,8 +17,10 @@
 //   own routes and sw.js itself: not touched at all. The browser fetches
 //   them as if there were no service worker.
 //
+// Install stores the start page and its build assets (offline launch).
 // Caches are named by build tag; activating a new build deletes every
-// older one.
+// older one, and only the newest build's cache is ever written. A poster
+// the server no longer has (404 or 410) leaves the cache.
 
 export const CACHE_PREFIX = "document-";
 
@@ -51,12 +53,25 @@ export function storable(res) {
   return Boolean(res) && res.status === 200 && res.type === "basic" && !res.redirected && !res.headers.has("content-range");
 }
 
-/** Wires the worker's install, activate and fetch handlers onto `scope` (self, or a test's stand-in). */
-export function installHandlers(scope, cache, prefix) {
+/**
+ * Wires the worker's install, activate and fetch handlers onto `scope` (self,
+ * or a test's stand-in). `precache` is the start page and its build assets,
+ * stored at install so the installed app's start page opens offline.
+ */
+export function installHandlers(scope, cache, prefix, precache) {
+  // Only the newest build's cache is ever written: a worker still running an
+  // older build (a page open across a deploy) cannot bring its cache back.
+  const newest = () =>
+    scope.caches.keys().then((keys) => {
+      const ours = keys.filter((k) => k.startsWith(prefix));
+      return ours.length === 0 || ours[ours.length - 1] === cache;
+    });
   const put = (request, res) => {
     if (!storable(res)) return Promise.resolve();
     const copy = res.clone();
-    return scope.caches.open(cache).then((c) => c.put(request, copy)).catch(() => undefined);
+    return newest()
+      .then((ok) => (ok ? scope.caches.open(cache).then((c) => c.put(request, copy)) : undefined))
+      .catch(() => undefined);
   };
   const strategies = {
     "network-first": (request, wait) =>
@@ -78,7 +93,12 @@ export function installHandlers(scope, cache, prefix) {
       ),
     "cache-refresh": (request, wait) => {
       const fresh = scope.fetch(request).then((res) => {
-        wait(put(request, res));
+        // A poster taken down (404 or 410) leaves the cache too.
+        if (res.status === 404 || res.status === 410) {
+          wait(scope.caches.open(cache).then((c) => c.delete(request)).catch(() => undefined));
+        } else {
+          wait(put(request, res));
+        }
         return res;
       });
       wait(fresh.catch(() => undefined));
@@ -88,7 +108,14 @@ export function installHandlers(scope, cache, prefix) {
   };
 
   scope.addEventListener("install", (event) => {
-    event.waitUntil(scope.skipWaiting());
+    event.waitUntil(
+      scope.caches
+        .open(cache)
+        .then((c) => c.addAll(precache))
+        // A failed precache never blocks the worker: pages still work online, only offline launch waits.
+        .catch(() => undefined)
+        .then(() => scope.skipWaiting()),
+    );
   });
   scope.addEventListener("activate", (event) => {
     event.waitUntil(
@@ -105,15 +132,35 @@ export function installHandlers(scope, cache, prefix) {
   });
 }
 
+/**
+ * What install stores: the start page and every build asset it names
+ * (scripts, module preloads, stylesheets) plus the Latin fonts those
+ * stylesheets load. `html` is dist/index.html; `readAsset` returns a dist file's text.
+ */
+export function precacheList(html, readAsset) {
+  const list = ["/"];
+  const add = (p) => {
+    if (p.startsWith("/assets/") && !list.includes(p)) list.push(p);
+  };
+  for (const m of html.matchAll(/<(?:script|link)\b[^>]*\s(?:src|href)="(\/assets\/[^"]+)"/g)) add(m[1]);
+  for (const css of list.filter((p) => p.endsWith(".css"))) {
+    for (const m of readAsset(css).matchAll(/url\(\s*["']?(\/assets\/[^"')]+\.woff2)["']?\s*\)/g)) {
+      // The Latin subset only: the start page is English. Other subsets still cache on first use.
+      if (/-latin-\d{3}-/.test(m[1])) add(m[1]);
+    }
+  }
+  return list;
+}
+
 /** The text of dist/sw.js for a build. */
-export function swSource(tag) {
+export function swSource(tag, precache = ["/"]) {
   return [
     `// void document's service worker, build ${tag}. Written by scripts/build.mjs from scripts/lib/sw.mjs.`,
     `"use strict";`,
     routeFor.toString(),
     storable.toString(),
     installHandlers.toString(),
-    `installHandlers(self, ${JSON.stringify(cacheName(tag))}, ${JSON.stringify(CACHE_PREFIX)});`,
+    `installHandlers(self, ${JSON.stringify(cacheName(tag))}, ${JSON.stringify(CACHE_PREFIX)}, ${JSON.stringify(precache)});`,
     "",
   ].join("\n");
 }

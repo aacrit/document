@@ -5,10 +5,10 @@
 // held back (beforeinstallprompt's default is prevented) and the event kept.
 // A quiet "Install the app" in the footer works whenever the browser offers
 // the install; the "Install void document" button beside the film appears
-// only after the visitor has watched (the film played, or ran to its end).
+// only after the visitor has watched the film to its end: never during it.
 // Nothing is stored and nothing is counted: a fresh page load starts over.
 
-import { installControls, runningInstalled, shouldRegister, type InstallPromptEvent, type InstallState } from "./install";
+import { installControls, installNote, runningInstalled, shouldRegister, type InstallPromptEvent, type InstallState } from "./install";
 
 function registerServiceWorker(): void {
   const tag = document.querySelector<HTMLMetaElement>('meta[name="build"]')?.content;
@@ -24,9 +24,11 @@ function setupInstall(): void {
   const footer = document.getElementById("install-app") as HTMLButtonElement | null;
   const offer = document.getElementById("install-offer");
   const offerBtn = offer?.querySelector("button") ?? null;
+  const note = document.getElementById("install-note");
   const film = document.getElementById("film") as HTMLVideoElement | null;
   const media = (q: string) => window.matchMedia(q).matches;
   let deferred: InstallPromptEvent | null = null;
+  if (note) note.textContent = installNote(media);
   const state: InstallState = { available: false, watched: false, installed: runningInstalled(media) };
 
   const render = () => {
@@ -54,7 +56,6 @@ function setupInstall(): void {
     render();
   };
   if (film) {
-    film.addEventListener("play", watched, { once: true });
     film.addEventListener("ended", watched, { once: true });
   }
 

@@ -6,7 +6,7 @@
 
 import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
-import { CACHE_PREFIX, cacheName, installHandlers, routeFor, storable, swSource } from "../scripts/lib/sw.mjs";
+import { CACHE_PREFIX, cacheName, installHandlers, precacheList, routeFor, storable, swSource } from "../scripts/lib/sw.mjs";
 
 const ORIGIN = "https://document.voidvision.org";
 
@@ -93,7 +93,17 @@ function fakeScope(network: (r: Req, init?: RequestInit) => Promise<Response>) {
       open: async (name: string) => {
         if (!stores.has(name)) stores.set(name, new Map());
         const s = stores.get(name)!;
-        return { put: async (r: Req, res: Response) => void s.set(r.url, res) };
+        return {
+          put: async (r: Req, res: Response) => void s.set(r.url, res),
+          delete: async (r: Req) => s.delete(r.url),
+          addAll: async (paths: string[]) => {
+            for (const p of paths) {
+              const res = await network(req(p));
+              if (!res.ok) throw new TypeError(`addAll: ${p} answered ${res.status}`);
+              s.set(`${ORIGIN}${p}`, res);
+            }
+          },
+        };
       },
       match: async (r: Req, opts?: { cacheName?: string }) => stores.get(opts?.cacheName ?? "")?.get(r.url)?.clone(),
       keys: async () => [...stores.keys()],
@@ -131,7 +141,7 @@ describe("the worker's handlers", () => {
 
   it("stores no film, no range and no sources.json, and sends sources.json to the server with cache: no-cache", async () => {
     const f = fakeScope(async (r) => ok(`net ${r.url}`));
-    installHandlers(f.scope, CACHE, CACHE_PREFIX);
+    installHandlers(f.scope, CACHE, CACHE_PREFIX, ["/"]);
     expect(await f.dispatch(req("/media/p/film.mp4"))).toBe("pass");
     expect(await f.dispatch(req("/media/p/film.mp4", { headers: { range: "bytes=0-" } }))).toBe("pass");
     const s1 = (await f.dispatch(req("/media/p/sources.json"))) as Response;
@@ -145,7 +155,7 @@ describe("the worker's handlers", () => {
   it("pages: from the network when it answers (and kept), from the copy when it does not", async () => {
     let online = true;
     const f = fakeScope(async () => (online ? ok("fresh page") : Promise.reject(new TypeError("offline"))));
-    installHandlers(f.scope, CACHE, CACHE_PREFIX);
+    installHandlers(f.scope, CACHE, CACHE_PREFIX, ["/"]);
     const nav = req("/f/p/", { mode: "navigate" });
     expect(await ((await f.dispatch(nav)) as Response).text()).toBe("fresh page");
     online = false;
@@ -155,7 +165,7 @@ describe("the worker's handlers", () => {
 
   it("hashed assets: the network once, then the cache", async () => {
     const f = fakeScope(async () => ok("js"));
-    installHandlers(f.scope, CACHE, CACHE_PREFIX);
+    installHandlers(f.scope, CACHE, CACHE_PREFIX, ["/"]);
     await f.dispatch(req("/assets/a-1.js"));
     await f.dispatch(req("/assets/a-1.js"));
     expect(f.calls.length).toBe(1);
@@ -164,21 +174,67 @@ describe("the worker's handlers", () => {
   it("posters: answered from the cache, refreshed behind it; a partial answer is never kept", async () => {
     let n = 0;
     const f = fakeScope(async () => ok(`poster v${++n}`));
-    installHandlers(f.scope, CACHE, CACHE_PREFIX);
+    installHandlers(f.scope, CACHE, CACHE_PREFIX, ["/"]);
     const poster = req("/media/p/poster.jpg");
     expect(await ((await f.dispatch(poster)) as Response).text()).toBe("poster v1");
     expect(await ((await f.dispatch(poster)) as Response).text()).toBe("poster v1");
     expect(await ((await f.dispatch(poster)) as Response).text()).toBe("poster v2");
 
     const g = fakeScope(async () => new Response("part", { status: 206, headers: { "content-range": "bytes 0-3/10" } }));
-    installHandlers(g.scope, CACHE, CACHE_PREFIX);
+    installHandlers(g.scope, CACHE, CACHE_PREFIX, ["/"]);
     await g.dispatch(req("/assets/b-2.js"));
     expect(g.stores.get(CACHE)?.size ?? 0).toBe(0);
   });
 
+  it("install stores the start page and its build assets, so the installed app opens offline", async () => {
+    let online = true;
+    const f = fakeScope(async (r) => (online ? ok(`net ${new URL(r.url).pathname}`) : Promise.reject(new TypeError("offline"))));
+    installHandlers(f.scope, CACHE, CACHE_PREFIX, ["/", "/assets/main-1.js", "/assets/main-1.css"]);
+    await f.lifecycle("install");
+    expect([...f.stores.get(CACHE)!.keys()]).toEqual([`${ORIGIN}/`, `${ORIGIN}/assets/main-1.js`, `${ORIGIN}/assets/main-1.css`]);
+    online = false;
+    expect(await ((await f.dispatch(req("/", { mode: "navigate" }))) as Response).text()).toBe("net /");
+    expect(await ((await f.dispatch(req("/assets/main-1.js"))) as Response).text()).toBe("net /assets/main-1.js");
+  });
+
+  it("a failed precache never blocks the worker from installing", async () => {
+    const f = fakeScope(async () => new Response("", { status: 500 }));
+    let skipped = false;
+    f.scope.skipWaiting = () => ((skipped = true), Promise.resolve());
+    installHandlers(f.scope, CACHE, CACHE_PREFIX, ["/"]);
+    await f.lifecycle("install");
+    expect(skipped).toBe(true);
+  });
+
+  it("an older build's worker never writes: only the newest cache is saved to", async () => {
+    const f = fakeScope(async () => ok("js"));
+    installHandlers(f.scope, CACHE, CACHE_PREFIX, ["/"]);
+    await f.scope.caches.open(CACHE);
+    await f.scope.caches.open(cacheName("t2")); // a newer build has installed
+    await f.dispatch(req("/assets/late-1.js"));
+    await f.dispatch(req("/f/p/", { mode: "navigate" }));
+    expect(f.stores.get(CACHE)!.size).toBe(0);
+    expect(f.stores.get(cacheName("t2"))!.size).toBe(0);
+  });
+
+  it("a poster the server no longer has (404 or 410) leaves the cache", async () => {
+    for (const gone of [404, 410]) {
+      let status = 200;
+      const f = fakeScope(async () => (status === 200 ? ok("poster") : new Response("gone", { status })));
+      installHandlers(f.scope, CACHE, CACHE_PREFIX, ["/"]);
+      const poster = req("/media/p/poster.jpg");
+      await f.dispatch(poster);
+      expect(f.stores.get(CACHE)!.has(poster.url)).toBe(true);
+      status = gone;
+      await f.dispatch(poster); // answered from the cache, and the refresh says it is gone
+      expect(f.stores.get(CACHE)!.has(poster.url), String(gone)).toBe(false);
+      expect(((await f.dispatch(poster)) as Response).status).toBe(gone);
+    }
+  });
+
   it("activating a build deletes every older build's cache and nothing else", async () => {
     const f = fakeScope(async () => ok(""));
-    installHandlers(f.scope, CACHE, CACHE_PREFIX);
+    installHandlers(f.scope, CACHE, CACHE_PREFIX, ["/"]);
     for (const name of [cacheName("old1"), cacheName("old2"), CACHE, "someone-else"]) await f.scope.caches.open(name);
     await f.lifecycle("install");
     await f.lifecycle("activate");
@@ -188,8 +244,8 @@ describe("the worker's handlers", () => {
 
 describe("dist/sw.js", () => {
   it("is the same rules, self-contained, versioned by the build tag, and runs in a worker scope", async () => {
-    const src = swSource("release/2026-10-11");
-    expect(src).toContain('installHandlers(self, "document-release/2026-10-11", "document-");');
+    const src = swSource("release/2026-10-11", ["/", "/assets/a-1.js"]);
+    expect(src).toContain('installHandlers(self, "document-release/2026-10-11", "document-", ["/","/assets/a-1.js"]);');
     expect(src).not.toMatch(/\bimport\b|\bexport\b|\beval\(|new Function/);
     const f = fakeScope(async () => ok("x"));
     runInNewContext(src, { self: f.scope, URL, Promise });
@@ -198,5 +254,13 @@ describe("dist/sw.js", () => {
     expect(await f.dispatch(req("/media/p/film.mp4", { headers: { range: "bytes=0-" } }))).toBe("pass");
     await f.dispatch(req("/media/p/sources.json"));
     expect(f.calls.at(-1)?.init).toEqual({ cache: "no-cache" });
+  });
+});
+
+describe("precacheList", () => {
+  it("is the start page, every build asset it names and the Latin fonts its stylesheets load, once each", () => {
+    const html = `<head><script type="module" crossorigin src="/assets/main-1.js"></script><link rel="modulepreload" crossorigin href="/assets/app-2.js"><link rel="stylesheet" crossorigin href="/assets/main-3.css"><link rel="manifest" href="/manifest.webmanifest" /><link rel="icon" href="data:x" /></head>`;
+    const css: Record<string, string> = { "/assets/main-3.css": `@font-face{src:url(/assets/inter-latin-400-normal-4.woff2) format("woff2")}@font-face{src:url("/assets/inter-latin-400-normal-4.woff2")}@font-face{src:url(/assets/inter-latin-ext-400-normal-5.woff2)}` };
+    expect(precacheList(html, (p: string) => css[p])).toEqual(["/", "/assets/main-1.js", "/assets/app-2.js", "/assets/main-3.css", "/assets/inter-latin-400-normal-4.woff2"]);
   });
 });

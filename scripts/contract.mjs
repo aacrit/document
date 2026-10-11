@@ -532,6 +532,17 @@ async function runCheck(check, baseUrl, originalBase = baseUrl) {
           return { label, pass: false, detail: [...problems, "does not parse as JSON"].join("; ") };
         }
         problems.push(...manifestProblems(doc));
+        // Every icon it names is served, as a PNG.
+        for (const icon of Array.isArray(doc?.icons) ? doc.icons : []) {
+          if (typeof icon?.src !== "string") {
+            problems.push("an icon with no src");
+            continue;
+          }
+          const r = await contractFetch(new URL(icon.src, target));
+          await r.arrayBuffer();
+          const t = (r.headers.get("content-type") ?? "").split(";")[0].trim();
+          if (r.status !== 200 || t !== "image/png") problems.push(`${icon.src} answered ${r.status} ${t || "with no type"}`);
+        }
         return { label, pass: problems.length === 0, detail: problems.length ? problems.join("; ") : undefined };
       }
       case "forbidden": {

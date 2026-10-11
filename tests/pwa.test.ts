@@ -8,7 +8,7 @@ import { inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { APP_DESCRIPTION, ICONS, TOUCH_ICON, appIcons, iconLayout, injectAppHead, manifest, parseLogomark, parsePath, readTokens } from "../scripts/lib/pwa.mjs";
 import { manifestProblems } from "../scripts/contract.mjs";
-import { installControls, runningInstalled, shouldRegister } from "../web/src/install";
+import { installControls, installNote, runningInstalled, shouldRegister } from "../web/src/install";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (f: string) => readFileSync(path.join(root, f), "utf8");
@@ -100,7 +100,7 @@ describe("the web app manifest", () => {
     expect(contract).toContain("path: /sw.js\n    expect: 200");
     const build = read("scripts/build.mjs");
     expect(build).toContain('writeFileSync(path.join(distDir, "manifest.webmanifest")');
-    expect(build).toContain('writeFileSync(path.join(distDir, "sw.js"), swSource(tag))');
+    expect(build).toContain('writeFileSync(path.join(distDir, "sw.js"), swSource(tag, precache))');
   });
 });
 
@@ -187,7 +187,7 @@ describe("every page's head", () => {
       expect(html, p).toContain('<button class="foot-install" type="button" id="install-app" hidden>Install the app</button>');
     }
     for (const p of ["web/index.html", "web/f/partition-of-india/index.html"]) {
-      expect(read(p), p).toMatch(/<p class="install-offer" id="install-offer" hidden><button class="btn quiet" type="button">.*<span>Install void document<\/span><\/button>/);
+      expect(read(p), p).toMatch(/<p class="install-offer" id="install-offer" hidden><button class="btn quiet" type="button">.*<span>Install void document<\/span><\/button><span class="m" id="install-note"><\/span><\/p>/);
     }
   });
 
@@ -224,7 +224,16 @@ describe("the install offer", () => {
     const app = read("web/src/app.ts");
     expect(app).toContain("event.preventDefault();");
     expect(app).not.toMatch(/sendEvent|reportCoreSuccess|fetch\(|localStorage|sessionStorage|indexedDB|document\.cookie/);
-    expect(app).toMatch(/film\.addEventListener\("play", watched/);
+    // After the film's end, never during it: no play listener feeds the offer.
     expect(app).toMatch(/film\.addEventListener\("ended", watched/);
+    expect(app).not.toMatch(/addEventListener\("play"/);
+  });
+
+  it("says how the app opens, true to the device: full screen from the home screen only on touch", () => {
+    expect(installNote((q) => q === "(pointer: coarse)")).toBe("Opens full screen from your home screen.");
+    expect(installNote(() => false)).toBe("Opens on its own, without the browser around it.");
+    for (const line of [installNote(() => true), installNote(() => false)]) expect(line).not.toMatch(/—/);
+    expect(read("web/src/app.ts")).toContain("note.textContent = installNote(media);");
+    for (const p of ["web/index.html", "web/f/partition-of-india/index.html"]) expect(read(p), p).toContain('<span class="m" id="install-note"></span>');
   });
 });
