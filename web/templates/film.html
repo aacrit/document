@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="build" content="__BUILD__" />
+    <meta name="description" content="{{description}}" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16'/%3E%3Ccircle cx='12' cy='12' r='4.2'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="../../../design/tokens.css" />
+    <link rel="stylesheet" href="../../src/house.css" />
+    <link rel="stylesheet" href="../../src/film.css" />
+    <title>{{title}} · void document</title>
+  </head>
+  <body>
+    <main>
+{{player}}
+
+      <div class="after-wrap">
+        <section class="after">
+          <div class="titlecard">
+            <p class="eyebrow">void document</p>
+            <h1 class="title">{{title}}</h1>
+            <p class="place">{{dates_html}}, told with the public record</p>
+            <p class="synopsis">{{synopsis_html}}</p>
+            <p class="note"><span id="derived-notes" hidden><span id="accounts"></span> </span>Every reading is word for word from its source, sometimes in part (marked <span class="num">...</span>). <span id="voice-note"></span> {{shows}} <span id="silent-note"></span></p>
+          </div>
+          <nav class="onward" aria-label="About this film">
+            <a href="/f/{{slug}}/sources/"><span class="t">Sources</span><span class="m">Every shot with its mark, archive and licence; every reading with its speaker and source</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 16 16 8M10 8h6v6" /></svg></a>
+            <a href="/f/{{slug}}/correct/"><span class="t">Correct something</span><span class="m">Tell us what the film gets wrong.</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 16 16 8M10 8h6v6" /></svg></a>
+{{related_onward}}
+          </nav>
+          <details class="drill" id="chapters" open hidden>
+            <summary><span class="t">Chapters</span><span class="s" id="chapters-count"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></summary>
+            <ol class="chapters" id="chapter-list"></ol>
+          </details>
+          <details class="drill" id="transcript-drill" hidden>
+            <summary><span class="t">Transcript</span><span class="s">English</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></summary>
+            <p class="lede"><span id="transcript-lede">The readings, word for word, each with its speaker.</span>{{review_note_after}}</p>
+            <ol class="transcript" id="transcript"></ol>
+          </details>
+        </section>
+      </div>
+    </main>
+    <footer class="house-foot">
+      <span>void document is part of void, with <a href="https://news.voidvision.org/" rel="noopener">void news</a> and <a href="https://news.voidvision.org/history/" rel="noopener">void history</a>.</span>
+      <span>Films are free to watch and licensed CC BY 4.0.</span>
+      <a href="/privacy">Privacy</a>
+    </footer>
+    <script type="module" src="../../src/film.ts"></script>
+  </body>
+</html>

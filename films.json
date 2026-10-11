@@ -1,0 +1,53 @@
+{
+  "$comment": "The film registry. scripts/lib/films.mjs checks it and writes every film's pages (web/f/<slug>/) and the home page from web/templates/; scripts/contract.mjs expands contract.yaml's films block from it. A live film is served and checked in full; a coming film is listed on the home page only, with no page and no media required. A caption track is offered only once its review is 'reviewed'.",
+  "v": 1,
+  "films": [
+    {
+      "slug": "partition-of-india",
+      "title": "The Partition of India",
+      "dates": "1946 to today",
+      "status": "live",
+      "order": 1,
+      "logline": "two midnights, a line, the roads, and those who stayed",
+      "synopsis": "Two nations were born in the same week of August 1947. On the night of 14 August, in Delhi, Nehru told the Constituent Assembly that not far from Delhi, big cities were ablaze. A narrator tells it as one story, with readings from the record: the clock, the line, the two midnights, the roads beside the canals, Delhi itself, and those who stayed.",
+      "content_note": "It tells of killing, abduction and flight.",
+      "shows": "This film shows no bodies or killing.",
+      "poster": "poster.jpg",
+      "legend": { "reconstructed": "archive 1947 upscaled", "drawn": "from a census table" },
+      "languages": {
+        "spoken": "en",
+        "captions": [
+          { "lang": "en", "name": "English", "kind": "captions", "review": "reviewed" },
+          { "lang": "hi", "name": "Hindi", "kind": "subtitles", "review": "in_review" },
+          { "lang": "ur", "name": "Urdu", "kind": "subtitles", "review": "in_review" }
+        ]
+      },
+      "related": [
+        {
+          "href": "https://news.voidvision.org/history/partition-of-india/",
+          "name": "The Partition of India, in sound",
+          "line": "Listen to void history's audio documentary on the Partition of India",
+          "where": "On void history, part of the void family."
+        }
+      ]
+    },
+    {
+      "slug": "smallpox-eradication",
+      "title": "Nought",
+      "dates": "1967 to 1980",
+      "status": "coming",
+      "order": 2,
+      "synopsis": "A number that had never been zero in human history was made zero, one case at a time.",
+      "poster": null,
+      "languages": {
+        "spoken": "en",
+        "captions": [
+          { "lang": "en", "name": "English", "kind": "captions", "review": "planned" },
+          { "lang": "bn", "name": "Bengali", "kind": "subtitles", "review": "planned" },
+          { "lang": "hi", "name": "Hindi", "kind": "subtitles", "review": "planned" }
+        ]
+      },
+      "related": []
+    }
+  ]
+}

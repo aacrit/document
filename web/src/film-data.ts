@@ -63,6 +63,8 @@ export interface Reading {
   /** Seconds the reading lasts, when the engine wrote it (dur_s, or end_s - start_s). */
   dur_s: number | null;
   gender: string | null;
+  /** The speaker's role (counters, counted, officials), when the film declares roles in its balance block. */
+  role?: string | null;
   text: string;
   credit: string;
 }
@@ -103,6 +105,15 @@ export interface FilmSources {
   trailer: { sha256: string; duration_s: number | null } | null;
   /** The narrator's voice credit ("Narrated by a computer voice"), when the film has narration and records it. */
   narrator: string | null;
+  /**
+   * Whose words the film weighs, and by what measure: the film's declared
+   * balance block, or the Partition film's own figures when its sources.json
+   * predates the block. null when a declared block is malformed: then the
+   * page shows no figures rather than the wrong ones.
+   */
+  balance: BalanceConfig | null;
+  /** The film's stated imagery rule, in plain sentences, when sources.json carries one. */
+  imagery: string[];
 }
 
 // ---- Parsing -------------------------------------------------------------
@@ -220,6 +231,7 @@ export function parseSources(json: unknown): FilmSources {
       start_s,
       dur_s: dur !== null && dur > 0 ? dur : null,
       gender: normaliseGender(r.gender, `reading ${str(r.id) ?? i}`),
+      role: str(r.role)?.toLowerCase() ?? null,
       text: str(r.text) ?? "",
       credit: str(r.credit) ?? "",
     };
@@ -251,6 +263,8 @@ export function parseSources(json: unknown): FilmSources {
     narration,
     narrator: narration.length && isObj(json.narrator) ? str(json.narrator.credit) : null,
     trailer: parseTrailer(json.trailer),
+    balance: json.balance === undefined || json.balance === null ? PARTITION_BALANCE : parseBalance(json.balance),
+    imagery: imagerySentences(json.imagery_rule),
   };
 }
 
@@ -484,15 +498,6 @@ export function stepChapter(list: Chapter[], t: number, dir: 1 | -1): Chapter | 
 
 // ---- Words: readings, transcript, the record's silences ------------------------
 
-export const SIDE_LABELS: Record<string, string> = {
-  britain: "Britain",
-  india: "India",
-  pakistan: "Pakistan",
-  bangladesh: "Bangladesh",
-  sikh: "Sikh",
-};
-export const SIDES = Object.keys(SIDE_LABELS);
-
 const LT_SUFFIX = /\s+·\s+(read by a computer voice|original recording)\s*$/;
 
 /** A reading's source, as its speaker's lower third names it (line 3 without its voice suffix). */
@@ -546,28 +551,134 @@ export interface Balance {
   from: "film";
   total_s: number;
   sides: SideBalance[];
+  /** Seconds by declared role, or null when the film declares no roles (or a reading's role is not one of them). */
+  roles: Shares[] | null;
+  /** Sides heard with fewer named speakers than the film's stated minimum (none when it states no minimum). */
+  speakersShort: { side: string; label: string; count: number }[];
   women: { seconds: number; share: number; names: { name: string; seconds: number }[] };
 }
 
-/** The share band each side should hold (GRAMMAR 6.5), and the floor for women's words. */
-export const SIDE_BAND = { min: 0.1, max: 0.35 };
-export const WOMEN_FLOOR = 0.3;
+/**
+ * A film's balance block (sources.json `balance`, written by the engine from
+ * the screenplay): the sides and roles its readings are weighed by, with the
+ * label each prints under, the share band each side should hold, the floor
+ * for women's words, and the fewest named speakers a side heard should have
+ * (GRAMMAR 6.4 and 6.5, as the film declares them).
+ */
+export interface BalanceConfig {
+  sides: { id: string; label: string; phrase: string }[];
+  roles: { id: string; label: string }[];
+  band: { min: number; max: number };
+  women_floor: number;
+  /** null: the film states no minimum, and the page prints none. */
+  named_speakers_min: number | null;
+}
+
+/**
+ * The Partition film's figures, as the site held them before films declared
+ * their own: its live sources.json has no balance block, and must keep
+ * rendering exactly as it did with no re-upload.
+ */
+export const PARTITION_BALANCE: BalanceConfig = {
+  sides: [
+    { id: "britain", label: "Britain", phrase: "Britain" },
+    { id: "india", label: "India", phrase: "India" },
+    { id: "pakistan", label: "Pakistan", phrase: "Pakistan" },
+    { id: "bangladesh", label: "Bangladesh", phrase: "Bangladesh" },
+    { id: "sikh", label: "Sikh", phrase: "the Sikh community" },
+  ],
+  roles: [],
+  band: { min: 0.1, max: 0.35 },
+  women_floor: 0.3,
+  named_speakers_min: null,
+};
+
+const BALANCE_ID = /^[a-z][a-z0-9_-]*$/;
+const shareOf = (x: unknown): number | null => {
+  const n = num(x);
+  return n !== null && n >= 0 && n <= 1 ? n : null;
+};
+
+function parseLabelled(list: unknown): { id: string; label: string; phrase: string }[] | null {
+  if (!Array.isArray(list)) return null;
+  const out: { id: string; label: string; phrase: string }[] = [];
+  for (const s of list) {
+    if (!isObj(s)) return null;
+    const id = str(s.id)?.toLowerCase();
+    const label = str(s.label);
+    if (!id || !BALANCE_ID.test(id) || !label || out.some((o) => o.id === id)) return null;
+    out.push({ id, label, phrase: str(s.phrase) ?? label });
+  }
+  return out;
+}
+
+/** Reads a declared balance block; null when anything in it is malformed (the page then prints no figures). */
+export function parseBalance(x: unknown): BalanceConfig | null {
+  if (!isObj(x)) return null;
+  const sides = parseLabelled(x.sides);
+  if (!sides || sides.length === 0) return null;
+  const roles = x.roles === undefined || x.roles === null ? [] : parseLabelled(x.roles);
+  if (!roles) return null;
+  const min = isObj(x.band) ? shareOf(x.band.min) : null;
+  const max = isObj(x.band) ? shareOf(x.band.max) : null;
+  const floor = shareOf(x.women_floor);
+  if (min === null || max === null || min > max || floor === null) return null;
+  let speakers: number | null = null;
+  if (x.named_speakers_min !== undefined && x.named_speakers_min !== null) {
+    speakers = num(x.named_speakers_min);
+    if (speakers === null || speakers < 0 || !Number.isInteger(speakers)) return null;
+  }
+  return { sides, roles: roles.map(({ id, label }) => ({ id, label })), band: { min, max }, women_floor: floor, named_speakers_min: speakers };
+}
+
+/** The label a side prints under (the declared one), or the side's own id when the film declares none. */
+export function sideLabel(config: BalanceConfig | null, side: string): string {
+  return (config ?? PARTITION_BALANCE).sides.find((s) => s.id === side)?.label ?? side;
+}
+
+/** "Accounts from Britain, India, Pakistan and the Sikh community.": the declared sides that have readings, in declared order. */
+export function accountsSentence(config: BalanceConfig | null, readings: Reading[]): string | null {
+  const names = (config ?? PARTITION_BALANCE).sides.filter((s) => readings.some((r) => r.side === s.id)).map((s) => s.phrase);
+  return names.length ? `Accounts from ${listWords(names)}.` : null;
+}
+
+export interface Shares {
+  id: string;
+  label: string;
+  seconds: number;
+  share: number;
+  speakers: string[];
+}
 
 /**
  * The balance computed from the film's readings, or null when sources.json
  * does not say how long each reading lasts, whose side it is, or whether it
- * is a woman's words: then the page says the figures are not available.
+ * is a woman's words: then the page says the figures are not available. The
+ * roles axis is measured only when the film declares roles, and is null when
+ * a reading has a role it does not declare.
  */
-export function computeBalance(readings: Reading[]): Balance | null {
-  if (readings.length === 0) return null;
-  if (readings.some((r) => r.dur_s === null || r.gender === null || !SIDES.includes(r.side))) return null;
+export function computeBalance(readings: Reading[], config: BalanceConfig | null = PARTITION_BALANCE): Balance | null {
+  if (!config || readings.length === 0) return null;
+  const ids = config.sides.map((s) => s.id);
+  if (readings.some((r) => r.dur_s === null || r.gender === null || !ids.includes(r.side))) return null;
   const total = readings.reduce((sum, r) => sum + (r.dur_s ?? 0), 0);
   if (total <= 0) return null;
-  const sides = SIDES.map((side) => {
-    const rs = readings.filter((r) => r.side === side);
+  const measure = (id: string, label: string, rs: Reading[]): Shares => {
     const seconds = rs.reduce((sum, r) => sum + (r.dur_s ?? 0), 0);
-    return { side, label: SIDE_LABELS[side], seconds, share: seconds / total, speakers: [...new Set(rs.map((r) => r.name))] };
+    return { id, label, seconds, share: seconds / total, speakers: [...new Set(rs.map((r) => r.name))] };
+  };
+  const sides = config.sides.map((s) => {
+    const m = measure(s.id, s.label, readings.filter((r) => r.side === s.id));
+    return { side: m.id, label: m.label, seconds: m.seconds, share: m.share, speakers: m.speakers };
   });
+  const roleIds = config.roles.map((r) => r.id);
+  const roles =
+    config.roles.length && readings.every((r) => r.role && roleIds.includes(r.role))
+      ? config.roles.map((role) => measure(role.id, role.label, readings.filter((r) => r.role === role.id)))
+      : null;
+  const min = config.named_speakers_min;
+  const named = (s: SideBalance) => s.speakers.filter(Boolean).length;
+  const speakersShort = min === null ? [] : sides.filter((s) => s.seconds > 0 && named(s) < min).map((s) => ({ side: s.side, label: s.label, count: named(s) }));
   const byWoman = new Map<string, number>();
   for (const r of readings) if (r.gender === "f") byWoman.set(r.name, (byWoman.get(r.name) ?? 0) + (r.dur_s ?? 0));
   const womenS = [...byWoman.values()].reduce((a, b) => a + b, 0);
@@ -575,6 +686,8 @@ export function computeBalance(readings: Reading[]): Balance | null {
     from: "film",
     total_s: total,
     sides,
+    roles,
+    speakersShort,
     women: { seconds: womenS, share: womenS / total, names: [...byWoman].map(([name, seconds]) => ({ name, seconds })) },
   };
 }
@@ -727,4 +840,32 @@ export function creditsLine(data: Pick<FilmSources, "shots" | "readings" | "lowe
 export function posterCredit(p: Poster): string {
   const who = [p.creator, p.date].filter(Boolean).join(", ");
   return [`${p.title}.`, who ? `${who}.` : "", [p.archive, /^public domain/i.test(p.licence) ? p.licence.toLowerCase() : p.licence].filter(Boolean).join(", ") + "."].filter(Boolean).join(" ");
+}
+
+// ---- The imagery rule (sources.json `imagery_rule`) ---------------------------------------
+
+/**
+ * The film's imagery rule in plain sentences, for its Sources page. The
+ * engine writes the rule from the screenplay (what a film shows is as its
+ * rule states, and the rule is on the Sources page). Stated sentences
+ * (`statement`, a string or a list) print first, as written; each known
+ * setting adds one sentence. Anything else in the block is ignored, never
+ * guessed at.
+ */
+export function imagerySentences(x: unknown): string[] {
+  if (!isObj(x)) return [];
+  const out: string[] = [];
+  const stated = typeof x.statement === "string" ? [x.statement] : Array.isArray(x.statement) ? x.statement : [];
+  for (const line of stated) if (typeof line === "string" && line.trim()) out.push(line.trim());
+  const subject = str(x.subject) ?? "the disease";
+  const show = x.show_disease ?? x.shows_disease;
+  if (show === true) out.push(`This film shows ${subject} as the photographs and films of the time record it.`);
+  if (show === false) out.push(`This film does not show ${subject}.`);
+  if (x.shows_bodies === false) out.push("It shows no bodies or killing.");
+  if (x.name_only_where_source_names === true) out.push("A person is named only where the source names them; anyone else is given the place and date of the picture.");
+  const hold = num(x.min_patient_hold_s);
+  if (hold !== null && hold > 0) out.push(`A photograph of a patient is held at least ${hold} s, never flashed.`);
+  if (x.no_detail_on_face === true) out.push("The camera never moves in close on a patient's face.");
+  if (x.no_dissolve_into_patient === true) out.push("A photograph of a patient never dissolves out of an unrelated picture.");
+  return out;
 }

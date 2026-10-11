@@ -4,8 +4,7 @@
 // is generated from the film's sources.json.
 import {
   MARK_CLASSES,
-  SIDE_BAND,
-  WOMEN_FLOOR,
+  PARTITION_BALANCE,
   computeBalance,
   cardTitle,
   chapterAt,
@@ -19,19 +18,20 @@ import {
   seekTime,
   shotTreatment,
   shotWhat,
+  sideLabel,
   silentRecord,
-  SIDE_LABELS,
   type Balance,
+  type BalanceConfig,
   type Chapter,
   type FilmSources,
   type MarkClass,
   type Shot,
 } from "./film-data";
-import { byId, el, filmPath, loadSources, markPlate, numerals } from "./site";
+import { byId, el, filmPath, loadSources, markPlate, numerals, slugOf } from "./site";
 import { countSourceOpens, sendEvent } from "./telemetry";
 
 const root = byId("sources-page");
-const SLUG = root.dataset.slug ?? "partition-of-india";
+const SLUG = slugOf(root);
 const FILM = filmPath(SLUG);
 let fps = 24;
 
@@ -121,7 +121,7 @@ function renderReadings(d: FilmSources, list: Chapter[]): void {
     }
     const flag = readingFlag(r, d.lowerThirds);
     const source = readingSource(r, d.lowerThirds);
-    const side = `${SIDE_LABELS[r.side] ?? r.side}${r.gender === "f" ? ", a woman's words" : ""}`;
+    const side = `${sideLabel(d.balance, r.side)}${r.gender === "f" ? ", a woman's words" : ""}`;
     ol.append(
       el(
         "li",
@@ -143,20 +143,35 @@ function renderReadings(d: FilmSources, list: Chapter[]): void {
   if (!d.readings.length) ol.append(el("li", {}, el("p", { class: "muted" }, "This film has no readings.")));
 }
 
-function bar(share: number, kind: "band" | "floor"): HTMLElement {
+function bar(share: number, kind: "band" | "floor" | "none", c: BalanceConfig): HTMLElement {
   const fill = el("i");
   fill.style.width = `${Math.min(100, share * 100)}%`;
+  if (kind === "none") return el("span", { class: "bar", "aria-hidden": "true" }, fill);
   const marker = el("b", { class: kind });
   if (kind === "band") {
-    marker.style.left = `${SIDE_BAND.min * 100}%`;
-    marker.style.width = `${(SIDE_BAND.max - SIDE_BAND.min) * 100}%`;
-  } else marker.style.left = `${WOMEN_FLOOR * 100}%`;
+    marker.style.left = `${c.band.min * 100}%`;
+    marker.style.width = `${(c.band.max - c.band.min) * 100}%`;
+  } else marker.style.left = `${c.women_floor * 100}%`;
   return el("span", { class: "bar", "aria-hidden": "true" }, fill, marker);
+}
+
+/** The film's imagery rule, stated in plain words beside the balance, when its sources.json carries one. */
+function renderImagery(d: FilmSources): void {
+  if (!d.imagery.length) return;
+  byId("balance").before(
+    el(
+      "section",
+      { class: "balance imagery", "aria-labelledby": "img-h", id: "imagery" },
+      el("h3", { id: "img-h" }, "What this film shows"),
+      ...d.imagery.map((line) => el("p", { class: "muted small" }, numerals(line))),
+    ),
+  );
 }
 
 /** "Whose words, and how long": only figures computed from this film's readings, or one plain sentence. */
 function renderBalance(d: FilmSources, b: Balance | null): void {
   const box = byId("balance");
+  const c = d.balance ?? PARTITION_BALANCE;
   if (!b) {
     box.append(el("p", { class: "muted small" }, "Balance figures are not available for this cut."));
     return;
@@ -167,21 +182,38 @@ function renderBalance(d: FilmSources, b: Balance | null): void {
       "p",
       { class: "muted small" },
       numerals(
-        `Seconds of readings by side: words read by a computer voice, and any archival recording; the narrator is not counted. All ${s(b.total_s)} are listed under Readings. Each side should hold ${pct(SIDE_BAND.min).replace(".0", "")} to ${pct(SIDE_BAND.max).replace(".0", "")}.`,
+        `Seconds of readings by side: words read by a computer voice, and any archival recording; the narrator is not counted. All ${s(b.total_s)} are listed under Readings. Each side should hold ${pct(c.band.min).replace(".0", "")} to ${pct(c.band.max).replace(".0", "")}.`,
       ),
     ),
   );
   const table = el("div", { class: "btable" });
   for (const side of b.sides) {
-    table.append(el("span", {}, side.label), bar(side.share, "band"), el("span", { class: "num small" }, `${s(side.seconds)} · ${pct(side.share)}`));
+    table.append(el("span", {}, side.label), bar(side.share, "band", c), el("span", { class: "num small" }, `${s(side.seconds)} · ${pct(side.share)}`));
   }
   box.append(table);
+  if (c.named_speakers_min !== null) {
+    const short = b.speakersShort.map((x) => `${x.label} ${x.count}`).join(", ");
+    box.append(
+      el(
+        "p",
+        { class: "muted small" },
+        numerals(`Each side heard should have at least ${c.named_speakers_min} named speakers.${short ? ` Fewer here: ${short}.` : ""}`),
+      ),
+    );
+  }
+  if (b.roles) {
+    const roles = el("div", { class: "btable" });
+    for (const role of b.roles) {
+      roles.append(el("span", {}, role.label), bar(role.share, "none", c), el("span", { class: "num small" }, `${s(role.seconds)} · ${pct(role.share)}`));
+    }
+    box.append(el("p", { class: "muted small" }, "Seconds of readings by role."), roles);
+  }
   box.append(
     el(
       "div",
       { class: "btable" },
       el("span", {}, "Women"),
-      bar(b.women.share, "floor"),
+      bar(b.women.share, "floor", c),
       el("span", { class: "num small" }, `${s(b.women.seconds)} · ${pct(b.women.share)}`),
     ),
   );
@@ -190,7 +222,7 @@ function renderBalance(d: FilmSources, b: Balance | null): void {
     el(
       "p",
       { class: "muted small" },
-      numerals(`Floor ${pct(WOMEN_FLOOR).replace(".0", "")}.${names ? ` ${names}.` : ""}${b.women.share < WOMEN_FLOOR ? " Short of the floor." : ""}`),
+      numerals(`Floor ${pct(c.women_floor).replace(".0", "")}.${names ? ` ${names}.` : ""}${b.women.share < c.women_floor ? " Short of the floor." : ""}`),
     ),
   );
   const silent = silentRecord(d.shots);
@@ -232,7 +264,8 @@ loadSources(SLUG)
     const list = chaptersOf(d);
     renderEntries(d, list);
     renderReadings(d, list);
-    renderBalance(d, computeBalance(d.readings));
+    renderImagery(d);
+    renderBalance(d, computeBalance(d.readings, d.balance));
     setupFilters(d);
     let target: HTMLElement | null = null;
     try {

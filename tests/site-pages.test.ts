@@ -11,7 +11,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (f: string) => readFileSync(path.join(root, f), "utf8");
 const pages = readdirSync(path.join(root, "web"), { recursive: true, encoding: "utf8" })
   .map((f) => `web/${f.split(path.sep).join("/")}`)
-  .filter((f) => f.endsWith(".html"));
+  // web/templates/ holds the page templates the build fills from films.json; the pages are what it writes.
+  .filter((f) => f.endsWith(".html") && !f.startsWith("web/templates/"));
 const PUBLIC = ["web/index.html", "web/f/partition-of-india/index.html", "web/f/partition-of-india/sources/index.html", "web/f/partition-of-india/correct/index.html"];
 const visible = (html: string) =>
   html
