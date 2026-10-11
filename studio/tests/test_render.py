@@ -2688,11 +2688,12 @@ def test_t1f_an_unsteady_floor_takes_the_denoise_only_path_and_passes_when_low()
     assert [e for e in lints(evs, "voice-clean") if e["unit"] == "LQ"][0]["status"] == "pass"
 
 
-def test_t1f_an_unsteady_take_with_hiss_in_its_pauses_refuses_without_the_gate_and_is_clean_with_it(monkeypatch):
-    """The hiss (-60 dBFS) drops to digital zero inside a pause: the floor's
-    median is zero, so the median of the floor frames that are not digital
-    silence, and the true pauses, are what voice-clean holds under -80.
-    Without the pause gate the take refuses; with it its pauses are clean."""
+def test_t1f_an_unsteady_take_with_hiss_in_its_pauses_refuses_without_the_gate_and_beside_its_words_with_it(monkeypatch):
+    """The hiss (-60 dBFS raw) drops to digital zero inside a pause. Without
+    the pause gate the take refuses on its true pauses. With it the true
+    pauses are clean (about -98 dBFS levelled), but the hiss the gate cannot
+    reach, beside the words, stays at about -58.5: over the beside-word
+    limit (-60), so it still refuses. A -70 dBFS hiss passes."""
     x = _spread_take(-60.0)
     with monkeypatch.context() as m:
         m.setattr(R, "CLEAN_PAUSE_GATE_DB", 0.0)
@@ -2700,9 +2701,12 @@ def test_t1f_an_unsteady_take_with_hiss_in_its_pauses_refuses_without_the_gate_a
     assert rep0["path"] == "denoise-only" and rep0["after"]["floor_dbfs"] < -200
     assert vc0["status"] == "fail" and any("voice-clean" in o and "denoise only" in o for o in out0)
     rep, out, vc, _ = _verdict(x, "spread-gate")
-    assert vc["status"] == "pass" and out == []
-    assert vc["evidence"]["true_pause_after_level_dbfs"] < R.CLEAN_FLOOR_MAX_DBFS
-    assert vc["evidence"]["loudest_pause_after_level_dbfs"] < R.CLEAN_FLOOR_MAX_DBFS
+    ev = vc["evidence"]
+    assert ev["true_pause_after_level_dbfs"] < R.CLEAN_FLOOR_MAX_DBFS and ev["loudest_pause_after_level_dbfs"] < R.CLEAN_FLOOR_MAX_DBFS
+    assert -62.0 < ev["beside_after_level_dbfs"] < R.CLEAN_BESIDE_MAX_DBFS + 3 and ev["beside_after_level_dbfs"] > R.CLEAN_BESIDE_MAX_DBFS
+    assert vc["status"] == "fail" and any("beside words" in o for o in out)
+    _, out70, vc70, _ = _verdict(_spread_take(-70.0), "spread-gate-70")
+    assert vc70["status"] == "pass" and out70 == [] and vc70["evidence"]["beside_after_level_dbfs"] < R.CLEAN_BESIDE_MAX_DBFS
 
 
 def test_t1f_a_steady_hiss_take_still_gets_the_expander():
@@ -2775,13 +2779,15 @@ def test_t1f_review_denoise_only_cannot_pass_hiss_in_the_pauses(monkeypatch, qui
     assert rep0["path"] == "denoise-only" and vc0["status"] == "fail"
     assert vc0["evidence"]["true_pause_after_level_dbfs"] > R.CLEAN_FLOOR_MAX_DBFS and any("true pauses" in o for o in out0)
     rep, out, vc, ch = _verdict(_one_quiet_stretch(burst_db, quiet_s), f"attack2-{quiet_s}-{-burst_db}")
-    assert vc["status"] == "pass"
     assert vc["evidence"]["true_pause_after_level_dbfs"] < R.CLEAN_FLOOR_MAX_DBFS
     assert vc["evidence"]["loudest_pause_after_level_dbfs"] < R.CLEAN_FLOOR_MAX_DBFS
     if burst_db == -55:
-        assert ch["status"] == "fail" and all("voice-chop" in o for o in out)
+        # the hiss is within 30 dB of the speech: beside the words it stays over the beside-word p90 limit, and in the
+        # pauses the gate would reach frames within 30 dB of the speech, which is refused
+        assert vc["status"] == "fail" and vc["evidence"]["beside_p90_after_level_dbfs"] > R.CLEAN_BESIDE_P90_MAX_DBFS
+        assert ch["status"] == "fail" and any("the pause gate reached" in o for o in out)
     else:
-        assert out == []
+        assert vc["status"] == "pass" and out == []
 
 
 @pytest.mark.parametrize("gaps", [6, 3, 1])
@@ -2799,9 +2805,14 @@ def test_t1f_review_hiss_in_every_pause_or_some_refuses_without_the_gate_and_is_
     assert vc0["evidence"]["loudest_pause_after_level_dbfs"] > R.CLEAN_FLOOR_MAX_DBFS
     if gaps == 6:
         assert vc0["evidence"]["true_pause_after_level_dbfs"] > R.CLEAN_FLOOR_MAX_DBFS
-    rep, out, vc, _ = _verdict(_hiss_in_pauses(burst_db, gaps), f"attack-{-burst_db}-{gaps}")
-    assert vc["status"] == "pass" and out == []
+    rep, out, vc, ch = _verdict(_hiss_in_pauses(burst_db, gaps), f"attack-{-burst_db}-{gaps}")
     assert vc["evidence"]["loudest_pause_after_level_dbfs"] < R.CLEAN_FLOOR_MAX_DBFS
+    if burst_db == -55 and gaps > 1:
+        # hiss within 30 dB of the speech fills the pauses: the gate would turn those frames down, which is refused
+        assert ch["status"] == "fail" and ch["evidence"]["gated_near_speech_frames"] > 0
+        assert out and all("the pause gate reached" in o for o in out)
+    else:
+        assert vc["status"] == "pass" and out == []
 
 
 def test_t1f_review_true_pauses_fall_back_to_the_floor_p90_when_there_are_too_few(film):
@@ -2903,3 +2914,38 @@ def test_t1f_archival_audio_is_never_gated(tmp_path):
     at = int(round(by["L2"]["at_s"] * 48000))
     assert np.array_equal(mix[at: at + len(raw)], raw[: len(mix) - at])
     assert not [e for e in J.read(j.path) if e.get("unit") == "L2" and "pause gate" in e.get("what", "")]
+
+
+def test_t1f_final_review_the_gate_may_not_reach_a_flat_fricative():
+    """The reviewer's rv_fricative.py: a word-final fricative 20 dB under the
+    speech, 400 ms, flat as noise. The flatness rule makes it a true pause
+    and the gate turns its end down 40 dB; a near-speech frame inside a
+    gated region is now refused (voice-chop)."""
+    rate = 48000
+    x, spans = _speechlike(seed=3, hiss_db=-90.0)
+    sp = R.voice_floor(x)["speech_dbfs"]
+    rng = np.random.default_rng(1)
+    a = spans[2][1] - int(0.10 * rate)
+    n = int(0.40 * rate)
+    x[a:a + n] += (rng.normal(0, 10 ** ((sp - 20) / 20), n) * np.minimum(1, np.arange(n) / (0.01 * rate))).astype(np.float32)
+    rep, out, vc, ch = _verdict(x, "rv-fricative")
+    assert rep["gated_near_speech_frames"] > 0
+    assert ch["status"] == "fail" and ch["evidence"]["gated_near_speech_frames"] == rep["gated_near_speech_frames"]
+    assert any("the pause gate reached" in o for o in out)
+
+
+def test_t1f_final_review_noise_beside_words_has_its_own_limit():
+    """The floor frames the gate cannot reach are judged on their own: median
+    under -60 and p90 under -55 dBFS as levelled, journaled per take."""
+    assert (R.CLEAN_BESIDE_MAX_DBFS, R.CLEAN_BESIDE_P90_MAX_DBFS) == (-60.0, -55.0)
+    x, _ = _speechlike(seed=6)
+    rep, out, vc, _ = _verdict(x, "beside-clean")
+    ev = vc["evidence"]
+    assert out == [] and ev["beside_frames"] > 0 and ev["beside_after_level_dbfs"] < R.CLEAN_BESIDE_MAX_DBFS
+    loud = dict(rep, beside_dbfs=rep["beside_dbfs"] + 60, beside_p90_dbfs=rep["beside_p90_dbfs"])
+    j = J.Journal(film="beside-loud")
+    g, _ = R.level_gain(R.clean_voice(x)[0], R.DIALOGUE_LUFS)
+    out2 = R._journal_clean(j, "LB", dict(loud, beside_dbfs=-58.0 - g), g)
+    assert any("beside words median -58.0" in o for o in out2)
+    out3 = R._journal_clean(J.Journal(film="beside-p90"), "LB", dict(rep, beside_p90_dbfs=-54.0 - g), g)
+    assert any("beside words" in o for o in out3)

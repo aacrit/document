@@ -1838,6 +1838,10 @@ CLEAN_NOISE_FLATNESS = 0.4          # a frame this spectrally flat (white noise 
 CLEAN_PAUSE_GATE_DB = 40.0          # T1f (CoS): the pause gate's fixed depth; a true pause is turned down this far, never up
 CLEAN_PAUSE_RAMP_S = 0.040          # its raised-cosine ramps, each inside the region; a region without at least one 20 ms
                                     # frame at full depth between its ramps (under 100 ms) is left as it is
+# T1f final review (CoS): noise beside words, the floor frames the pause gate cannot reach (within about 100 to 140 ms
+# of speech, where the word partly masks them; pre-masking is short, so the limit stays 40 dB under the -20 LUFS dialogue)
+CLEAN_BESIDE_MAX_DBFS = -60.0       # their median, cleaned and levelled
+CLEAN_BESIDE_P90_MAX_DBFS = -55.0   # and their p90
 CLEAN_SILENT_DBFS = -120.0          # a take's live span runs from its first to its last 20 ms frame over this; digital
                                     # silence padding a take's ends is outside it and never counts as floor or pause
 
@@ -2104,6 +2108,35 @@ def true_pauses(x: np.ndarray, y: np.ndarray, before: dict, live: np.ndarray, ga
             "speech_chop_share": round(float(np.sum(cut & judged)) / max(int(judged.sum()), 1), 4)}
 
 
+def beside_words(x: np.ndarray, y: np.ndarray, before: dict, tp: np.ndarray, gated: np.ndarray) -> dict:
+    """T1f final review (CoS): the noise beside words. The frames the pause
+    gate cannot reach, on the cleaned take: the floor frames (the raw take's
+    quietest 10%) and the true pauses too short to gate, outside the gated
+    regions and above digital silence. They lie within about 100 to 140 ms
+    of speech, where the word itself partly masks them; pre-masking is
+    short, so the limit stays strict, 40 dB under the -20 LUFS dialogue:
+    their median under CLEAN_BESIDE_MAX_DBFS (-60) and their p90 under
+    CLEAN_BESIDE_P90_MAX_DBFS (-55), as levelled. Also counts the
+    near-speech frames (within CLEAN_NEAR_SPEECH_DB of the speech level)
+    inside a gated region, which the gate must never touch."""
+    n = int(round(CLEAN_FRAME_S * AUDIO_RATE))
+    k = before["frames"]
+    px = (x[: k * n].astype(np.float64).reshape(k, n) ** 2).mean(axis=1)
+    py = (y[: k * n].astype(np.float64).reshape(k, n) ** 2).mean(axis=1)
+    short = np.zeros(k, bool)
+    for a, b in _runs(tp):
+        if not gated[a:b].any():
+            short[a:b] = True
+    sel = (before["_gaps"] | short) & ~gated & (py > 10 ** (CLEAN_SILENT_DBFS / 10))
+    near = px >= 10 ** ((before["speech_dbfs"] - CLEAN_NEAR_SPEECH_DB) / 10)
+    hit = np.flatnonzero(near & gated)
+    return {"beside_frames": int(sel.sum()),
+            "beside_dbfs": round(_db(float(np.median(py[sel]))), 2) if sel.any() else None,
+            "beside_p90_dbfs": round(_db(float(np.percentile(py[sel], 90))), 2) if sel.any() else None,
+            "gated_near_speech_frames": int(len(hit)),
+            "gated_near_speech_at_s": [round(float(i) * CLEAN_FRAME_S, 3) for i in hit[:20]]}
+
+
 def clean_voice(x: np.ndarray) -> tuple[np.ndarray, dict]:
     """A19: clean one synthetic voice line before levelling: measure its floor
     and speech, denoise, gate between words, and measure again on the same
@@ -2169,7 +2202,8 @@ def clean_voice(x: np.ndarray) -> tuple[np.ndarray, dict]:
     pg.update(true_pause_before_dbfs=pre["true_pause_dbfs"], loudest_pause_before_dbfs=pre["loudest_pause_dbfs"])
     after = voice_floor(y, before["_gaps"], before["_speech"], ref=x)
     tp = true_pauses(x, y, before, live, gated)
-    rep.update(cleaned=True, path=path, first_pass=first, denoise=den, gate=gate, pause_gate=pg, **st, **tp,
+    beside = beside_words(x, y, before, tp_mask, gated)
+    rep.update(cleaned=True, path=path, first_pass=first, denoise=den, gate=gate, pause_gate=pg, **st, **tp, **beside,
                pause_share=round(pause_share, 4), floor_spread_db=round(spread, 2),
                measure_ok=not (pause_why or spread_why), measure_why=pause_why + spread_why,
                pause_why=pause_why, spread_why=spread_why,
@@ -2260,6 +2294,9 @@ def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, 
     # T1f (CoS): the loudest true pause long enough to gate, at the gate's full depth, as levelled
     loudest = None if rep.get("loudest_pause_dbfs") is None else round(rep["loudest_pause_dbfs"] + lift, 2)
     loudest_ok = loudest is None or loudest < CLEAN_FLOOR_MAX_DBFS
+    bes = None if rep.get("beside_dbfs") is None else round(rep["beside_dbfs"] + lift, 2)
+    bes90 = None if rep.get("beside_p90_dbfs") is None else round(rep["beside_p90_dbfs"] + lift, 2)
+    beside_ok = (bes is None or bes < CLEAN_BESIDE_MAX_DBFS) and (bes90 is None or bes90 < CLEAN_BESIDE_P90_MAX_DBFS)
     pg = rep.get("pause_gate") or {}
     journal.decision("assembly", f"{unit} pause gate: {pg.get('regions', 0)} true pauses, {pg.get('gated_s', 0):g} s, "
                      f"turned down {pg.get('depth_db', CLEAN_PAUSE_GATE_DB):g} dB",
@@ -2271,7 +2308,7 @@ def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, 
                                    short_note="true pauses under 100 ms are left as they are and journaled, not judged"))
     out = []
     ok = (floor_levelled is not None and floor_levelled < CLEAN_FLOOR_MAX_DBFS and abs(rep["speech_change_db"]) <= CLEAN_SPEECH_TOL_DB
-          and (heard is None or heard < CLEAN_FLOOR_MAX_DBFS) and pause_ok and loudest_ok)
+          and pause_ok and loudest_ok and beside_ok)
     journal.lint("voice-clean", ok, stage="assembly", phase="preflight", unit=unit, severity=sev, grammar="A19, T1f",
                  evidence={"measure": "median power of the raw take's quietest 10% of 20 ms frames, on the cleaned and "
                                       "levelled line, and of its true pauses (live frames 100 ms or more from any frame within "
@@ -2282,6 +2319,13 @@ def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, 
                            "true_pause_after_level_dbfs": pause_lvl, "true_pause_frames": rep.get("true_pause_frames"),
                            "true_pause_fallback_p90": fallback,
                            "loudest_pause_after_level_dbfs": loudest, "loudest_pause_at_s": rep.get("loudest_pause_at_s"),
+                           "beside_after_level_dbfs": bes, "beside_p90_after_level_dbfs": bes90,
+                           "beside_frames": rep.get("beside_frames"), "beside_max_dbfs": CLEAN_BESIDE_MAX_DBFS,
+                           "beside_p90_max_dbfs": CLEAN_BESIDE_P90_MAX_DBFS,
+                           "beside_note": "floor frames and short true pauses the gate cannot reach, outside the gated regions "
+                                          "and above digital silence, on the cleaned take: within about 140 ms of speech, partly "
+                                          "masked by it; 40 dB under the -20 LUFS dialogue",
+                           "heard_note": "the floor frames that are not digital silence are judged by the beside-word limit",
                            "true_pause_p90_after_level_dbfs": None if rep.get("true_pause_p90_dbfs") is None else
                            round(rep["true_pause_p90_dbfs"] + lift, 2),
                            "speech_change_db": rep["speech_change_db"], "tolerance_db": CLEAN_SPEECH_TOL_DB,
@@ -2292,15 +2336,19 @@ def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, 
                    + (f", true pauses {pause_lvl} dBFS" + (" (floor p90, too few true pauses)" if fallback else "")
                       if not pause_ok else "")
                    + (f", loudest true pause {loudest} dBFS at {rep.get('loudest_pause_at_s')} s" if not loudest_ok else "")
+                   + (f", beside words median {bes} p90 {bes90} dBFS (limits {CLEAN_BESIDE_MAX_DBFS:g}, "
+                      f"{CLEAN_BESIDE_P90_MAX_DBFS:g})" if not beside_ok else "")
                    + f", speech {rep['speech_change_db']:+.2f} dB{', denoise only' if denoise_only else ''})")
     pause_why = rep.get("pause_why", [])
     sc = rep.get("speech_chop_share", 0.0)
     chop_bad = sc > CLEAN_CHOP_MAX_SHARE
-    chop_ok = not pause_why and not chop_bad
+    gated_near = rep.get("gated_near_speech_frames", 0)
+    chop_ok = not pause_why and not chop_bad and not gated_near
     journal.lint("voice-chop", chop_ok, stage="assembly", phase="preflight", unit=unit, severity=sev, grammar="A19, T1f",
                  evidence={"path": rep.get("path", "expander"),
                            "measure": "frames within 30 dB of the take's speech level cut by more than 3 dB, at most 2%",
                            "speech_chop_share": sc, "near_speech_frames": rep.get("near_speech_frames"),
+                           "gated_near_speech_frames": gated_near, "gated_near_speech_at_s": rep.get("gated_near_speech_at_s"),
                            "near_speech_cut": rep.get("near_speech_cut"), "max_share": CLEAN_CHOP_MAX_SHARE,
                            "floor_referenced": {"note": "frames 6 dB or more over the raw floor cut by over 3 dB; journaled, not limited",
                                                 "chopped": rep["chopped_audible"], "frames": rep["audible_frames"],
@@ -2317,6 +2365,9 @@ def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, 
     if chop_bad:
         out.append(f"{unit} (voice-chop: {rep.get('near_speech_cut')} of {rep.get('near_speech_frames')} frames within "
                    f"{CLEAN_NEAR_SPEECH_DB:g} dB of the speech cut over {CLEAN_CHOP_CUT_DB:g} dB)")
+    if gated_near:
+        out.append(f"{unit} (voice-chop: the pause gate reached {gated_near} frames within {CLEAN_NEAR_SPEECH_DB:g} dB of "
+                   f"the speech, at {rep.get('gated_near_speech_at_s')} s)")
     for w in pause_why:
         out.append(f"{unit} (voice-chop: {w})")
     return out if not draft else []
