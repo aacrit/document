@@ -298,7 +298,7 @@ Correction to 11c (2026-10-11, E15 review of 5a9ee29; append-only): in the dip r
 | Missing glyphs | a character the face has no glyph for (FreeType would draw an empty box) is refused wherever text is drawn, maps and count cards included |
 | Credits roll | the roll's constant speed is unchanged; the credits shot lasts until the last line has been fully on screen 2 s, or the render refuses |
 
-## 12. The mark, calmer (2026-10-11, founder; R2, GRAMMAR A29)
+## 12. The mark, calmer (2026-10-11, founder; R2, GRAMMAR A31)
 
 Appended; sections 5 and 11 to 11c keep their text and are read with this. Where they conflict, this section wins. The founder: the label "takes too much attention ... shouldn't be jarring"; it moves down, comes only when it says something new, and a key teaches the colours once. `motion.py` implements every number below (`LABEL`, `LABEL_MIN_X`, `MARK_ZONE`, `MARK_GLYPH_ZONE`, `label_plan`, `KEY`, `mark_key_frame`).
 
@@ -333,12 +333,13 @@ The YouTube branding watermark (section 3, "On YouTube") is withdrawn: YouTube d
 
 ### The key card: "What the marks mean"
 
-A card (`card: mark_key`, CARD, true black, `text: []`) that teaches the glyphs once. The engine draws it from the class table, never from typed words or colours: each picture class's glyph (`GLYPH_SHAPE`, `MARK_HUE`) with its word (`CLASS_WORD`), in the order Archive, Reconstructed, Drawn, AI-generated, so the two cold blues sit side by side and differ by shape.
+A card (`card: mark_key`, CARD, true black, `text: []`) that teaches the glyphs once. The engine draws it from the plan and the class table, never from typed words or colours: the glyph (`GLYPH_SHAPE`, `MARK_HUE`) and word (`CLASS_WORD`) of each picture class the film's shots use, and only those (`key_classes`, CoS 2026-10-11: a class shown in the key could imply the film has it), in the order Archive, Reconstructed, Drawn, AI-generated, so two cold blues, when both are used, sit side by side and differ by shape. A film with no AI-GENERATED shot gets one more line beneath the rows, `No picture in this film is AI-generated.` (`KEY_NO_AI`), derived from the plan; adding an AI-GENERATED shot removes the line and adds the class.
 
 | | Value | 1080p | 720p |
 |---|---|---|---|
 | Heading | `What the marks mean`, Fraunces 300 at 4.0% of height (the statement card's size), bone, centred | 43 px | 29 px |
 | Rows | the glyph at 1.7% of height, 0.6 em, then the word in Inter 400 at 2.6% (the statement card's second size) in `--mark-text`; a column centred on the frame, rows 5.2% of height apart, the first 4.8% under the heading | 18 / 28 px | 12 / 19 px |
+| No-AI line | Inter 400 at 2.6% in `--mark-text` at 0.8 (a statement card's later lines), centred, 1.4 row pitches under the last row; it arrives on `whisper` one stagger after the last row | 28 px | 19 px |
 | Block | centred vertically, inside the statement card's safe band (10% to 90%) and measure (76%); every glyph present or the card is refused (E15) | | |
 | In | the heading on `settle`, rising 0.6% of height; from +0.25 s each row on `whisper`, 4 frames apart, rising 0.35% | | |
 | Out | everything let go together over 0.75 s; nothing moves | | |

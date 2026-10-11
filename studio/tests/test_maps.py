@@ -169,7 +169,7 @@ def _bottom_right_spec(text):
 
 
 def test_text_never_enters_the_mark_glyph_zone():
-    """A29: the class glyph sits bottom right on every frame; map text that
+    """A31: the class glyph sits bottom right on every frame; map text that
     would lie under it is refused (the label beside it only warns)."""
     with pytest.raises(maps.MapRefused, match="mark zone"):
         maps.render_map(_bottom_right_spec("Under the class glyph in the corner"), GEO)
@@ -180,7 +180,7 @@ def test_text_never_enters_the_mark_glyph_zone():
 def test_the_g2_mark_corner_is_free_for_map_text():
     s = spec()
     s["labels"].append({"text": "Where the plate was", "style": "note", "lon": 9.6, "lat": 14.1})
-    maps.render_map(s, GEO)                                         # A29: the mark left the top left
+    maps.render_map(s, GEO)                                         # A31: the mark left the top left
 
 
 def test_text_never_enters_the_watermark_zone():

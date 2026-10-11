@@ -1,4 +1,4 @@
-"""R2 (A29, BRAND-KIT 12): the provenance mark bottom right, smaller and
+"""R2 (A31, BRAND-KIT 12): the provenance mark bottom right, smaller and
 fainter; the label only on a change of class or year; AI-GENERATED always
 labelled; the label-rate lint; the mark key card and its lint."""
 
@@ -141,7 +141,7 @@ def test_ai_generated_is_labelled_whenever_it_is_on_screen():
 
 @pytest.mark.parametrize("W, H", SIZES)
 def test_the_glyph_shape_check_holds_at_the_new_position_with_the_label_up(W, H):
-    """The bare-pixel probe method at A29's position, with the label at rest
+    """The bare-pixel probe method at A31's position, with the label at rest
     and at its first frame (nearest the glyph): a correct frame passes over any
     picture and the wrong shape at the same hue fails."""
     plan = {"W": W, "H": H}
@@ -261,8 +261,68 @@ def test_a_key_card_draws_no_typed_text_and_is_laid_out_at_plan_time(plan):
         img = pics.card(dict(s, _card="mark_key", _dur=5.0), 2.0)
     finally:
         pics.close()
-    want = M.mark_key_frame(Image.new("RGB", (plan["W"], plan["H"])), 2.0, start=0.0, end=5.0, fonts=M.Fonts())
+    assert plan["key_classes"] == ["DRAWN"]                                     # the fixture's picture shots are all DRAWN
+    want = M.mark_key_frame(Image.new("RGB", (plan["W"], plan["H"])), 2.0, start=0.0, end=5.0, fonts=M.Fonts(),
+                            classes=("DRAWN",))
     assert np.array_equal(np.asarray(img), np.asarray(want.convert("RGB")))
+
+
+# --------------------------------------------------------------------------
+# The key shows only the film's classes (CoS 2026-10-11), both directions
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("W, H", SIZES)
+def test_a_film_without_ai_shows_its_classes_and_says_none_is_ai_generated(W, H):
+    L = M.Layout(W, H)
+    marks = [{"cls": "CARD"}, {"cls": "ARCHIVE"}, {"cls": "DRAWN"}, {"cls": "ARCHIVE"}]
+    used = M.key_classes(marks)
+    assert used == ("ARCHIVE", "DRAWN")                                         # only what the film uses, in key order
+    lay = M.mark_key_layout(L, FONTS, used)
+    assert M.mark_key_drawn_text(lay) == ["What the marks mean", "Archive", "Drawn",
+                                          "No picture in this film is AI-generated."]
+    assert lay["note"]["text"] == M.KEY_NO_AI and 0.10 * H <= lay["top"] and lay["bottom"] <= 0.90 * H
+    assert lay["note"]["x"] >= L.w(50 - M.KEY["max_w"] / 2) and lay["note"]["baseline"] > lay["rows"][-1]["baseline"]
+    arr = np.asarray(M.mark_key_frame(Image.new("RGB", (W, H)), 4.0, start=0.0, end=5.0, fonts=FONTS,
+                                      classes=used).convert("RGB")).astype(int)
+    n = lay["note"]
+    band = arr[int(n["baseline"] - 0.8 * L.px(M.KEY["word"])):int(n["baseline"]) + 2, int(n["x"]):int(n["x"] + n["w"])]
+    assert band.max() > 150                                                     # the line is drawn
+    for r in lay["rows"]:
+        gx, gy, d = r["glyph"]
+        assert tuple(arr[gy + d // 2, gx + d // 2]) == M.MARK_HUE[r["cls"]]
+    assert not any(r["cls"] in ("RECONSTRUCTED", "AI-GENERATED") for r in lay["rows"])
+
+
+@pytest.mark.parametrize("W, H", SIZES)
+def test_a_film_that_adds_an_ai_shot_loses_the_line_and_gains_the_class(W, H):
+    L = M.Layout(W, H)
+    before = M.key_classes([{"cls": "ARCHIVE"}, {"cls": "DRAWN"}])
+    after = M.key_classes([{"cls": "ARCHIVE"}, {"cls": "DRAWN"}, {"cls": "AI-GENERATED"}])
+    assert "AI-GENERATED" not in before and after == ("ARCHIVE", "DRAWN", "AI-GENERATED")
+    lb, la = M.mark_key_layout(L, FONTS, before), M.mark_key_layout(L, FONTS, after)
+    assert lb["note"] is not None and la["note"] is None
+    assert M.mark_key_drawn_text(la) == ["What the marks mean", "Archive", "Drawn", "AI-generated"]
+    assert M.KEY_NO_AI not in M.mark_key_drawn_text(la)
+    arr = np.asarray(M.mark_key_frame(Image.new("RGB", (W, H)), 4.0, start=0.0, end=5.0, fonts=FONTS,
+                                      classes=after).convert("RGB")).astype(int)
+    gx, gy, d = la["rows"][-1]["glyph"]
+    assert tuple(arr[gy + d // 2, gx + d // 2]) == M.MARK_HUE["AI-GENERATED"]
+    assert not arr[int(la["bottom"]) + 4:].any()                                # nothing drawn below the last row
+
+
+def test_the_plan_derives_the_key_and_its_segment_follows_it(plan):
+    assert plan["key_classes"] == list(M.key_classes(plan["shots"])) == ["DRAWN"]
+    shots = [dict(s) for s in plan["shots"]]
+    k = next(i for i, s in enumerate(shots) if s["kind"] == "card")
+    shots[k] = dict(shots[k], _card="mark_key", text=[])
+    p1 = dict(plan, shots=shots)
+    p2 = dict(p1, key_classes=["DRAWN", "AI-GENERATED"])
+    assert R.shot_key(p1, k, {}) != R.shot_key(p2, k, {})                       # a new class re-renders the key card
+    other = next(i for i, s in enumerate(shots) if s["kind"] != "card")
+    assert R.shot_key(p1, other, {}) == R.shot_key(p2, other, {})              # and nothing else
+    c1 = R.card_text_check(shots[k], plan["W"], plan["H"], key_classes=("DRAWN",))
+    assert c1["fits"] and c1["missing"] == []
 
 
 # --------------------------------------------------------------------------

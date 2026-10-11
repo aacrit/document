@@ -220,11 +220,11 @@ LABEL = {
 }
 SIZES = dict(point_label=1.85, point_label_key=2.6, point_sub=1.75, title=2.9, legend=1.7,
              note=1.55, source=1.5, figure_sub=2.3)   # figure_sub: a data figure's numeral, 1.3x a sub-line
-# Zones (fractions of the frame) no map text may enter: the class glyph, which is on every frame (A29: bottom right;
+# Zones (fractions of the frame) no map text may enter: the class glyph, which is on every frame (A31: bottom right;
 # the G2 plate's top-left zone is free since the mark left it), and the watermark.
 FORBIDDEN = {"mark": M.MARK_GLYPH_ZONE, "watermark": (0.88, 0.0, 1.0, 0.12)}
 # Zones the film's own text may cover for a few seconds: labels there are warned. The provenance label surfaces
-# for about 2 s on a change of class or year (A29).
+# for about 2 s on a change of class or year (A31).
 COVERED = {"lower_third": (0.04, 0.75, 0.60, 0.93), "overlay": (0.60, 0.84, 0.96, 0.93),
            "subtitle": (0.08, 0.80, 0.92, 0.93), "label": M.MARK_ZONE}
 PANEL = dict(x=0.715, w=0.245, top=0.15, bottom=0.80, wash_from=0.64, wash_full=0.70, wash_alpha=0.82)

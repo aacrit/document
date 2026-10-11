@@ -540,7 +540,7 @@ def test_a_character_with_no_glyph_is_refused_never_drawn_as_a_box():
         M.label_check(L1080, "Archive · गाँव", FONTS)
 
 
-def test_a29_a_provenance_label_that_reaches_the_lower_third_measure_is_refused():
+def test_a31_a_provenance_label_that_reaches_the_lower_third_measure_is_refused():
     assert M.label_check(L1080, "Reconstructed · 1946 · colour cast removed", FONTS) > 0
     with pytest.raises(M.TextOverflow, match="provenance label"):
         M.label_check(L1080, "Reconstructed · 1946 · " + ", ".join(["colour cast removed"] * 6), FONTS)
