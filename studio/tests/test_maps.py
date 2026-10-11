@@ -158,11 +158,29 @@ def test_an_unknown_style_is_refused():
         maps.render_map(s, GEO)
 
 
-def test_text_never_enters_the_mark_plate_zone():
-    s = spec()
-    s["labels"].append({"text": "In the mark zone", "style": "note", "lon": 9.6, "lat": 14.1})
+def _bottom_right_spec(text):
+    s = copy.deepcopy(spec())
+    for k in ("legend", "notes"):
+        s.pop(k)
+    s["show_title"] = False
+    s["frame"] = [0.04, 0.08, 0.98, 0.99]
+    s["labels"].append({"text": text, "style": "note", "lon": 14.8, "lat": 10.0, "align": "l"})
+    return s
+
+
+def test_text_never_enters_the_mark_glyph_zone():
+    """A31: the class glyph sits bottom right on every frame; map text that
+    would lie under it is refused (the label beside it only warns)."""
     with pytest.raises(maps.MapRefused, match="mark zone"):
-        maps.render_map(s, GEO)
+        maps.render_map(_bottom_right_spec("Under the class glyph in the corner"), GEO)
+    _, info = maps.render_map(_bottom_right_spec("Under the class glyph"), GEO)
+    assert "'Under the class glyph' sits in the label zone" in info["warnings"]
+
+
+def test_the_g2_mark_corner_is_free_for_map_text():
+    s = spec()
+    s["labels"].append({"text": "Where the plate was", "style": "note", "lon": 9.6, "lat": 14.1})
+    maps.render_map(s, GEO)                                         # A31: the mark left the top left
 
 
 def test_text_never_enters_the_watermark_zone():

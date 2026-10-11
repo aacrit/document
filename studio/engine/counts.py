@@ -246,6 +246,7 @@ def render_card(card: dict, data_root, *, fonts: M.Fonts | None = None,
     at = MP.source_at(card)
     cv.text((at["x"] * W * SS, at["baseline"] * H * SS), src, "structure",
             MP.SIZES["source"], "muted", halo=False, kind="source")
+    warnings = []
     for b in cv.boxes:
         bx = b["box"]
         if bx[0] < 0 or bx[1] < 0 or bx[2] > W or bx[3] > H:
@@ -255,10 +256,15 @@ def render_card(card: dict, data_root, *, fonts: M.Fonts | None = None,
         for name, z in MP.FORBIDDEN.items():
             if MP._intersects(bx, MP._zone(z)):
                 raise MapRefused(f"{card['id']}: text {b['text']!r} enters the {name} zone")
+        if b["kind"] != "source":                   # A31, as maps: the film's own text may cover these for a few seconds
+            for name, z in MP.COVERED.items():
+                if MP._intersects(bx, MP._zone(z)):
+                    warnings.append(f"{b['text']!r} sits in the {name} zone")
     if cv.boxes[-1]["box"][2] > 0.96 * W:
         raise MapRefused(f"{card['id']}: the source line is wider than the frame's safe width")
+    MP.source_clear_of_label(card["id"], cv.boxes[-1], W, H)
     img = cv.img.resize((W, H), Image.LANCZOS).convert("RGB")
-    return img, {"id": card["id"], "source_line": src, "boxes": cv.boxes, "geodata": {}, "warnings": [],
+    return img, {"id": card["id"], "source_line": src, "boxes": cv.boxes, "geodata": {}, "warnings": warnings,
                  "size": [W, H], "data": [], "cites": resolved}
 
 

@@ -723,3 +723,21 @@ def test_the_engine_states_a_drawn_frames_content_flags_for_every_film(root):
         assert checks["content-flags"] and checks["no-bodies"] and checks["imagery-rule"]
         bare = {k: v for k, v in item.items() if k != "named_patient"}
         assert not {c["rule"]: c["ok"] for c in policy.asset_checks(bare, rule)}["content-flags"]
+
+
+# ---------------------------------------------------------------- A31: the mark's zones on a count card
+
+def test_a_count_card_warns_for_text_in_a_zone_the_films_own_text_covers(root, monkeypatch):
+    _, info = maps.render_map(card(root), root, data_root=root)
+    assert info["warnings"] == []                                   # the card's own layout stays clear
+    monkeypatch.setitem(maps.COVERED, "test", (0.30, 0.30, 0.70, 0.80))
+    _, info = maps.render_map(card(root), root, data_root=root)
+    assert any("sits in the test zone" in w for w in info["warnings"])
+
+
+def test_a_source_line_under_the_provenance_label_is_refused():
+    W, H = 1920, 1080
+    y0, y1 = 0.929 * H, 0.944 * H                                   # film 2's source line at its 0.94 baseline
+    maps.source_clear_of_label("D1", {"box": (0.05 * W, y0, 0.59 * W, y1)}, W, H)
+    with pytest.raises(maps.MapRefused, match="provenance label's zone"):
+        maps.source_clear_of_label("D1", {"box": (0.05 * W, y0, 0.62 * W, y1)}, W, H)

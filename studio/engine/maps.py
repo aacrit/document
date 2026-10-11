@@ -220,13 +220,25 @@ LABEL = {
 }
 SIZES = dict(point_label=1.85, point_label_key=2.6, point_sub=1.75, title=2.9, legend=1.7,
              note=1.55, source=1.5, figure_sub=2.3)   # figure_sub: a data figure's numeral, 1.3x a sub-line
-# Zones (fractions of the frame) no map text may enter: the mark plate and the watermark.
-FORBIDDEN = {"mark": (0.0, 0.0, 0.30, 0.20), "watermark": (0.88, 0.0, 1.0, 0.12)}
-# Zones the film's own text may cover for a few seconds: labels there are warned.
+# Zones (fractions of the frame) no map text may enter: the class glyph, which is on every frame (A31: bottom right;
+# the G2 plate's top-left zone is free since the mark left it), and the watermark.
+FORBIDDEN = {"mark": M.MARK_GLYPH_ZONE, "watermark": (0.88, 0.0, 1.0, 0.12)}
+# Zones the film's own text may cover for a few seconds: labels there are warned. The provenance label surfaces
+# for about 2 s on a change of class or year (A31).
 COVERED = {"lower_third": (0.04, 0.75, 0.60, 0.93), "overlay": (0.60, 0.84, 0.96, 0.93),
-           "subtitle": (0.08, 0.80, 0.92, 0.93)}
+           "subtitle": (0.08, 0.80, 0.92, 0.93), "label": M.MARK_ZONE}
 PANEL = dict(x=0.715, w=0.245, top=0.15, bottom=0.80, wash_from=0.64, wash_full=0.70, wash_alpha=0.82)
 SOURCE_LINE = dict(x=0.04, baseline=0.972)   # film 1's frames; a spec may set `source_at` (film 2: 0.05, 0.94)
+
+
+def source_clear_of_label(fid: str, box: dict, W: int, H: int) -> None:
+    """A31: the frame's source line never runs under the provenance label's
+    zone (bottom right, from 60% of the width), where the label surfaces over
+    it; film 2's source line sits at a 0.94 baseline, in the label's band."""
+    if _intersects(box["box"], _zone(M.MARK_ZONE)):
+        raise MapRefused(f"{fid}: the source line runs into the provenance label's zone (from "
+                         f"{M.LABEL_MIN_X:g}% of the width, {100 * M.MARK_ZONE[1]:g}% to {100 * M.MARK_ZONE[3]:g}% of the "
+                         f"height): shorten it to end before {M.LABEL_MIN_X:g}% of the width")
 
 
 def source_at(spec: dict) -> dict:
@@ -1831,6 +1843,7 @@ def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
             "muted", halo=True, kind="source")
     if cv.boxes[-1]["box"][2] > 0.96 * W:
         raise MapRefused(f"{spec['id']}: the source line is wider than the frame's safe width")
+    source_clear_of_label(spec["id"], cv.boxes[-1], W, H)
     warnings = []
     for b in cv.boxes:
         bx = b["box"]
