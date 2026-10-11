@@ -296,3 +296,176 @@ def test_check_specs_checks_count_cards_against_their_data(root, tmp_path):
     assert len(problems) == 1 and problems[0].startswith("C2.json")
     (tmp_path / "M1.json").write_text(json.dumps(world_map(root, 1972)), encoding="utf-8")
     assert any("1972" in p for p in maps.check_specs(tmp_path, root, root))
+
+
+# ---------------------------------------------------------------- review of d05870c (probes A to K)
+
+HISTORY2 = ("about 1.5 million died in 1975\n"
+            "there was no one left in 1975\n"
+            "In 1975 one outbreak was found.\n"
+            "only one appearance since then\n"
+            "Hansard, 8 December 1975\n")
+
+
+@pytest.fixture()
+def hroot(root, tmp_path):
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "h.txt").write_text(HISTORY2, encoding="utf-8")
+    return tmp_path
+
+
+def hq(hroot, line, quote, lines=1):
+    return {"text": "data/h.txt", "sha256": sha(hroot, "data/h.txt"), "licence": "public domain", "source": TXT,
+            "line": line, "lines": lines, "quote": quote}
+
+
+def qcard(hroot, numeral, cite, **kw):
+    return {"id": "Q", "kind": "count_card", "year": "1975", "numeral": numeral, "caption": "outbreaks",
+            "cite": cite, "source_short": "Fixture history", "sources": [{"id": TXT, "licence": "public domain"}], **kw}
+
+
+def test_probe_a_the_year_must_stand_in_the_numerals_own_quote(hroot):
+    assert counts.check_card(qcard(hroot, "1", hq(hroot, 3, "In 1975 one outbreak was found")), hroot)
+    c = qcard(hroot, "1", hq(hroot, 4, "only one appearance"))
+    with pytest.raises(maps.MapRefused, match="quoted span does not print it"):
+        counts.check_card(c, hroot)
+    with pytest.raises(maps.MapRefused, match="year_cites are not accepted"):
+        counts.check_card({**c, "year_cites": [hq(hroot, 5, "8 December 1975")]}, hroot)
+
+
+def test_probe_b_a_cells_year_is_its_own_rows_year(root):
+    c = card(root, year="1971")
+    with pytest.raises(maps.MapRefused, match="cited row is 1970"):
+        counts.check_card(c, root)
+    with pytest.raises(maps.MapRefused, match="year_cites"):
+        counts.check_card({**c, "year_cites": [cell(root, "World", 1971)]}, root)
+
+
+def test_probe_k_every_lines_year_is_the_cards_year(root):
+    ln = {"text": "Alpha, {n}", "numeral": "0", "cite": cell(root, "Alpha", 1971)}
+    with pytest.raises(maps.MapRefused, match=r"lines\[0\] is cited for 1971; the card is 1970"):
+        counts.check_card(card(root, lines=[ln]), root)
+    ok = {"text": "Alpha, {n}", "numeral": "1,500", "cite": cell(root, "Alpha", 1970)}
+    assert counts.check_card(card(root, lines=[ok]), root)
+
+
+@pytest.mark.parametrize("caption", ["cases, in thirty countries", "one week of cases", "a hundred cases",
+                                     "cases in 2 regions", "cases by the million"])
+def test_probe_c_number_words_and_digits_in_a_caption_are_refused(root, caption):
+    with pytest.raises(maps.MapRefused, match="no citation"):
+        counts.check_card(card(root, caption=caption), root)
+
+
+def test_probe_d_number_words_or_a_second_n_in_a_line_are_refused(root):
+    base = {"numeral": "1,500", "cite": cell(root, "Alpha", 1970)}
+    with pytest.raises(maps.MapRefused, match="million"):
+        counts.check_card(card(root, lines=[{**base, "text": "Alpha, {n} of a million"}]), root)
+    with pytest.raises(maps.MapRefused, match="exactly one"):
+        counts.check_card(card(root, lines=[{**base, "text": "Alpha, {n} and {n}"}]), root)
+
+
+def test_probe_e_a_numeral_is_never_part_of_a_longer_number(hroot):
+    with pytest.raises(maps.MapRefused, match="the card says 1;"):
+        counts.check_card(qcard(hroot, "1", hq(hroot, 1, "about 1.5 million died in 1975")), hroot)
+    with pytest.raises(maps.MapRefused, match="the card says 5;"):
+        counts.check_card(qcard(hroot, "5", hq(hroot, 1, "about 1.5 million died in 1975")), hroot)
+
+
+def test_probe_g_a_negated_number_word_is_never_a_count(hroot):
+    with pytest.raises(maps.MapRefused, match="the card says 1;"):
+        counts.check_card(qcard(hroot, "1", hq(hroot, 2, "there was no one left in 1975")), hroot)
+
+
+def test_probe_i_a_data_maps_text_carries_no_uncited_number(root):
+    for bad in ({"notes": ["36 countries still reported cases."]},
+                {"notes": ["Drawn as each was from 1967 to 1977."]},
+                {"legend": world_map(root)["legend"] + [{"style": "zero", "text": "No cases in twelve months"}]}):
+        with pytest.raises(maps.MapRefused, match="no citation"):
+            maps.check_spec(world_map(root, **bad))
+    s = world_map(root)
+    s["data"]["figures"] = [{"code": "AAA", "label": "Alpha, 1,500"}]
+    with pytest.raises(maps.MapRefused, match="no citation"):
+        maps.check_spec(s)
+    maps.check_spec(world_map(root))   # the title's data year is allowed
+
+
+def conflict(root):
+    return [{"cell": {"csv": "data/table.csv", "column": "cases", "row": {"entity": "Alpha", "year": "1971"}},
+             "text": {"text": "data/history.txt", "sha256": sha(root, "data/history.txt"), "licence": "public domain",
+                      "source": TXT, "line": 2, "quote": "7 cases were found in Gamma"},
+             "why": "a fixture conflict"}]
+
+
+def test_a_cell_a_cited_text_contradicts_is_refused_with_both_citations(root):
+    c = card(root, year="1971", numeral="0", cite=cell(root, "Alpha", 1971), conflicts=conflict(root))
+    with pytest.raises(maps.MapRefused, match=r"contradicted by a cited text.*history.txt line 2"):
+        counts.check_card(c, root)
+    s = world_map(root, 1971, conflicts=conflict(root))
+    with pytest.raises(maps.MapRefused, match="AAA in 1971 is drawn from line 3, but the cell is contradicted"):
+        maps.render_map(s, root, data_root=root)
+    bad = conflict(root)
+    bad[0]["text"]["quote"] = "not in the file"
+    with pytest.raises(maps.MapRefused, match="not in the cited lines"):
+        counts.check_card(card(root, conflicts=bad), root)
+
+
+def test_a_suspect_zero_is_refused_and_a_count_over_zero_is_not(root):
+    z = [{"row": {"entity": "Alpha", "year": "1971"}, "why": "a war year"}]
+    with pytest.raises(maps.MapRefused, match="the zero is suspect"):
+        counts.check_card(card(root, year="1971", numeral="0", cite=cell(root, "Alpha", 1971), zero_suspect=z), root)
+    with pytest.raises(maps.MapRefused, match="the zero is suspect"):
+        maps.render_map(world_map(root, 1971, zero_suspect=z), root, data_root=root)
+    z70 = [{"row": {"entity": "Alpha", "year": "1970"}, "why": "only zeros are suspect"}]
+    assert counts.check_card(card(root, cite=cell(root, "Alpha", 1970), caption="cases reported, Alpha",
+                                  zero_suspect=z70), root)
+
+
+def test_a_lit_country_mostly_under_the_panel_scrim_is_refused(root, tmp_path):
+    feats = copy.deepcopy(COUNTRIES)
+    feats["features"].append(country("EEE", "EEE", (16.5, 10.5, 18.5, 12.5)))
+    for rel in ("naturalearth/ne_10m_admin_0_countries.geojson", "land.geojson"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(json.dumps(feats), encoding="utf-8")
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "table.csv").write_text(CSV_TEXT + "Echo,EEE,1970,3\n", encoding="utf-8")
+    s = world_map(tmp_path)
+    with pytest.raises(maps.MapRefused, match="EEE is lit in 1970 but 100% of it lies under the panel's scrim"):
+        maps.render_map(s, tmp_path, data_root=tmp_path)
+    framed = {k: v for k, v in s.items() if k not in ("extent", "layers", "data")}
+    framed["views"] = [{"name": "v", "frame": [0.03, 0.10, 0.62, 0.92], "extent": s["extent"], "layers": s["layers"],
+                        "data": s["data"]}]
+    _, info = maps.render_map(framed, tmp_path, data_root=tmp_path)
+    assert info["data"][0]["lit_in_view"] == ["AAA"], "a framed view stops before the panel"
+
+
+def test_a_territories_note_is_printed_only_when_a_territory_takes_a_figure_in_view(root):
+    note = "Tee is drawn with its neighbour, as it was then."
+
+    def notes_drawn(owner):
+        s = world_map(root, notes=[note])
+        s["data"].update(territories={owner: ["TTT"]}, territories_note=note)
+        _, info = maps.render_map(s, root, data_root=root)
+        return [b["text"] for b in info["boxes"] if b["kind"] == "note"]
+    assert notes_drawn("AAA"), "Alpha's figure is drawn on Tee"
+    assert notes_drawn("CCC") == [], "Gamma has no figure, so Tee takes none"
+
+
+def test_the_render_record_carries_a_pixel_hash(root, tmp_path):
+    (tmp_path / "C1.json").write_text(json.dumps(card(root)), encoding="utf-8")
+    assert maps.main([str(tmp_path / "C1.json"), "--geodata", str(root), "--data", str(root),
+                      "--out", str(tmp_path / "out")]) == 0
+    rec = json.loads((tmp_path / "out" / "maps-render.json").read_text(encoding="utf-8"))[0]
+    img, _ = maps.render_map(card(root), root, data_root=root)
+    assert rec["pixels_sha256"] == maps.pixels_sha256(img) == hashlib.sha256(img.tobytes()).hexdigest()
+
+
+def test_a_sequence_compares_each_steps_own_year(root):
+    cards = {"A": card(root, id="A"), "B": card(root, id="B")}
+    with pytest.raises(counts.SequenceRefused, match="same value for the same year"):
+        counts.check_sequence({"id": "S", "steps": ["A", "B"]}, cards, root)
+
+
+def test_the_count_of_countries_says_it_counts_by_todays_codes(root):
+    got = maps.csv_count({"csv": "data/table.csv", "sha256": sha(root, "data/table.csv"), "licence": "CC BY 4.0",
+                          "source": SRC, "count": True, "column": "cases", "where": {"year": "1970"}}, root)
+    assert "today's ISO3 codes" in got["rule"]

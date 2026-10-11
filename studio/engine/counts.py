@@ -12,9 +12,12 @@ render: the citation names the file, its sha256, its licence, the column and
 the row's key (and, optionally, the line it sits on). A numeral that is not
 that cell is refused; so is a year the table has no row for, unless another
 source is cited the same way (a text file, its sha256, the line and a quote
-that prints the number). Every other number on the card (a sub-line such as
-"36 countries reporting cases") carries its own citation. Captions carry no
-uncited digit.
+that prints the number and the year in the same span). The year is always tied
+to the numeral's own citation: its row, or its quote. Every other number on the
+card (a sub-line such as "36 of today's countries reporting cases") carries its
+own citation for the same year. Captions carry no uncited digit or number word.
+A spec's `conflicts` (a cell a cited text contradicts) and `zero_suspect` (a zero
+the film does not take as a report of no cases) refuse the cells they name.
 
 Motion: a count that changes on screen is a sequence of cards, each a cited
 value, joined by cuts (`check_sequence`). The engine never draws a value
@@ -47,8 +50,7 @@ MapRefused = MP.MapRefused
 # sizes are % of frame height; positions are fractions of the frame
 CARD = dict(year=3.4, numeral=12.5, caption=2.7, line=2.5,
             year_baseline=0.355, numeral_baseline=0.525, rule_y=0.562, rule_len=0.06, rule_h=0.0019,
-            caption_baseline=0.618, line_first=0.672, line_step=0.046, max_w=0.80,
-            caption_alpha=0.86, line_alpha=0.80, rule_alpha=0.6)
+            caption_baseline=0.618, line_first=0.672, line_step=0.046, max_w=0.80, rule_alpha=0.6)
 NUMERAL_RE = re.compile(r"^(0|[1-9]\d{0,2}(,\d{3})*)$")
 YEAR_RE = re.compile(r"^(?:(?:January|February|March|April|May|June|July|August|September|October|November|"
                      r"December) )?(\d{4})$")
@@ -63,8 +65,33 @@ class SequenceRefused(MapRefused):
 
 
 def _cites(card: dict) -> list:
-    out = [card["cite"]] + [ln["cite"] for ln in card.get("lines", [])] + list(card.get("year_cites", []))
+    out = [card["cite"]] + [ln["cite"] for ln in card.get("lines", [])]
     return out + list(card.get("also", []))
+
+
+def _year_of(got: dict, cite: dict) -> str | None:
+    """The year a resolved citation is about: a cell's row year, a count's where year; a quote has none."""
+    if got["kind"] == "cell":
+        return str(got["row"].get(cite.get("year_column", "year")))
+    if got["kind"] == "count":
+        return str(got["where"].get(cite.get("year_column", "year")))
+    return None
+
+
+def _year_tied(got: dict, cite: dict, year: str) -> bool:
+    """The year belongs to the number's own citation: the cell's or count's own row year, or
+    printed in the same quoted span that prints the number."""
+    y = _year_of(got, cite)
+    if y is not None:
+        return y == year
+    return re.search(r"(?<!\d)" + year + r"(?!\d)", got["quote"]) is not None
+
+
+def _words_check(cid: str, where: str, text: str) -> None:
+    bad = MP.uncited_numbers(text)
+    if bad:
+        raise MapRefused(f"{cid}: {where} {text!r} carries {bad} with no citation (digits and number words "
+                         "stand only in a cited numeral)")
 
 
 def check_card(card: dict, data_root) -> dict:
@@ -101,9 +128,10 @@ def check_card(card: dict, data_root) -> dict:
     if not ym:
         raise MapRefused(f"{cid}: the year {card['year']!r} is a year, or a month and a year")
     year = ym.group(1)
-    if re.search(r"\d", card["caption"]):
-        raise MapRefused(f"{cid}: the caption {card['caption']!r} carries a number with no citation; "
-                         "put it on a cited line")
+    if "year_cites" in card:
+        raise MapRefused(f"{cid}: year_cites are not accepted: the year must stand in the numeral's own "
+                         "citation (its row, or the same quoted span)")
+    _words_check(cid, "the caption", card["caption"])
     if len(card["caption"]) > CAPTION_MAX:
         raise MapRefused(f"{cid}: the caption is {len(card['caption'])} characters; at most {CAPTION_MAX}")
     if len(card.get("lines", [])) > LINES_MAX:
@@ -124,40 +152,38 @@ def check_card(card: dict, data_root) -> dict:
                  f"{got['text']} line {got['line']}")
         raise MapRefused(f"{cid}: the card says {card['numeral']}; the cited {where} holds {held!r}. "
                          "A number on screen never differs from its data")
-    year_ok = False
-    resolved_year = []
-    if got["kind"] == "cell":
-        year_ok = str(got["row"].get(card["cite"].get("year_column", "year"))) == year
-    elif got["kind"] == "count":
-        year_ok = str(got["where"].get(card["cite"].get("year_column", "year"))) == year
-    else:
-        year_ok = year in got["quote"]
-    for yc in card.get("year_cites", []):
-        r = MP.resolve_cite(yc, data_root)
-        resolved_year.append(r)
-        if r["kind"] == "quote" and year in r["quote"]:
-            year_ok = True
-        elif r["kind"] == "cell" and str(r["row"].get(yc.get("year_column", "year"))) == year:
-            year_ok = True
-    if not year_ok:
-        raise MapRefused(f"{cid}: the year {year} is not the cited row's year, and no citation prints it. "
-                         "A card for a year outside the data cites the source that holds it")
+    if not _year_tied(got, card["cite"], year):
+        y = _year_of(got, card["cite"])
+        raise MapRefused(f"{cid}: the card says {year}; " + (f"the numeral's cited row is {y}" if y else
+                         "the numeral's quoted span does not print it") +
+                         ". The year stands in the numeral's own citation, or the card is not drawn")
+    doubts = MP.check_doubts(card, data_root)
+
+    def doubted(r, where):
+        if r["kind"] == "cell":
+            why = MP.doubt_on(doubts, r["csv"], r["row"], r["value"])
+            if why:
+                raise MapRefused(f"{cid}: {where} ({r['csv']} line {r['line']}): {why}")
+    doubted(got, "the numeral")
     lines = []
     for i, ln in enumerate(card.get("lines", [])):
         text = ln.get("text", "")
-        if "{n}" not in text or not ln.get("numeral") or not ln.get("cite"):
-            raise MapRefused(f"{cid}: lines[{i}] is a template with {{n}}, its numeral and its citation")
-        if re.search(r"\d", text.replace("{n}", "")):
-            raise MapRefused(f"{cid}: lines[{i}] {text!r} carries a number outside {{n}}")
+        if text.count("{n}") != 1 or not ln.get("numeral") or not ln.get("cite"):
+            raise MapRefused(f"{cid}: lines[{i}] is a template with exactly one {{n}}, its numeral and its citation")
+        _words_check(cid, f"lines[{i}]", text.replace("{n}", ""))
         if not NUMERAL_RE.match(ln["numeral"]):
             raise MapRefused(f"{cid}: lines[{i}] numeral {ln['numeral']!r} is a whole count")
         r = MP.resolve_cite(ln["cite"], data_root)
         if not MP.numeral_supported(ln["numeral"], r):
             raise MapRefused(f"{cid}: lines[{i}] says {ln['numeral']}; its citation holds "
                              f"{r.get('value', r.get('quote'))!r}")
+        if not _year_tied(r, ln["cite"], year):
+            raise MapRefused(f"{cid}: lines[{i}] is cited for {_year_of(r, ln['cite']) or 'a span without the year'}; "
+                             f"the card is {year}")
+        doubted(r, f"lines[{i}]")
         lines.append(r)
     also = [MP.resolve_cite(c, data_root) for c in card.get("also", [])]
-    return {"numeral": got, "year": resolved_year, "lines": lines, "also": also}
+    return {"numeral": got, "year": [], "lines": lines, "also": also}
 
 
 def source_line(card: dict) -> str:
@@ -176,7 +202,6 @@ def method(card: dict, resolved: dict | None = None) -> dict:
         out["cites"] = {"numeral": resolved["numeral"], "year": resolved["year"], "lines": resolved["lines"],
                         "also": resolved["also"]}
         parts = [f"the numeral {card['numeral']} from {say(resolved['numeral'])}"]
-        parts += [f"the year from {say(r)}" for r in resolved["year"]]
         parts += [f"the line \"{ln['text'].replace('{n}', ln['numeral'])}\" from {say(r)}"
                   for ln, r in zip(card.get("lines", []), resolved["lines"])]
         parts += [f"also {say(r)}" for r in resolved["also"]]
@@ -218,10 +243,10 @@ def render_card(card: dict, data_root, *, fonts: M.Fonts | None = None,
     rh = max(SS, round(CARD["rule_h"] * H * SS))
     cv.shape("muted", CARD["rule_alpha"], lambda md: md.rectangle([cx - rl / 2, ry, cx + rl / 2, ry + rh], fill=255))
     cv.text((cx, CARD["caption_baseline"] * H * SS), card["caption"], "structure", CARD["caption"], "text",
-            anchor="ms", halo=False, kind="caption", alpha=CARD["caption_alpha"])
+            anchor="ms", halo=False, kind="caption")
     for i, ln in enumerate(card.get("lines", [])):
         cv.text((cx, (CARD["line_first"] + i * CARD["line_step"]) * H * SS), ln["text"].replace("{n}", ln["numeral"]),
-                "structure", CARD["line"], "text", anchor="ms", halo=False, kind="line", alpha=CARD["line_alpha"])
+                "structure", CARD["line"], "muted", anchor="ms", halo=False, kind="line")
     cv.text((MP.SOURCE_LINE["x"] * W * SS, MP.SOURCE_LINE["baseline"] * H * SS), src, "structure",
             MP.SIZES["source"], "muted", halo=False, kind="source")
     for b in cv.boxes:
@@ -267,8 +292,9 @@ def check_sequence(seq: dict, cards: dict, data_root) -> list[str]:
                                   + ". No source gives that value: the count is shown only at cited values")
         check_card({**st, "id": f"{sid}[{i}]", "kind": "count_card"}, data_root)
         out.append(f"{sid}[{i}]")
-    nums = [cards[s]["numeral"] if s in cards else steps[i]["numeral"] for i, s in enumerate(out)]
-    for i in range(1, len(nums)):
-        if nums[i] == nums[i - 1] and (cards.get(out[i], {}).get("year") == cards.get(out[i - 1], {}).get("year")):
-            raise SequenceRefused(f"{sid}: steps {i - 1} and {i} show the same value; a step must change the count")
+    own = [cards[s] if s in cards else steps[i] for i, s in enumerate(out)]
+    for i in range(1, len(own)):
+        if own[i]["numeral"] == own[i - 1]["numeral"] and own[i]["year"] == own[i - 1]["year"]:
+            raise SequenceRefused(f"{sid}: steps {i - 1} and {i} show the same value for the same year; "
+                                  "a step must change the count")
     return out

@@ -388,6 +388,34 @@ def check_spec(spec: dict) -> None:
         for fg in data.get("figures") or []:
             if not ISO3.match(str(fg.get("code", ""))):
                 raise MapRefused(f"{spec['id']}: a data figure names a country by its ISO3 code")
+    if any("data" in v for v in views):
+        _lint_data_text(spec, views)
+
+
+def _lint_data_text(spec: dict, views: list) -> None:
+    """A data map's numbers come from its data. Every on-frame string is linted for digits and
+    number words: the title may name the data year, a panel figure template its {n} and the data
+    year; nothing else may carry a number, which would be uncited."""
+    years = {str(v["data"]["year"]) for v in views if "data" in v}
+    texts = [("title", re.sub(r"\b(1[5-9]\d\d|20\d\d)\b", "", spec.get("title", "")))]
+    texts += [(f"legend[{i}]", e.get("text", "")) for i, e in enumerate(spec.get("legend", []))]
+    texts += [(f"notes[{i}]", n) for i, n in enumerate(spec.get("notes", []))]
+    texts += [(f"figures[{i}]", f) for i, f in enumerate(spec.get("figures", []))]
+    for v in views:
+        texts += [("label", lb.get("text", "")) for lb in v.get("labels", [])]
+        texts += [("place", f"{pl.get('label') or pl.get('name', '')} {pl.get('sub', '')}") for pl in v.get("places", [])]
+        d = v.get("data") or {}
+        texts += [("data figure label", f.get("label", "")) for f in d.get("figures") or []]
+        for pf in d.get("panel_figures") or []:
+            t = pf.get("text", "").replace("{n}", "", 1)
+            for y in years:
+                t = t.replace(y, "")
+            texts.append(("panel figure", t))
+    for where, t in texts:
+        bad = uncited_numbers(t)
+        if bad:
+            raise MapRefused(f"{spec['id']}.{where}: {t!r} carries {bad} with no citation; a data map's numbers "
+                             "come from its data")
 
 
 def data_source(spec: dict) -> str:
@@ -647,6 +675,18 @@ ISO3 = re.compile(r"^[A-Z]{3}$")
 NE_COUNTRIES = "naturalearth/ne_10m_admin_0_countries.geojson"
 NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
                 "eleven", "twelve")
+# every English number word a frame could carry; none may stand in on-frame text outside a cited {n}
+NUMBER_WORD_RE = re.compile(
+    r"(?i)\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|"
+    r"sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|"
+    r"thousand|million|billion|dozen|dozens|hundreds|thousands|millions|billions)\b")
+# a number word that says none ("no one", "not one", "any one") is never a count
+NEGATED_WORD = r"(?<!\bno )(?<!\bnot )(?<!\bany )"
+
+
+def uncited_numbers(text: str) -> list:
+    """Digits and number words in on-frame text (the caller removes {n} and any allowed year)."""
+    return re.findall(r"\d+", text) + [m.group(0) for m in NUMBER_WORD_RE.finditer(text)]
 
 
 def _cited_path(cite: dict, key: str, data_root) -> Path:
@@ -737,7 +777,9 @@ def csv_count(cite: dict, data_root) -> dict:
         raise MapRefused(f"{cite['csv']}: no row where {where}")
     lines = [ln for ln, r in hit if ISO3.match(r.get(ccol) or "") and (_int_cell(r[col], cite["csv"]) or 0) > 0]
     return {"kind": "count", "csv": cite["csv"], "sha256": cite["sha256"], "column": col, "where": where,
-            "rule": f"rows with an ISO3 {ccol} and {col} over 0", "lines": lines, "value": len(lines)}
+            "rule": (f"rows with an ISO3 {ccol} and {col} over 0: countries as the table codes them, by today's "
+                     "ISO3 codes, so a state of the time since divided counts as its parts"),
+            "lines": lines, "value": len(lines)}
 
 
 def text_quote(cite: dict, data_root) -> dict:
@@ -779,11 +821,50 @@ def numeral_supported(numeral: str, got: dict) -> bool:
         n = digits(numeral)
         return n.lstrip("-").isdigit() and int(n) == got["value"]
     q = got["quote"]
-    if re.search(r"(?<![\d,])" + re.escape(numeral) + r"(?![\d,])", q):
+    # the numeral as printed, never part of a longer number ("1" is not in "1.5 million" or "1,500")
+    if re.search(r"(?<![\d.,])" + re.escape(numeral) + r"(?![\d.]|,\d)", q):
         return True
     n = digits(numeral)
     return n.isdigit() and int(n) < len(NUMBER_WORDS) and re.search(
-        r"\b" + NUMBER_WORDS[int(n)] + r"\b", q, re.I) is not None
+        NEGATED_WORD + r"\b" + NUMBER_WORDS[int(n)] + r"\b", q, re.I) is not None
+
+
+# ---- doubts a film states about its own table
+
+def _row_match(a: dict, b: dict) -> bool:
+    return {str(k): str(v) for k, v in a.items()} == {str(k): str(v) for k, v in b.items()}
+
+
+def check_doubts(spec: dict, data_root) -> list:
+    """A spec's `conflicts` (a cell a cited text contradicts) and `zero_suspect` (a zero the film
+    does not take as a report of no cases), resolved: each conflict's text quote must stand in its
+    file. Returns the list of doubts as (kind, csv, row, message)."""
+    out = []
+    sid = spec.get("id", "")
+    for c in spec.get("conflicts") or []:
+        if not c.get("why") or not c.get("cell") or not c.get("text"):
+            raise MapRefused(f"{sid}: a conflict names its cell, the text that contradicts it, and why")
+        cell_ = c["cell"]
+        q = text_quote(c["text"], data_root)
+        cited = (f"{cell_['csv']} {cell_.get('row')} column {cell_.get('column')} against {q['text']} line "
+                 f"{q['line']}: \"{q['quote']}\" ({c['why']})")
+        out.append(("conflict", cell_["csv"], cell_.get("row") or {}, cited))
+    for z in spec.get("zero_suspect") or []:
+        if not z.get("why") or not z.get("row"):
+            raise MapRefused(f"{sid}: a zero_suspect entry names its row and why")
+        out.append(("zero_suspect", z.get("csv"), z["row"], f"{z['row']} ({z['why']})"))
+    return out
+
+
+def doubt_on(doubts: list, csv_path: str, row: dict, value) -> str | None:
+    """The refusal for a cell the film doubts, or None."""
+    for kind, csv_, drow, msg in doubts:
+        if (csv_ is None or csv_ == csv_path) and _row_match(drow, row):
+            if kind == "conflict":
+                return f"the cell is contradicted by a cited text: {msg}"
+            if kind == "zero_suspect" and value == 0:
+                return f"the zero is suspect: {msg}"
+    return None
 
 
 # ---- the per-country, per-year layer ---------------------------------------
@@ -860,7 +941,7 @@ def data_state(spec_id: str, data: dict, data_root, geodata: Path) -> dict:
                 raise MapRefused(f"{spec_id}: territories[{iso}] names {adm}, which Natural Earth does not have")
             owner_of_adm[adm] = iso
     values: dict = {}
-    unmatched, line_of = [], {}
+    unmatched, line_of, row_of = [], {}, {}
     by_entity: dict = {}
     for ln, r in rows:
         by_entity.setdefault((r[ecol], r[ccol]), []).append((ln, r))
@@ -888,6 +969,7 @@ def data_state(spec_id: str, data: dict, data_root, geodata: Path) -> dict:
                 raise MapRefused(f"{spec_id}: two rows for {iso} in {year} (lines {line_of[iso]} and {ln})")
             values[iso] = _int_cell(r[vcol], f"{data['csv']} line {ln}")
             line_of[iso] = ln
+            row_of[iso] = {ecol: ent, ycol: year}
     if unmatched:
         raise MapRefused(f"{spec_id}: {len(unmatched)} CSV entities match no Natural Earth country by ISO3 and are "
                          f"not accounted for: {', '.join(unmatched[:8])}{' ...' if len(unmatched) > 8 else ''}. "
@@ -902,7 +984,8 @@ def data_state(spec_id: str, data: dict, data_root, geodata: Path) -> dict:
         iso = owner_of_adm.get(adm) or ne_code(p)
         v = values.get(iso) if iso else None
         states[adm] = ("nodata" if v is None else "zero" if v == 0 else "cases", iso)
-    return {"year": int(year), "values": values, "lines": line_of, "states": states,
+    return {"year": int(year), "values": values, "lines": line_of, "rows": row_of, "states": states,
+            "owner_of_adm": owner_of_adm,
             "lit": sorted(k for k, v in values.items() if v), "zero": sorted(k for k, v in values.items() if v == 0),
             "csv": data["csv"], "sha256": data["sha256"], "column": vcol, "countries_file": str(cpath)}
 
@@ -910,16 +993,45 @@ def data_state(spec_id: str, data: dict, data_root, geodata: Path) -> dict:
 def _draw_data(cv, spec: dict, proj, geodata: Path, data_root, used: dict, record: dict) -> None:
     """Fill each country in view by its state, then check what the spec expects to be lit."""
     data = spec["data"]
-    st = data_state(spec.get("id", ""), data, data_root, geodata)
+    sid = spec.get("id", "")
+    st = data_state(sid, data, data_root, geodata)
     used[data.get("countries_file", NE_COUNTRIES)] = file_sha256(st["countries_file"])
-    view = proj.view()
+    clip = spec.get("_clip") or (0.0, 0.0, 1.0, 1.0)   # a view is clipped to its frame; a single view fills the frame
+    view = proj.box(clip)
+    doubts = check_doubts(spec, data_root)
     masks = {}
     in_view = {s: set() for s in DATA_STATES}
+    terr_in_view = set()
+    under = {}
+    S8 = 8
     for props, g, bb in _load(st["countries_file"]):
         if not _overlaps(bb, view):
             continue
         state, iso = st["states"][props.get("ADM0_A3")]
         in_view[state].add(iso or props.get("ADM0_A3"))
+        if props.get("ADM0_A3") in st["owner_of_adm"] and state != "nodata":
+            terr_in_view.add(props.get("ADM0_A3"))
+        if iso in st["rows"]:
+            why = doubt_on(doubts, data["csv"], st["rows"][iso], st["values"][iso])
+            if why:
+                raise MapRefused(f"{sid}: {iso} in {st['year']} is drawn from line {st['lines'][iso]}, but {why}")
+        if state == "cases" and spec.get("_panel"):
+            # how much of this lit country, inside the frame, lies under the panel's scrim
+            m8 = Image.new("L", (W // S8, H // S8), 0)
+            d8 = ImageDraw.Draw(m8)
+            for poly in _polys_of(g):
+                ring = [(x / S8, y / S8) for x, y in (proj(*pt) for pt in poly[0])]
+                if len(ring) > 2:
+                    d8.polygon(ring, fill=255)
+            a8 = np.asarray(m8) > 0
+            x0, y0, x1, y1 = (int(round(c * n / S8)) for c, n in zip(clip, (W, H, W, H)))
+            a8 = a8[y0:y1, x0:x1]
+            tot = int(a8.sum())
+            if tot:
+                cut = max(0, int(round(PANEL["wash_from"] * W / S8)) - x0)
+                k = under.setdefault(iso or props.get("ADM0_A3"), [0, 0])
+                k[0] += int(a8[:, cut:].sum())
+                k[1] += tot
         if state not in masks:
             masks[state] = (cv.mask(), cv.mask())
         (fm, fmd), (om, omd) = masks[state]
@@ -943,6 +1055,10 @@ def _draw_data(cv, spec: dict, proj, geodata: Path, data_root, used: dict, recor
             cv.composite(ImageChops.multiply(fm, _hatch(cv.img.size, hatch)), *_hatch_role(state), stroke=True)
         if orole:
             cv.composite(om, orole, 0.9, stroke=True)
+    for iso, (u, tot) in sorted(under.items()):
+        if tot and u / tot > 0.5:
+            raise MapRefused(f"{sid}: {iso} is lit in {st['year']} but {u / tot:.0%} of it lies under the panel's "
+                             "scrim; move the extent, or draw the map in a framed view that stops before the panel")
     lit_in_view = sorted(in_view["cases"])
     exp = data.get("expect_lit")
     if exp is not None and sorted(exp) != lit_in_view:
@@ -956,7 +1072,7 @@ def _draw_data(cv, spec: dict, proj, geodata: Path, data_root, used: dict, recor
                          f"{lit_in_view}: {'; '.join(why)}")
     record.update({"year": st["year"], "csv": st["csv"], "sha256": st["sha256"], "column": st["column"],
                    "lit_in_view": lit_in_view, "zero_in_view": sorted(in_view["zero"]),
-                   "nodata_in_view": sorted(in_view["nodata"]),
+                   "nodata_in_view": sorted(in_view["nodata"]), "territories_in_view": sorted(terr_in_view),
                    "cells": {iso: {"line": st["lines"][iso], "value": st["values"][iso]}
                              for iso in sorted(set(lit_in_view) | set(in_view["zero"])) if iso in st["lines"]}})
     record["_values"], record["_lines"], record["_countries_file"] = st["values"], st["lines"], st["countries_file"]
@@ -998,6 +1114,9 @@ def panel_data_figures(spec: dict, data_root) -> list:
         cite.update(column=data["columns"]["value"],
                     row={data["columns"]["entity"]: pf["entity"], data["columns"]["year"]: str(data["year"])})
         got = csv_cell(cite, data_root)
+        why = doubt_on(check_doubts(spec, data_root), got["csv"], got["row"], got["value"])
+        if why:
+            raise MapRefused(f"{spec.get('id', '')}: the panel figure for {pf['entity']}: {why}")
         out.append(text.replace("{n}", f"{got['value']:,}"))
     return out
 
@@ -1022,6 +1141,13 @@ class Projection:
 
     def __call__(self, lon: float, lat: float) -> tuple[float, float]:
         return (self.cx + (lon - self.clon) * self.k * self.s, self.cy - (lat - self.clat) * self.s)
+
+    def box(self, frame) -> tuple[float, float, float, float]:
+        """The lon/lat box a fraction-of-frame rectangle shows."""
+        Wp, Hp = self.size
+        x0, y0, x1, y1 = frame[0] * Wp, frame[1] * Hp, frame[2] * Wp, frame[3] * Hp
+        return (self.clon + (x0 - self.cx) / (self.k * self.s), self.clat - (y1 - self.cy) / self.s,
+                self.clon + (x1 - self.cx) / (self.k * self.s), self.clat - (y0 - self.cy) / self.s)
 
     def view(self) -> tuple[float, float, float, float]:
         """The lon/lat box the whole frame shows."""
@@ -1573,7 +1699,7 @@ def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
     views = spec.get("views")
     if not views:
         proj = Projection(spec["extent"], frame, (W, H))
-        _draw_view(cv, spec, proj, Path(geodata), used, data_root, records)
+        _draw_view(cv, {**spec, "_panel": panel}, proj, Path(geodata), used, data_root, records)
     else:
         for v in views:
             vf = tuple(v["frame"])
@@ -1581,9 +1707,10 @@ def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
             sub.boxes = cv.boxes
             sub.keepout = cv.keepout
             before = len(cv.boxes)
-            vv = {**v, "id": f"{spec['id']}/{v.get('name', '')}"}
-            if "unplaced" in spec and "unplaced" not in v:
-                vv["unplaced"] = spec["unplaced"]
+            vv = {**v, "id": f"{spec['id']}/{v.get('name', '')}", "_panel": panel, "_clip": vf}
+            for k in ("unplaced", "conflicts", "zero_suspect"):
+                if k in spec and k not in v:
+                    vv[k] = spec[k]
             _draw_view(sub, vv, Projection(v["extent"], vf, (W, H)),
                        Path(geodata), used, data_root, records, spec.get("legend", []))
             fx0, fy0, fx1, fy1 = vf[0] * W, vf[1] * H, vf[2] * W, vf[3] * H
@@ -1597,6 +1724,10 @@ def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
             cv.d = ImageDraw.Draw(cv.img, "RGBA")
             rect = [vf[0] * W * SS, vf[1] * H * SS, vf[2] * W * SS, vf[3] * H * SS]
             cv.shape("faint", 1.0, lambda md, rect=rect: md.rectangle(rect, outline=255, width=SS))
+    terr_notes = {v["data"].get("territories_note") for v in (views or [spec]) if "data" in v} - {None}
+    if terr_notes and not any(r.get("territories_in_view") for r in records):
+        # a territory note is printed only when a territory it names takes a figure in view
+        spec = {**spec, "notes": [n for n in spec.get("notes", []) if n not in terr_notes]}
     if panel:
         _draw_panel(cv, spec)
     cv.text((SOURCE_LINE["x"] * W * SS, SOURCE_LINE["baseline"] * H * SS), src, "structure", SIZES["source"],
@@ -1624,6 +1755,11 @@ def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
     info = {"id": spec["id"], "source_line": src, "boxes": cv.boxes, "geodata": used, "warnings": warnings,
             "size": [W, H], "data": records}
     return img, info
+
+
+def pixels_sha256(img: Image.Image) -> str:
+    """The sha256 of the raw RGB pixels: stable where PNG bytes vary with the zlib build."""
+    return hashlib.sha256(img.convert("RGB").tobytes()).hexdigest()
 
 
 def png_bytes(img: Image.Image) -> bytes:
@@ -1736,7 +1872,8 @@ def main(argv=None) -> int:
         dst.write_bytes(data)
         written.append(dst)
         report.append({"id": spec["id"], "kind": spec.get("kind", "map"), "file": str(dst),
-                       "sha256": hashlib.sha256(data).hexdigest(), "geodata": info["geodata"],
+                       "sha256": hashlib.sha256(data).hexdigest(), "pixels_sha256": pixels_sha256(img),
+                       "geodata": info["geodata"],
                        "warnings": info["warnings"], "ledger": ledger_for(spec, info)})
         print(f"{spec['id']}: {dst} sha256 {report[-1]['sha256'][:16]}"
               + (f"  warnings: {'; '.join(info['warnings'])}" if info["warnings"] else ""))
