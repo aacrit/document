@@ -148,3 +148,18 @@ def test_publish_refuses_a_mismatched_encode_an_unhashed_render_and_a_violent_po
     (out / "master.mp4").rename(out / "moved.mp4")
     with pytest.raises(R.Refused, match="no master.mp4"):
         P.packet(out, film=out / "moved.mp4", poster=poster, poster_id="S-020", stills_ledger=ledger, out=tmp_path / "p6")
+
+
+def test_the_narration_and_the_narrators_credit_are_recorded_for_the_site(tmp_path):
+    lines = [
+        {"id": "N1", "kind": "narration", "start_s": 0.5, "text": "In the summer of 1947.", "read_by": "v-narrator"},
+        {"id": "R1", "kind": "testimony", "speaker": "sp-a", "start_s": 4.0, "text": "a", "read_by": "v-01"},
+        {"id": "N2", "kind": "narration", "start_s": 9.0, "text": ""},
+    ]
+    plan = {**_plan(tmp_path, lines), "narrator_voice": {"id": "v-narrator", "engine": "orpheus", "voice": "tara",
+                                                         "credit": "Narrated by a computer voice"}}
+    doc = R.sources_doc(plan, Journal(film="narr"), {})
+    assert doc["narration"] == [{"id": "N1", "start_s": 0.5, "text": "In the summer of 1947."}]   # an empty line is not a word spoken
+    assert doc["narrator"] == {"credit": "Narrated by a computer voice", "engine": "orpheus", "voice": "tara"}
+    no_narr = R.sources_doc(_plan(tmp_path, lines[1:2]), Journal(film="none"), {})
+    assert no_narr["narration"] == [] and no_narr["narrator"] is None                            # no narration: no narrator credited

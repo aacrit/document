@@ -243,6 +243,7 @@ function renderChapters(list: Chapter[]): void {
 
 function renderTranscript(d: FilmSources): void {
   const entries = transcript(d);
+  if (d.narration.length) byId("transcript-lede").textContent = "Everything spoken, word for word: the narration and the readings, each with its speaker.";
   byId("transcript").replaceChildren(
     ...entries.map((e) =>
       el(
@@ -266,7 +267,7 @@ function renderNotes(d: FilmSources): void {
     byId("accounts").textContent = `Accounts from ${list}.`;
   }
   const ai = aiSentence(d.shots);
-  const voice = voiceSentence(d.readings);
+  const voice = voiceSentence(d.readings, d.narrator);
   for (const id of ["ai-sentence", "ai-sentence-legend"]) byId(id).textContent = ai;
   for (const id of ["voice-sentence", "voice-sentence-legend", "voice-note"]) byId(id).textContent = voice ?? "";
   const silent = silentRecord(d.shots);

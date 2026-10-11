@@ -99,6 +99,8 @@ export interface FilmSources {
   lowerThirds: LowerThird[];
   readings: Reading[];
   narration: Narration[];
+  /** The narrator's voice credit ("Narrated by a computer voice"), when the film has narration and records it. */
+  narrator: string | null;
 }
 
 // ---- Parsing -------------------------------------------------------------
@@ -245,6 +247,7 @@ export function parseSources(json: unknown): FilmSources {
     lowerThirds,
     readings,
     narration,
+    narrator: narration.length && isObj(json.narrator) ? str(json.narrator.credit) : null,
   };
 }
 
@@ -381,6 +384,8 @@ export interface Chapter {
 }
 
 const CHAPTER_CARD = /^(\d+)\s+(.+)$/;
+/** An unnumbered part's own title card: a short title, then its dates (the close's "Those who stayed" / "1947 to today"). */
+const PART_CARD_DATES = /\b(1[89]|20)\d\d\b/;
 const FIXED_PARTS: Record<string, string> = { "cold-open": "Cold open", close: "Close", credits: "Credits" };
 
 function chapterCard(shot: Shot): { n: number; title: string; dates: string } | null {
@@ -390,10 +395,25 @@ function chapterCard(shot: Shot): { n: number; title: string; dates: string } | 
 }
 
 /**
+ * The title an unnumbered part gives itself on its first shot: a card of two
+ * lines, a short title that is not a sentence, then dates. A record-is-silent
+ * card or the credits' statement is never read as a title.
+ */
+function partCard(first: Shot): { title: string; dates: string } | null {
+  const t = first.text;
+  if (first.kind !== "card" || !t || t.length !== 2) return null;
+  const title = t[0].trim();
+  const dates = t[1].trim();
+  if (!title || title.length > 40 || /[.;:]$/.test(title) || !PART_CARD_DATES.test(dates)) return null;
+  return { title, dates };
+}
+
+/**
  * The film's chapters, from its parts: a numbered chapter starts at its
  * chapter card (which can sit at the end of the part before it), the cold
- * open at 0, and the close and credits where their parts begin. The title
- * part folds into the cold open.
+ * open at 0, and the close and credits where their parts begin, under the
+ * title their own card gives them when they have one. The title part folds
+ * into the cold open.
  */
 export function chapters(data: Pick<FilmSources, "shots" | "duration_s">): Chapter[] {
   const cards = new Map<number, { shot: Shot; n: number; title: string; dates: string }>();
@@ -419,8 +439,9 @@ export function chapters(data: Pick<FilmSources, "shots" | "duration_s">): Chapt
         end_s: 0,
       });
     } else {
-      const title = FIXED_PARTS[s.part] ?? s.part.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase());
-      out.push({ id: s.part, n: null, title, dates: "", start_s: s.part === "cold-open" ? 0 : s.start_s, end_s: 0 });
+      const own = partCard(s);
+      const title = own?.title ?? FIXED_PARTS[s.part] ?? s.part.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase());
+      out.push({ id: s.part, n: null, title, dates: own?.dates ?? "", start_s: s.part === "cold-open" ? 0 : s.start_s, end_s: 0 });
     }
   }
   out.sort((a, b) => a.start_s - b.start_s);
@@ -632,13 +653,16 @@ export function aiSentence(shots: Shot[]): string {
   return `${count} ${n === 1 ? "shot" : "shots"} in this film ${n === 1 ? "is" : "are"} AI-generated, each marked AI-GENERATED.`;
 }
 
-/** How the readings are voiced, from their credits. */
-export function voiceSentence(readings: Reading[]): string | null {
-  if (readings.length === 0) return null;
+/** How the narration and the readings are voiced, from their credits in sources.json. */
+export function voiceSentence(readings: Reading[], narrator: string | null = null): string | null {
+  const computerNarrator = narrator !== null && narrator.startsWith("Narrated by a computer voice");
+  if (readings.length === 0) return computerNarrator ? "The narrator is a computer voice." : null;
   const computer = readings.filter((r) => r.credit.startsWith("Read by a computer voice")).length;
-  if (computer === readings.length) return "Voices are read by a computer; no recording is imitated.";
   const own = readings.length - computer;
-  return `Voices are read by a computer, except ${own === 1 ? "one original recording" : `${own} original recordings`}; no recording is imitated.`;
+  const except = own ? `, except ${own === 1 ? "one original recording" : `${own} original recordings`}` : "";
+  if (computerNarrator) return `The narrator and the readings are computer voices${except}; no recording is imitated.`;
+  if (own === 0) return "Voices are read by a computer; no recording is imitated.";
+  return `Voices are read by a computer${except}; no recording is imitated.`;
 }
 
 function listWords(items: string[]): string {

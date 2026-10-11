@@ -167,7 +167,7 @@ function renderBalance(d: FilmSources, b: Balance | null): void {
       "p",
       { class: "muted small" },
       numerals(
-        `Seconds of testimony by side: words read by a computer voice, and any archival recording; narration is not counted. All ${s(b.total_s)} are listed under Readings. Each side should hold ${pct(SIDE_BAND.min).replace(".0", "")} to ${pct(SIDE_BAND.max).replace(".0", "")}.`,
+        `Seconds of readings by side: words read by a computer voice, and any archival recording; the narrator is not counted. All ${s(b.total_s)} are listed under Readings. Each side should hold ${pct(SIDE_BAND.min).replace(".0", "")} to ${pct(SIDE_BAND.max).replace(".0", "")}.`,
       ),
     ),
   );

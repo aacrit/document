@@ -20,7 +20,7 @@ function setupFromSources(): void {
       runtime.textContent = formatTime(data.duration_s);
       runtime.hidden = false;
       byId("credits-line").replaceChildren(numerals(creditsLine(data)));
-      byId("home-voice").textContent = voiceSentence(data.readings) ?? "";
+      byId("home-voice").textContent = voiceSentence(data.readings, data.narrator) ?? "";
       byId("home-ai").textContent = aiSentence(data.shots);
       if (data.poster) {
         const img = byId<HTMLImageElement>("poster");

@@ -139,6 +139,20 @@ describe("the mark at a time", () => {
 });
 
 describe("chapters", () => {
+  it("title an unnumbered part from its own card (the close's 'Those who stayed'), never from a record-is-silent card", () => {
+    const data = raw();
+    type S = { part: string; start_s: number };
+    const close = (data.shots as S[]).filter((x) => x.part === "close").sort((a, b) => a.start_s - b.start_s)[0];
+    Object.assign(close, { kind: "card", mark: { class: "CARD", detail: "" }, text: ["Those who stayed", "1947 to today"] });
+    const list = chapters(parseSources(data));
+    const ch = list.find((c) => c.id === "close");
+    expect([ch?.title, ch?.dates, ch?.n]).toEqual(["Those who stayed", "1947 to today", null]);
+    expect(list.filter((c) => c.n !== null)).toHaveLength(3);
+    // The credits keep their fixed name; the unmodified fixture's close opens on a record-is-silent card and stays "Close".
+    expect(list.find((c) => c.id === "credits")?.title).toBe("Credits");
+    expect(chapters(film).find((c) => c.id === "close")?.title).toBe("Close");
+  });
+
   const list = chapters(film);
 
   it("are the parts in order: the cold open from 0, each numbered chapter from its card, then the close", () => {
@@ -355,6 +369,23 @@ describe("printed claims are derived from the film", () => {
     const own = film.readings.map((r, i) => (i === 0 ? { ...r, credit: "original recording" } : r));
     expect(voiceSentence(own)).toBe("Voices are read by a computer, except one original recording; no recording is imitated.");
     expect(voiceSentence([])).toBeNull();
+  });
+
+  it("says the narrator is a computer voice only when sources.json credits one", () => {
+    const narrator = "Narrated by a computer voice";
+    expect(voiceSentence(film.readings, narrator)).toBe("The narrator and the readings are computer voices; no recording is imitated.");
+    const own = film.readings.map((r, i) => (i === 0 ? { ...r, credit: "original recording" } : r));
+    expect(voiceSentence(own, narrator)).toBe("The narrator and the readings are computer voices, except one original recording; no recording is imitated.");
+    expect(voiceSentence([], narrator)).toBe("The narrator is a computer voice.");
+    expect(voiceSentence(film.readings, "Narrated by Tara")).toBe("Voices are read by a computer; no recording is imitated.");
+  });
+
+  it("reads the narration and the narrator's credit, and credits no narrator without narration", () => {
+    const narrated = parseSources({ ...raw(), narration: [{ id: "N1", start_s: 2, text: "In the summer of 1947." }], narrator: { credit: "Narrated by a computer voice" } });
+    expect(narrated.narrator).toBe("Narrated by a computer voice");
+    expect(transcript(narrated).find((e) => e.id === "N1")).toEqual({ id: "N1", start_s: 2, who: "Narrator", text: "In the summer of 1947." });
+    expect(parseSources({ ...raw(), narration: [], narrator: { credit: "Narrated by a computer voice" } }).narrator).toBeNull();
+    expect(film.narrator).toBeNull();
   });
 
   it("builds the credit line from the shots' archives and the readings' sources", () => {

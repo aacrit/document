@@ -72,7 +72,7 @@ describe("the public pages", () => {
     expect(html).toMatch(/id="home-voice"><\/span>/);
     expect(html).toMatch(/id="home-ai"><\/span>/);
     expect(home).not.toMatch(/read by a computer|AI-generated|no recording is imitated/i);
-    expect(read("web/src/home.ts")).toMatch(/byId\("home-voice"\)\.textContent = voiceSentence\(data\.readings\)/);
+    expect(read("web/src/home.ts")).toMatch(/byId\("home-voice"\)\.textContent = voiceSentence\(data\.readings, data\.narrator\)/);
     expect(read("web/src/home.ts")).toMatch(/byId\("home-ai"\)\.textContent = aiSentence\(data\.shots\)/);
     expect(read("web/index.html")).toContain('href="/f/partition-of-india/"');
     expect(home).toMatch(/\bWatch\b/);

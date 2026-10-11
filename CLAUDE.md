@@ -71,6 +71,9 @@ See `CHARTER.md` for its surfaces and kill dates, and `contract.yaml` for what
   every run is journaled (`studio/engine/journal.py`), issues go to `docs/ENGINE-LOG.md`.
 - `python -m studio.engine.captions <render dir>`: write the English captions (captions-en.vtt) from the
   render's resolved screenplay (`studio/engine/captions.py`); they go to R2 with the film, poster and sources.json.
+- `node scripts/release-film.mjs <render dir>/master.mp4 --trailer <file> [--dry-run]`: the post-render release in order
+  (--sources-only, 720p web encode, poster and publish packet, captions check, R2 upload with sources.json last,
+  hashes); `--dry-run` prints every command and runs none. Pages still change only through `/release`.
 - `npm run contract -- --url <url>`: run `contract.yaml` against a live URL.
   Checks marked `requires: deployed` show SKIP on localhost and must PASS
   on the preview.
