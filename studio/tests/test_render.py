@@ -3202,19 +3202,27 @@ def _no_a19(monkeypatch):
 
 
 def test_e14_derived_ceiling_is_clamped():
-    assert R.derived_voice_ceiling(0.0) == (R.VOICE_TP, -1.8, "upper")
+    assert R.derived_voice_ceiling(0.0) == (R.VOICE_TP, -2.3, "upper")
     assert R.derived_voice_ceiling(1.3)[0] == R.VOICE_TP                # A15's own margin: the ceiling stays -4.8
-    assert R.derived_voice_ceiling(3.0)[0] == R.VOICE_TP                # -1.5 - 3.0 - 0.3 = -4.8, the upper bound
-    assert R.derived_voice_ceiling(3.7) == (-5.5, -5.5, None)           # Nought's measured lift
-    assert R.derived_voice_ceiling(20.0) == (R.VOICE_TP_FLOOR, -21.8, "floor")   # a near-silent film cannot crush its voices
+    assert R.derived_voice_ceiling(2.5)[0] == R.VOICE_TP                # -1.5 - 0.5 - 2.5 - 0.3 = -4.8, the upper bound
+    assert R.derived_voice_ceiling(3.73) == (-6.03, -6.03, None)        # Nought's measured lift
+    assert R.derived_voice_ceiling(20.0) == (R.VOICE_TP_FLOOR, -22.3, "floor")   # a near-silent film cannot crush its voices
     for lift in np.arange(-2.0, 25.0, 0.37):
         c = R.derived_voice_ceiling(float(lift))[0]
         assert R.VOICE_TP_FLOOR <= c <= R.VOICE_TP
-    # an archival span's static gain is held to the ceiling it is given, and never raised by it
+    # an archival line's static gain is held to the ceiling it is given, and never raised by it
     m = {"input_tp": -6.0}
     assert R._archival_total(2.0, m, 0.0) == pytest.approx(R.VOICE_TP + 6.0)
     assert R._archival_total(2.0, m, 0.0, -5.5) == pytest.approx(0.5)
     assert R._archival_total(-1.0, m, 0.0, -5.5) == -1.0
+    assert R._held_gain(3.0, -6.0, -5.5) == pytest.approx(0.5) and R._held_gain(-1.0, -6.0, -5.5) == -1.0
+    assert R._held_gain(3.0, None, -5.5) == 3.0
+
+
+def _voice_ceiling(j):
+    dec = [e for e in J.read(j.path) if e["kind"] == "decision" and e.get("unit") == "voice-ceiling"]
+    assert len(dec) == 1                                              # one decision per mix, whatever the passes
+    return dec[0]
 
 
 def test_e14_a_largely_voiceless_film_passes_a_final_master_with_the_derived_ceiling(tmp_path, monkeypatch):
@@ -3229,23 +3237,116 @@ def test_e14_a_largely_voiceless_film_passes_a_final_master_with_the_derived_cei
     j = J.Journal(film="e14")
     mix, placed = R.build_mix(plan, film, j, work=tmp_path / "work")
     evs = J.read(j.path)
-    dec = [e for e in evs if e["kind"] == "decision" and e.get("unit") == "voice-ceiling"]
-    assert len(dec) == 1 and dec[0]["evidence"]["passes"] == 2
-    ev = dec[0]["evidence"]
+    ev = _voice_ceiling(j)["evidence"]
+    assert 2 <= ev["passes"] <= R.VOICE_CEILING_PASSES and len(ev["pass_log"]) == ev["passes"]
     assert ev["lift_db"] > 3.0 and ev["pass1_overreach"]
-    assert ev["derived_ceiling_dbtp"] == pytest.approx(R.TARGET_TP - ev["lift_db"] - R.VOICE_CEILING_SAFETY_DB)
-    assert R.VOICE_TP_FLOOR < ev["derived_ceiling_dbtp"] < R.VOICE_TP and ev["bound"] is None
+    assert ev["derived_ceiling_dbtp"] == pytest.approx(R.TARGET_TP - R.LIMIT_MARGIN_DB - ev["lift_db"] - R.VOICE_CEILING_SAFETY_DB)
+    final = ev["final_ceiling_dbtp"]
+    assert R.VOICE_TP_FLOOR < final <= ev["derived_ceiling_dbtp"] < R.VOICE_TP
+    assert ev["pass_log"][-1]["ceiling_dbtp"] == final and ev["pass_log"][0]["ceiling_dbtp"] == R.VOICE_TP
     assert ev["lines_changed"] == 4 and {c["id"] for c in ev["changes"]} == {"L0", "L1", "L2", "L3"}
-    assert all(c["pass2_max_reduction_db"] > (c["pass1_max_reduction_db"] or 0.0) for c in ev["changes"])
-    assert ev["pass2"]["lift_db"] >= ev["lift_db"]
+    assert all(c["final_max_reduction_db"] > (c["pass1_max_reduction_db"] or 0.0) for c in ev["changes"])
     for ln in placed["lines"]:
-        assert ln["voice_ceiling_dbtp"] == ev["derived_ceiling_dbtp"] and ln["peak_reduction_db"] > 0
+        assert ln["voice_ceiling_dbtp"] == final and ln["peak_reduction_db"] > 0
     pk = [e for e in lints(evs, "voice-peak-control") if e["unit"] == "L0"]
     assert pk and pk[-1]["status"] == "pass"
     assert not list((tmp_path / "work").iterdir())                    # the trial master is removed
     loud = R.loudnorm(_wav(tmp_path / "mix.wav", mix), tmp_path / "norm.wav")
     assert R.loudness_lints(J.Journal(film="e14-master"), loud) == []  # a final master: linear, the limiter only catches peaks
-    assert not loud["limiter"] or not R.limiter_overreach(loud["limiter"])
+    assert not loud["limiter"] or loud["limiter"]["max_reduction_db"] <= 0.7
+
+
+def _force_pass2(monkeypatch, ceiling):
+    """Pass 1's master overreaches and the derived ceiling is ``ceiling``, whatever the mix."""
+    monkeypatch.setattr(R, "_master_overreach", lambda mix, tp, work: (["forced by the test"], None))
+    monkeypatch.setattr(R, "derived_voice_ceiling", lambda lift: (ceiling, ceiling, None))
+
+
+def _dense_take(path, tp=-5.0):
+    """A 3 s take with a pulse every 20 ms, its levelled true peak at ``tp``:
+    under A15's -4.8 it is left alone; at -7.0 the limiter holds it down
+    the whole way, which A13 calls compression."""
+    t = np.arange(int(48000 * 3.0)) / 48000
+    x = 0.03 * np.sin(2 * np.pi * 220 * t)
+    for i in [int(s * 48000) for s in np.arange(0.3, 2.7, 0.02)]:
+        x[i:i + 48] += 0.1 * np.sin(np.linspace(0, np.pi, 48))
+    x[:12000] = 0.0
+    x[-12000:] = 0.0
+    for _ in range(4):
+        g, _ = R.level_gain(x, R.DIALOGUE_LUFS)
+        x *= 10 ** ((tp - R._measure(x * 10 ** (g / 20))["input_tp"]) / 20)
+    _wav(path, x)
+
+
+def test_e14_a_take_bad_only_at_the_derived_ceiling_refuses(tmp_path, monkeypatch):
+    _no_a19(monkeypatch)
+    plan, film = _e14_plan(tmp_path, amb_amp=0.08)
+    _dense_take(film / "audio" / "L1.wav")
+    with monkeypatch.context() as mp:                                 # at A15's -4.8 the take is not even limited
+        mp.setattr(R, "voice_ceiling_pass", lambda *a, **k: None)
+        _, placed = R.build_mix(plan, film, J.Journal(film="e14-dense-1"))
+    assert next(ln for ln in placed["lines"] if ln["id"] == "L1")["peak_reduction_db"] is None
+    _force_pass2(monkeypatch, -7.0)
+    j = J.Journal(film="e14-dense")
+    with pytest.raises(R.Refused, match=r"A15 refined\).*-7 dBTP.*L1 \(.*over 1 dB for"):
+        R.build_mix(plan, film, j)
+    lint = [e for e in lints(J.read(j.path), "voice-peak-control") if e["unit"] == "L1"][-1]
+    assert lint["status"] == "fail" and lint["severity"] == "block"
+    assert _voice_ceiling(j)["evidence"]["final_ceiling_dbtp"] == -7.0
+    jd = J.Journal(film="e14-dense-draft")
+    _, placed = R.build_mix(plan, film, jd, draft=True)               # a draft keeps it, with a warning
+    lint = [e for e in lints(J.read(jd.path), "voice-peak-control") if e["unit"] == "L1"][-1]
+    assert lint["status"] == "fail" and lint["severity"] == "warn"
+    assert next(ln for ln in placed["lines"] if ln["id"] == "L1")["peak_reduction_db"] > 1.0
+
+
+def test_e14_an_archival_file_line_is_held_to_the_derived_ceiling(plan, film, monkeypatch):
+    arch = json.loads(json.dumps(plan))
+    k = next(n for n, ln in enumerate(arch["lines"]) if ln.get("kind") == "testimony")
+    arch["lines"][k].update(archival_audio=True, gain_db=20.0)
+    lid = arch["lines"][k]["id"]
+    _, placed1 = R.build_mix(arch, film, J.Journal(film="e14-arch-file-1"))
+    assert next(ln for ln in placed1["lines"] if ln["id"] == lid).get("static_gain_db") is None   # pass 1: its own gain
+    _force_pass2(monkeypatch, -6.5)
+    j = J.Journal(film="e14-arch-file")
+    mix, placed = R.build_mix(arch, film, j)
+    tp = R._measure_line(R._read_wav(film / "audio" / f"{lid}.wav"))["input_tp"]
+    line = next(ln for ln in placed["lines"] if ln["id"] == lid)
+    assert line["static_gain_db"] == pytest.approx(-6.5 - tp, abs=0.01) and line["static_gain_db"] < 20.0
+    assert line["peak_reduction_db"] is None
+    ch = next(c for c in _voice_ceiling(j)["evidence"]["changes"] if c["id"] == lid)
+    assert ch["kind"] == "archival-file" and ch["pass1_static_gain_db"] == 20.0
+    seg = mix[int(line["at_s"] * 48000): int((line["at_s"] + line["dur_s"]) * 48000)]
+    assert R._measure_line(seg)["input_tp"] <= -6.5 + 0.3               # fixed gain only: never limited
+
+
+def test_e14_a_master_still_failing_after_the_passes_refuses_without_a_loop(tmp_path, monkeypatch):
+    _no_a19(monkeypatch)
+    plan, film = _e14_plan(tmp_path, amb_amp=0.08)
+    import soundfile as sf
+    bed, _ = sf.read(str(film / "audio" / "C1.wav"), dtype="float64")
+    for at in np.arange(20.0, 22.0, 0.005):                           # the bed, not a voice, carries a dense run of peaks
+        i = int(at * 48000)
+        bed[i:i + 48] += 0.5 * np.sin(np.linspace(0, np.pi, 48))
+    _wav(film / "audio" / "C1.wav", bed)
+    calls = []
+    real = R._mix_at
+    monkeypatch.setattr(R, "_mix_at", lambda *a, **k: calls.append(a[1]) or real(*a, **k))
+    j = J.Journal(film="e14-still")
+    mix, _ = R.build_mix(plan, film, j)
+    ev = _voice_ceiling(j)["evidence"]
+    assert ev["pass1_overreach"] and 1 <= len(calls) == ev["passes"] - 1 <= R.VOICE_CEILING_PASSES - 1
+    loud = R.loudnorm(_wav(tmp_path / "mix.wav", mix), tmp_path / "norm.wav")
+    refusals = R.loudness_lints(J.Journal(film="e14-still-master"), loud)
+    assert any("compressed the programme" in r for r in refusals)      # the master's own lint refuses it
+
+
+def test_e14_a_silent_programme_is_one_pass(tmp_path):
+    plan, film = _e14_plan(tmp_path, amb_amp=0.0, lines=0)
+    j = J.Journal(film="e14-silent")
+    mix, _ = R.build_mix(plan, film, j)
+    dec = _voice_ceiling(j)
+    assert not mix.any() and dec["evidence"]["passes"] == 1 and "silent programme" in dec["what"]
 
 
 @pytest.mark.parametrize("case", ["lift-under-1.3", "no-limiter", "limiter-peak-only"])
@@ -3271,7 +3372,7 @@ def test_e14_a_film_that_passes_is_unchanged_sample_for_sample(tmp_path, monkeyp
     if case == "lift-under-1.3":
         assert ev["lift_db"] <= R.VOICE_TP_MARGIN and ev["derived_ceiling_dbtp"] == R.VOICE_TP and ev["bound"] == "upper"
     elif case == "no-limiter":
-        assert ev["predicted_tp"] <= R.TARGET_TP and "pass1_limiter" not in ev
+        assert ev["predicted_tp"] <= R.TARGET_TP and ev["pass1_limiter"] is None
     else:                                                             # the derived ceiling would be lower, but nothing needs it
         assert ev["lift_db"] > 3.0 and ev["derived_ceiling_dbtp"] < R.VOICE_TP
         assert ev["pass1_limiter"]["max_reduction_db"] > 0.1 and ev["pass1_overreach"] == []
