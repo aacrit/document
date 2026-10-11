@@ -51,8 +51,14 @@ MARKS_DRAWN = "marks drawn"
 KINDS = ("line", "halo", "outline")
 BASE_CLASSES = ("ARCHIVE", "RECONSTRUCTED")
 FIND = "FIND"
-FIND_ZMAX = 1.3                      # GRAMMAR 7.2: a still's zoom, relative to its largest 16:9 window
 SS = 2                               # marks are drawn at 2x and reduced, so a 1.4 px line is smooth
+# A32 refined (CoS 2026-10-11): on a georeferenced archive sheet, FIND's push may go as deep as the
+# scan's own resolution (no output pixel samples more than one source pixel), computed per sheet and
+# per delivery resolution by scan_zmax(); this replaces the flat 1.3 still cap for FIND only. Other
+# presets (HOLD, PUSH, PULL, DRIFT, TILT, DETAIL) keep their existing caps in render.PRESET_ZMAX.
+HALO_LABEL_CLEAR_PX = 60             # A32 refined: sheet px a halo ring keeps from the printed place
+                                      # name by default, when the name's own box is not known (configurable)
+HALO_MIN_RADIUS_PX = 8               # a ring never shrinks to invisible while clearing a label
 
 # BRAND-KIT 13. Sizes are % of frame height, so 720p and 1080p draw the same picture.
 # Every mark is drawn as the provenance label is: --mark-text over a soft black contact band, so it holds on a
@@ -151,10 +157,29 @@ def extent_framing(fit, ext, size, W: int, H: int, *, fill: bool) -> dict:
     return {"z": max(1.0, z), "x": (x0 + x1) / 2.0 / W, "y": (y0 + y1) / 2.0 / H}
 
 
+def scan_zmax(size, W: int, H: int) -> float:
+    """A32 refined (CoS 2026-10-11): the deepest zoom (frame space, z = 1 is
+    the whole sheet at native aspect) a georeferenced sheet's own scan
+    supports at this delivery frame, so no output pixel ever samples less
+    than one source pixel (no enlargement past the scan). Computed from the
+    scan's own pixel size against the output frame, so it differs at 720p
+    and 1080p. Never under 1.0 (a sheet already too small for the frame is
+    held whole)."""
+    iw, ih = size
+    fit_scale = min(W / iw, H / ih)
+    return max(1.0, 1.0 / fit_scale)
+
+
 def find_camera(shot: dict, size, W: int, H: int, *, open_s: float) -> dict:
     """The still camera of a FIND: whole sheet (A7), then through the ``via``
     extents to the ``to`` extent on the rostrum curve. The same dict
-    ``render.still_camera`` returns, so the renderer moves it as any still."""
+    ``render.still_camera`` returns, so the renderer moves it as any still.
+
+    A32 refined (CoS 2026-10-11): each requested framing is clamped to
+    ``scan_zmax`` (the scan's own resolution at this delivery frame), so a
+    push never enlarges past the scan; ``requested_z_max`` keeps the
+    unclamped request, so ``lints`` can refuse one tighter than the scan
+    supports (overlay-zoom) rather than deliver it softened."""
     item = shot.get("_item") or {}
     fit, _ = sheet_fit(item)
     iw, ih = size
@@ -164,15 +189,18 @@ def find_camera(shot: dict, size, W: int, H: int, *, open_s: float) -> dict:
     base = max(W / fw, H / fh) if fill else 1.0
     find = shot.get("find") or {}
     whole = {"z": 1.0, "x": 0.5, "y": 0.5}
+    zmax = scan_zmax(size, W, H)
 
-    def framing(k):
+    def raw_framing(k):
         if fit is None:                  # no georef: the sheet is held whole, and overlay-georef refuses the shot
             return dict(whole)
         if k in (None, "whole") or (isinstance(k, dict) and k.get("whole")):
             return dict(whole)
         return extent_framing(fit, k["extent"], size, W, H, fill=fill)
 
-    path = [whole] + [framing(v) for v in (find.get("via") or [])] + [framing(find.get("to"))]
+    raw_path = [whole] + [raw_framing(v) for v in (find.get("via") or [])] + [raw_framing(find.get("to"))]
+    requested_z_max = max(p["z"] for p in raw_path)
+    path = [dict(p, z=min(p["z"], zmax)) for p in raw_path]
     out = [path[0]]
     for p in path[1:]:
         if any(abs(p[k] - out[-1][k]) > 1e-9 for k in ("z", "x", "y")):
@@ -181,7 +209,7 @@ def find_camera(shot: dict, size, W: int, H: int, *, open_s: float) -> dict:
     z_max = max(p["z"] for p in out)
     return {"path": out, "clamp": "image" if fill else "native", "fill_ok": fill, "preset": FIND,
             "open_s": min(open_s, 0.4 * dur), "z_max": z_max, "fit_scale": s,
-            "z_rel_max": max(1.0, z_max / base)}
+            "z_rel_max": max(1.0, z_max / base), "scan_zmax": zmax, "requested_z_max": requested_z_max}
 
 
 def framing_at(cam: dict, t: float, dur: float) -> dict:
@@ -435,6 +463,14 @@ def lints(lint, shots: list[dict], W: int, H: int, play: dict | None) -> None:
                                                         "max_px": round(fit.max_px, 3), "m_per_px": round(fit.m_per_px, 2),
                                                         "control_points": len(georef.get("control") or [])}})
         cam = s.get("_cam")
+        if cam is not None and cam.get("preset") == FIND and "scan_zmax" in cam:
+            # A32 refined (CoS 2026-10-11): the camera already clamps to the scan's own resolution
+            # (find_camera), so a request tighter than the scan supports is refused outright here,
+            # rather than quietly delivered softer than asked.
+            lint("overlay-zoom", cam["requested_z_max"] <= cam["scan_zmax"] + 1e-6, unit=s["id"], grammar=GRAMMAR,
+                 stage="marks", evidence={"requested_z": round(cam["requested_z_max"], 4),
+                                          "scan_zmax": round(cam["scan_zmax"], 4),
+                                          "why": "a requested extent tighter than the scan's own resolution supports"})
         marks = s.get("marks") or []
         ids = [m.get("id") for m in marks]
         if len(set(ids)) != len(ids) or None in ids:
@@ -458,20 +494,67 @@ def lints(lint, shots: list[dict], W: int, H: int, play: dict | None) -> None:
             s["_overlay"] = {"marks": resolved, "size": size, "m_per_px": round(fit.m_per_px, 3)}
 
 
+def halo_ring_geometry(mark: dict, point: list[float]) -> tuple[list[float], float]:
+    """A halo's ring centre and its safe reach, both in sheet px, kept clear
+    of the printed place name: sized (and, if the point sits inside it,
+    offset away from) the mark's own ``label_box``
+    (``{"sheet_px": [x0, y0, x1, y1]}``) when it is known, else held inside
+    a configurable default clearance (``HALO_LABEL_CLEAR_PX``).
+
+    A32 refined (CoS 2026-10-11), a low finding from the R5b proof: the
+    ring is drawn at a fixed % of frame height for the whole shot (BRAND-KIT
+    13), but a printed name is a fixed size on the *sheet*; as a FIND push
+    goes deeper, the name's own frame-pixel size grows while the ring's
+    does not, so a ring sized only for a shallow push can end up crossing
+    the name once the push (now allowed past 1.3) makes it legible."""
+    cx, cy = point
+    box = (mark.get("label_box") or {}).get("sheet_px")
+    if not box or len(box) != 4:
+        return [cx, cy], float(HALO_LABEL_CLEAR_PX)
+    x0, y0, x1, y1 = (float(v) for v in box)
+    dx = max(x0 - cx, 0.0, cx - x1)
+    dy = max(y0 - cy, 0.0, cy - y1)
+    gap = math.hypot(dx, dy)
+    if gap >= HALO_MIN_RADIUS_PX:
+        return [cx, cy], gap * 0.9           # a known box is a real boundary: size exactly to clear it
+    bx, by = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+    vx, vy = cx - bx, cy - by
+    d = math.hypot(vx, vy) or 1.0
+    push = (HALO_MIN_RADIUS_PX - gap) + HALO_MIN_RADIUS_PX
+    return [cx + vx / d * push, cy + vy / d * push], float(HALO_MIN_RADIUS_PX)
+
+
 def resolve(shot: dict, mark: dict, fit, cam: dict | None, H: int) -> dict:
     """What the renderer needs to draw a mark: sheet-pixel points, the style
     with an honest band, the arrival and the departure."""
     kind = mark["kind"]
     style = dict(STYLE[kind])
     style.update({k: v for k, v in (mark.get("style") or {}).items() if k in ("opacity", "fill")})
+    pts = sheet_points(mark, fit)
     if kind in ("line", "outline") and cam is not None:
         req_pct = 100.0 * float(mark["precision_m"]) / frame_m_per_px(fit, cam, H) / H
         band = (mark.get("style") or {}).get("band", "auto")
         style["band"] = max(STYLE[kind]["band"], req_pct) if band in (None, "auto") else float(band)
+    elif kind == "halo" and cam is not None:
+        centre, safe_px = halo_ring_geometry(mark, pts[0])
+        pts = [centre]
+        scale = cam["fit_scale"] * cam["z_max"]
+        if (mark.get("label_box") or {}).get("sheet_px"):
+            # a known label_box is a real boundary: the drawn ring also carries a soft contact
+            # band around its bare circle (BRAND-KIT 13), a fixed % of frame height, so keep the
+            # whole painted ring, not just its radius, clear of it (generously, past its blur).
+            # The unknown-box default clearance is a guess, not a detected edge, so it is spared
+            # this extra margin (A32 refined, CoS 2026-10-11).
+            margin_sheet_px = (3.0 * style["band"] / 100.0 * H) / scale if scale else 0.0
+            safe_px = max(1.0, safe_px - margin_sheet_px)
+        safe_pct = 100.0 * safe_px * scale / H
+        # A32(e) still binds: a halo is a ring, never a disc, over the place; clearing a very close
+        # label never shrinks it below a size that keeps its centre visibly open.
+        style["radius"] = max(min(STYLE["halo"]["radius"], safe_pct), STYLE["halo"]["width"] * 1.2)
     enter = mark.get("enter") or {}
     start = float(enter["at_s"]) + int(enter.get("order") or 0) * M.LT["stagger"]
     end = float((mark.get("exit") or {}).get("at_s", shot["_dur"]))
-    return {"id": mark["id"], "kind": kind, "pts": [[round(x, 3), round(y, 3)] for x, y in sheet_points(mark, fit)],
+    return {"id": mark["id"], "kind": kind, "pts": [[round(x, 3), round(y, 3)] for x, y in pts],
             "style": style, "preset": enter["preset"], "start": start, "end": end,
             "calm": str(shot.get("motion", "")).lower() == "calm"}
 
