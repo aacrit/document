@@ -28,7 +28,9 @@
 .scrub .tick { position: absolute; top: 9px; width: 1px; height: 10px; background: var(--color-cream-faint); }
 .scrub .head { position: absolute; top: 8px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--color-cream); }
 .popover { position: absolute; right: 8px; bottom: 100%; z-index: 6; }
-@media (min-width: 760px) and (min-aspect-ratio: 4/3) {
+/* The theatre layout (picture fitted to the window, chrome around it) needs a window tall enough;
+   a phone on its side keeps the stacked layout, full width, so turning it never jumps. */
+@media (min-width: 760px) and (min-aspect-ratio: 4/3) and (min-height: 540px) {
   .screen { height: 100svh; min-height: 540px; grid-template-rows: auto 1fr auto; }
   .stage { display: grid; place-items: center; min-height: 0; }
   .stage .frame-box { height: 100%; max-height: 100%; width: auto; max-width: 100%; }
@@ -84,9 +86,7 @@
 .screen .topbar, .screen .controls, .screen .provenance { transition: opacity var(--house-lights-dur) var(--ease-cinematic); }
 .screen.lights-down .topbar, .screen.lights-down .controls, .screen.lights-down .provenance { opacity: 0; }
 .screen.lights-down { cursor: none; }
-.screen:fullscreen { height: 100vh; grid-template-rows: auto 1fr auto auto; background: var(--doc-black); }
-.screen:fullscreen .stage { display: grid; place-items: center; min-height: 0; }
-.screen:fullscreen .stage .frame-box { height: 100%; max-height: 100%; width: auto; max-width: 100%; }
+.screen.lights-down .topbar, .screen.lights-down .controls { pointer-events: none; }
 .chapters a.tc { text-decoration: none; color: inherit; min-height: 32px; display: inline-flex; align-items: center; }
 .chapters li.now span:first-of-type { color: var(--color-cream); }
 .transcript { list-style: none; margin: 0 0 16px; padding: 0; display: grid; }
@@ -101,3 +101,70 @@
 .top-links a { white-space: nowrap; }
 @media (max-width: 400px) { .topbar { padding: 4px 12px; } .top-links { gap: 12px; } .top-links a { font-size: 13px; } .topbar .wordmark { font-size: 16px; gap: 8px; } }
 .legend a.source { font-size: 13px; min-height: 36px; display: inline-flex; align-items: center; justify-self: start; }
+
+/* ---- Phones (one-tap player) ---- */
+/* Inline, stacked: the picture runs edge to edge and the controls sit right under it, nothing between.
+   The paused credit and the provenance line follow the controls. */
+@media (max-width: 759.98px), (max-aspect-ratio: 4/3), (max-height: 539.98px) {
+  .screen:not(:fullscreen) .stage { display: contents; }
+  .screen:not(:fullscreen) .paused-credit { order: 1; }
+  .screen:not(:fullscreen) .provenance { order: 2; }
+}
+/* A finger needs a 44 px target on the scrubber too. */
+@media (pointer: coarse) {
+  .scrub { height: 44px; }
+  .scrub::before, .scrub .fill { top: 21px; }
+  .scrub .tick { top: 17px; }
+  .scrub .head { top: 15px; width: 14px; height: 14px; margin-left: -7px; }
+}
+
+/* Full screen: the picture as large as the glass allows, on true black, inside the safe areas;
+   the controls float over its foot and leave with the house lights; a tap brings them back. */
+.screen:fullscreen { display: block; width: 100vw; height: 100dvh; min-height: 0; overflow: hidden; background: var(--color-fullscreen); }
+.screen:fullscreen .stage {
+  position: absolute;
+  inset: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  display: grid; place-items: center; min-height: 0;
+}
+.screen:fullscreen .stage .frame-box {
+  width: min(100%, calc((100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom)) * 16 / 9));
+  height: auto; max-width: 100%; max-height: 100%; aspect-ratio: 16 / 9; background: var(--color-fullscreen);
+}
+.screen:fullscreen .frame-box video { background: var(--color-fullscreen); }
+.screen:fullscreen .topbar {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 7;
+  padding: max(4px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left));
+  background: linear-gradient(to bottom, var(--scrim-strong), var(--scrim-none));
+}
+.screen:fullscreen .controls {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 7;
+  padding: 18px max(8px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  background: linear-gradient(to top, var(--scrim-strong) 55%, var(--scrim-none));
+}
+.screen:fullscreen .provenance { display: none; }
+.screen:fullscreen .paused-credit {
+  position: absolute; z-index: 6; right: max(16px, env(safe-area-inset-right)); top: calc(env(safe-area-inset-top) + 56px);
+  max-width: 340px; padding: 10px 12px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-control);
+}
+/* Captions stay above the controls while the controls show. */
+.screen:fullscreen:not(.lights-down) .frame-box .cue:not(.raised) { bottom: max(7cqh, 124px); }
+.screen:fullscreen .controls .popover .menu { max-height: min(60dvh, 420px); }
+
+/* ---- The theatre: the home page's Watch plays the film here, in the same tap ---- */
+.theatre { width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; overflow: auto; background: var(--color-letterbox); color: var(--color-cream); }
+.theatre::backdrop { background: var(--color-fullscreen); }
+.theatre > .close {
+  position: absolute; z-index: 8; top: 4px; right: max(8px, env(safe-area-inset-right));
+  appearance: none; background: none; border: 0; color: var(--color-cream); min-height: 44px; min-width: 44px; padding: 0 12px;
+  border-radius: var(--radius-control); font: 500 14px/1 var(--font-structure); cursor: pointer;
+}
+.theatre > .close:hover { background: var(--color-surface); }
+.theatre .topbar { padding-right: 88px; }
+/* Nothing in the player may widen it past the screen: the picture stays exactly the screen's width. */
+.screen { grid-template-columns: minmax(0, 1fr); }
+.topbar { min-width: 0; }
+/* In the theatre the page is already home: the wordmark gives way to the Close button. */
+.theatre .topbar { justify-content: flex-start; }
+.theatre .topbar .wordmark { display: none; }
+/* Full screen keeps the frame's top-left mark zone clear: the page links wait until the viewer leaves it. */
+.screen:fullscreen .topbar { display: none; }

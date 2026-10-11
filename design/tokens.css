@@ -158,10 +158,12 @@
   --ease-in-sine: cubic-bezier(0.12, 0, 0.39, 0);
   /* Lower-third wash (BRAND-KIT 4): the theatre black at 0.5, feathered to 0. */
   --lt-wash: oklch(from var(--doc-black) l c h / 0.5);
+  /* Full screen on a phone: true black around the picture, so the letterbox disappears into the glass. */
+  --color-fullscreen: oklch(from var(--doc-black) 0 0 0);
 
   /* void document's named presets (design/BRAND.md) */
   --house-lights-dur: var(--dur-cinema);     /* chrome leaves when the film plays */
-  --house-lights-idle: 2500ms;               /* pointer still this long while playing: chrome leaves */
+  --house-lights-idle: 3000ms;               /* pointer still (or no touch) this long while playing: chrome leaves */
   --rack-to-source-dur: var(--dur-morph);    /* a paused frame's credit comes into focus */
   --credit-roll-speed: 42;                   /* px per second, constant, like a projector */
   --develop-dur: var(--dur-fast);            /* Lens: a new frame replaces the last */

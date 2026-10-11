@@ -2,7 +2,14 @@
 // and complete without script; this adds the runtime to Watch (from the
 // film's own sources.json) and, when sources.json declares a trailer, offers
 // it in a dialog. Without one the Trailer button stays hidden.
+//
+// Watch plays the film right here, in the theatre (the film page's own player,
+// player.ts), inside the same tap: a link to the film page would lose the tap,
+// and with it the browser's leave to play sound and go full screen. From the
+// landing page to the film playing is one tap. A modified click (a new tab)
+// and a page without script still open the film page.
 import { aiSentence, creditsLine, formatTime, posterCredit, trailerNote, voiceSentence } from "./film-data";
+import { tapPlay } from "./player";
 import { byId, loadSources, mediaUrl, numerals } from "./site";
 import { sendEvent } from "./telemetry";
 
@@ -65,6 +72,26 @@ function setupTrailer(): void {
   });
 }
 
+function setupTheatre(): void {
+  const theatre = byId<HTMLDialogElement>("theatre");
+  const watch = byId<HTMLAnchorElement>("watch");
+  const video = byId<HTMLVideoElement>("film");
+  watch.addEventListener("click", (event) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    theatre.showModal();
+    // In the same tap: play with sound, and on a phone full screen and landscape.
+    tapPlay();
+  });
+  byId("theatre-close").addEventListener("click", () => theatre.close());
+  theatre.addEventListener("close", () => {
+    video.pause();
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    watch.focus();
+  });
+}
+
 sendEvent("page_view");
 setupFromSources();
 setupTrailer();
+setupTheatre();
