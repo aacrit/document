@@ -2425,7 +2425,12 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
     for ln in plan["lines"]:
         if ln.get("kind") == "testimony":
             sp = plan["speakers"].get(ln.get("speaker"), {})
+            # How long the reading is heard (its measured WAV) and whose words they are: the site's
+            # "Whose words, and how long" balance is computed from these (web/src/film-data.ts).
+            wav = voice_wav(Path(plan["film"]), ln)
+            dur = round(wav_seconds(wav), 3) if wav.exists() else None
             readings.append({"id": ln["id"], "speaker": ln.get("speaker"), "name": sp.get("name"), "side": sp.get("side"),
+                             "gender": sp.get("gender"), "dur_s": dur,
                              "year": ln.get("year"), "source": ln.get("source"), "locator": ln.get("locator"),
                              "start_s": ln.get("start_s"), "text": ln.get("text"),
                              "credit": (f"Read by a computer voice. No recording of {sp.get('name', ln.get('speaker'))} was used."
@@ -2797,7 +2802,9 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         if not ok_fmt:
             raise Refused(f"the master is {pr['width']}x{pr['height']} at {pr['fps']} fps with {pr['frames']} frames; "
                           f"expected {W}x{H} at 24 with {plan['frames']}")
-        extra = {"loudness": loud, "master": master.name}
+        # One write: a check render writes its own partial sources file and never the full one (T1d);
+        # a full render also records the master's sha256, which ties sources.json to its film (T7).
+        extra = {"loudness": loud, "master": master.name, "master_sha256": sha256_file(master)}
         if check:
             extra.update(partial=True, until_s=until_s)
         doc = sources_doc(plan, journal, extra)
@@ -2826,6 +2833,40 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         raise
 
 
+def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Journal | None = None) -> dict:
+    """--sources-only: re-plan the film and rewrite ``<out>/sources.json`` beside an existing master, without
+    rendering a frame. It uses the render's own fitted screenplay when there is one, takes the frame size
+    from the master, refuses when the master's frame count differs from the plan's (the master is then
+    stale: render again), keeps the previous file's loudness, and records the master's sha256."""
+    film = Path(film).resolve()
+    out = Path(out).resolve() if out else film / "out"
+    master = out / "master.mp4"
+    if not master.exists():
+        raise Refused(f"no master.mp4 in {out}: render the film first")
+    fitted = out / "screenplay.fitted.json"
+    play = json.loads((fitted if fitted.exists() else film / "screenplay.json").read_text(encoding="utf-8"))
+    journal = journal or Journal(film=film.name, out_dir=out)
+    pr = probe_video(master)
+    with journal.unit("scout", "sources-only", size={"driver": "items", "value": 0}) as u:
+        plan = build_plan(film, W=pr["width"], H=pr["height"], burn_subtitles=False, journal=journal, play=play)
+        u.size = {"driver": "items", "value": len(plan["shots"])}
+    frames = count_frames(master)
+    journal.lint("master-matches-plan", frames == plan["frames"], stage="assembly", phase="sources-only",
+                 evidence={"master_frames": frames, "plan_frames": plan["frames"], "screenplay": "fitted" if fitted.exists() else "screenplay.json"})
+    if frames != plan["frames"]:
+        raise Refused(f"the master has {frames} frames and the plan {plan['frames']}: the master is stale, render again")
+    extra: dict = {}
+    path = out / "sources.json"
+    if path.exists():
+        prev = json.loads(path.read_text(encoding="utf-8"))
+        extra.update({k: prev[k] for k in ("loudness",) if k in prev})
+    extra.update(master="master.mp4", master_sha256=sha256_file(master))
+    doc = sources_doc(plan, journal, extra)
+    path.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
+    journal.artifact("assembly", path, role="sources")
+    return {"sources": str(path), "frames": plan["frames"], "duration_s": plan["duration_s"], "master_sha256": extra["master_sha256"]}
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m studio.engine.render", description=__doc__.split("\n\n")[0])
     ap.add_argument("film", type=Path, help="film folder with screenplay.json and its ledgers")
@@ -2842,7 +2883,17 @@ def main(argv=None) -> int:
                     help="a check render: only the shots that start before this many seconds (journaled)")
     ap.add_argument("--audio-only", action="store_true",
                     help="run the pre-flight and the sound (mix, levelling, loudness) only: no frames, no master")
+    ap.add_argument("--sources-only", action="store_true",
+                    help="rewrite sources.json beside an existing master.mp4 from the screenplay, without rendering frames")
     a = ap.parse_args(argv)
+    if a.sources_only:
+        try:
+            r = sources_only(a.film, a.out)
+        except Refused as e:
+            print(f"render: refused: {e}", file=sys.stderr)
+            return 2
+        print(f"render: sources only, {r['frames']} frames -> {r['sources']} (master sha256 {r['master_sha256'][:16]})")
+        return 0
     try:
         s = render(a.film, a.out, height=a.res, from_shot=a.from_shot, workers=a.workers, burn_subtitles=a.burn_subtitles,
                    draft=a.draft, fit_voices_opt=a.fit_voices, audio_only=a.audio_only, until_s=a.until_s)

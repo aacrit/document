@@ -1,0 +1,102 @@
+/* Film page: from design/mocks/film.html (G2). */
+.screen { position: relative; display: grid; background: var(--color-letterbox); }
+.topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 4px 16px; }
+.topbar .wordmark { font-size: 17px; color: var(--color-cream-muted); }
+.top-links { display: flex; gap: 18px; }
+.top-links a { font-size: 14px; color: var(--color-cream-muted); min-height: 44px; display: inline-flex; align-items: center; }
+.stage { position: relative; }
+.paused-credit { display: grid; gap: 3px; padding: 12px 16px 4px; animation: rack-to-source var(--rack-to-source-dur) var(--ease-rack) both; }
+.paused-credit .t { font-size: 14px; }
+.paused-credit .w { font-size: 13px; }
+.paused-credit a { font-size: 13px; min-height: 32px; display: inline-flex; align-items: center; justify-self: start; }
+@keyframes rack-to-source { from { opacity: 0; filter: blur(3px); } to { opacity: 1; filter: none; } }
+.controls { display: grid; grid-template-columns: auto 1fr repeat(5, auto); grid-template-areas: "scrub scrub scrub scrub scrub scrub scrub" "play tc subs marks list vol full";
+  --ctl-label: 1; align-items: center; gap: 2px 2px; padding: 4px 8px 10px; position: relative; }
+.controls > button, .controls > a.ic { appearance: none; background: none; border: 0; color: var(--color-cream); min-width: 44px; min-height: 44px; border-radius: var(--radius-control); display: inline-grid; place-items: center; cursor: pointer; }
+.controls svg { width: 22px; height: 22px; }
+.controls > button, .controls > a.ic { grid-auto-flow: row; gap: 2px; padding: 2px 6px; text-decoration: none; }
+.controls > button::after, .controls > a.ic::after { content: attr(data-label); font: 500 11px/1.1 var(--font-structure); color: var(--color-cream-muted); white-space: nowrap; }
+@media (max-width: 520px) { .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; } .controls .scrub { flex: 0 0 calc(100% - 16px); } .controls .time { flex: 1 1 auto; } .controls > button, .controls > a.ic { flex: 0 0 auto; min-width: 52px; } .controls .subs { margin-left: auto; } }
+.controls > button:hover, .controls > a.ic:hover { background: var(--color-surface); }
+.controls [aria-expanded="true"] { background: var(--color-surface); }
+.controls .play { grid-area: play; } .controls .time { grid-area: tc; font-size: 13px; padding-left: 4px; }
+.controls .time .of { color: var(--color-cream-muted); }
+.controls .subs { grid-area: subs; } .controls .marks { grid-area: marks; } .controls .list { grid-area: list; } .controls .vol { grid-area: vol; } .controls .full { grid-area: full; }
+.scrub { grid-area: scrub; position: relative; height: 28px; margin: 0 8px; }
+.scrub::before { content: ""; position: absolute; left: 0; right: 0; top: 13px; height: 2px; background: var(--color-cream-faint); }
+.scrub .fill { position: absolute; left: 0; top: 13px; height: 2px; background: var(--color-cream); }
+.scrub .tick { position: absolute; top: 9px; width: 1px; height: 10px; background: var(--color-cream-faint); }
+.scrub .head { position: absolute; top: 8px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--color-cream); }
+.popover { position: absolute; right: 8px; bottom: 100%; z-index: 6; }
+@media (min-width: 760px) and (min-aspect-ratio: 4/3) {
+  .screen { height: 100svh; min-height: 540px; grid-template-rows: auto 1fr auto; }
+  .stage { display: grid; place-items: center; min-height: 0; }
+  .stage .frame-box { height: 100%; max-height: 100%; width: auto; max-width: 100%; }
+  /* Player chrome never touches the frame's top-left mark zone, its lower-third
+     zone (bottom left) or the subtitle line: the paused credit sits top right. */
+  .paused-credit { position: absolute; right: 24px; top: 15%; z-index: 5; max-width: 340px; padding: 10px 12px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-control); }
+}
+.after-wrap { background: var(--color-bg); }
+.after { max-width: 1040px; margin: 0 auto; padding: 40px 16px 24px; display: grid; gap: 32px; align-items: start; }
+.after .titlecard .title { font-size: clamp(36px, 5.4vw, 64px); }
+.after .note { font-size: 14px; color: var(--color-cream-muted); max-width: 60ch; }
+.onward { display: grid; border-top: 1px solid var(--color-border); }
+.onward a { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--color-border); text-decoration: none; min-height: 60px; }
+.onward .t { font: 400 20px/1.25 var(--font-display); } .onward .m { font-size: 13px; color: var(--color-cream-muted); grid-column: 1; }
+.onward svg { width: 20px; height: 20px; grid-row: 1 / span 2; grid-column: 2; color: var(--color-cream-muted); }
+.drill { border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); }
+.drill > summary { list-style: none; display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 12px; padding: 14px 0; cursor: pointer; min-height: 56px; }
+.drill > summary::-webkit-details-marker { display: none; }
+.drill > summary .t { font: 400 20px/1.25 var(--font-display); } .drill > summary .s { font-size: 13px; color: var(--color-cream-muted); }
+.drill > summary svg { width: 20px; height: 20px; color: var(--color-cream-muted); }
+.chapters { list-style: none; margin: 0 0 16px; padding: 0; display: grid; }
+.chapters li { display: grid; grid-template-columns: 64px 1fr; gap: 12px; padding: 8px 0; border-top: 1px solid var(--color-border); font-size: 15px; }
+.chapters li .muted { font-size: 13px; }
+@media (min-width: 760px) { .after { grid-template-columns: 1fr 1fr; column-gap: 56px; } .after > .titlecard { grid-column: 1 / -1; } }
+.mini-frame { width: 100%; }
+
+/* ---- the player (T7) ---- */
+.logo-mark .ember { fill: var(--color-safelight); }
+.frame-box video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; background: var(--doc-black); }
+.frame-box .mark { pointer-events: none; }
+/* Player-drawn cues keep a 14 px minimum (spec: Burned in). */
+.frame-box .cue > span { font-size: max(14px, 3.9cqh); white-space: pre-line; }
+.bigplay { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 5; }
+.bigplay svg { width: 22px; height: 22px; }
+.frame-msg { position: absolute; inset: 0; z-index: 6; display: grid; place-content: center; gap: 8px; text-align: center; padding: 0 12cqw; background: var(--doc-black); }
+.frame-msg .h { font: 300 max(18px, 4cqh)/1.2 var(--font-display); }
+.frame-msg p:not(.h) { color: var(--color-cream-muted); font-size: 14px; }
+.endcard { z-index: 6; background: var(--doc-black); padding: 0 8cqw; }
+.endcard .inner { display: grid; gap: 14px; justify-items: center; }
+.endcard .t { font: 300 max(18px, 4cqh)/1.2 var(--font-display); }
+.endcard .silent { max-width: 64ch; font: 300 max(13px, 2.6cqh)/1.4 var(--font-display); color: var(--color-cream); }
+.endcard .searched { max-width: 70ch; font-size: max(11px, 1.9cqh); color: var(--color-cream-muted); }
+.paused-credit .mk { margin-bottom: 4px; }
+.paused-credit .correct-at { font-size: 13px; color: var(--color-cream-muted); min-height: 32px; display: inline-flex; align-items: center; justify-self: start; }
+.scrub { cursor: pointer; touch-action: none; }
+.scrub:focus-visible { outline-offset: 0; }
+.controls .popover { right: 8px; bottom: 100%; margin-bottom: 6px; }
+.controls .popover .menu { max-height: min(70svh, 560px); overflow: auto; }
+.menu .quiet { padding: 6px 10px 8px; font-size: 12.5px; color: var(--color-cream-muted); max-width: 30ch; }
+.controls > button.vol[aria-pressed="false"] svg { opacity: 0.5; }
+/* House lights: while the film plays and the pointer rests, the chrome leaves. */
+.screen .topbar, .screen .controls, .screen .provenance { transition: opacity var(--house-lights-dur) var(--ease-cinematic); }
+.screen.lights-down .topbar, .screen.lights-down .controls, .screen.lights-down .provenance { opacity: 0; }
+.screen.lights-down { cursor: none; }
+.screen:fullscreen { height: 100vh; grid-template-rows: auto 1fr auto auto; background: var(--doc-black); }
+.screen:fullscreen .stage { display: grid; place-items: center; min-height: 0; }
+.screen:fullscreen .stage .frame-box { height: 100%; max-height: 100%; width: auto; max-width: 100%; }
+.chapters a.tc { text-decoration: none; color: inherit; min-height: 32px; display: inline-flex; align-items: center; }
+.chapters li.now span:first-of-type { color: var(--color-cream); }
+.transcript { list-style: none; margin: 0 0 16px; padding: 0; display: grid; }
+.transcript li { display: grid; grid-template-columns: 64px 1fr; gap: 4px 12px; padding: 10px 0; border-top: 1px solid var(--color-border); font-size: 15px; }
+.transcript a.tc { text-decoration: none; color: inherit; }
+.transcript .who { font-size: 13px; color: var(--color-cream-muted); }
+.transcript .said { grid-column: 2; }
+.drill .lede { font-size: 13px; color: var(--color-cream-muted); padding: 0 0 12px; }
+@media (prefers-reduced-motion: reduce) {
+  .screen.lights-down .topbar, .screen.lights-down .controls, .screen.lights-down .provenance { opacity: 1; }
+}
+.top-links a { white-space: nowrap; }
+@media (max-width: 400px) { .topbar { padding: 4px 12px; } .top-links { gap: 12px; } .top-links a { font-size: 13px; } .topbar .wordmark { font-size: 16px; gap: 8px; } }
+.legend a.source { font-size: 13px; min-height: 36px; display: inline-flex; align-items: center; justify-self: start; }

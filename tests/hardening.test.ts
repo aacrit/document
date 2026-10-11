@@ -3,7 +3,7 @@
 // fix. Ceilings run on real SQLite (tests/helpers/sqlite-d1.ts), so the
 // conditional upsert is proven on the SQL engine, not a string-matching mock.
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
@@ -298,9 +298,13 @@ describe("POSTs: JSON only, and never from another site", () => {
   });
 
   it("the page sends /e and /feedback as fetch with application/json, never sendBeacon", () => {
-    const src = readFileSync(path.join(root, "web", "src", "main.ts"), "utf8");
-    expect(src).not.toMatch(/navigator\.sendBeacon\(/);
-    const posts = [...src.matchAll(/method: "POST",\s*headers: \{([^}]*)\}/g)];
+    // /e is sent from telemetry.ts, /feedback from the corrections page (correct.ts).
+    const src = ["telemetry.ts", "correct.ts"].map((f) => readFileSync(path.join(root, "web", "src", f), "utf8")).join("\n");
+    const all = readdirSync(path.join(root, "web", "src")).filter((f) => f.endsWith(".ts")).map((f) => readFileSync(path.join(root, "web", "src", f), "utf8")).join("\n");
+    expect(all).not.toMatch(/navigator\.sendBeacon\(/);
+    expect(src).toContain('fetch("/e"');
+    expect(src).toContain('fetch("/feedback"');
+    const posts = [...all.matchAll(/method: "POST",\s*headers: \{([^}]*)\}/g)];
     expect(posts.length).toBeGreaterThanOrEqual(2);
     for (const m of posts) expect(m[1]).toContain('"content-type": "application/json"');
   });

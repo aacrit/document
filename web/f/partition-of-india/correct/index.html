@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="build" content="__BUILD__" />
+    <meta name="description" content="Tell void document what The Partition of India gets wrong." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16'/%3E%3Ccircle cx='12' cy='12' r='4.2'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="../../../../design/tokens.css" />
+    <link rel="stylesheet" href="../../../src/house.css" />
+    <link rel="stylesheet" href="../../../src/correct.css" />
+    <title>Correct something · The Partition of India · void document</title>
+  </head>
+  <body>
+    <header class="house-bar">
+      <a class="wordmark" href="/"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16" /><circle cx="12" cy="12" r="4.2" /><circle class="ember" cx="18.6" cy="17.6" r="1.25" /></svg><span class="wm"><span class="wm-void">void</span> <span class="wm-doc">document</span></span></a>
+      <a class="back" href="/f/partition-of-india/"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 6 8.5 12l6 6" /></svg><span>Back to the film</span></a>
+    </header>
+    <main class="correct" id="correct" data-slug="partition-of-india">
+      <header class="correct-head">
+        <p class="eyebrow">Corrections</p>
+        <h1>Correct something in <em>The Partition of India</em></h1>
+        <p>If the film gets something wrong, a name, a date, a place, a word in a subtitle, tell us what, and where. When a correction changes the film, it is listed in the credits with the date.</p>
+      </header>
+
+      <aside class="moment" id="moment" aria-label="The moment you are correcting" hidden>
+        <p class="when" id="moment-when"></p>
+        <p class="t" id="moment-title"></p>
+        <p class="w safe" id="moment-credit"></p>
+      </aside>
+
+      <div class="form-col">
+        <div class="sent-panel" id="sent" hidden role="status">
+          <p class="h">Sent.</p>
+          <p>If it leads to a change, the fix will be listed in the credits with the date.</p>
+          <button class="btn quiet" type="button" id="again">Send another</button>
+        </div>
+        <form novalidate id="form">
+          <div class="field" id="when-field">
+            <label for="when">Where in the film</label>
+            <span class="hint" id="when-hint">Optional. The time, like <span class="num">17:12</span>, or the shot's title as Sources lists it.</span>
+            <input class="tcin" id="when" name="when" maxlength="200" autocomplete="off" aria-describedby="when-hint when-msg" />
+            <span class="msg" id="when-msg" hidden>Use a time inside the film, like <span class="num">17:12</span>, the shot's title, or leave this empty.</span>
+          </div>
+          <div class="field" id="what-field">
+            <label for="what">What is wrong</label>
+            <textarea id="what" name="what" maxlength="2000" required aria-describedby="what-count what-msg" placeholder="For example: you wrote 7:12, I think you meant 17:12."></textarea>
+            <span class="msg" id="what-msg" hidden>Write what is wrong before sending.</span>
+            <span class="count num" id="what-count">0 of 2,000</span>
+          </div>
+          <div class="field">
+            <label for="how">How do you know</label>
+            <span class="hint" id="how-hint">Optional. A book, an archive record, a link, or what you saw yourself.</span>
+            <input id="how" name="how" maxlength="500" autocomplete="off" aria-describedby="how-hint" />
+          </div>
+          <p class="privacy-note">We do not ask who you are, so we cannot reply. Please leave out your name and email. Nothing you send is shown publicly unless it leads to a fix, and then only the fix is listed.</p>
+          <div class="send-row">
+            <button class="btn" type="submit" id="send">Send correction</button>
+            <p class="status" id="status" role="status" aria-live="polite"></p>
+          </div>
+        </form>
+        <section class="made" aria-labelledby="made-h">
+          <h2 id="made-h">Corrections so far</h2>
+          <p class="muted">None yet.</p>
+        </section>
+      </div>
+    </main>
+    <footer class="house-foot">
+      <span>void document is part of void, with <a href="https://news.voidvision.org/" rel="noopener">void news</a> and <a href="https://news.voidvision.org/history/" rel="noopener">void history</a>.</span>
+      <span>Films are free to watch and licensed CC BY 4.0.</span>
+      <a href="/privacy">Privacy</a>
+    </footer>
+    <script type="module" src="../../../src/correct.ts"></script>
+  </body>
+</html>

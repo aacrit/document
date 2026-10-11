@@ -1,0 +1,942 @@
+{
+ "_note": "Trimmed from the engine sources.json of the Partition trailer render (run r-20261010-125208-acee, engine dbe21e09b812): shot fields the site reads, the mark track, lower thirds and readings. Text only, no media.",
+ "v": 2,
+ "title": "The Partition of India · Trailer",
+ "slug": "partition-of-india-trailer",
+ "run": "r-20261010-125208-acee",
+ "engine": {
+  "version": "0.1.0",
+  "hash": "dbe21e09b812"
+ },
+ "width": 1920,
+ "height": 1080,
+ "fps": 24,
+ "frames": 7143,
+ "duration_s": 297.625,
+ "shots": [
+  {
+   "id": "S01",
+   "part": "cold-open",
+   "kind": "archive_video",
+   "start_s": 0,
+   "end_s": 4,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Wikimedia Commons 1947"
+   },
+   "title": "Refugees on train roof during Partition",
+   "archive": "Wikimedia Commons",
+   "item_url": "https://commons.wikimedia.org/wiki/File:Refugees_on_train_roof_during_Partition.ogv",
+   "date": "1947",
+   "creator": "Unknown author",
+   "credit": "Wikimedia Commons, from The Complete Work of Mahatma Gandhi - CD interactive",
+   "licence": "public domain",
+   "alterations": [],
+   "preset": null,
+   "in_s": 0,
+   "out_s": 5,
+   "text": null,
+   "transition_in": {
+    "type": "cut"
+   }
+  },
+  {
+   "id": "S02",
+   "part": "cold-open",
+   "kind": "archive_still",
+   "start_s": 4,
+   "end_s": 18,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Wikimedia Commons 1947"
+   },
+   "title": "Overcrowded train transferring refugees during the partition of India, 1947. This was considered to be the largest migration in human history.",
+   "archive": "Wikimedia Commons",
+   "item_url": "https://commons.wikimedia.org/wiki/File:Partition_of_Punjab,_India_1947.jpg",
+   "date": "1947",
+   "creator": "Unknown authorUnknown author",
+   "credit": "http://www.columbia.edu/itc/mealac/pritchett/00routesdata/1900_1999/partition/trains/trains.html",
+   "licence": "Public domain",
+   "alterations": [],
+   "preset": "PUSH",
+   "in_s": null,
+   "out_s": null,
+   "text": null,
+   "transition_in": {
+    "type": "dissolve",
+    "s": 1
+   }
+  },
+  {
+   "id": "S03",
+   "part": "title",
+   "kind": "card",
+   "start_s": 18,
+   "end_s": 23,
+   "mark": {
+    "class": "CARD",
+    "detail": ""
+   },
+   "title": null,
+   "archive": null,
+   "item_url": null,
+   "date": null,
+   "creator": null,
+   "credit": null,
+   "licence": null,
+   "alterations": [],
+   "preset": null,
+   "in_s": null,
+   "out_s": null,
+   "text": [
+    "The Partition of India · Trailer",
+    "void document"
+   ],
+   "transition_in": {
+    "type": "dip",
+    "s": 1
+   }
+  },
+  {
+   "id": "S04",
+   "part": "title",
+   "kind": "card",
+   "start_s": 23,
+   "end_s": 27,
+   "mark": {
+    "class": "CARD",
+    "detail": ""
+   },
+   "title": null,
+   "archive": null,
+   "item_url": null,
+   "date": null,
+   "creator": null,
+   "credit": null,
+   "licence": null,
+   "alterations": [],
+   "preset": null,
+   "in_s": null,
+   "out_s": null,
+   "text": [
+    "1  The count",
+    "1946 to 3 June 1947"
+   ],
+   "transition_in": {
+    "type": "cut"
+   }
+  },
+  {
+   "id": "S05",
+   "part": "ch-1",
+   "kind": "archive_video",
+   "start_s": 27,
+   "end_s": 36.5,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "NARA / Internet Archive 1946"
+   },
+   "title": "United News newsreel, ARC 39115 (LI 208-UN-208), Part 6: Britain discusses India and Egypt",
+   "archive": "US National Archives, via Internet Archive",
+   "item_url": "https://archive.org/details/gov.archives.arc.39115",
+   "date": "1946",
+   "creator": "Office of War Information, United News (United States Government)",
+   "credit": "US National Archives (NARA), ARC 39115, via Internet Archive item gov.archives.arc.39115",
+   "licence": "public domain",
+   "alterations": [],
+   "preset": null,
+   "in_s": 9.5,
+   "out_s": 19,
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
+  },
+  {
+   "id": "S06",
+   "part": "ch-1",
+   "kind": "archive_video",
+   "start_s": 36.5,
+   "end_s": 41.5,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "NARA / Internet Archive 1946"
+   },
+   "title": "United News newsreel, ARC 39115 (LI 208-UN-208), Part 6: Britain discusses India and Egypt",
+   "archive": "US National Archives, via Internet Archive",
+   "item_url": "https://archive.org/details/gov.archives.arc.39115",
+   "date": "1946",
+   "creator": "Office of War Information, United News (United States Government)",
+   "credit": "US National Archives (NARA), ARC 39115, via Internet Archive item gov.archives.arc.39115",
+   "licence": "public domain",
+   "alterations": [],
+   "preset": null,
+   "in_s": 21.5,
+   "out_s": 26.5,
+   "text": null,
+   "transition_in": {
+    "type": "cut"
+   }
+  },
+  {
+   "id": "S07",
+   "part": "ch-1",
+   "kind": "archive_video",
+   "start_s": 41.5,
+   "end_s": 52.5,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "NARA / Internet Archive 1946"
+   },
+   "title": "United News newsreel, ARC 39115 (LI 208-UN-208), Part 6: Britain discusses India and Egypt",
+   "archive": "US National Archives, via Internet Archive",
+   "item_url": "https://archive.org/details/gov.archives.arc.39115",
+   "date": "1946",
+   "creator": "Office of War Information, United News (United States Government)",
+   "credit": "US National Archives (NARA), ARC 39115, via Internet Archive item gov.archives.arc.39115",
+   "licence": "public domain",
+   "alterations": [],
+   "preset": null,
+   "in_s": 84,
+   "out_s": 95,
+   "text": null,
+   "transition_in": {
+    "type": "cut"
+   }
+  },
+  {
+   "id": "S08",
+   "part": "ch-1",
+   "kind": "black",
+   "start_s": 52.5,
+   "end_s": 73,
+   "mark": {
+    "class": "CARD",
+    "detail": ""
+   },
+   "title": null,
+   "archive": null,
+   "item_url": null,
+   "date": null,
+   "creator": null,
+   "credit": null,
+   "licence": null,
+   "alterations": [],
+   "preset": null,
+   "in_s": null,
+   "out_s": null,
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.75
+   }
+  },
+  {
+   "id": "S09",
+   "part": "ch-1",
+   "kind": "archive_still",
+   "start_s": 73,
+   "end_s": 91.5,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Wikimedia Commons 1950"
+   },
+   "title": "(From left) Kanhaiyalal M. Munshi, Sardar Baldev Singh and Dr. Babasaheb Ambedkar on the Greeneries of Indian Parliament.",
+   "archive": "Wikimedia Commons",
+   "item_url": "https://commons.wikimedia.org/wiki/File:(From_left)_Kanhaiyalal_M._Munshi,_Sardar_Baldev_Singh_and_Dr._Babasaheb_Ambedkar_on_the_Greeneries_of_Indian_Parliament..jpg",
+   "date": "1950",
+   "creator": "Unknown authorUnknown author",
+   "credit": "http://navayan.com/photo-gallery.php?name=babasaheb-ambedkar",
+   "licence": "CC0",
+   "alterations": [],
+   "preset": "HOLD",
+   "in_s": null,
+   "out_s": null,
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
+  },
+  {
+   "id": "S10",
+   "part": "ch-1",
+   "kind": "archive_video",
+   "start_s": 91.5,
+   "end_s": 101.5,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "NARA / Internet Archive 1946"
+   },
+   "title": "United News newsreel, ARC 39115 (LI 208-UN-208), Part 6: Britain discusses India and Egypt",
+   "archive": "US National Archives, via Internet Archive",
+   "item_url": "https://archive.org/details/gov.archives.arc.39115",
+   "date": "1946",
+   "creator": "Office of War Information, United News (United States Government)",
+   "credit": "US National Archives (NARA), ARC 39115, via Internet Archive item gov.archives.arc.39115",
+   "licence": "public domain",
+   "alterations": [],
+   "preset": null,
+   "in_s": 45,
+   "out_s": 55,
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
+  },
+  {
+   "id": "S11",
+   "part": "ch-2",
+   "kind": "card",
+   "start_s": 101.5,
+   "end_s": 105.5,
+   "mark": {
+    "class": "CARD",
+    "detail": ""
+   },
+   "title": null,
+   "archive": null,
+   "item_url": null,
+   "date": null,
+   "creator": null,
+   "credit": null,
+   "licence": null,
+   "alterations": [],
+   "preset": null,
+   "in_s": null,
+   "out_s": null,
+   "text": [
+    "2  The line",
+    "3 June to 15 August 1947"
+   ],
+   "transition_in": {
+    "type": "dip",
+    "s": 0.75
+   }
+  },
+  {
+   "id": "S12",
+   "part": "ch-2",
+   "kind": "card",
+   "start_s": 105.5,
+   "end_s": 110.5,
+   "mark": {
+    "class": "CARD",
+    "detail": ""
+   },
+   "title": null,
+   "archive": null,
+   "item_url": null,
+   "date": null,
+   "creator": null,
+   "credit": null,
+   "licence": null,
+   "alterations": [],
+   "preset": null,
+   "in_s": null,
+   "out_s": null,
+   "text": [
+    "The record holds no open-licence photograph of Cyril Radcliffe or of the Commission's sittings.",
+    "Searched: Wikimedia Commons, Library of Congress, NARA."
+   ],
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
+  },
+  {
+   "id": "S13",
+   "part": "ch-2",
+   "kind": "archive_still",
+   "start_s": 110.5,
+   "end_s": 136,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Wikimedia Commons 1947"
+   },
+   "title": "Lord Mountbatten meets Nehru, Jinnah and other Leaders to plan Partition of India.",
+   "archive": "Wikimedia Commons",
+   "item_url": "https://commons.wikimedia.org/wiki/File:Lord_Mountbatten_meets_Nehru,_Jinnah_and_other_Leaders_to_plan_Partition_of_India.jpg",
+   "date": "1947",
+   "creator": "Unknown authorUnknown author",
+   "credit": "http://topyaps.com/45-must-see-photographs-that-bring-indian-history-back-to-life",
+   "licence": "Public domain",
+   "alterations": [],
+   "preset": "PUSH",
+   "in_s": null,
+   "out_s": null,
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
+  },
+  {
+   "id": "S14",
+   "part": "ch-2",
+   "kind": "archive_still",
+   "start_s": 136,
+   "end_s": 159,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Wikimedia Commons 1947"
+   },
+   "title": "Quaid-e-Azam replying to the Address by Lord Mountbatten in Constituent Assembly on 14 August 1947.",
+   "archive": "Wikimedia Commons",
+   "item_url": "https://commons.wikimedia.org/wiki/File:Jinnah_speaking_on_14_August_1947.jpg",
+   "date": "1947-08-14",
+   "creator": "Unknown authorUnknown author",
+   "credit": "National Archives of Pakistan - Picture Gallery",
+   "licence": "Public domain",
+   "alterations": [],
+   "preset": "PUSH",
+   "in_s": null,
+   "out_s": null,
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
+  },
+  {
+   "id": "S15",
+   "part": "ch-2",
+   "kind": "archive_still",
+   "start_s": 159,
+   "end_s": 166,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Wikimedia Commons 1947"
+   },
+   "title": "Jawaharlal Nehru delivering his \"tryst with destiny\" speech on the midnight of 15 August 1947.",
+   "archive": "Wikimedia Commons",
+   "item_url": "https://commons.wikimedia.org/wiki/File:Jawaharlal_Nehru_delivering_his_%22tryst_with_destiny%22_speech.jpg",
+   "date": "1947-08-15",
+   "creator": "Unknown authorUnknown author",
+   "credit": "[1]",
+   "licence": "Public domain",
+   "alterations": [],
+   "preset": "HOLD",
+   "in_s": null,
+   "out_s": null,
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
+  },
+  {
+   "id": "S16",
+   "part": "ch-3",
+   "kind": "card",
+   "start_s": 166,
+   "end_s": 170,
+   "mark": {
+    "class": "CARD",
+    "detail": ""
+   },
+   "title": null,
+   "archive": null,
+   "item_url": null,
+   "date": null,
+   "creator": null,
+   "credit": null,
+   "licence": null,
+   "alterations": [],
+   "preset": null,
+   "in_s": null,
+   "out_s": null,
+   "text": [
+    "3  The roads",
+    "August to December 1947"
+   ],
+   "transition_in": {
+    "type": "dip",
+    "s": 0.75
+   }
+  },
+  {
+   "id": "S17",
+   "part": "ch-3",
+   "kind": "archive_still",
+   "start_s": 170,
+   "end_s": 177,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Wikimedia Commons 1947"
+   },
+   "title": "Refugees at Balloki, Kasur during partition of India. From Balloki Head Kasur carts, cattle, donkeys, dogs, men, women, boys, girls, babies, bicycles, baggage – ail in constant move under pall of dust.",
+   "archive": "Wikimedia Commons",
+   "item_url": "https://commons.wikimedia.org/wiki/File:Refugee_at_Balloki,_Kasur_during_partition_of_India.jpg",
+   "date": "1947",
+   "creator": "Photo Division, Government of India",
+   "credit": "http://photodivision.gov.in/writereaddata/webimages/thumbnails/37160.jpg\n\nAPO/February,54,A31d\nPhoto Number:-37160",
+   "licence": "Public domain",
+   "alterations": [],
+   "preset": "DRIFT",
+   "in_s": null,
+   "out_s": null,
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
+  },
+  {
+   "id": "S18",
+   "part": "ch-3",
+   "kind": "archive_still",
+   "start_s": 177,
+   "end_s": 199.625,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Wikimedia Commons 1947"
+   },
+   "title": "A news bureau photograph of Kashmiri refugees who had been driven from their homes by the turmoil of 1947; *another such view*\n\nSource: ebay, Feb. 2007",
+   "archive": "Wikimedia Commons",
+   "item_url": "https://commons.wikimedia.org/wiki/File:Another_such_view_1.jpg",
+   "date": "1947",
+   "creator": "Unknown authorUnknown author",
+   "credit": "http://www.columbia.edu/itc/mealac/pritchett/00routesdata/1900_1999/partition/refugees/refugees.html",
+   "licence": "Public domain",
+   "alterations": [],
+   "preset": "HOLD",
+   "in_s": null,
+   "out_s": null,
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
+  },
+  {
+   "id": "S19",
+   "part": "close",
+   "kind": "archive_still",
+   "start_s": 199.625,
+   "end_s": 221.625,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Wikimedia Commons 1947"
+   },
+   "title": "A refugee camp, Punjab, 1947\nSource: http://www.namdar.net/Partition1947.htm\n\n(downloaded May 2004)",
+   "archive": "Wikimedia Commons",
+   "item_url": "https://commons.wikimedia.org/wiki/File:A_refugee_camp,_Punjab,_1947.jpg",
+   "date": "1947",
+   "creator": "Unknown authorUnknown author",
+   "credit": "http://www.columbia.edu/itc/mealac/pritchett/00routesdata/1900_1999/partition/camps/camps.html",
+   "licence": "Public domain",
+   "alterations": [],
+   "preset": "TILT",
+   "in_s": null,
+   "out_s": null,
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.75
+   }
+  },
+  {
+   "id": "S20",
+   "part": "close",
+   "kind": "archive_still",
+   "start_s": 221.625,
+   "end_s": 239.625,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Wikimedia Commons 1947"
+   },
+   "title": "Police in Delhi conduct arms searches, fearing anti-Partition violence by the Muslim \"Khaksars\"; a news photo, June 10, 1947; *the original caption*\n\nSource: ebay, June 2010",
+   "archive": "Wikimedia Commons",
+   "item_url": "https://commons.wikimedia.org/wiki/File:Police_in_Delhi_conduct_arms_searches,_fearing_anti-Partition_violence_by_the_Muslim_%22Khaksars%22.jpg",
+   "date": "1947-06-10",
+   "creator": "Unknown authorUnknown author",
+   "credit": "http://www.columbia.edu/itc/mealac/pritchett/00routesdata/1900_1999/partition/announcements/announcements.html",
+   "licence": "Public domain",
+   "alterations": [],
+   "preset": "DRIFT",
+   "in_s": null,
+   "out_s": null,
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.75
+   }
+  },
+  {
+   "id": "S21",
+   "part": "close",
+   "kind": "archive_still",
+   "start_s": 239.625,
+   "end_s": 268.125,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Wikimedia Commons 1947"
+   },
+   "title": "The Emergency Committee Control Room, Delhi, September 1947. Right to left: H. M. Patel, K. B. lall, M. S. Randhawa, (standing 2nd from left is Sunil Roy). Fori Nehru in centre (only female)",
+   "archive": "Wikimedia Commons",
+   "item_url": "https://commons.wikimedia.org/wiki/File:The_Emergency_Committee_Conttrol_Romm,_Delhi,_September_1947.jpg",
+   "date": "1947-09",
+   "creator": "Unknown authorUnknown author",
+   "credit": "Nehru, B. K (2012)    (in english)   Nice guys finish second: memoirs, New Delhi:  Penguin Books, p. 248  ISBN:  978-0-14-341782-8.  OCLC:   1117765699.",
+   "licence": "Public domain",
+   "alterations": [],
+   "preset": "HOLD",
+   "in_s": null,
+   "out_s": null,
+   "text": null,
+   "transition_in": {
+    "type": "dissolve",
+    "s": 1
+   }
+  },
+  {
+   "id": "S22",
+   "part": "close",
+   "kind": "card",
+   "start_s": 268.125,
+   "end_s": 274.125,
+   "mark": {
+    "class": "CARD",
+    "detail": ""
+   },
+   "title": null,
+   "archive": null,
+   "item_url": null,
+   "date": null,
+   "creator": null,
+   "credit": null,
+   "licence": null,
+   "alterations": [],
+   "preset": null,
+   "in_s": null,
+   "out_s": null,
+   "text": [
+    "The record holds no first-person account under an open licence by a Bengali or Bangladeshi witness.",
+    "Searched: FRUS, Hansard, Internet Archive, Wikisource, ADST, SOAS, The 1947 Partition Archive, Citizens Archive of Pakistan, na.gov.pk, sansad.in."
+   ],
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
+  },
+  {
+   "id": "S23",
+   "part": "close",
+   "kind": "archive_video",
+   "start_s": 274.125,
+   "end_s": 279.125,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Wikimedia Commons 1947"
+   },
+   "title": "Refugees on train roof during Partition",
+   "archive": "Wikimedia Commons",
+   "item_url": "https://commons.wikimedia.org/wiki/File:Refugees_on_train_roof_during_Partition.ogv",
+   "date": "1947",
+   "creator": "Unknown author",
+   "credit": "Wikimedia Commons, from The Complete Work of Mahatma Gandhi - CD interactive",
+   "licence": "public domain",
+   "alterations": [],
+   "preset": null,
+   "in_s": 0,
+   "out_s": 5,
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
+  },
+  {
+   "id": "S24",
+   "part": "credits",
+   "kind": "card",
+   "start_s": 279.125,
+   "end_s": 297.625,
+   "mark": {
+    "class": "CARD",
+    "detail": ""
+   },
+   "title": null,
+   "archive": null,
+   "item_url": null,
+   "date": null,
+   "creator": null,
+   "credit": null,
+   "licence": null,
+   "alterations": [],
+   "preset": null,
+   "in_s": null,
+   "out_s": null,
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 1
+   }
+  }
+ ],
+ "marks": [
+  {
+   "from_s": 0,
+   "to_s": 18,
+   "class": "ARCHIVE",
+   "detail": "Wikimedia Commons 1947"
+  },
+  {
+   "from_s": 18,
+   "to_s": 27,
+   "class": "CARD",
+   "detail": ""
+  },
+  {
+   "from_s": 27,
+   "to_s": 52.5,
+   "class": "ARCHIVE",
+   "detail": "NARA / Internet Archive 1946"
+  },
+  {
+   "from_s": 52.5,
+   "to_s": 73,
+   "class": "CARD",
+   "detail": ""
+  },
+  {
+   "from_s": 73,
+   "to_s": 91.5,
+   "class": "ARCHIVE",
+   "detail": "Wikimedia Commons 1950"
+  },
+  {
+   "from_s": 91.5,
+   "to_s": 101.5,
+   "class": "ARCHIVE",
+   "detail": "NARA / Internet Archive 1946"
+  },
+  {
+   "from_s": 101.5,
+   "to_s": 110.5,
+   "class": "CARD",
+   "detail": ""
+  },
+  {
+   "from_s": 110.5,
+   "to_s": 166,
+   "class": "ARCHIVE",
+   "detail": "Wikimedia Commons 1947"
+  },
+  {
+   "from_s": 166,
+   "to_s": 170,
+   "class": "CARD",
+   "detail": ""
+  },
+  {
+   "from_s": 170,
+   "to_s": 268.125,
+   "class": "ARCHIVE",
+   "detail": "Wikimedia Commons 1947"
+  },
+  {
+   "from_s": 268.125,
+   "to_s": 274.125,
+   "class": "CARD",
+   "detail": ""
+  },
+  {
+   "from_s": 274.125,
+   "to_s": 279.125,
+   "class": "ARCHIVE",
+   "detail": "Wikimedia Commons 1947"
+  },
+  {
+   "from_s": 279.125,
+   "to_s": 297.625,
+   "class": "CARD",
+   "detail": ""
+  }
+ ],
+ "share": {
+  "ARCHIVE": 0.7749,
+  "RECONSTRUCTED": 0,
+  "AI-GENERATED": 0,
+  "DRAWN": 0,
+  "CARD": 0.2251
+ },
+ "lower_thirds": [
+  {
+   "id": "T1",
+   "start_s": 62,
+   "end_s": 67,
+   "lines": [
+    "Arthur Henderson",
+    "Under-Secretary of State for India, 1947",
+    "Hansard, House of Commons, 17 March 1947  ·  read by a computer voice"
+   ],
+   "flag": null
+  },
+  {
+   "id": "T2",
+   "start_s": 74.5,
+   "end_s": 79.5,
+   "lines": [
+    "Baldev Singh",
+    "Defence Member of the Interim Government of India, 1947",
+    "Broadcast on All India Radio, 3 June 1947, The Transfer of Power vol. XI  ·  read by a computer voice"
+   ],
+   "flag": null
+  },
+  {
+   "id": "T3",
+   "start_s": 125,
+   "end_s": 130,
+   "lines": [
+    "R. A. Butler",
+    "Member of Parliament, Punjab-born, 1947",
+    "Hansard, House of Commons, 14 July 1947  ·  read by a computer voice"
+   ],
+   "flag": null
+  },
+  {
+   "id": "T4",
+   "start_s": 148.6,
+   "end_s": 153.6,
+   "lines": [
+    "Muhammad Ali Jinnah",
+    "President of the Constituent Assembly of Pakistan, 1947",
+    "Constituent Assembly of Pakistan Debates, 11 August 1947  ·  read by a computer voice"
+   ],
+   "flag": null
+  },
+  {
+   "id": "T5",
+   "start_s": 160.5,
+   "end_s": 165.5,
+   "lines": [
+    "New Delhi, the Constituent Assembly of India",
+    "15 August 1947"
+   ],
+   "flag": null
+  },
+  {
+   "id": "T6",
+   "start_s": 186.6387,
+   "end_s": 191.6387,
+   "lines": [
+    "Philip Noel-Baker",
+    "Secretary of State for Commonwealth Relations, 1947",
+    "Hansard, House of Commons, 30 October 1947  ·  read by a computer voice"
+   ],
+   "flag": null
+  },
+  {
+   "id": "T7",
+   "start_s": 209.1387,
+   "end_s": 214.1387,
+   "lines": [
+    "Fatima Jinnah",
+    "Speaking at Curzon Hall, Dacca, 1948",
+    "Speeches, Messages and Statements 1948 to 1967, Internet Archive  ·  read by a computer voice"
+   ],
+   "flag": null
+  },
+  {
+   "id": "T8",
+   "start_s": 236.1387,
+   "end_s": 241.1387,
+   "lines": [
+    "Begum Aizaz Rasul",
+    "Member, Constituent Assembly of India, 1949",
+    "Constituent Assembly Debates vol. VIII, 25 May 1949  ·  read by a computer voice"
+   ],
+   "flag": null
+  }
+ ],
+ "readings": [
+  {
+   "id": "R1",
+   "speaker": "sp-henderson",
+   "name": "Arthur Henderson",
+   "side": "britain",
+   "year": 1947,
+   "source": "hansard-1947-03-17-punjab-riots",
+   "locator": "excerpt",
+   "start_s": 62,
+   "text": "Verified casualties up to the evening of 16th March were 1,046 killed and 1,167 injured.",
+   "credit": "Read by a computer voice. No recording of Arthur Henderson was used."
+  },
+  {
+   "id": "R5",
+   "speaker": "sp-baldev-singh",
+   "name": "Baldev Singh",
+   "side": "sikh",
+   "year": 1947,
+   "source": "baldev-singh-1947-06-03-air-broadcast",
+   "locator": "excerpt",
+   "start_s": 74.5,
+   "text": "We have closed a dreary chapter. [...] It would be untrue if I say we are altogether happy. [...] It does not please everybody, not the Sikh community, anyway. But it is certainly worth while. Let us take it.",
+   "credit": "Read by a computer voice. No recording of Baldev Singh was used."
+  },
+  {
+   "id": "R6",
+   "speaker": "sp-butler",
+   "name": "R. A. Butler",
+   "side": "britain",
+   "year": 1947,
+   "source": "hansard-1947-07-14-butler",
+   "locator": "excerpt",
+   "start_s": 125,
+   "text": "As Punjabi-born, and knowing most of the districts intimately, with other members of my family and friends, I feel myself quite heartbroken at this decision.",
+   "credit": "Read by a computer voice. No recording of R. A. Butler was used."
+  },
+  {
+   "id": "R2",
+   "speaker": "sp-jinnah",
+   "name": "Muhammad Ali Jinnah",
+   "side": "pakistan",
+   "year": 1947,
+   "source": "jinnah-1947-constituent-assembly-address",
+   "locator": "excerpt",
+   "start_s": 148.6,
+   "text": "You are free; you are free to go to your temples, you are free to go to your mosques or to any other places of worship in this State of Pakistan.",
+   "credit": "Read by a computer voice. No recording of Muhammad Ali Jinnah was used."
+  },
+  {
+   "id": "R9",
+   "speaker": "sp-noel-baker",
+   "name": "Philip Noel-Baker",
+   "side": "britain",
+   "year": 1947,
+   "source": "hansard-1947-10-30-noel-baker",
+   "locator": "excerpt",
+   "start_s": 186.6387,
+   "text": "some 2,000 armed raiders entered Kashmir, on or about the 22nd October; they took the Jhelum Valley road leading to Srinagar",
+   "credit": "Read by a computer voice. No recording of Philip Noel-Baker was used."
+  },
+  {
+   "id": "R7",
+   "speaker": "sp-fatima-jinnah",
+   "name": "Fatima Jinnah",
+   "side": "pakistan",
+   "year": 1948,
+   "source": "fatima-jinnah-1948-curzon-hall",
+   "locator": "excerpt",
+   "start_s": 209.1387,
+   "text": "In that hour of trial the women of Pakistan played their part and contributed their full share by working day and night for the relief of the sick and the wounded.",
+   "credit": "Read by a computer voice. No recording of Fatima Jinnah was used."
+  },
+  {
+   "id": "R8",
+   "speaker": "sp-aizaz-rasul",
+   "name": "Begum Aizaz Rasul",
+   "side": "india",
+   "year": 1949,
+   "source": "aizaz-rasul-1949-muslims-suffering",
+   "locator": "excerpt",
+   "start_s": 236.1387,
+   "text": "I will go into the history of the events of the last two years. It is a very sad history and no one can deny that the Muslims living in this country have been the greatest sufferers as a result of the events that have taken place. Not only have their lives and property been in danger and full of insecurity, but their very honour has been at stake and their loyalties have been questioned. This caused great sense of frustration and mental depression.",
+   "credit": "Read by a computer voice. No recording of Begum Aizaz Rasul was used."
+  }
+ ]
+}

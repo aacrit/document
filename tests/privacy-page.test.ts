@@ -8,8 +8,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { CSP } from "../scripts/lib/csp.mjs";
-import { RETENTION_DAYS } from "../worker/src/config";
+import { CSP, SECURITY_HEADERS } from "../scripts/lib/csp.mjs";
+import { CLIENT_EVENTS, RETENTION_DAYS } from "../worker/src/config";
 import { IDLE_SCENARIOS, runIdleScenario } from "./helpers/retention-sim";
 import { parse as parseYaml } from "yaml";
 
@@ -26,9 +26,37 @@ describe("web/privacy.html, claim by claim", () => {
         expect(read(`${dir}/${f}`), f).not.toMatch(/\b(localStorage|sessionStorage|indexedDB)\.|document\.cookie|set-cookie/i);
       }
     }
-    for (const page of readdirSync(path.join(root, "web")).filter((p) => p.endsWith(".html"))) {
+    for (const page of readdirSync(path.join(root, "web"), { recursive: true, encoding: "utf8" }).filter((p) => p.endsWith(".html"))) {
       expect(read(`web/${page}`), page).not.toMatch(/googletagmanager|google-analytics|cloudflareinsights|plausible|posthog/i);
     }
+  });
+
+  it("names exactly the events the client sends: a page opened, a film watched to its last frame, an archive's link opened", () => {
+    expect(text).toContain("a page opened, a film watched to its last frame, and an archive's link opened from a film's Sources page");
+    expect([...CLIENT_EVENTS].sort()).toEqual(["film_completed", "page_view", "source_opened"]);
+  });
+
+  it("the film page remembers nothing between visits: no storage in any client script, at any depth", () => {
+    expect(text).toContain("The film page remembers nothing between visits, not even your subtitle choice.");
+    for (const f of readdirSync(path.join(root, "web/src"), { recursive: true, encoding: "utf8" }).filter((x) => x.endsWith(".ts"))) {
+      expect(read(`web/src/${f}`), f).not.toMatch(/\b(localStorage|sessionStorage|indexedDB)\.|document\.cookie/);
+    }
+  });
+
+  it("the corrections form asks for no name or email, and sends only the text and the page", () => {
+    expect(text).toContain("It never asks for your name or email");
+    const form = read("web/f/partition-of-india/correct/index.html");
+    expect(form).not.toMatch(/type="email"|name="(name|email)"|autocomplete="(name|email)"/);
+    expect(read("web/src/correct.ts")).toContain("JSON.stringify({ text, page: location.pathname })");
+  });
+
+  it("films, posters, captions and sources lists come from this site, and links send no referrer", () => {
+    expect(text).toContain("Every page, script, style, font, film, poster, caption file and sources list comes from this site");
+    expect(text).toContain("this site sends no referrer when you do");
+    for (const page of ["web/index.html", "web/f/partition-of-india/index.html"]) {
+      for (const m of read(page).matchAll(/\s(?:src|poster)="([^"]+)"/g)) expect(m[1], page).not.toMatch(/^(https?:)?\/\//);
+    }
+    expect(SECURITY_HEADERS["Referrer-Policy"]).toBe("no-referrer");
   });
 
   it("counts as daily totals: /e takes exactly one field and only increments a day count", () => {

@@ -61,7 +61,7 @@
     // Day ceilings (worker/src/config.ts). Together their worst case is this
     // product's share of the account's 100,000 D1 writes a day; budget.yaml
     // states it and tests/hardening.test.ts recomputes it from these values.
-    "EVENT_DAILY_CEILING": "4000",
+    "EVENT_DAILY_CEILING": "3000",
     "FEEDBACK_DAILY_CEILING": "100"
   }
   // Cloudflare caps cron triggers at 5 per account, and this account's one

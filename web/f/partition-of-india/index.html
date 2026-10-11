@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="build" content="__BUILD__" />
+    <meta name="description" content="The Partition of India, 1946 to 1948, told with the public record. A void document film." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16'/%3E%3Ccircle cx='12' cy='12' r='4.2'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="../../../design/tokens.css" />
+    <link rel="stylesheet" href="../../src/house.css" />
+    <link rel="stylesheet" href="../../src/film.css" />
+    <title>The Partition of India · void document</title>
+  </head>
+  <body>
+    <main>
+      <section class="screen" id="screen" aria-label="The Partition of India, the film" data-slug="partition-of-india">
+        <div class="topbar">
+          <a class="wordmark" href="/"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8V4.5H7M17 4.5h3.5V8M20.5 16v3.5H17M7 19.5H3.5V16" /><circle cx="12" cy="12" r="4.2" /><circle class="ember" cx="18.6" cy="17.6" r="1.25" /></svg><span class="wm"><span class="wm-void">void</span> <span class="wm-doc">document</span></span></a>
+          <nav class="top-links" aria-label="This film"><a href="/f/partition-of-india/sources/">Sources</a><a href="/f/partition-of-india/correct/" id="correct-top">Correct something</a></nav>
+        </div>
+        <div class="stage">
+          <div class="frame-box field" id="frame">
+            <video id="film" playsinline preload="metadata" aria-label="The Partition of India">
+              <source src="/media/partition-of-india/film.mp4" type="video/mp4" />
+              <track kind="captions" srclang="en" label="English captions" src="/media/partition-of-india/captions-en.vtt" />
+            </video>
+            <span class="mark" id="mark" data-class="archive" hidden><span class="cls"></span><span class="det"></span></span>
+            <p class="cue" id="cue" hidden><span></span></p>
+            <button class="btn bigplay" type="button" id="bigplay"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" /></svg><span>Play the film</span><span class="num" id="bigplay-time"></span></button>
+            <div class="frame-msg" id="film-error" role="alert" hidden><p class="h">The film could not load.</p><p>Check your connection, then reload the page.</p></div>
+            <div class="endcard" id="endcard" hidden>
+              <div class="inner">
+                <p class="t">The Partition of India</p>
+                <p class="silent" id="end-silent" hidden></p>
+                <p class="searched" id="end-searched" hidden></p>
+                <div class="acts">
+                  <button class="btn" type="button" id="again">Watch again</button>
+                  <a class="btn quiet" href="/f/partition-of-india/sources/">Sources</a>
+                  <a class="btn quiet" href="/f/partition-of-india/correct/">Correct something</a>
+                </div>
+              </div>
+            </div>
+          </div>
+          <aside class="paused-credit" id="credit" aria-live="polite" hidden>
+            <p class="t" id="credit-title"></p>
+            <p class="w safe" id="credit-where"></p>
+            <a class="source" id="credit-source" href="/f/partition-of-india/sources/">See the source</a>
+            <a class="correct-at" id="credit-correct" href="/f/partition-of-india/correct/">Correct something here</a>
+          </aside>
+        </div>
+        <div class="controls" role="group" aria-label="Film controls">
+          <div class="scrub" id="scrub" role="slider" tabindex="0" aria-label="Position in the film" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="0:00"><div class="fill" id="scrub-fill"></div><div class="head" id="scrub-head"></div></div>
+          <button class="play" type="button" id="play" aria-label="Play" data-label="Play"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path id="play-icon" d="M8 5.5v13l10.5-6.5z" /></svg></button>
+          <span class="time tc" id="time" aria-hidden="true">0:00 <span class="of">/ 0:00</span></span>
+          <button class="subs" type="button" id="subs" aria-haspopup="menu" aria-expanded="false" aria-controls="subs-menu" aria-label="Subtitles" data-label="Subtitles"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2" /><path d="M7 14.5h4M13 14.5h4M7 11h10" /></svg></button>
+          <button class="marks" type="button" id="marks" aria-haspopup="dialog" aria-expanded="false" aria-controls="legend" aria-label="Marks" data-label="Marks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h6v4H4zM4 15h6v4H4z" /><path d="M13 7h7M13 17h7" /></svg></button>
+          <a class="ic list" href="#chapters" id="chapters-link" hidden aria-label="Chapters" data-label="Chapters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 7h10M9 12h10M9 17h10M5 7h.01M5 12h.01M5 17h.01" /></svg></a>
+          <button class="vol" type="button" id="vol" aria-pressed="true" aria-label="Sound" data-label="Sound"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4zM15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10" /></svg></button>
+          <button class="full" type="button" id="full" aria-label="Full screen" data-label="Full screen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" /></svg></button>
+          <div class="popover" id="subs-menu" hidden>
+            <div class="menu" role="menu" aria-label="Subtitles">
+              <p class="mh" aria-hidden="true">Subtitles</p>
+              <button type="button" role="menuitemradio" aria-checked="true" data-track="off">Off</button>
+              <button type="button" role="menuitemradio" aria-checked="false" data-track="en">English captions</button>
+              <p class="quiet">Hindi and Urdu subtitles are being reviewed.</p>
+              <p class="quiet" id="captions-error" role="alert" hidden>The English captions could not load. Reload the page to try again.</p>
+            </div>
+          </div>
+          <div class="popover" id="legend" role="dialog" aria-labelledby="legend-h" hidden>
+            <div class="menu legend-menu">
+              <p class="mh" id="legend-h">What the marks mean</p>
+              <p class="lead">The mark in the corner says what you see. <span id="ai-sentence-legend"></span> <span id="voice-sentence-legend"></span></p>
+              <div class="legend">
+                <div class="row"><span class="mark" data-class="archive"><span class="cls">ARCHIVE</span><span class="det">the archive and year</span></span><p data-none-for="ARCHIVE">Real film or photograph from the archive, unaltered beyond trims, crops and slow moves.</p></div>
+                <div class="row"><span class="mark" data-class="reconstructed"><span class="cls">RECONSTRUCTED</span><span class="det">archive <span class="num">1947</span> upscaled</span></span><p data-none-for="RECONSTRUCTED">Archive film or photographs changed in a way that matters: colourised, re-timed, stabilised, or enlarged by a computer model. The mark names the change.</p></div>
+                <div class="row"><span class="mark" data-class="generated"><span class="cls">AI-GENERATED</span><span class="det">context</span></span><p data-none-for="AI-GENERATED">Made by a computer model: places, weather, objects. Never people, never a recorded event.</p></div>
+                <div class="row"><span class="mark" data-class="drawn"><span class="cls">DRAWN</span><span class="det">from a census table</span></span><p data-none-for="DRAWN">A map or diagram drawn by us from named data.</p></div>
+                <div class="row"><span class="mark" data-class="card"><span class="cls">VOID DOCUMENT</span></span><p>Text on black: titles, chapter cards, and where the record is silent.</p></div>
+                <a class="source" href="/f/partition-of-india/sources/">Every shot and its mark</a>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="provenance"><strong id="ai-sentence"></strong> <span id="voice-sentence"></span> <a href="#legend" id="legend-link">What the marks mean</a></p>
+      </section>
+
+      <div class="after-wrap">
+        <section class="after">
+          <div class="titlecard">
+            <p class="eyebrow">void document</p>
+            <h1 class="title">The Partition of India</h1>
+            <p class="place"><span class="num">1946</span> to <span class="num">1948</span>, told with the public record</p>
+            <p class="note"><span id="derived-notes" hidden><span id="accounts"></span> </span>Every reading is word for word from its source, sometimes in part (marked <span class="num">...</span>). <span id="voice-note"></span> This film shows no bodies or killing. <span id="silent-note"></span></p>
+          </div>
+          <nav class="onward" aria-label="About this film">
+            <a href="/f/partition-of-india/sources/"><span class="t">Sources</span><span class="m">Every shot with its mark, archive and licence; every reading with its speaker and source</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 16 16 8M10 8h6v6" /></svg></a>
+            <a href="/f/partition-of-india/correct/"><span class="t">Correct something</span><span class="m">Tell us what the film gets wrong.</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 16 16 8M10 8h6v6" /></svg></a>
+            <a href="https://news.voidvision.org/history/partition-of-india/" rel="noopener"><span class="t">Listen to void history's audio documentary on the Partition of India</span><span class="m">On void history, part of the void family.</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 16 16 8M10 8h6v6" /></svg></a>
+          </nav>
+          <details class="drill" id="chapters" open hidden>
+            <summary><span class="t">Chapters</span><span class="s" id="chapters-count"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></summary>
+            <ol class="chapters" id="chapter-list"></ol>
+          </details>
+          <details class="drill" id="transcript-drill" hidden>
+            <summary><span class="t">Transcript</span><span class="s">English</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></summary>
+            <p class="lede">The readings, word for word, each with its speaker. Hindi and Urdu subtitles are being reviewed.</p>
+            <ol class="transcript" id="transcript"></ol>
+          </details>
+        </section>
+      </div>
+    </main>
+    <footer class="house-foot">
+      <span>void document is part of void, with <a href="https://news.voidvision.org/" rel="noopener">void news</a> and <a href="https://news.voidvision.org/history/" rel="noopener">void history</a>.</span>
+      <span>Films are free to watch and licensed CC BY 4.0.</span>
+      <a href="/privacy">Privacy</a>
+    </footer>
+    <script type="module" src="../../src/film.ts"></script>
+  </body>
+</html>
