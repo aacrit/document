@@ -2806,18 +2806,25 @@ def test_t1f_review_hiss_in_every_pause_or_some_refuses_without_the_gate_and_is_
     if gaps == 6:
         assert vc0["evidence"]["true_pause_after_level_dbfs"] > R.CLEAN_FLOOR_MAX_DBFS
     rep, out, vc, ch = _verdict(_hiss_in_pauses(burst_db, gaps), f"attack-{-burst_db}-{gaps}")
-    assert vc["evidence"]["loudest_pause_after_level_dbfs"] < R.CLEAN_FLOOR_MAX_DBFS
+    ev = vc["evidence"]
+    assert ev["loudest_pause_after_level_dbfs"] < R.CLEAN_FLOOR_MAX_DBFS
     if burst_db == -55 and gaps > 1:
         # hiss within 30 dB of the speech fills the pauses: the gate would turn those frames down, which is refused
         assert ch["status"] == "fail" and ch["evidence"]["gated_near_speech_frames"] > 0
-        assert out and all("the pause gate reached" in o for o in out)
+        assert any("the pause gate reached" in o for o in out)
+    if burst_db in (-55, -60) and gaps > 1:
+        # the hiss runs up to the next word: in the 40 ms before it, where the gate stops, it stays (p90 about
+        # -48.8 and -53.8 dBFS levelled), over the beside-word p90 limit
+        assert vc["status"] == "fail" and ev["beside_p90_after_level_dbfs"] > R.CLEAN_BESIDE_P90_MAX_DBFS
+        assert any("beside words" in o for o in out)
     else:
         assert vc["status"] == "pass" and out == []
 
 
-def test_t1f_review_true_pauses_fall_back_to_the_floor_p90_when_there_are_too_few(film):
-    import soundfile as sf
-    x, _ = sf.read(str(film / "audio" / "L2.wav"), dtype="float32")             # a 1.2 s tone with one 0.2 s pause
+def test_t1f_review_true_pauses_fall_back_to_the_floor_p90_when_there_are_too_few():
+    t = np.arange(int(1.2 * 48000)) / 48000                                    # a tone with one 0.12 s pause: under 5
+    x = (0.2 * np.sin(2 * np.pi * 330 * t)).astype(np.float32)                 # true-pause frames once the word guard
+    x[(t < 0.25) | (t >= 0.95) | (np.abs(t - 0.6) < 0.06)] = 0.0               # (60 ms after, 40 ms before) is taken out
     rep, out, vc, _ = _verdict(x, "few-true-pauses")
     assert rep["true_pause_frames"] < R.CLEAN_TRUE_PAUSE_MIN and vc["evidence"]["true_pause_fallback_p90"] is True
     assert vc["status"] == "pass" and out == []
@@ -2850,7 +2857,9 @@ def _ungated_samples(rep, n):
 
 def test_t1f_pause_gate_leaves_every_sample_near_speech_identical(monkeypatch):
     """Every sample outside the gated regions is the same with and without the
-    gate, and every gated sample lies 100 ms or more from any voiced frame."""
+    gate, every sample of a frame within 30 dB of the speech level too, and
+    every gated sample starts 60 ms or more after a voiced frame and ends
+    40 ms or more before one (T1f review: the gate reaches closer)."""
     x, spans = _speechlike(seed=6, gap_s=0.8)
     y, rep = R.clean_voice(x)
     with monkeypatch.context() as m:
@@ -2865,10 +2874,13 @@ def test_t1f_pause_gate_leaves_every_sample_near_speech_identical(monkeypatch):
     _, _, voiced = R.true_pause_mask(x, b, R._live_frames(b["frames"], R.live_span(x)))
     vs = np.zeros(len(y), bool)
     for f in np.flatnonzero(voiced):
-        vs[max(0, f * 960 - 4800): f * 960 + 960 + 4800] = True                    # each voiced frame and 100 ms either side
+        vs[max(0, f * 960 - 1920): f * 960 + 960 + 2880] = True                    # 40 ms before each voiced frame, 60 ms after
     assert not np.any(vs & ~keep)
-    for a, bb in spans:                                                         # each word, tail included, untouched
-        assert np.array_equal(y[a:bb], y0[a:bb])
+    _, near, _ = R.true_pause_mask(x, b, R._live_frames(b["frames"], R.live_span(x)))
+    nm = np.repeat(near, 960)
+    assert np.array_equal(y[: len(nm)][nm], y0[: len(nm)][nm])
+    for a, bb in spans:                                                         # each word's onset and body untouched
+        assert np.array_equal(y[a:bb - int(0.06 * 48000)], y0[a:bb - int(0.06 * 48000)])
 
 
 def test_t1f_pause_gate_turns_a_breath_in_a_true_pause_down_and_that_is_accepted():
@@ -2942,10 +2954,56 @@ def test_t1f_final_review_noise_beside_words_has_its_own_limit():
     rep, out, vc, _ = _verdict(x, "beside-clean")
     ev = vc["evidence"]
     assert out == [] and ev["beside_frames"] > 0 and ev["beside_after_level_dbfs"] < R.CLEAN_BESIDE_MAX_DBFS
-    loud = dict(rep, beside_dbfs=rep["beside_dbfs"] + 60, beside_p90_dbfs=rep["beside_p90_dbfs"])
     j = J.Journal(film="beside-loud")
     g, _ = R.level_gain(R.clean_voice(x)[0], R.DIALOGUE_LUFS)
-    out2 = R._journal_clean(j, "LB", dict(loud, beside_dbfs=-58.0 - g), g)
+    out2 = R._journal_clean(j, "LB", dict(rep, beside_dbfs=-58.0 - g), g)
     assert any("beside words median -58.0" in o for o in out2)
     out3 = R._journal_clean(J.Journal(film="beside-p90"), "LB", dict(rep, beside_p90_dbfs=-54.0 - g), g)
     assert any("beside words" in o for o in out3)
+
+
+def _hiss_beside_words(h_db, dropout=False):
+    """The reviewer's rv_final.py: clean pauses (-110), hiss only in the 120 ms
+    either side of every word, where the gate cannot reach; with ``dropout``
+    one pause goes to digital zero, so the floor is unsteady (denoise only)."""
+    x, spans = _speechlike(seed=3, hiss_db=-110.0)
+    rng = np.random.default_rng(7)
+    w = int(0.12 * 48000)
+    for a, b in spans:
+        x[a - w:a] += rng.normal(0, 10 ** (h_db / 20), w).astype(np.float32)
+        x[b:b + w] += rng.normal(0, 10 ** (h_db / 20), w).astype(np.float32)
+    if dropout:                                                                 # an unsteady floor: hiss at -85 with
+        rng2 = np.random.default_rng(9)                                         # one 0.4 s stretch at -112
+        base = rng2.normal(0, 10 ** (-85 / 20), len(x)).astype(np.float32)
+        q0 = spans[2][1] + int(0.12 * 48000)
+        base[q0: q0 + int(0.4 * 48000)] = rng2.normal(0, 10 ** (-112 / 20), int(0.4 * 48000))
+        x = x + base
+    return x
+
+
+@pytest.mark.parametrize("dropout,path", [(False, "expander"), (True, "denoise-only")])
+def test_t1f_review_hiss_beside_words_with_clean_pauses_is_judged(dropout, path):
+    """The beside-word limit judged no frame and passed (rv_final.py: -54 dBFS
+    levelled beside the words). It now chooses its frames by position, plus
+    any frame as flat as noise inside a word's decay and onset, and never
+    passes on nothing measured."""
+    rep, out, vc, _ = _verdict(_hiss_beside_words(-60.0, dropout), f"beside-60-{path}")
+    ev = vc["evidence"]
+    assert rep["path"] == path and ev["beside_frames"] >= R.CLEAN_TRUE_PAUSE_MIN and ev["beside_fallback_floor_p90"] is False
+    assert ev["beside_after_level_dbfs"] > R.CLEAN_BESIDE_MAX_DBFS and vc["status"] == "fail"
+    assert any("beside words" in o for o in out)
+    rep70, out70, vc70, _ = _verdict(_hiss_beside_words(-70.0, dropout), f"beside-70-{path}")
+    assert rep70["path"] == path and vc70["evidence"]["beside_after_level_dbfs"] < R.CLEAN_BESIDE_MAX_DBFS
+    assert not [o for o in out70 if "beside words" in o]
+
+
+def test_t1f_review_beside_words_never_passes_on_nothing():
+    x, _ = _speechlike(seed=6)
+    y, rep = R.clean_voice(x)
+    g, _ = R.level_gain(y, R.DIALOGUE_LUFS)
+    out = R._journal_clean(J.Journal(film="beside-none"), "LN", dict(rep, beside_dbfs=None, beside_p90_dbfs=None), g)
+    assert any("beside words" in o for o in out)
+    # with under 5 frames the floor frames' p90 stands in
+    assert (rep["beside_frames"] < R.CLEAN_TRUE_PAUSE_MIN) == rep["beside_fallback_floor_p90"]
+    if rep["beside_fallback_floor_p90"]:
+        assert rep["beside_dbfs"] == rep["beside_p90_dbfs"] == rep["after"]["floor_p90_dbfs"]
