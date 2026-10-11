@@ -3149,3 +3149,129 @@ def test_t1f_review_voice_chop_refuses_a_gate_that_cuts_a_consonant_near_speech(
     rep, out, vc, ch = _verdict(x, "gate-cuts-k")
     assert ch["status"] == "fail" and ch["evidence"]["hf_gate_cut_bins"] > 0
     assert any("the pause gate cut" in o for o in out)
+
+
+# --------------------------------------------------------------------------
+# A15 refined (E14): the voice ceiling derived from the measured lift
+# --------------------------------------------------------------------------
+
+
+def _e14_plan(tmp_path, *, amb_amp, lines=4, film_s=60.0, pulse_tp=-4.9, under=False):
+    """A hand-made plan for build_mix: ``lines`` testimony lines of 3 s (a
+    tone with a 3 ms pulse every 250 ms, levelled so the pulses peak near
+    ``pulse_tp`` dBTP: under A15's -4.8, so pass 1 leaves them alone) spread
+    over ``film_s`` seconds, and an ambience bed of two low tones at ``amb_amp``
+    between them (or under them too, ``under``). The bed sets the
+    programme's loudness, so the lift."""
+    film = tmp_path / "e14"
+    (film / "audio").mkdir(parents=True)
+    t = np.arange(int(48000 * 3.0)) / 48000
+    x = 0.03 * np.sin(2 * np.pi * 220 * t)
+    pulse = np.sin(np.linspace(0, np.pi, 144))
+    marks = [int(s * 48000) for s in np.arange(0.4, 2.6, 0.25)]
+    for i in marks:
+        x[i:i + 144] += 0.2 * pulse
+    x[:12000] = 0.0                                                   # 0.25 s of silence at each end, the shape of a take
+    x[-12000:] = 0.0
+    for _ in range(4):                                                # scale the pulses so the levelled line peaks at pulse_tp
+        g, _ = R.level_gain(x, R.DIALOGUE_LUFS)                       # (the pulses move the line's loudness, so its levelling)
+        tp = R._measure(x * 10 ** (g / 20))["input_tp"]
+        for i in marks:
+            x[i:i + 144] *= 10 ** ((pulse_tp - tp) / 20)
+    plan = {"frames": int(film_s * R.FPS), "speakers": {"P": {"side": None}}, "shots": [], "narrator_voice": None,
+            "lines": [], "cues": []}
+    for k in range(lines):
+        _wav(film / "audio" / f"L{k}.wav", x)
+        plan["lines"].append({"id": f"L{k}", "kind": "testimony", "speaker": "P", "text": "words",
+                              "start_s": 2.0 + k * (film_s - 6.0) / max(1, lines - 1) * 0.98})
+    if amb_amp:                                                       # the bed plays between the lines (a silent hold's room tone)
+        tb = np.arange(int(48000 * film_s)) / 48000                   # low tones: white noise would lose its top octave in
+        bed = amb_amp * (np.sin(2 * np.pi * 150 * tb) + np.sin(2 * np.pi * 233 * tb))   # the limiter's resampling, read as cuts
+        if not under:
+            for ln in plan["lines"]:
+                bed[int((ln["start_s"] - 0.1) * 48000): int((ln["start_s"] + 3.1) * 48000)] = 0.0
+        _wav(film / "audio" / "C1.wav", bed)
+        plan["cues"].append({"id": "C1", "kind": "ambience", "start_s": 0.0, "end_s": film_s})
+    return plan, film
+
+
+def _no_a19(monkeypatch):
+    """E14's lines are shaped tones whose peaks must land where the test puts
+    them; A19's cleanup would move them, so it is set aside (A15 is tested)."""
+    monkeypatch.setattr(R, "clean_voice", lambda x: (x, None))
+
+
+def test_e14_derived_ceiling_is_clamped():
+    assert R.derived_voice_ceiling(0.0) == (R.VOICE_TP, -1.8, "upper")
+    assert R.derived_voice_ceiling(1.3)[0] == R.VOICE_TP                # A15's own margin: the ceiling stays -4.8
+    assert R.derived_voice_ceiling(3.0)[0] == R.VOICE_TP                # -1.5 - 3.0 - 0.3 = -4.8, the upper bound
+    assert R.derived_voice_ceiling(3.7) == (-5.5, -5.5, None)           # Nought's measured lift
+    assert R.derived_voice_ceiling(20.0) == (R.VOICE_TP_FLOOR, -21.8, "floor")   # a near-silent film cannot crush its voices
+    for lift in np.arange(-2.0, 25.0, 0.37):
+        c = R.derived_voice_ceiling(float(lift))[0]
+        assert R.VOICE_TP_FLOOR <= c <= R.VOICE_TP
+    # an archival span's static gain is held to the ceiling it is given, and never raised by it
+    m = {"input_tp": -6.0}
+    assert R._archival_total(2.0, m, 0.0) == pytest.approx(R.VOICE_TP + 6.0)
+    assert R._archival_total(2.0, m, 0.0, -5.5) == pytest.approx(0.5)
+    assert R._archival_total(-1.0, m, 0.0, -5.5) == -1.0
+
+
+def test_e14_a_largely_voiceless_film_passes_a_final_master_with_the_derived_ceiling(tmp_path, monkeypatch):
+    _no_a19(monkeypatch)
+    plan, film = _e14_plan(tmp_path, amb_amp=0.08, pulse_tp=-4.9)
+    one = J.Journal(film="e14-pass1")                                 # pass 1 alone: A15's fixed ceiling, as before E14
+    with monkeypatch.context() as mp:
+        mp.setattr(R, "voice_ceiling_pass", lambda *a, **k: None)
+        before, _ = R.build_mix(plan, film, one)
+    loud1 = R.loudnorm(_wav(tmp_path / "before.wav", before), tmp_path / "before-norm.wav")
+    assert loud1["limiter"] and R.limiter_overreach(loud1["limiter"])  # the fixed ceiling fails limiter-peak-only
+    j = J.Journal(film="e14")
+    mix, placed = R.build_mix(plan, film, j, work=tmp_path / "work")
+    evs = J.read(j.path)
+    dec = [e for e in evs if e["kind"] == "decision" and e.get("unit") == "voice-ceiling"]
+    assert len(dec) == 1 and dec[0]["evidence"]["passes"] == 2
+    ev = dec[0]["evidence"]
+    assert ev["lift_db"] > 3.0 and ev["pass1_overreach"]
+    assert ev["derived_ceiling_dbtp"] == pytest.approx(R.TARGET_TP - ev["lift_db"] - R.VOICE_CEILING_SAFETY_DB)
+    assert R.VOICE_TP_FLOOR < ev["derived_ceiling_dbtp"] < R.VOICE_TP and ev["bound"] is None
+    assert ev["lines_changed"] == 4 and {c["id"] for c in ev["changes"]} == {"L0", "L1", "L2", "L3"}
+    assert all(c["pass2_max_reduction_db"] > (c["pass1_max_reduction_db"] or 0.0) for c in ev["changes"])
+    assert ev["pass2"]["lift_db"] >= ev["lift_db"]
+    for ln in placed["lines"]:
+        assert ln["voice_ceiling_dbtp"] == ev["derived_ceiling_dbtp"] and ln["peak_reduction_db"] > 0
+    pk = [e for e in lints(evs, "voice-peak-control") if e["unit"] == "L0"]
+    assert pk and pk[-1]["status"] == "pass"
+    assert not list((tmp_path / "work").iterdir())                    # the trial master is removed
+    loud = R.loudnorm(_wav(tmp_path / "mix.wav", mix), tmp_path / "norm.wav")
+    assert R.loudness_lints(J.Journal(film="e14-master"), loud) == []  # a final master: linear, the limiter only catches peaks
+    assert not loud["limiter"] or not R.limiter_overreach(loud["limiter"])
+
+
+@pytest.mark.parametrize("case", ["lift-under-1.3", "no-limiter", "limiter-peak-only"])
+def test_e14_a_film_that_passes_is_unchanged_sample_for_sample(tmp_path, monkeypatch, case):
+    """One pass at A15's -4.8 dBTP, the mix identical to pass 1's, for a lift
+    of 1.3 dB or less (a loud bed under the voices), for a lift whose gain
+    needs no master limiter, and for a lift over 3 dB whose master limiter
+    only catches peaks (Partition's case: 3.24 dB, at most 1.03 dB for 4 ms)."""
+    _no_a19(monkeypatch)
+    plan, film = _e14_plan(tmp_path, **{"lift-under-1.3": dict(amb_amp=0.15, lines=12, film_s=40.0, pulse_tp=-6.0, under=True),
+                                        "no-limiter": dict(amb_amp=0.0, lines=12, film_s=40.0, pulse_tp=-6.0),
+                                        "limiter-peak-only": dict(amb_amp=0.08, lines=4, pulse_tp=-5.6)}[case])
+    with monkeypatch.context() as mp:
+        mp.setattr(R, "voice_ceiling_pass", lambda *a, **k: None)
+        before, _ = R.build_mix(plan, film, J.Journal(film="e14-same-1"))
+    j = J.Journal(film="e14-same")
+    after, placed = R.build_mix(plan, film, j)
+    assert after.dtype == before.dtype and np.array_equal(after, before)
+    dec = [e for e in J.read(j.path) if e["kind"] == "decision" and e.get("unit") == "voice-ceiling"]
+    assert len(dec) == 1 and dec[0]["evidence"]["passes"] == 1 and "kept at -4.8 dBTP" in dec[0]["what"]
+    assert all("voice_ceiling_dbtp" not in ln for ln in placed["lines"])
+    ev = dec[0]["evidence"]
+    if case == "lift-under-1.3":
+        assert ev["lift_db"] <= R.VOICE_TP_MARGIN and ev["derived_ceiling_dbtp"] == R.VOICE_TP and ev["bound"] == "upper"
+    elif case == "no-limiter":
+        assert ev["predicted_tp"] <= R.TARGET_TP and "pass1_limiter" not in ev
+    else:                                                             # the derived ceiling would be lower, but nothing needs it
+        assert ev["lift_db"] > 3.0 and ev["derived_ceiling_dbtp"] < R.VOICE_TP
+        assert ev["pass1_limiter"]["max_reduction_db"] > 0.1 and ev["pass1_overreach"] == []

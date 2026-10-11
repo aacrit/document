@@ -92,7 +92,12 @@ VOICE_TP_MARGIN = 1.3               # A15: room for the mix-to-master gain
 # A13 and A15: a synthetic voice line's true peak after levelling is at most the dialogue level plus the programme's
 # headroom (TARGET_TP - TARGET_LUFS, 16.5 dB) less the margin: -4.8 dBTP
 VOICE_TP = DIALOGUE_LUFS + (TARGET_TP - TARGET_LUFS) - VOICE_TP_MARGIN
-LEVEL_MIN_S = 0.4                   # loudnorm's gating block: a shorter line is measured looped to this length
+# A15 refined (E14): when the pass-1 mix's master limiter would do more than catch peaks (limiter-peak-only), pass 2
+# peak-controls every synthetic line to TARGET_TP minus the measured mix-to-master lift minus this safety margin,
+# clamped between the floor (a near-silent film cannot crush its voices) and VOICE_TP (a film that passes never changes)
+VOICE_CEILING_SAFETY_DB = 0.3
+VOICE_TP_FLOOR = -7.0
+LEVEL_MIN_S = 0.4                  # loudnorm's gating block: a shorter line is measured looped to this length
 # A14: narration delivery moves only the level, after the -20 LUFS levelling (voices are rendered upstream)
 MOOD_OFFSET_DB = {"plain": 0.0, "measured": 0.0, "warm": 0.0, "grave": -0.5, "hushed": -2.0, "close": -1.0}   # warm: A14 list (CoS, 2026-10-10)
 MOOD_OFFSET_MAX_DB = 2.0            # an offset under -2 dB is refused, and so is any positive one (a mood never lifts)
@@ -2985,13 +2990,18 @@ def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, 
     return out if not draft else []
 
 
-def _journal_peak(journal: Journal, unit: str, peak: dict, draft: bool) -> None:
-    """A13: a line's peak reduction as a decision, and the bad-take lint (blocking; a warning under --draft)."""
+def _journal_peak(journal: Journal, unit: str, peak: dict, draft: bool, ceiling: float | None = None) -> None:
+    """A13: a line's peak reduction as a decision, and the bad-take lint (blocking; a warning under --draft).
+    ``ceiling`` is the derived voice ceiling of pass 2 (A15 refined, E14); None is A15's fixed VOICE_TP."""
+    why = (f"(GRAMMAR A13, A15: {DIALOGUE_LUFS:g} LUFS + {TARGET_TP - TARGET_LUFS:g} dB headroom - {VOICE_TP_MARGIN:g} dB)"
+           if ceiling is None else
+           f"(GRAMMAR A13, A15 refined: pass 2, {TARGET_TP:g} dBTP less the measured mix-to-master lift less "
+           f"{VOICE_CEILING_SAFETY_DB:g} dB, clamped to {VOICE_TP_FLOOR:g} to {VOICE_TP:g})")
     journal.decision("assembly", f"{unit} peak-controlled to {peak['ceiling_dbtp']:g} dBTP: at most {peak['max_reduction_db']:.2f} dB; "
                      f"over 8 dB {peak['over_8db_s']:.3f} s, over 3 dB {peak['over_3db_s']:.3f} s, over 1 dB {peak['over_1db_s']:.3f} s "
                      f"of {peak['dur_s']:.3f} s",
-                     f"its true peak after levelling was {peak['tp_before']:.2f} dBTP, past the voice ceiling {VOICE_TP:g} dBTP "
-                     f"(GRAMMAR A13, A15: {DIALOGUE_LUFS:g} LUFS + {TARGET_TP - TARGET_LUFS:g} dB headroom - {VOICE_TP_MARGIN:g} dB)", unit=unit,
+                     f"its true peak after levelling was {peak['tp_before']:.2f} dBTP, past the voice ceiling "
+                     f"{VOICE_TP if ceiling is None else ceiling:g} dBTP {why}", unit=unit,
                      evidence=dict({k: v for k, v in peak.items() if k != "acted"}, acted=peak["acted"][:20]))
     journal.lint("voice-peak-control", not peak["bad_take"], stage="assembly", phase="preflight", unit=unit,
                  severity="warn" if draft else "block", grammar="A13",
@@ -3293,16 +3303,26 @@ def narrator_consistency_lints(journal: Journal, profiles: dict[str, dict], draf
     return off
 
 
-def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) -> tuple[np.ndarray, dict]:
+def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
+              work: Path | None = None) -> tuple[np.ndarray, dict]:
+    """The programme mix, in two passes (A15 refined, E14). Pass 1 levels,
+    cleans and peak-controls every line at A15's fixed voice ceiling and
+    mixes. If the master's true-peak limiter would then do more than catch
+    peaks, pass 2 peak-controls the synthetic lines (and holds the archival
+    spans' static gain) to a ceiling derived from the measured lift and mixes
+    again (voice_ceiling_pass). ``work`` holds pass 1's trial master (a
+    temporary folder when None)."""
     n = int(round(plan["frames"] / FPS * AUDIO_RATE))
     voice, music, amb, clips = (np.zeros(n, np.float32) for _ in range(4))
     placed = {"lines": [], "cues": [], "clips": [], "missing": []}
     missing_voice, bad_takes, unclean = [], [], []
     narr: dict[str, dict] = {}                   # narration line id -> its voice profile, for narrator-consistency
+    parts: list[dict] = []                       # E14: every voice placement in order, so pass 2 can place them again
     for ln in plan["lines"]:
         if archival_span(ln):
             # A26 (E11): the clip's own soundtrack, cut at in and out, faded, one static gain; never cleaned or limited
-            k, act, gain = place_archival_span(voice, plan, film, journal, ln)
+            k, act, gain = place_archival_span(voice, plan, film, journal, ln, stash=parts)
+            parts[-1]["i"] = len(placed["lines"])
             sp = plan["speakers"].get(ln.get("speaker"), {})
             placed["lines"].append({"id": ln["id"], "speaker": ln.get("speaker"), "side": sp.get("side"), "kind": "archival",
                                     "at_s": float(ln["start_s"]), "dur_s": round(k / AUDIO_RATE, 3), "line_kind": ln.get("kind"),
@@ -3336,6 +3356,7 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
             if ln.get("kind") == "narration":
                 words = len(WORD_RE.findall(str(ln.get("text") or "")))
                 narr[ln["id"]] = dict(voice_profile(x, words), mood=(ln.get("delivery") or {}).get("mood"))
+            x0 = x                               # E14: pass 2 peak-controls the levelled line again, at its own ceiling
             x, peak = voice_peak_control(x)
             if peak:
                 _journal_peak(journal, ln["id"], peak, draft)
@@ -3345,6 +3366,9 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
         place_db = offset if synthetic else float(ln.get("gain_db", 0.0))
         k = _place(voice, x, float(ln["start_s"]), place_db)                # levelling is in x
         act = speech_active(x[:k], place_db)                                 # the speech-active span, as placed
+        parts.append({"kind": "synthetic", "id": ln["id"], "x0": x0, "x": x, "at_s": float(ln["start_s"]), "db": place_db,
+                      "peak": peak, "i": len(placed["lines"])} if level is not None else
+                     {"kind": "fixed", "id": ln["id"], "x": x, "at_s": float(ln["start_s"]), "db": place_db})
         sp = plan["speakers"].get(ln.get("speaker"), {})
         placed["lines"].append({"id": ln["id"], "speaker": ln.get("speaker"), "side": sp.get("side"),
                                 "kind": "narration" if ln.get("kind") == "narration" else ("archival" if ln.get("archival_audio") else "reading"),
@@ -3393,8 +3417,141 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
         raise Refused(f"voice-clean and voice-chop (A19): re-render these takes (or render with --draft): {'; '.join(unclean)}")
     if narrator_off and not draft:
         raise Refused(f"narrator-consistency and narrator-drift (A14): not the narrator's voice: {'; '.join(narrator_off)}")
-    mix = voice + clips + music * duck_gain(voice) + amb
-    return mix.astype(np.float32), placed
+    mix = (voice + clips + music * duck_gain(voice) + amb).astype(np.float32)
+    lifted = voice_ceiling_pass(mix, parts, clips, music, amb, placed, journal, draft=draft, work=work)
+    return (mix if lifted is None else lifted), placed
+
+
+def derived_voice_ceiling(lift_db: float) -> tuple[float, float, str | None]:
+    """A15 refined (E14): the voice ceiling for a programme whose mix needs
+    ``lift_db`` to reach TARGET_LUFS: TARGET_TP less the lift less
+    VOICE_CEILING_SAFETY_DB, clamped to [VOICE_TP_FLOOR, VOICE_TP]. Returns the
+    ceiling, the unclamped value and which bound held it ("upper", "floor" or None)."""
+    raw = round(TARGET_TP - lift_db - VOICE_CEILING_SAFETY_DB, 2)
+    if raw >= VOICE_TP:
+        return VOICE_TP, raw, "upper"
+    if raw <= VOICE_TP_FLOOR:
+        return VOICE_TP_FLOOR, raw, "floor"
+    return raw, raw, None
+
+
+def _trial_master(mix: np.ndarray, work: Path | None) -> dict:
+    """E14 pass 1: the loudness pass (loudnorm, with its true-peak limiter)
+    on a trial copy of the mix, in a temporary folder, so the voice ceiling
+    is judged by the same limiter-peak-only rule as the master."""
+    import soundfile as sf
+    if work is not None:
+        work.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="mix-pass1-", dir=None if work is None else str(work)) as td:
+        src = Path(td) / "mix-pass1.wav"
+        sf.write(str(src), mix, AUDIO_RATE, subtype="FLOAT")
+        return loudnorm(src, Path(td) / "mix-pass1-norm.wav")
+
+
+def voice_ceiling_pass(mix: np.ndarray, parts: list[dict], clips: np.ndarray, music: np.ndarray, amb: np.ndarray,
+                       placed: dict, journal: Journal, *, draft: bool = False, work: Path | None = None) -> np.ndarray | None:
+    """A15 refined (E14): measure pass 1's mix (its integrated loudness, so
+    the lift to TARGET_LUFS) and, when that gain would push its true peak past
+    TARGET_TP, run the loudness pass on a trial copy. Only when that master's
+    limiter would do more than catch peaks (limiter_overreach) is a second
+    pass made: every synthetic line is peak-controlled again (A13) to the
+    derived ceiling (derived_voice_ceiling), and every archival span's one
+    static gain (A26) is held to it as well, since nothing may limit an
+    archival span and its peak would otherwise reach the master limiter. A
+    mix that passes is returned as None (kept, sample for sample).
+    Journals the lift, the ceiling and each line's change; a pass-2 bad take
+    (A13) is refused, a warning under --draft."""
+    m = _measure(mix)
+    if not math.isfinite(m["input_i"]) or m["input_i"] < -70:
+        return None
+    lift = round(TARGET_LUFS - m["input_i"], 2)
+    predicted = round(m["input_tp"] + lift, 2)
+    ceiling, raw, bound = derived_voice_ceiling(lift)
+    ev = {"pass1": {"input_i": m["input_i"], "input_tp": m["input_tp"], "input_lra": m["input_lra"]}, "lift_db": lift,
+          "predicted_tp": predicted, "master_tp": TARGET_TP, "safety_db": VOICE_CEILING_SAFETY_DB,
+          "derived_ceiling_raw_dbtp": raw, "derived_ceiling_dbtp": ceiling, "bound": bound,
+          "bounds": {"floor": VOICE_TP_FLOOR, "upper": VOICE_TP}}
+    over = []
+    if predicted > TARGET_TP:
+        trial = _trial_master(mix, work)
+        lim = trial.get("limiter")
+        over = limiter_overreach(lim) if lim else []
+        ev["pass1_limiter"] = None if not lim else {k: lim[k] for k in ("max_reduction_db", "max_at_s", "over_1db_s", "lra_drop",
+                                                                         "ceiling_dbtp", "acted_s", "acted_total")}
+        ev["pass1_overreach"] = over
+    adjustable = any(p["kind"] in ("synthetic", "archival") for p in parts)
+    if not over or ceiling >= VOICE_TP or not adjustable:
+        why = ("the gain to the target leaves the true peak under the master ceiling" if predicted <= TARGET_TP else
+               "the master limiter only catches peaks (limiter-peak-only)" if not over else
+               f"the derived ceiling {raw:g} dBTP is held at the upper bound {VOICE_TP:g}, so the voices are not the cause"
+               if ceiling >= VOICE_TP else "no synthetic or archival line to bring down")
+        journal.decision("assembly", f"voice ceiling kept at {VOICE_TP:g} dBTP: the mix is {m['input_i']:.2f} LUFS, a "
+                         f"{lift:+.2f} dB lift to {TARGET_LUFS:g}", f"A15 refined (E14): {why}; one pass",
+                         unit="voice-ceiling", evidence=dict(ev, passes=1))
+        return None
+    voice = np.zeros(len(mix), np.float32)
+    changes, bad = [], []
+    for p in parts:
+        if p["kind"] == "synthetic":
+            y, peak = voice_peak_control(p["x0"], ceiling)
+            if peak:
+                _journal_peak(journal, p["id"], peak, draft, ceiling)
+                if peak["bad_take"]:
+                    bad.append(f"{p['id']} ({'; '.join(peak['bad_take'])})")
+            k = _place(voice, y, p["at_s"], p["db"])
+            act = speech_active(y[:k], p["db"])
+            p1 = p["peak"]["max_reduction_db"] if p["peak"] else None
+            p2 = peak["max_reduction_db"] if peak else None
+            placed["lines"][p["i"]].update(
+                peak_reduction_db=p2, voice_ceiling_dbtp=ceiling,
+                speech_from_s=None if not len(act) else round(p["at_s"] + act[0] / AUDIO_RATE, 3),
+                speech_to_s=None if not len(act) else round(p["at_s"] + (act[-1] + 1) / AUDIO_RATE, 3))
+            if p1 != p2:
+                changes.append({"id": p["id"], "kind": "synthetic", "pass1_max_reduction_db": p1, "pass2_max_reduction_db": p2,
+                                "pass1_over_1db_s": p["peak"]["over_1db_s"] if p["peak"] else 0.0,
+                                "pass2_over_1db_s": peak["over_1db_s"] if peak else 0.0,
+                                "tp_levelled_dbtp": (peak or p["peak"] or {}).get("tp_before")})
+        elif p["kind"] == "archival":
+            total = _archival_total(p["gain"], p["m"], p["line_gain"], ceiling)
+            k = _place(voice, p["x"], p["at_s"], total)
+            act = speech_active(p["x"][:k], total)
+            placed["lines"][p["i"]].update(
+                static_gain_db=round(total, 2), voice_ceiling_dbtp=ceiling,
+                speech_from_s=None if not len(act) else round(p["at_s"] + act[0] / AUDIO_RATE, 3),
+                speech_to_s=None if not len(act) else round(p["at_s"] + (act[-1] + 1) / AUDIO_RATE, 3))
+            if round(total, 2) != round(p["total"], 2):
+                changes.append({"id": p["id"], "kind": "archival", "pass1_static_gain_db": round(p["total"], 2),
+                                "pass2_static_gain_db": round(total, 2), "measured_tp": p["m"].get("input_tp")})
+        else:
+            _place(voice, p["x"], p["at_s"], p["db"])
+    out = (voice + clips + music * duck_gain(voice) + amb).astype(np.float32)
+    m2 = _measure(out)
+    lift2 = round(TARGET_LUFS - m2["input_i"], 2)
+    ev.update(passes=2, changes=changes, lines_changed=len(changes),
+              pass2={"input_i": m2["input_i"], "input_tp": m2["input_tp"], "input_lra": m2["input_lra"], "lift_db": lift2,
+                     "predicted_tp": round(m2["input_tp"] + lift2, 2)})
+    journal.decision("assembly", f"voice ceiling derived at {ceiling:g} dBTP (pass 2): the mix was {m['input_i']:.2f} LUFS, "
+                     f"a {lift:+.2f} dB lift to {TARGET_LUFS:g}; {len(changes)} lines changed",
+                     f"A15 refined (E14): on pass 1 the master limiter would have done more than catch peaks "
+                     f"({'; '.join(over)}); {TARGET_TP:g} dBTP - {lift:.2f} dB lift - {VOICE_CEILING_SAFETY_DB:g} dB = {raw:g} dBTP"
+                     + (f", held at the {bound} bound {ceiling:g}" if bound else "")
+                     + "; synthetic lines peak-controlled to it again (A13), archival spans' static gain held to it (A26, "
+                     f"never limited); pass 2 mixes at {m2['input_i']:.2f} LUFS, a {lift2:+.2f} dB lift",
+                     unit="voice-ceiling", evidence=ev)
+    if bad and not draft:
+        raise Refused(f"voice-peak-control (A13, A15 refined): bad takes at the derived voice ceiling {ceiling:g} dBTP, "
+                      f"re-render them instead of crushing them: {'; '.join(bad)}")
+    return out
+
+
+def _archival_total(gain: float | None, m: dict, line_gain: float, ceiling: float = VOICE_TP) -> float:
+    """A26: an archival span's static gain plus its line's gain_db, held back so
+    its true peak stays under the voice ceiling (A15's, or pass 2's derived one)."""
+    total = (gain or 0.0) + line_gain
+    tp = m.get("input_tp")
+    if tp is not None and math.isfinite(tp) and total > ceiling - tp:      # nothing limits it, so the gain is held back
+        total = ceiling - tp
+    return total
 
 
 def archival_gain(x: np.ndarray) -> tuple[float | None, dict]:
@@ -3410,24 +3567,24 @@ def archival_gain(x: np.ndarray) -> tuple[float | None, dict]:
     return gain, dict(m, target_gain_db=round(g, 2), held_by_peak=held)
 
 
-def place_archival_span(voice: np.ndarray, plan: dict, film: Path, journal: Journal, ln: dict) -> tuple[int, np.ndarray, float]:
+def place_archival_span(voice: np.ndarray, plan: dict, film: Path, journal: Journal, ln: dict,
+                        stash: list | None = None) -> tuple[int, np.ndarray, float]:
     """A26 (E11): place an archival line from its clip's own soundtrack. The
     span is cut from the source once into the span cache (a long reel is
     never read whole), faded in and out over ARCHIVAL_FADE_S, brought to the
     archival dialogue level by one static gain (plus the line's own
     ``gain_db``, if any), and placed. Never cleaned (A19), never peak
     controlled (A13), never judged as the narrator (A14). Returns the samples
-    placed, its speech-active samples and the gain."""
+    placed, its speech-active samples and the gain. ``stash`` keeps what pass 2
+    (A15 refined, E14) needs to place it again under a derived ceiling."""
     item = plan["assets"].get(ln["clip"]) or {}
     in_s, out_s = float(ln["in_s"]), float(ln["out_s"])
     sp = cached_span(film, item["_path"], in_s, out_s, video=False)
     x = _read_wav(Path(sp["file"]))[: int(round((out_s - in_s) * AUDIO_RATE))]
     x = cue_fades(x, out_s - in_s, ARCHIVAL_FADE_S, ARCHIVAL_FADE_S)
     gain, m = archival_gain(x)
-    total = (gain or 0.0) + float(ln.get("gain_db", 0.0) or 0.0)
-    tp = m.get("input_tp")
-    if tp is not None and math.isfinite(tp) and total > VOICE_TP - tp:      # nothing limits it, so the gain is held back
-        total = VOICE_TP - tp
+    line_gain = float(ln.get("gain_db", 0.0) or 0.0)
+    total = _archival_total(gain, m, line_gain)
     journal.decision("assembly", f"{ln['id']} plays {ln['clip']} {in_s:.2f} to {out_s:.2f} s at its own dynamics, "
                      f"{total:+.2f} dB", "A26: an archival span is cut with "
                      f"{ARCHIVAL_FADE_S * 1000:g} ms fades and brought to {ARCHIVAL_DIALOGUE_LUFS:g} LUFS by one static gain "
@@ -3435,6 +3592,9 @@ def place_archival_span(voice: np.ndarray, plan: dict, film: Path, journal: Jour
                      evidence={"span": sp, "measured": m, "static_gain_db": None if gain is None else round(gain, 2),
                                "line_gain_db": ln.get("gain_db"), "cleaned": False, "limited": False})
     k = _place(voice, x, float(ln["start_s"]), total)
+    if stash is not None:
+        stash.append({"kind": "archival", "id": ln["id"], "x": x, "at_s": float(ln["start_s"]), "gain": gain, "m": m,
+                      "line_gain": line_gain, "total": total})
     return k, speech_active(x[:k], total), round(total, 2)
 
 
@@ -4372,7 +4532,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         work = run_dir / "work"
         work.mkdir(parents=True, exist_ok=True)
         with journal.unit("assembly", "mix", size={"driver": "seconds", "value": round(plan["duration_s"], 3)}) as u:
-            mix, placed = build_mix(plan, film, journal, draft=draft)
+            mix, placed = build_mix(plan, film, journal, draft=draft, work=work)
             import soundfile as sf
             sf.write(str(work / "mix.wav"), mix, AUDIO_RATE, subtype="FLOAT")
             u.extra.update(placed=placed)
