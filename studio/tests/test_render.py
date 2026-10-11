@@ -2687,17 +2687,47 @@ def test_t1f_an_unsteady_floor_takes_the_denoise_only_path_and_passes_when_low()
     assert [e for e in lints(evs, "voice-clean") if e["unit"] == "LQ"][0]["status"] == "pass"
 
 
-@pytest.mark.parametrize("hiss_db", [-60.0, -70.0])
-def test_t1f_an_unsteady_take_with_hiss_in_its_pauses_refuses(hiss_db):
-    """The hiss drops to digital zero inside one pause. Under the final design
-    the hiss runs on from the words in 3 to 16 kHz, so it joins the speech
-    extent as consonant; the denoise then cuts those bins by over 3 dB, and
-    voice-chop refuses the take (with or without the gate: the gate never
-    touches the extent)."""
-    rep, out, vc, ch = _verdict(_spread_take(hiss_db), f"spread-{-hiss_db}")
-    assert rep["path"] == "denoise-only"
-    assert ch["status"] == "fail" and ch["evidence"]["hf_cleanup_loss_bins"] > 0 and ch["evidence"]["hf_gate_changed_bins"] == 0
-    assert any("consonant bins inside the speech extent" in o for o in out)
+def test_t1f_consonant_loss_falls_back_to_the_gate_alone():
+    """CoS (2026-10-10): when the denoise cuts consonant bins inside the
+    speech extent by over 3 dB, the take is cleaned again by the pause gate
+    alone (no denoise, no expander), journaled, and judged by the same
+    lints. Here the hiss of an unsteady take runs on from the words, so the
+    denoise cut it as consonant; the gate-only take keeps every sample of
+    the extent as recorded."""
+    x = _spread_take(-60.0)
+    y, rep = R.clean_voice(x)
+    cf = rep["consonant_fallback"]
+    assert rep["path"] == "gate-only" and cf and cf["from_path"] == "denoise-only" and cf["hf_cleanup_loss_bins"] > 0
+    assert rep["hf_cleanup_loss_bins"] == 0 and rep["hf_gate_changed_bins"] == 0 and rep["denoise"] is None
+    e = R.speech_extent(x, R.voice_floor(x))
+    mask = np.repeat(e["bins"], int(round(R.CLEAN_HF_BIN_S * 48000)))
+    assert np.array_equal(y[: len(mask)][mask], x[: len(mask)][mask])
+    keep = _ungated_samples(rep, len(y))
+    assert np.array_equal(y[keep], x[keep])                                      # nothing but the gate touched it
+    g, _ = R.level_gain(y, R.DIALOGUE_LUFS)
+    j = J.Journal(film="gate-only")
+    R._journal_clean(j, "LG", rep, g)
+    evs = J.read(j.path)
+    assert [e_ for e_ in evs if e_["kind"] == "decision" and "pause gate alone" in e_["what"]]
+    assert {e_["rule"] for e_ in evs if e_["kind"] == "lint"} >= {"voice-clean", "voice-chop", "voice-beside"}
+
+
+def test_t1f_a_gate_only_take_that_fails_voice_clean_refuses(monkeypatch):
+    """A take whose fallback is the gate alone is judged by the same lints:
+    a steady hiss between words too close together to gate stays in its
+    floor, and voice-clean refuses it (as E:R16 does on the revamp)."""
+    x, _ = _speechlike(seed=6, gap_s=0.16, hiss_db=-55.0)
+    real = R.hf_chop
+    calls = []
+
+    def first_cuts(*a, **k):                                                    # the first pass is said to cut consonants
+        r = real(*a, **k)
+        calls.append(1)
+        return dict(r, hf_cleanup_loss_bins=3, hf_cleanup_loss_max_db=4.0) if len(calls) == 1 else r
+    monkeypatch.setattr(R, "hf_chop", first_cuts)
+    rep, out, vc, ch = _verdict(x, "gate-only-fails")
+    assert rep["path"] == "gate-only" and rep["consonant_fallback"]
+    assert vc["status"] == "fail" and any("voice-clean" in o for o in out)
 
 
 def test_t1f_a_steady_hiss_take_still_gets_the_expander():
@@ -2756,17 +2786,14 @@ def _verdict(x, name):
     return rep, out, lints(evs, "voice-clean")[-1], lints(evs, "voice-chop")[-1]
 
 
+@pytest.mark.xfail(strict=True, reason="strict xfail, CoS final design (T1f): noise in 3 to 16 kHz that runs on from a word is taken as a consonant, so it joins the speech extent and is neither gated nor judged; issue #9, expires 2026-10-24")  # expires 2026-10-24 issue #9
 @pytest.mark.parametrize("quiet_s,burst_db", [(0.4, -55), (0.4, -62), (0.5, -55)])
-def test_t1f_review_denoise_only_cannot_pass_hiss_in_the_pauses(monkeypatch, quiet_s, burst_db):
-    """attack2.py: one quiet stretch made the floor unsteady and the take went
-    denoise-only. Under the final design the hiss joins the speech extent and
-    the denoise cuts it there: voice-chop refuses, with the gate and without."""
-    for depth in (0.0, R.CLEAN_PAUSE_GATE_DB):
-        with monkeypatch.context() as m:
-            m.setattr(R, "CLEAN_PAUSE_GATE_DB", depth)
-            rep, out, vc, ch = _verdict(_one_quiet_stretch(burst_db, quiet_s), f"attack2-{depth}-{quiet_s}-{-burst_db}")
-        assert rep["path"] == "denoise-only" and ch["status"] == "fail"
-        assert ch["evidence"]["hf_cleanup_loss_bins"] > 0 and any("consonant bins" in o for o in out)
+def test_t1f_open_hiss_on_an_unsteady_floor_is_caught(quiet_s, burst_db):
+    """attack2.py: the hiss runs on from the words, so it joins the speech
+    extent; the denoise's cut of it sends the take to the gate alone, which
+    keeps it. Part of issue #9."""
+    rep, out, vc, ch = _verdict(_one_quiet_stretch(burst_db, quiet_s), f"attack2-{quiet_s}-{-burst_db}")
+    assert out
 
 
 @pytest.mark.parametrize("burst_db", [-55, -60, -65])
@@ -2788,7 +2815,7 @@ def test_t1f_review_hiss_in_every_pause_refuses_without_the_gate_and_is_clean_wi
         assert out == []
 
 
-@pytest.mark.xfail(strict=True, reason="strict xfail, CoS final design (T1f): noise in 3 to 16 kHz that runs on from a word is taken as a consonant, so it joins the speech extent and is neither gated nor judged; open, reported to the CoS")
+@pytest.mark.xfail(strict=True, reason="strict xfail, CoS final design (T1f): noise in 3 to 16 kHz that runs on from a word is taken as a consonant, so it joins the speech extent and is neither gated nor judged; issue #9, expires 2026-10-24")  # expires 2026-10-24 issue #9
 @pytest.mark.parametrize("gaps", [3, 1])
 @pytest.mark.parametrize("burst_db", [-55, -60, -65])
 def test_t1f_open_hiss_in_some_pauses_is_caught(burst_db, gaps):
@@ -2937,8 +2964,9 @@ def _hum_between_words(level_db, run_s=0.02, seed=4):
 
 
 def test_t1f_final_review_noise_beside_words_has_its_own_limit():
-    """Judged on the frames themselves, however few (CoS final design); with
-    none, everything outside speech is gated and the take passes, saying so."""
+    """Judged on the frames themselves, however few (CoS final design), as a
+    warning (CoS 2026-10-10); with none, everything outside speech is gated
+    and the take passes, saying so."""
     assert (R.CLEAN_BESIDE_MAX_DBFS, R.CLEAN_BESIDE_P90_MAX_DBFS) == (-60.0, -55.0)
     x, _ = _speechlike(seed=6)
     rep, out, vc, _ = _verdict(x, "beside-none")
@@ -2948,7 +2976,12 @@ def test_t1f_final_review_noise_beside_words_has_its_own_limit():
     rep2, out2, vc2, _ = _verdict(_hum_between_words(-60.0), "beside-loud")
     ev2 = vc2["evidence"]
     assert 1 <= ev2["beside_frames"] <= 4 and ev2["beside_after_level_dbfs"] > R.CLEAN_BESIDE_MAX_DBFS
-    assert vc2["status"] == "fail" and any("beside words" in o for o in out2)
+    # CoS (2026-10-10): the beside-word limit warns, never refuses
+    assert vc2["status"] == "pass" and not [o for o in out2 if "beside" in o]
+    jb = J.Journal(film="beside-warn")
+    R._journal_clean(jb, "LW", rep2, R.level_gain(R.clean_voice(_hum_between_words(-60.0))[0], R.DIALOGUE_LUFS)[0])
+    vb = lints(J.read(jb.path), "voice-beside")[0]
+    assert vb["status"] == "fail" and vb["severity"] == "warn" and vb["evidence"]["beside_frames"] == ev2["beside_frames"]
     rep3, out3, vc3, _ = _verdict(_hum_between_words(-80.0), "beside-quiet")
     assert vc3["evidence"]["beside_frames"] >= 1 and vc3["status"] == "pass" and out3 == []
 
@@ -2972,12 +3005,13 @@ def _hiss_beside_words(h_db, dropout=False):
     return x
 
 
-def test_t1f_review_hiss_beside_words_on_the_denoise_only_path_refuses():
+@pytest.mark.xfail(strict=True, reason="strict xfail, CoS final design (T1f): noise in 3 to 16 kHz that runs on from a word is taken as a consonant, so it joins the speech extent and is neither gated nor judged; issue #9, expires 2026-10-24")  # expires 2026-10-24 issue #9
+def test_t1f_open_hiss_beside_words_on_the_denoise_only_path_is_caught():
     rep, out, vc, ch = _verdict(_hiss_beside_words(-60.0, True), "beside-60-dn")
-    assert rep["path"] == "denoise-only" and ch["status"] == "fail" and ch["evidence"]["hf_cleanup_loss_bins"] > 0
+    assert out
 
 
-@pytest.mark.xfail(strict=True, reason="strict xfail, CoS final design (T1f): noise in 3 to 16 kHz that runs on from a word is taken as a consonant, so it joins the speech extent and is neither gated nor judged; open, reported to the CoS")
+@pytest.mark.xfail(strict=True, reason="strict xfail, CoS final design (T1f): noise in 3 to 16 kHz that runs on from a word is taken as a consonant, so it joins the speech extent and is neither gated nor judged; issue #9, expires 2026-10-24")  # expires 2026-10-24 issue #9
 def test_t1f_open_hiss_beside_words_on_the_expander_path_is_caught():
     rep, out, vc, ch = _verdict(_hiss_beside_words(-60.0, False), "beside-60-exp")
     assert rep["path"] == "expander" and out

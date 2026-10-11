@@ -2280,18 +2280,34 @@ def clean_voice(x: np.ndarray) -> tuple[np.ndarray, dict]:
     # T1f (CoS): the pause gate, on the take as cleaned: true pauses turned down, nothing near speech touched
     tp_mask, _, _ = true_pause_mask(x, before, live)
     regions = pause_regions(tp_mask)
-    pre = true_pauses(x, y, before, live)
-    y_pre = y
-    y, pg = pause_gate(y, regions)
     gated = np.zeros(k, bool)
     for a_, b_ in regions:
         gated[a_:b_] = True
-    pg.update(true_pause_before_dbfs=pre["true_pause_dbfs"], loudest_pause_before_dbfs=pre["loudest_pause_dbfs"])
-    after = voice_floor(y, before["_gaps"], before["_speech"], ref=x)
-    tp = true_pauses(x, y, before, live, gated)
-    beside = beside_words(x, y, before, live, gated)
-    hfc = hf_chop(x, y_pre, y, before)
-    rep.update(cleaned=True, path=path, first_pass=first, denoise=den, gate=gate, pause_gate=pg, **st, **tp, **beside, **hfc,
+
+    def finish(yc: np.ndarray) -> tuple[np.ndarray, dict, dict, dict, dict, dict, dict]:
+        pre_ = true_pauses(x, yc, before, live)
+        yg, pg_ = pause_gate(yc, regions)
+        pg_.update(true_pause_before_dbfs=pre_["true_pause_dbfs"], loudest_pause_before_dbfs=pre_["loudest_pause_dbfs"])
+        after_ = voice_floor(yg, before["_gaps"], before["_speech"], ref=x)
+        return (yg, pg_, after_, true_pauses(x, yg, before, live, gated), beside_words(x, yg, before, live, gated),
+                hf_chop(x, yc, yg, before), {})
+
+    y, pg, after, tp, beside, hfc, _ = finish(y)
+    consonant_fallback = None
+    if hfc["hf_cleanup_loss_bins"]:
+        # T1f (CoS): the denoise cut consonants inside the speech extent by over 3 dB: clean the take again by the
+        # pause gate alone (no denoise, no expander) and judge that take with the same lints
+        consonant_fallback = {"why": f"the cleanup cut {hfc['hf_cleanup_loss_bins']} consonant bins inside the speech extent "
+                                     f"by over {CLEAN_HF_LOSS_DB:g} dB in 3 to 16 kHz (up to {hfc['hf_cleanup_loss_max_db']} dB)",
+                              "from_path": path, "hf_cleanup_loss_bins": hfc["hf_cleanup_loss_bins"],
+                              "hf_cleanup_loss_max_db": hfc["hf_cleanup_loss_max_db"],
+                              "hf_cleanup_loss_at_s": hfc["hf_cleanup_loss_at_s"]}
+        path, gate = "gate-only", None
+        st = dict(_cut_stats(x, x, before), denoise_chopped_audible=0, denoise_chopped_audible_share=0.0)
+        st.pop("_px")
+        y, pg, after, tp, beside, hfc, _ = finish(x.astype(np.float32))
+    rep.update(cleaned=True, path=path, first_pass=first, denoise=den if path != "gate-only" else None, gate=gate,
+               consonant_fallback=consonant_fallback, pause_gate=pg, **st, **tp, **beside, **hfc,
                pause_share=round(pause_share, 4), floor_spread_db=round(spread, 2),
                measure_ok=not (pause_why or spread_why), measure_why=pause_why + spread_why,
                pause_why=pause_why, spread_why=spread_why,
@@ -2361,6 +2377,11 @@ def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, 
                      evidence=dict(rep, level_gain_db=None if level is None else round(level, 2), floor_after_level_dbfs=floor_levelled,
                                    floor_raw_after_level_dbfs=None if b["floor_dbfs"] is None else round(b["floor_dbfs"] + lift, 2)))
     denoise_only = rep.get("path") == "denoise-only"
+    if rep.get("consonant_fallback"):
+        cf = rep["consonant_fallback"]
+        journal.decision("assembly", f"{unit} cleaned again by the pause gate alone (no denoise, no expander): {cf['why']}",
+                         "GRAMMAR A19 refined (CoS, T1f): consonants inside the speech extent are never cut by the cleanup; "
+                         "a take whose denoise does is gated only, and judged by the same lints", unit=unit, evidence=cf)
     if denoise_only:
         fp = rep["first_pass"]
         journal.decision("assembly", f"{unit} re-cleaned by the denoise alone, without the expander: {fp['why']}",
@@ -2401,7 +2422,7 @@ def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, 
                                               "beside-word frames, judged by the beside-word limit"))
     out = []
     ok = (floor_levelled is not None and floor_levelled < CLEAN_FLOOR_MAX_DBFS and abs(rep["speech_change_db"]) <= CLEAN_SPEECH_TOL_DB
-          and pause_ok and loudest_ok and beside_ok)
+          and pause_ok and loudest_ok)
     journal.lint("voice-clean", ok, stage="assembly", phase="preflight", unit=unit, severity=sev, grammar="A19, T1f",
                  evidence={"measure": "median power of the raw take's quietest 10% of 20 ms frames, on the cleaned and "
                                       "levelled line, and of its true pauses (live frames outside the speech extent; the floor "
@@ -2417,6 +2438,7 @@ def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, 
                            "beside_at_s": rep.get("beside_at_s"),
                            "beside_verdict": ("0 ungated frames beside words: everything outside speech is gated" if not nbes
                                               else None),
+                           "beside_judged": "warn only (voice-beside), CoS 2026-10-10",
                            "beside_p90_max_dbfs": CLEAN_BESIDE_P90_MAX_DBFS,
                            "beside_note": "live frames outside the speech extent and outside the gated regions, above digital "
                                           "silence on the cleaned take (the runs between words too short to gate), judged on the "
@@ -2433,9 +2455,17 @@ def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, 
                    + (f", true pauses {pause_lvl} dBFS" + (" (floor p90, too few true pauses)" if fallback else "")
                       if not pause_ok else "")
                    + (f", loudest true pause {loudest} dBFS at {rep.get('loudest_pause_at_s')} s" if not loudest_ok else "")
-                   + (f", beside words median {bes} p90 {bes90} dBFS (limits {CLEAN_BESIDE_MAX_DBFS:g}, "
-                      f"{CLEAN_BESIDE_P90_MAX_DBFS:g})" if not beside_ok else "")
+
                    + f", speech {rep['speech_change_db']:+.2f} dB{', denoise only' if denoise_only else ''})")
+    # CoS (2026-10-10): the beside-word limit warns, never refuses; the founder judges the residue by ear
+    journal.lint("voice-beside", beside_ok, stage="assembly", phase="preflight", unit=unit, severity="warn", grammar="A19, CoS 2026-10-10",
+                 evidence={"beside_frames": nbes, "beside_after_level_dbfs": bes, "beside_p90_after_level_dbfs": bes90,
+                           "beside_max_dbfs": CLEAN_BESIDE_MAX_DBFS, "beside_p90_max_dbfs": CLEAN_BESIDE_P90_MAX_DBFS,
+                           "beside_at_s": rep.get("beside_at_s"),
+                           "verdict": ("0 ungated frames beside words: everything outside speech is gated" if not nbes else
+                                       None if beside_ok else "over the warning thresholds: listen on the released film"),
+                           "note": "residue within about 60 to 150 ms of words, partly masked by the word and the underscore; "
+                                   "warn only (CoS 2026-10-10); the next remedy is a neural speech denoiser"})
     pause_why = rep.get("pause_why", [])
     sc = rep.get("speech_chop_share", 0.0)
     chop_bad = sc > CLEAN_CHOP_MAX_SHARE

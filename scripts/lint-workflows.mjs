@@ -12,6 +12,9 @@ const FORBIDDEN_WORKFLOW_PATTERNS = [/continue-on-error:\s*true/, /\|\|\s*true\b
 
 const SKIP_PATTERN = /\b(it\.skip|test\.skip|describe\.skip|xit)\s*\(/;
 const EXPIRY_PATTERN = /\/\/\s*expires\s+(\d{4}-\d{2}-\d{2})\s+issue\s+#\d+/;
+// pytest (studio/tests): skip, skipif and xfail marks, and pytest.skip/xfail calls, need a "# expires ..." comment
+const PY_SKIP_PATTERN = /\bpytest\.mark\.(skip|skipif|xfail)\b|\bpytest\.(skip|xfail)\s*\(/;
+const PY_EXPIRY_PATTERN = /#\s*expires\s+(\d{4}-\d{2}-\d{2})\s+issue\s+#\d+/;
 const MAX_EXPIRY_DAYS = 14;
 
 export function checkWorkflowText(filename, text) {
@@ -31,11 +34,12 @@ export function checkGateJobPresent(text) {
   return /^\s*jobs:\s*$/m.test(text) && /^\s{2}gate:\s*$/m.test(text);
 }
 
-export function checkSkippedTestLine(line, now = new Date()) {
-  if (!SKIP_PATTERN.test(line)) return null;
-  const match = line.match(EXPIRY_PATTERN);
+export function checkSkippedTestLine(line, now = new Date(), lang = "js") {
+  const py = lang === "py";
+  if (!(py ? PY_SKIP_PATTERN : SKIP_PATTERN).test(line)) return null;
+  const match = line.match(py ? PY_EXPIRY_PATTERN : EXPIRY_PATTERN);
   if (!match) {
-    return `skipped test with no "// expires YYYY-MM-DD issue #N" annotation: "${line.trim()}"`;
+    return `skipped test with no "${py ? "#" : "//"} expires YYYY-MM-DD issue #N" annotation: "${line.trim()}"`;
   }
   const expiry = new Date(`${match[1]}T00:00:00Z`);
   if (Number.isNaN(expiry.getTime())) {
@@ -67,6 +71,14 @@ function listTestFiles() {
     .map((f) => path.join(dir, f));
 }
 
+function listPythonTestFiles() {
+  const dir = path.join(repoRoot, "studio", "tests");
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => /^test_.*\.py$/.test(f))
+    .map((f) => path.join(dir, f));
+}
+
 function main() {
   const violations = [];
 
@@ -90,6 +102,14 @@ function main() {
     const text = readFileSync(file, "utf8");
     text.split("\n").forEach((line, i) => {
       const problem = checkSkippedTestLine(line);
+      if (problem) violations.push(`${path.relative(repoRoot, file)}:${i + 1}: ${problem}`);
+    });
+  }
+
+  for (const file of listPythonTestFiles()) {
+    const text = readFileSync(file, "utf8");
+    text.split("\n").forEach((line, i) => {
+      const problem = checkSkippedTestLine(line, new Date(), "py");
       if (problem) violations.push(`${path.relative(repoRoot, file)}:${i + 1}: ${problem}`);
     });
   }
