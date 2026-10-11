@@ -910,3 +910,25 @@ def test_final_the_captions_check_the_fills_provenance(film, tmp_path):
         (out / "sources.json").write_text(json.dumps(bad), encoding="utf-8")
         with pytest.raises(C.CaptionError, match=why):
             C.captions(out)
+
+
+def test_e14_an_archival_span_is_placed_again_under_the_derived_ceiling(film, monkeypatch):
+    """A15 refined (E14): pass 2 holds an archival span's one static gain to
+    the derived ceiling (never a limiter), and the line's record says so."""
+    _archival(film, line={"gain_db": 30.0})
+    plan, j1 = _plan(film, "e14-span-1")
+    _, placed1 = R.build_mix(plan, film, j1)
+    first = next(ln for ln in placed1["lines"] if ln["id"] == "A1")
+    monkeypatch.setattr(R, "_master_overreach", lambda mix, tp, work: (["forced by the test"], None))
+    monkeypatch.setattr(R, "derived_voice_ceiling", lambda lift: (-6.5, -6.5, None))
+    plan, j = _plan(film, "e14-span")
+    mix, placed = R.build_mix(plan, film, j)
+    line = next(ln for ln in placed["lines"] if ln["id"] == "A1")
+    assert line["kind"] == "archival" and line["voice_ceiling_dbtp"] == -6.5
+    assert line["static_gain_db"] == pytest.approx(first["static_gain_db"] - (R.VOICE_TP + 6.5), abs=0.02)
+    dec = [e for e in J.read(j.path) if e["kind"] == "decision" and e.get("unit") == "voice-ceiling"][0]
+    ch = next(c for c in dec["evidence"]["changes"] if c["id"] == "A1")
+    assert ch["kind"] == "archival" and ch["final_static_gain_db"] < ch["pass1_static_gain_db"]
+    seg = mix[int(17.9 * 48000): int(19.4 * 48000)]
+    assert R._measure_line(seg)["input_tp"] <= -6.5 + 0.2                    # never limited, so held back instead
+    assert all(e["unit"] != "A1" for e in lints(j, "voice-peak-control"))      # an archival span is never peak-controlled
