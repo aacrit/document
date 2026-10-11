@@ -93,14 +93,115 @@ export function describeFetchError(err) {
  * runner). An HTTP answer, whatever its status, is never retried.
  */
 export async function contractFetch(url, init = {}, retryMs = 2000) {
-  const headers = { "user-agent": USER_AGENT, ...(init.headers ?? {}) };
+  const { unpaced, ...rest } = init;
+  const headers = { "user-agent": USER_AGENT, ...(rest.headers ?? {}) };
+  const host = new URL(url).host;
+  const once = async () => {
+    // Every request a check makes counts toward the zone's window, byte ranges included; a deliberate burst does not.
+    if (!unpaced) await runtime.pacer.take(host);
+    return runtime.fetch(url, { ...rest, headers });
+  };
+  let response;
   try {
-    return await fetch(url, { ...init, headers });
+    response = await once();
   } catch (err) {
     if (!retryMs) throw err;
-    await new Promise((resolve) => setTimeout(resolve, retryMs));
-    return fetch(url, { ...init, headers });
+    await runtime.sleep(retryMs);
+    response = await once();
   }
+  // A burst expects 429s and reads them itself; anything else answered by the zone's block page is not the product's answer.
+  if (!unpaced) {
+    const block = await zoneBlock(response);
+    if (block) throw new ZoneBlockedError(String(url), response.status, block);
+  }
+  return response;
+}
+
+// ---- Pacing under the zone's rate rule ----------------------------------------------------
+//
+// The zone's WAF rule (contract.yaml zone_waf_rule: 30 requests per 10 s per
+// IP, every path but /assets/*) blocks a client that asks faster, with its
+// own 429 page, for the rest of the window. The full contract makes more
+// than 30 requests, so the runner paces itself: at most PACE_LIMIT requests
+// to one host in any PACE_WINDOW_MS. A sliding window, not a refilling
+// bucket: a bucket can let a full refill land beside a burst and pass 30 in
+// one window; a sliding log never lets more than the limit into any window.
+
+export const PACE_LIMIT = 20;
+export const PACE_WINDOW_MS = 10_000;
+/** After a block: the zone's window plus its 10 s mitigation, and a second of slack. */
+export const BLOCK_WAIT_MS = 11_000;
+export const ZONE_BLOCKED = "rate-limited by the zone, not a product failure";
+
+/** At most `limit` requests to one host in any `windowMs`, on an injectable clock. */
+export function createPacer({ limit = PACE_LIMIT, windowMs = PACE_WINDOW_MS, now = () => Date.now(), sleep = realSleep, pace = () => true } = {}) {
+  const sent = new Map();
+  return {
+    sent,
+    async take(host) {
+      if (!pace(host)) return;
+      const log = sent.get(host) ?? [];
+      sent.set(host, log);
+      for (;;) {
+        const t = now();
+        while (log.length && log[0] <= t - windowMs) log.shift();
+        if (log.length < limit) {
+          log.push(t);
+          return;
+        }
+        await sleep(log[0] + windowMs - t);
+      }
+    },
+  };
+}
+
+function realSleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+}
+
+const isLocalHost = (host) => isLocalUrl(`http://${host}`);
+const defaultRuntime = () => ({
+  fetch: (...a) => fetch(...a),
+  sleep: realSleep,
+  pacer: createPacer({ pace: (host) => !isLocalHost(host) }),
+  blockWaitMs: BLOCK_WAIT_MS,
+});
+let runtime = defaultRuntime();
+
+export class ZoneBlockedError extends Error {
+  constructor(url, status, why) {
+    super(`${ZONE_BLOCKED}: ${url} answered ${status} (${why})`);
+    this.status = status;
+  }
+}
+
+// Cloudflare's own block and challenge pages, never anything the Worker writes.
+const BLOCK_MARKERS = [/error 1015/i, /you are being rate limited/i, /attention required!? \| cloudflare/i, /cf-error-details/i, /cdn-cgi\/challenge-platform/i, /sorry, you have been blocked/i];
+
+/**
+ * Why a response is the zone's block rather than the product's answer, or
+ * null. A 429 is the zone's unless it is the Worker's own JSON refusal
+ * ({"error":"rate_limited"}, which a non-burst check never provokes but is
+ * reported as itself); a 403 or 503 is the zone's when its body is a
+ * Cloudflare block page.
+ */
+export async function zoneBlock(response) {
+  if (![429, 403, 503].includes(response.status)) return null;
+  let text = "";
+  try {
+    text = await response.clone().text();
+  } catch {
+    // Unreadable: judge by status alone.
+  }
+  if (response.status === 429) {
+    try {
+      if (JSON.parse(text)?.error === "rate_limited") return null;
+    } catch {
+      // Not the Worker's JSON.
+    }
+    return BLOCK_MARKERS.some((m) => m.test(text)) ? "a Cloudflare block page" : "429 with no Worker body";
+  }
+  return BLOCK_MARKERS.some((m) => m.test(text)) ? "a Cloudflare block page" : null;
 }
 
 /**
@@ -160,6 +261,7 @@ async function runCheck(check, baseUrl, originalBase = baseUrl) {
         };
       }
     } catch (err) {
+      if (err instanceof ZoneBlockedError) throw err;
       return { label, pass: false, detail: `${check.sources}: ${err.message}` };
     }
   }
@@ -169,7 +271,7 @@ async function runCheck(check, baseUrl, originalBase = baseUrl) {
   // whose 429 is not the Worker's. Waiting out its window first keeps the
   // burst measuring the Worker's own limit.
   if (check.pause_before_seconds) {
-    await new Promise((resolve) => setTimeout(resolve, check.pause_before_seconds * 1000));
+    await runtime.sleep(check.pause_before_seconds * 1000);
   }
 
   try {
@@ -190,8 +292,8 @@ async function runCheck(check, baseUrl, originalBase = baseUrl) {
       const statuses = [];
       let matched = false;
       const init = check.method
-        ? { method: check.method, headers: { "content-type": "application/json" }, body: JSON.stringify(check.body ?? {}) }
-        : { cache: "no-store" };
+        ? { method: check.method, headers: { "content-type": "application/json" }, body: JSON.stringify(check.body ?? {}), unpaced: true }
+        : { cache: "no-store", unpaced: true };
       const one = async () => {
         const r = await contractFetch(target, init, 0);
         const text = await r.text();
@@ -352,6 +454,7 @@ async function runCheck(check, baseUrl, originalBase = baseUrl) {
         return { label, pass: false, detail: `unknown check type "${check.type}"` };
     }
   } catch (err) {
+    if (err instanceof ZoneBlockedError) throw err;
     return { label, pass: false, detail: `request to ${target} failed: ${describeFetchError(err)}` };
   }
 }
@@ -389,7 +492,30 @@ export async function burstHostProblem(baseUrl, burstHost) {
   return `burst_host ${burstHost} serves ${other || "no build"}, ${baseUrl} serves ${prod || "no build"}`;
 }
 
-export async function runContract(contract, baseUrl) {
+/**
+ * Runs one check; when the zone blocks it, waits out the window once and runs
+ * it again. Blocked twice, it fails, saying it was the zone and not the
+ * product, so a red run never reads as wrong headers or a missing page.
+ */
+async function runPaced(check, base, originalBase) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await runCheck(check, base, originalBase);
+    } catch (err) {
+      if (!(err instanceof ZoneBlockedError)) throw err;
+      const label = check.name ?? `${check.type} ${check.path ?? "/"}`;
+      if (attempt >= 2) return { label, pass: false, zoneBlocked: true, detail: `${err.message}; blocked again after waiting ${runtime.blockWaitMs / 1000} s` };
+      await runtime.sleep(runtime.blockWaitMs);
+    }
+  }
+}
+
+/**
+ * `options` (tests): fetch, sleep, pacer and blockWaitMs replace the real
+ * network, clock and pacing for this run.
+ */
+export async function runContract(contract, baseUrl, options = {}) {
+  runtime = { ...defaultRuntime(), ...options };
   const results = [];
   let hostProblem;
   let hostChecked = false;
@@ -402,19 +528,19 @@ export async function runContract(contract, baseUrl) {
         // The build check's request to production counts toward the zone's WAF window too:
         // wait out this burst's pause first, so it never reads a 1015 page as "no build".
         if (check.pause_before_seconds) {
-          await new Promise((resolve) => setTimeout(resolve, check.pause_before_seconds * 1000));
+          await runtime.sleep(check.pause_before_seconds * 1000);
           check = { ...check, pause_before_seconds: 0 };
         }
         hostProblem = await burstHostProblem(baseUrl, base);
         hostChecked = true;
       }
       const label = check.name ?? `${check.type} ${check.path ?? "/"}`;
-      r = hostProblem ? { label, pass: false, detail: hostProblem, buildMismatch: true } : await runCheck(check, base, baseUrl);
+      r = hostProblem ? { label, pass: false, detail: hostProblem, buildMismatch: true } : await runPaced(check, base, baseUrl);
       r.rerouted = true;
       // Say where it ran: the summary names the base URL, and this burst did not run there.
       r.detail = `${r.detail ? `${r.detail}; ` : ""}via ${base}`;
     } else {
-      r = await runCheck(check, base, baseUrl);
+      r = await runPaced(check, base, baseUrl);
     }
     // A check that waits on someone (a zone setting, a Board ask) says who, in its failure.
     if (!r.pass && check.failure_note) r.detail = `${r.detail ?? "failed"}. ${check.failure_note}`;
@@ -440,6 +566,7 @@ async function main() {
   const ran = results.length - skipped - notApplicable - undeclared;
   const rerouted = results.filter((r) => r.rerouted).length;
   const buildMatched = !results.some((r) => r.buildMismatch);
+  const zoneBlocked = results.filter((r) => r.zoneBlocked).length;
 
   for (const r of results) {
     console.log(`${r.notApplicable || r.undeclared ? "N/A " : r.skipped ? "SKIP" : r.pass ? "PASS" : "FAIL"}  ${r.label}${r.detail ? ` - ${r.detail}` : ""}`);
@@ -447,6 +574,8 @@ async function main() {
   console.log(
     `\n${passed}/${ran} checks passed against ${baseUrl}${skipped ? `; ${skipped} skipped: needs deployed runtime` : ""}${notApplicable ? `; ${notApplicable} ${NOT_APPLICABLE}` : ""}${undeclared ? `; ${undeclared} ${NOT_DECLARED}` : ""}${rerouted ? `; ${rerouted} burst${rerouted === 1 ? "" : "s"} ran via ${contract.burst_host}${buildMatched ? " (same build)" : " (build did not match)"}` : ""}`,
   );
+
+  if (zoneBlocked) console.log(`${zoneBlocked} check${zoneBlocked === 1 ? " was" : "s were"} ${ZONE_BLOCKED}: rerun after the window before reading them as product failures`);
 
   if (passed !== ran) {
     process.exit(1);
