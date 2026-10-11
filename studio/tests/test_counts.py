@@ -52,15 +52,24 @@ def root(tmp_path_factory) -> Path:
     (r / "naturalearth").mkdir()
     (r / "naturalearth" / "ne_10m_admin_0_countries.geojson").write_text(json.dumps(COUNTRIES), encoding="utf-8")
     (r / "land.geojson").write_text(json.dumps(COUNTRIES), encoding="utf-8")
-    return r
+    return write_doubts(r)
 
 
 def sha(root, rel):
     return hashlib.sha256((root / rel).read_bytes()).hexdigest()
 
 
+def write_doubts(r: Path) -> Path:
+    """The table's doubts file, pinned to its CSV (empty: the fixture table has none)."""
+    (r / "data" / "table.doubts.json").write_text(json.dumps(
+        {"csv": "table.csv", "csv_sha256": sha(r, "data/table.csv"), "conflicts": [], "zero_suspect": []}),
+        encoding="utf-8")
+    return r
+
+
 def cell(root, entity, year, **kw):
-    return {"csv": "data/table.csv", "sha256": sha(root, "data/table.csv"), "licence": "CC BY 4.0", "source": SRC,
+    return {"csv": "data/table.csv", "sha256": sha(root, "data/table.csv"),
+            "doubts_sha256": sha(root, "data/table.doubts.json"), "licence": "CC BY 4.0", "source": SRC,
             "column": "cases", "row": {"entity": entity, "year": str(year)}, **kw}
 
 
@@ -73,7 +82,8 @@ def card(root, **kw):
 
 
 def data_layer(root, year=1970, **kw):
-    d = {"csv": "data/table.csv", "sha256": sha(root, "data/table.csv"), "licence": "CC BY 4.0", "source": SRC,
+    d = {"csv": "data/table.csv", "sha256": sha(root, "data/table.csv"),
+         "doubts_sha256": sha(root, "data/table.doubts.json"), "licence": "CC BY 4.0", "source": SRC,
          "columns": {"entity": "entity", "code": "code", "year": "year", "value": "cases"}, "year": year,
          "not_countries": {"World": {"aggregate": True, "why": "the total"},
                            "Somewhere Region": {"aggregate": True, "why": "a region"}}}
@@ -131,6 +141,7 @@ def test_a_card_for_a_year_outside_the_data_is_refused(root):
 def test_an_empty_cell_is_no_figure_and_never_zero(root, tmp_path):
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "table.csv").write_text("entity,code,year,cases\nWorld,OWID_WRL,1966,\n", encoding="utf-8")
+    write_doubts(tmp_path)
     c = card(tmp_path, year="1966", numeral="0", cite=cell(tmp_path, "World", 1966))
     with pytest.raises(maps.MapRefused, match="empty: no figure, which is not zero"):
         counts.check_card(c, tmp_path)
@@ -141,7 +152,7 @@ def test_every_number_on_a_card_is_cited(root):
         counts.check_card(card(root, caption="cases reported in 2 regions"), root)
     good = {"text": "{n} countries reporting cases", "numeral": "1",
             "cite": {"csv": "data/table.csv", "sha256": sha(root, "data/table.csv"), "licence": "CC BY 4.0",
-                     "source": SRC, "count": True, "column": "cases", "where": {"year": "1970"}}}
+                     "doubts_sha256": sha(root, "data/table.doubts.json"), "source": SRC, "count": True, "column": "cases", "where": {"year": "1970"}}}
     assert counts.check_card(card(root, lines=[good]), root)["lines"][0]["value"] == 1, \
         "aggregates (OWID_ and empty codes) are never counted as countries"
     with pytest.raises(maps.MapRefused):
@@ -173,6 +184,7 @@ def test_every_csv_entity_must_match_natural_earth_by_iso3_or_say_why_not(root, 
         (tmp_path / rel).write_bytes((root / rel).read_bytes())
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "table.csv").write_text(CSV_TEXT + "Zeta,ZZZ,1970,4\nNocode,,1970,3\n", encoding="utf-8")
+    write_doubts(tmp_path)
     d = data_layer(tmp_path)
     with pytest.raises(maps.MapRefused, match=r"2 CSV entities match no Natural Earth country.*'Nocode'.*'Zeta'"):
         maps.data_state("M", d, tmp_path, tmp_path)
@@ -290,30 +302,6 @@ def test_check_specs_checks_count_cards_against_their_data(root, tmp_path):
 
 # ---------------------------------------------------------------- review of d05870c (probes A to K)
 
-HISTORY2 = ("about 1.5 million died in 1975\n"
-            "there was no one left in 1975\n"
-            "In 1975 one outbreak was found.\n"
-            "only one appearance since then\n"
-            "Hansard, 8 December 1975\n")
-
-
-@pytest.fixture()
-def hroot(root, tmp_path):
-    (tmp_path / "data").mkdir()
-    (tmp_path / "data" / "h.txt").write_text(HISTORY2, encoding="utf-8")
-    return tmp_path
-
-
-def hq(hroot, line, quote, lines=1):
-    return {"text": "data/h.txt", "sha256": sha(hroot, "data/h.txt"), "licence": "public domain", "source": TXT,
-            "line": line, "lines": lines, "quote": quote}
-
-
-def qcard(hroot, numeral, cite, **kw):
-    return {"id": "Q", "kind": "count_card", "year": "1975", "numeral": numeral, "caption": "outbreaks",
-            "cite": cite, "source_short": "Fixture history", "sources": [{"id": TXT, "licence": "public domain"}], **kw}
-
-
 
 
 
@@ -391,6 +379,7 @@ def test_a_lit_country_mostly_under_the_panel_scrim_is_refused(root, tmp_path):
         (tmp_path / rel).write_text(json.dumps(feats), encoding="utf-8")
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "table.csv").write_text(CSV_TEXT + "Echo,EEE,1970,3\n", encoding="utf-8")
+    write_doubts(tmp_path)
     s = world_map(tmp_path)
     with pytest.raises(maps.MapRefused, match="EEE is lit in 1970 but 100% of it lies under the panel's scrim"):
         maps.render_map(s, tmp_path, data_root=tmp_path)
@@ -430,6 +419,7 @@ def test_a_sequence_compares_each_steps_own_year(root):
 
 def test_the_count_of_countries_says_it_counts_by_todays_codes(root):
     got = maps.csv_count({"csv": "data/table.csv", "sha256": sha(root, "data/table.csv"), "licence": "CC BY 4.0",
+                          "doubts_sha256": sha(root, "data/table.doubts.json"),
                           "source": SRC, "count": True, "column": "cases", "where": {"year": "1970"}}, root)
     assert "today's ISO3 codes" in got["rule"]
 
@@ -444,37 +434,8 @@ def at(quote: str, sub: str, nth: int = 0) -> list:
     return [i, i + len(sub)]
 
 
-def span_cite(path_root, rel, line, quote, numeral_sub, year_sub="1975", nth=0):
-    return {"text": rel, "sha256": sha(path_root, rel), "licence": "public domain", "source": TXT, "line": line,
-            "quote": quote, "numeral_at": at(quote, numeral_sub, nth), "year_at": at(quote, year_sub)}
 
 
-def test_a_year_outside_the_data_passes_only_when_another_source_is_cited_the_same_way(root):
-    qt = "In May 1972, 7 cases were found in Gamma"
-    q = span_cite(root, "data/history.txt", 2, qt, "7", "1972", nth=1)   # the first 7 is in 1972
-    c = card(root, year="May 1972", numeral="7", caption="cases found, Gamma", cite=q,
-             sources=[{"id": TXT, "licence": "public domain"}])
-    assert counts.check_card(c, root)["numeral"]["kind"] == "quote"
-    with pytest.raises(maps.MapRefused, match="not in the cited lines"):
-        counts.check_card({**c, "cite": {**q, "line": 1}}, root)
-    with pytest.raises(maps.MapRefused, match="the card says 8"):
-        counts.check_card({**c, "numeral": "8"}, root)
-    with pytest.raises(maps.MapRefused, match="declares numeral_at"):
-        counts.check_card({**c, "cite": {k: v for k, v in q.items() if k != "numeral_at"}}, root)
-    with pytest.raises(maps.MapRefused, match="declares year_at"):
-        counts.check_card({**c, "cite": {k: v for k, v in q.items() if k != "year_at"}}, root)
-
-
-def test_probe_a_the_year_must_stand_in_the_numerals_own_quote(hroot):
-    ok = "In 1975 one outbreak was found"
-    assert counts.check_card(qcard(hroot, "1", span_cite(hroot, "data/h.txt", 3, ok, "one")), hroot)
-    q = {"text": "data/h.txt", "sha256": sha(hroot, "data/h.txt"), "licence": "public domain", "source": TXT,
-         "line": 4, "quote": "only one appearance", "numeral_at": [5, 8]}
-    with pytest.raises(maps.MapRefused, match="declares year_at"):
-        counts.check_card(qcard(hroot, "1", q), hroot)
-    with pytest.raises(maps.MapRefused, match="year_cites are not accepted"):
-        counts.check_card(qcard(hroot, "1", q, year_cites=[span_cite(hroot, "data/h.txt", 5,
-                                                                      "Hansard, 8 December 1975", "8")]), hroot)
 
 
 def test_probe_b_a_cells_year_is_its_own_rows_year(root):
@@ -493,38 +454,8 @@ def test_probe_k_every_lines_year_is_the_cards_year(root):
     assert counts.check_card(card(root, lines=[ok]), root)
 
 
-PROBES = [
-    # (name, quote, numeral on the card, the numeral span declared, the refusal)
-    ("E 1 from 1.5 million", "about 1.5 million died in 1975", "1", "1", "longer number"),
-    ("E' 5 from 1.5 million", "about 1.5 million died in 1975", "5", "5", "longer number"),
-    ("F 0 from no cases", "there were no cases in 1975", "0", "no", "not a numeral"),
-    ("G 1 from no one", "no one was left in 1975", "1", "one", "negated"),
-    ("N1 5 from 5 million", "5 million died in 1975", "5", "5", "scale word"),
-    ("N2 5 from 1·5 million", "about 1·5 million in 1975", "5", "5", "longer number"),
-    ("N3 1 from 1 500", "1 500 cases in 1975", "1", "1", "longer number"),
-    ("N3' 500 from 1 500", "1 500 cases in 1975", "500", "500", "longer number"),
-    ("N4 1 from not even one", "not even one case in 1975", "1", "one", "negated"),
-    ("N5 3 shown as 1975", "in 1976 there were 3 cases, against 0 in 1975", "3", "3", "also prints"),
-    ("N6 300 from 300 thousand", "1975: about 300 thousand cases", "300", "300", "scale word"),
-    ("N7 1 from No one", "No one in 1975", "1", "one", "negated"),
-    ("one from 1975one", "in 1975one case", "1", "one", "longer number"),
-]
 
 
-@pytest.mark.parametrize("name,quote,numeral,sub,why", PROBES, ids=[p[0] for p in PROBES])
-def test_probes_e_to_n7_a_declared_span_that_is_not_the_count_is_refused(tmp_path, name, quote, numeral, sub, why):
-    (tmp_path / "data").mkdir()
-    (tmp_path / "data" / "q.txt").write_text(quote + "\n", encoding="utf-8")
-    c = qcard(tmp_path, numeral, span_cite(tmp_path, "data/q.txt", 1, quote, sub))
-    with pytest.raises(maps.MapRefused, match=why):
-        counts.check_card(c, tmp_path)
-
-
-def test_probe_h_a_plain_zero_word_is_a_count(tmp_path):
-    (tmp_path / "data").mkdir()
-    (tmp_path / "data" / "q.txt").write_text("zero cases in 1975\n", encoding="utf-8")
-    assert counts.check_card(qcard(tmp_path, "0", span_cite(tmp_path, "data/q.txt", 1, "zero cases in 1975", "zero")),
-                             tmp_path)
 
 
 @pytest.mark.parametrize("caption", ["nought cases", "none reported", "a single case", "a half of the cases",
@@ -592,6 +523,7 @@ def test_probe_n15_a_count_over_a_doubted_row_refuses(root, tmp_path):
     (r / "data" / "table.doubts.json").write_text(json.dumps(
         {"csv": "table.csv", "csv_sha256": sha(r, "data/table.csv"), "conflicts": [side_conflict(r)]}), encoding="utf-8")
     cnt = {"csv": "data/table.csv", "sha256": sha(r, "data/table.csv"), "licence": "CC BY 4.0", "source": SRC,
+           "doubts_sha256": sha(r, "data/table.doubts.json"),
            "count": True, "column": "cases", "where": {"year": "1971"}}
     with pytest.raises(maps.MapRefused, match="takes in a doubted row"):
         maps.csv_count(cnt, r)
@@ -618,6 +550,7 @@ def test_a_small_zero_country_past_the_full_wash_is_refused(root, tmp_path):
         (tmp_path / rel).write_text(json.dumps(feats), encoding="utf-8")
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "table.csv").write_text(CSV_TEXT + "Echo,EEE,1970,0\n", encoding="utf-8")
+    write_doubts(tmp_path)
     with pytest.raises(maps.MapRefused, match="EEE is drawn as zero in 1970"):
         maps.render_map(world_map(tmp_path), tmp_path, data_root=tmp_path)
 
@@ -639,3 +572,199 @@ def test_an_in_map_figure_is_drawn_larger_than_a_sub_line(root):
     _, info = maps.render_map(s, root, data_root=root)
     fig = [b for b in info["boxes"] if b["text"] == "1,500"][0]["box"]
     assert fig[3] - fig[1] > 1.2 * (1.75 / 100 * 1080), "the figure's numeral is about 1.3x a sub-line"
+
+
+# ---------------------------------------------------------------- PR #16 review of a14dcc8: whole sentences, attested
+
+ATTEST = {"by": "test", "date": "2026-10-11", "note": "the sentence states this count for this year"}
+
+
+def sentence_cite(path_root, rel, line, quote, numeral_sub, year_sub="1975", nth=0, adj=(0, 0), attested=ATTEST):
+    ns = at(quote, numeral_sub, nth)
+    c = {"text": rel, "sha256": sha(path_root, rel), "licence": "public domain", "source": TXT, "line": line,
+         "quote": quote, "numeral_at": [ns[0] + adj[0], ns[1] + adj[1]], "year_at": at(quote, year_sub)}
+    if attested is not None:
+        c["attested"] = attested
+    return c
+
+
+def qcard(r, numeral, cite, **kw):
+    return {"id": "Q", "kind": "count_card", "year": "1975", "numeral": numeral, "caption": "outbreaks",
+            "cite": cite, "source_short": "Fixture history", "sources": [{"id": TXT, "licence": "public domain"}], **kw}
+
+
+def one_line(tmp_path, text):
+    (tmp_path / "data").mkdir(exist_ok=True)
+    (tmp_path / "data" / "q.txt").write_text(text + "\n", encoding="utf-8")
+    return tmp_path
+
+
+def test_a_year_outside_the_data_passes_only_on_a_whole_attested_sentence(root):
+    qt = "In May 1972, 7 cases were found in Gamma."
+    q = sentence_cite(root, "data/history.txt", 2, qt, "7", "1972", nth=1)   # the first 7 is in 1972
+    c = card(root, year="May 1972", numeral="7", caption="cases found, Gamma", cite=q,
+             sources=[{"id": TXT, "licence": "public domain"}])
+    got = counts.check_card(c, root)
+    assert got["numeral"]["kind"] == "quote" and got["numeral"]["attested"] == ATTEST and "_span" not in got["numeral"]
+    assert "attested by test" in counts.ledger_fields(c, got)["method"]["text"]
+    with pytest.raises(maps.MapRefused, match="attested"):
+        counts.check_card({**c, "cite": {k: v for k, v in q.items() if k != "attested"}}, root)
+    with pytest.raises(maps.MapRefused, match="attested"):
+        counts.check_card({**c, "cite": {**q, "attested": {"by": "test", "date": "", "note": "x"}}}, root)
+    with pytest.raises(maps.MapRefused, match="the card says 8"):
+        counts.check_card({**c, "numeral": "8"}, root)
+    with pytest.raises(maps.MapRefused, match="not in the cited lines"):
+        counts.check_card({**c, "cite": {**q, "line": 1}}, root)
+
+
+# Every probe of probe4.py, as the reviewer wrote it (no sentence end: refused as not whole) ...
+PROBE4_LINES = ["about 1.5 million died in 1975", "there were no cases in 1975", "no one was left in 1975",
+                "zero cases in 1975", "5 million died in 1975", "about 1·5 million in 1975", "1 500 cases in 1975",
+                "not even one case in 1975", "in 1976 there were 3 cases, against 0 in 1975",
+                "1975: about 300 thousand cases", "No one in 1975", "In 1975 there were 12 cases; the next year, 3.",
+                "12 cases among 19751 people", "In 1975 smallpox ended", "12% of cases in 1975", "12–15 cases in 1975",
+                "more than 12 cases in 1975", "12 cases in 1975, as in 1975", "12 cases in 1975 (revised in 1976)",
+                "there were 1,500 cases in 1975", "١٢ cases in 1975", "12 cases in 1975-76",
+                "nought cases in 1975", " 12 cases in 1975", "In '76 there were 3 cases; 1975 had 12"]
+
+
+@pytest.mark.parametrize("line", PROBE4_LINES)
+def test_probe4_every_probe_as_written_is_refused(tmp_path, line):
+    r = one_line(tmp_path, line)
+    toks, years = maps.sentence_tokens(line)
+    nsub = toks[0][2] if toks else "1975"
+    c = {"text": "data/q.txt", "sha256": sha(r, "data/q.txt"), "licence": "public domain", "source": TXT, "line": 1,
+         "quote": line, "numeral_at": [toks[0][0], toks[0][1]] if toks else at(line, "1975"),
+         "year_at": at(line, "1975") if "1975" in line else [0, 1], "attested": ATTEST}
+    with pytest.raises(maps.MapRefused):
+        counts.check_card(qcard(r, nsub if nsub[0].isdigit() else "1", c), r)
+
+
+# ... and as whole sentences, so each rule is what refuses it.
+SENTENCES = [
+    # (name, line in the file, quote (None = the line), numeral, its span text, nth, span adjust, refusal)
+    ("N1 1.5 million", "About 1.5 million died in 1975.", None, "1", "1.5", 0, (0, 0), "qualifier"),
+    ("F no cases", "There were no cases in 1975.", None, "0", "no", 0, (0, 0), "negator"),
+    ("G no one", "No one was left in 1975.", None, "1", "one", 0, (0, 0), "negator"),
+    ("N1b 5 million", "Then 5 million died in 1975.", None, "5", "5", 0, (0, 0), "2 numbers"),
+    ("N2 1·5 million", "Then 1·5 million died in 1975.", None, "5", "1·5", 0, (0, 0), "2 numbers"),
+    ("N3 1 500", "Then 1 500 cases were found in 1975.", None, "500", "500", 0, (0, 0), "2 numbers"),
+    ("N4 not even one", "Not even one case was found in 1975.", None, "1", "one", 0, (0, 0), "negator"),
+    ("N5 two years", "In 1976 there were 3 cases, against 0 in 1975.", None, "3", "3", 0, (0, 0), "2 numbers"),
+    ("N6 300 thousand", "In 1975 there were 300 thousand cases.", None, "300", "300", 0, (0, 0), "2 numbers"),
+    ("N7 No one", "No one was found in 1975.", None, "1", "one", 0, (0, 0), "negator"),
+    ("Y-cl next year", "In 1975 there were 12 cases; the next year, 3.", None, "12", "12", 0, (0, 0), "relative year"),
+    ("OB1 off left", "In 1975 there were 12 cases.", None, "12", "12", 0, (-1, 0), "numeral_at"),
+    ("OB2 off right", "In 1975 there were 12 cases.", None, "12", "12", 0, (0, 1), "numeral_at"),
+    ("OB3 shrink", "In 1975 there were 12 cases.", None, "2", "12", 0, (1, 0), "numeral_at"),
+    ("YS 19751", "In 1975 there were 12 cases among 19751 people.", None, "12", "12", 0, (0, 0), "2 numbers"),
+    ("YS2 the year as the count", "In 1975 smallpox ended.", None, "1975", "1975", 0, (0, 0), "whole count|0 numbers"),
+    ("PCT", "In 1975 there were 12% of cases.", None, "12", "12", 0, (0, 0), "percentage"),
+    ("RNG", "In 1975 there were 12–15 cases.", None, "12", "12", 0, (0, 0), "2 numbers"),
+    ("QUAL more than", "In 1975 there were more than 12 cases.", None, "12", "12", 0, (0, 0), "qualifier"),
+    ("QUAL some", "In 1975 some 12 cases were found.", None, "12", "12", 0, (0, 0), "qualifier"),
+    ("YY same year twice", "In 1975 there were 12 cases, as in 1975.", None, "12", "12", 0, (0, 0), "2 years"),
+    ("YY2 other year", "In 1975 there were 12 cases (revised in 1976).", None, "12", "12", 0, (0, 0), "2 years"),
+    ("TQ1 trimmed 1,500", "There were 1,500 cases in 1975.", "500 cases in 1975.", "500", "500", 0, (0, 0), "whole sentences"),
+    ("TQ2 trimmed not even one", "Not even one case in 1975.", "one case in 1975.", "1", "one", 0, (0, 0), "whole sentences"),
+    ("TQ3 trimmed 1976", "In 1976 there were 3 cases, against 0 in 1975.", "3 cases, against 0 in 1975.", "3", "3", 0,
+     (0, 0), "whole sentences"),
+    ("TQ4 ends mid-sentence", "In 1975 there were 12 cases, said the report.", "In 1975 there were 12 cases,", "12",
+     "12", 0, (0, 0), "whole sentences"),
+    ("UNI arabic-indic", "In 1975 there were ١٢ cases.", None, "12", "١٢", 0, (0, 0), "another script"),
+    ("SEASON 1975-76", "There were 12 cases in 1975-76.", None, "12", "12", 0, (0, 0), "year range"),
+    ("NOUGHT", "In 1975 there were nought cases.", None, "0", "nought", 0, (0, 0), "not a whole count"),
+    ("TWO-DIGIT-YEAR", "In '76 there were 3 cases; 1975 had 12.", None, "3", "3", 0, (0, 0), "3 numbers"),
+    ("n't", "In 1975 there weren't 12 cases.", None, "12", "12", 0, (0, 0), "negator"),
+]
+
+
+@pytest.mark.parametrize("name,line,quote,numeral,sub,nth,adj,why", SENTENCES, ids=[s[0] for s in SENTENCES])
+def test_probe4_as_whole_sentences_each_rule_refuses(tmp_path, name, line, quote, numeral, sub, nth, adj, why):
+    r = one_line(tmp_path, line)
+    q = quote or line
+    ysub = "1975"
+    c = sentence_cite(r, "data/q.txt", 1, q, sub, ysub, nth=nth, adj=adj)
+    with pytest.raises(maps.MapRefused, match=why):
+        counts.check_card(qcard(r, numeral, c), r)
+
+
+@pytest.mark.parametrize("line,sub,numeral", [("Zero cases were found in 1975.", "Zero", "0"),
+                                              ("In 1975, 12 cases were found.", "12", "12"),
+                                              ("In 1975 there were 1,500 cases.", "1,500", "1,500")])
+def test_a_whole_sentence_with_one_count_and_one_year_passes(tmp_path, line, sub, numeral):
+    r = one_line(tmp_path, line)
+    assert counts.check_card(qcard(r, numeral, sentence_cite(r, "data/q.txt", 1, line, sub)), r)
+
+
+def test_a_sentence_may_continue_across_cited_lines(tmp_path):
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "q.txt").write_text("Before it. In 1975 there\nwere 12 cases. After it.\n", encoding="utf-8")
+    q = "In 1975 there were 12 cases."
+    c = sentence_cite(tmp_path, "data/q.txt", 1, q, "12")
+    assert counts.check_card(qcard(tmp_path, "12", {**c, "lines": 2}), tmp_path)
+    with pytest.raises(maps.MapRefused, match="not in the cited lines"):
+        counts.check_card(qcard(tmp_path, "12", c), tmp_path)
+
+
+# ---------------------------------------------------------------- the sidecar is pinned (SC1 to SC4)
+
+def test_a_csv_citation_pins_its_doubts(root):
+    c = cell(root, "World", 1970, line=6)
+    c.pop("doubts_sha256")
+    with pytest.raises(maps.MapRefused, match="pins its doubts too"):
+        counts.check_card(card(root, cite=c), root)
+    with pytest.raises(maps.MapRefused, match="doubts_sha256"):
+        maps.check_spec(world_map(root, data={k: v for k, v in data_layer(root).items() if k != "doubts_sha256"}))
+
+
+def pinned_root(root, tmp_path):
+    r = with_sidecar(root, tmp_path)
+    (r / "data" / "table.doubts.json").write_text(json.dumps(
+        {"csv": "table.csv", "csv_sha256": sha(r, "data/table.csv"), "conflicts": [side_conflict(r)],
+         "zero_suspect": [{"row": {"entity": "Beta", "year": "1971"}, "why": "a war year"}]}), encoding="utf-8")
+    return r
+
+
+def test_probe_sc0_to_sc4_the_doubts_cannot_be_deleted_emptied_or_swapped(root, tmp_path):
+    r = pinned_root(root, tmp_path)
+    alpha = card(r, year="1971", numeral="0", cite=cell(r, "Alpha", 1971))   # pinned to the full sidecar
+    beta = card(r, year="1971", numeral="0", caption="cases reported, Beta", cite=cell(r, "Beta", 1971))
+    m71 = world_map(r, 1971)
+    with pytest.raises(maps.MapRefused, match="contradicted"):
+        counts.check_card(alpha, r)                                                     # SC0
+    side = r / "data" / "table.doubts.json"
+    full = side.read_bytes()
+    side.write_text(json.dumps({"csv": "table.csv", "csv_sha256": sha(r, "data/table.csv"), "conflicts": [],
+                                "zero_suspect": []}), encoding="utf-8")
+    for spec, run in ((alpha, counts.check_card), (beta, counts.check_card)):        # SC2, SC3
+        with pytest.raises(maps.MapRefused, match="the citation pins"):
+            run(spec, r)
+    with pytest.raises(maps.MapRefused, match="the citation pins"):                  # SC4
+        maps.render_map(m71, r, data_root=r)
+    side.unlink()
+    with pytest.raises(maps.MapRefused, match="is missing"):                         # SC1
+        counts.check_card(alpha, r)
+    side.write_bytes(full)
+    with pytest.raises(maps.MapRefused, match="contradicted"):
+        counts.check_card(alpha, r)
+
+
+def test_the_render_record_carries_the_doubts_pin(root, tmp_path):
+    (tmp_path / "C1.json").write_text(json.dumps(card(root)), encoding="utf-8")
+    assert maps.main([str(tmp_path / "C1.json"), "--geodata", str(root), "--data", str(root),
+                      "--out", str(tmp_path / "out")]) == 0
+    rec = json.loads((tmp_path / "out" / "maps-render.json").read_text(encoding="utf-8"))[0]
+    assert rec["doubts_sha256"] == [sha(root, "data/table.doubts.json")]
+    assert rec["ledger"]["method"]["cites"]["numeral"]["doubts_sha256"] == sha(root, "data/table.doubts.json")
+
+
+def test_a_file_rewritten_in_place_is_hashed_again(tmp_path):
+    f = tmp_path / "f.txt"
+    f.write_text("a", encoding="utf-8")
+    first = maps.file_sha256(str(f))
+    import os
+    import time
+    f.write_text("b", encoding="utf-8")
+    os.utime(f, ns=(time.time_ns(), time.time_ns() + 10_000_000))
+    assert maps.file_sha256(str(f)) != first

@@ -12,9 +12,11 @@ render: the citation names the file, its sha256, its licence, the column and
 the row's key (and, optionally, the line it sits on). A numeral that is not
 that cell is refused; so is a year the table has no row for, unless another
 source is cited the same way (a text file, its sha256, the line and a quote
-that declares where in it the number and the year stand: `numeral_at` and
-`year_at`, character offsets into the quote, checked by maps.quote_numeral and
-maps.quote_year; a quote's free text is never searched for a number). The year is always tied
+that is one or more whole sentences holding exactly one number and one year,
+with no negator or qualifier, whose declared `numeral_at` and `year_at` spans
+are those two tokens, and which a person has attested means this count for this
+year; maps.check_numeral_sentence. A sentence that fails is refused as a count;
+a typeset DRAWN text line may still quote it). The year is always tied
 to the numeral's own citation: its row, or its quote. Every other number on the
 card (a sub-line such as "36 of today's countries reporting cases") carries its
 own citation for the same year. Captions carry no uncited digit or number word.
@@ -84,13 +86,11 @@ def _year_of(got: dict, cite: dict) -> str | None:
 
 def _check_number(cid: str, where: str, numeral: str, year: str, got: dict, cite: dict) -> None:
     """A number and its year from one citation. A cell or count: the value equals the numeral and
-    its own row (or where) is the year. A quote: its declared `numeral_at` span prints the numeral
-    and its declared `year_at` span the year, with no other year in the quote (maps.quote_numeral,
-    maps.quote_year); the free text of a quote is never searched for either."""
+    its own row (or where) is the year. A quote: whole sentences with exactly one number and one
+    year, attested (maps.check_numeral_sentence)."""
     if got["kind"] == "quote":
         try:
-            MP.quote_numeral(cite, numeral)
-            MP.quote_year(cite, year)
+            MP.check_numeral_sentence(cite, got, numeral, year)
         except MapRefused as e:
             raise MapRefused(f"{cid}: {where}: {e}") from None
         return
@@ -184,7 +184,10 @@ def check_card(card: dict, data_root) -> dict:
         _check_number(cid, f"lines[{i}]", ln["numeral"], year, r, ln["cite"])
         lines.append(r)
     also = [MP.resolve_cite(c, data_root) for c in card.get("also", [])]
-    return {"numeral": got, "year": [], "lines": lines, "also": also}
+
+    def clean(r):
+        return {k: v for k, v in r.items() if not k.startswith("_")}
+    return {"numeral": clean(got), "year": [], "lines": [clean(r) for r in lines], "also": [clean(r) for r in also]}
 
 
 def source_line(card: dict) -> str:
@@ -197,7 +200,9 @@ def method(card: dict, resolved: dict | None = None) -> dict:
             return f"{r['csv']} line {r['line']}, column {r['column']} = {r['value']} (sha256 {r['sha256'][:12]})"
         if r["kind"] == "count":
             return (f"{r['csv']}: {r['value']} {r['rule']} where {r['where']} (sha256 {r['sha256'][:12]})")
-        return f"{r['text']} line {r['line']}: \"{r['quote']}\" (sha256 {r['sha256'][:12]})"
+        att = r.get("attested")
+        return (f"{r['text']} line {r['line']}: \"{r['quote']}\" (sha256 {r['sha256'][:12]})"
+                + (f", attested by {att['by']} on {att['date']}: {att['note']}" if att else ""))
     out = {"kind": "count_card", "numeral": card["numeral"], "year": card["year"]}
     if resolved:
         out["cites"] = {"numeral": resolved["numeral"], "year": resolved["year"], "lines": resolved["lines"],

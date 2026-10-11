@@ -519,8 +519,14 @@ def _load(path: str) -> tuple:
     return tuple(feats)
 
 
-@lru_cache(maxsize=32)
 def file_sha256(path: str) -> str:
+    """A file's sha256, cached on its path, size and mtime, so a file rewritten in place is hashed again."""
+    st = Path(path).stat()
+    return _file_sha256(str(path), st.st_size, st.st_mtime_ns)
+
+
+@lru_cache(maxsize=64)
+def _file_sha256(path: str, size: int, mtime_ns: int) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
@@ -694,12 +700,16 @@ NUMBER_WORD_RE = re.compile(
     r"thousand|million|billion|dozen|dozens|hundreds|thousands|millions|billions|lakh|lakhs|crore|crores|"
     r"nought|naught|nil|none|single|half|once|twice|handful)\b")
 # a quoted numeral's declared span: what may not follow it, stand before it, or negate it
-SCALE_AFTER = re.compile(r"(?i)^[\s\u00a0\u2009]*(hundred|thousand|million|billion|lakh|crore)s?\b")
-GROUP_AFTER = re.compile(r"^[ \u00a0\u2009]\d{3}(?!\d)")
-GROUP_BEFORE = re.compile(r"(?<!\d)\d{1,3}[ \u00a0\u2009]$")
-SEPARATORS = ".,\u00b7\u00a0\u2009"
-NEGATORS = {"no", "not", "never", "nor", "without", "none", "nobody"}
-YEAR4 = re.compile(r"(?<![\d,.])\d{4}(?!\d)")
+# A text citation for a numeral is one or more whole sentences holding exactly one number and one year.
+SENTENCE_END = re.compile(r"[.!?][\"\u201d\u2019)\]]*$")
+SENTENCE_GAP = re.compile(r"[.!?][\"\u201d\u2019)\]]*\s+$")
+DIGIT_TOKEN = re.compile(r"[0-9]+(?:[,.\u00b7][0-9]+)*")
+NEGATORS = re.compile(r"(?i)\b(no|not|never|nor|without|none|nobody)\b|n't\b")
+QUALIFIERS = re.compile(r"(?i)\b(more than|less than|fewer than|at least|at most|over|under|about|around|nearly|"
+                        r"almost|roughly|up to|some|approximately|estimated)\b")
+RELATIVE_YEAR = re.compile(r"(?i)\b(next|following|previous|same|that|this|last) year\b|\ba year (later|earlier|before|after)\b")
+YEAR_RANGE = re.compile(r"[0-9]{4}\s*[-\u2010-\u2015/]\s*[0-9]{2,4}")
+PERCENT_AFTER = re.compile(r"(?i)^\s*(%|per ?cent\b)")
 
 
 def uncited_numbers(text: str) -> list:
@@ -757,13 +767,22 @@ def _sidecar(path: str, sha: str, csv_rel: str, csv_sha: str, data_root: str) ->
 
 
 def table_doubts(cite: dict, data_root) -> list:
-    """The doubts that travel with a cited CSV: `<name>.doubts.json` beside it, pinned to the
-    CSV's sha256 and read whenever the CSV is cited. No spec can opt out; a spec may only add."""
+    """The doubts that travel with a cited CSV: `<name>.doubts.json` beside it, pinned to the CSV's
+    sha256, and itself pinned by every citation of the CSV (`doubts_sha256`, beside `sha256`). A
+    missing sidecar, or one whose sha256 differs from the pin, refuses: no spec can opt out of the
+    table's doubts or swap them; a spec may only add its own."""
     path = Path(data_root) / cite["csv"]
     side = doubts_path(path)
+    pin = cite.get("doubts_sha256")
+    if not pin:
+        raise MapRefused(f"{cite['csv']}: a citation of a table pins its doubts too (doubts_sha256 of {side.name})")
     if not side.exists():
-        return []
-    return list(_sidecar(str(side), file_sha256(str(side)), cite["csv"], file_sha256(str(path)), str(data_root)))
+        raise MapRefused(f"{cite['csv']}: its doubts file {side.name} is missing; the citation pins {pin}")
+    got = file_sha256(str(side))
+    if got != pin:
+        raise MapRefused(f"{side.name}: its sha256 is {got}; the citation pins {pin} (the table's doubts changed, "
+                         "or this is another copy)")
+    return list(_sidecar(str(side), got, cite["csv"], file_sha256(str(path)), str(data_root)))
 
 
 def cited_csv(cite: dict, data_root) -> tuple:
@@ -815,8 +834,8 @@ def csv_cell(cite: dict, data_root, extra=()) -> dict:
     why = doubt_on(table_doubts(cite, data_root) + list(extra), cite["csv"], key, v)
     if why:
         raise MapRefused(f"{cite['csv']} line {ln}: {why}")
-    return {"kind": "cell", "csv": cite["csv"], "sha256": cite["sha256"], "line": ln, "column": col,
-            "row": key, "value": v}
+    return {"kind": "cell", "csv": cite["csv"], "sha256": cite["sha256"], "doubts_sha256": cite["doubts_sha256"],
+            "line": ln, "column": col, "row": key, "value": v}
 
 
 def csv_count(cite: dict, data_root, extra=()) -> dict:
@@ -837,7 +856,8 @@ def csv_count(cite: dict, data_root, extra=()) -> dict:
             raise MapRefused(f"{cite['csv']}: a count where {where} takes in a doubted row ({kind}: {msg}); "
                              "a count over a doubted cell is not drawn")
     lines = [ln for ln, r in hit if ISO3.match(r.get(ccol) or "") and (_int_cell(r[col], cite["csv"]) or 0) > 0]
-    return {"kind": "count", "csv": cite["csv"], "sha256": cite["sha256"], "column": col, "where": where,
+    return {"kind": "count", "csv": cite["csv"], "sha256": cite["sha256"], "doubts_sha256": cite["doubts_sha256"],
+            "column": col, "where": where,
             "rule": (f"rows with an ISO3 {ccol} and {col} over 0: countries as the table codes them, by today's "
                      "ISO3 codes, so a state of the time since divided counts as its parts"),
             "lines": lines, "value": len(lines)}
@@ -857,8 +877,11 @@ def text_quote(cite: dict, data_root) -> dict:
     span = " ".join(x.strip() for x in lines[a - 1:a - 1 + n])
     if cite["quote"] not in span:
         raise MapRefused(f"{cite['text']} line {a}: {cite['quote']!r} is not in the cited lines ({span!r})")
-    return {"kind": "quote", "text": cite["text"], "sha256": cite["sha256"], "line": a, "lines": n,
-            "quote": cite["quote"]}
+    out = {"kind": "quote", "text": cite["text"], "sha256": cite["sha256"], "line": a, "lines": n,
+           "quote": cite["quote"], "_span": span}
+    if cite.get("attested"):
+        out["attested"] = cite["attested"]
+    return out
 
 
 def resolve_cite(cite: dict, data_root, extra=()) -> dict:
@@ -877,7 +900,7 @@ def digits(s: str) -> str:
 
 def numeral_supported(numeral: str, got: dict) -> bool:
     """A cell or count supports a numeral when it equals the value. A quote never does by
-    itself: its citation declares the span (quote_numeral)."""
+    itself: check_numeral_sentence judges a quoted count."""
     if got["kind"] in ("cell", "count"):
         n = digits(numeral)
         return n.lstrip("-").isdigit() and int(n) == got["value"]
@@ -890,53 +913,71 @@ def _declared(cite: dict, key: str) -> tuple:
         raise MapRefused(f"{cite.get('text')} line {cite.get('line')}: a text citation declares {key}: [start, end], "
                          "character offsets into its quote")
     s_, e_ = sp
-    q = cite["quote"]
-    if not 0 <= s_ < e_ <= len(q):
-        raise MapRefused(f"{cite.get('text')}: {key} {sp} is outside the quote ({len(q)} characters)")
-    return s_, e_, q[s_:e_]
+    if not 0 <= s_ < e_ <= len(cite["quote"]):
+        raise MapRefused(f"{cite.get('text')}: {key} {sp} is outside the quote ({len(cite['quote'])} characters)")
+    return s_, e_
 
 
-def quote_numeral(cite: dict, numeral: str) -> int:
-    """The number a quote's declared span prints, checked: the span is exactly a numeral (digits
-    with optional thousands commas, or one word zero to twelve), equal to the card's; no scale
-    word or digit group follows it; no decimal separator, digit or digit group stands before it;
-    no negator within the four words before it."""
-    s_, e_, sub = _declared(cite, "numeral_at")
-    q = cite["quote"]
+def sentence_tokens(q: str) -> tuple:
+    """Every number token in a quote: digit runs (with their , . and middle-dot groups, so 1,500
+    and 1.5 are one token each) and number words; a bare four-digit run is a year."""
+    nums, years = [], []
+    for m in DIGIT_TOKEN.finditer(q):
+        (years if re.fullmatch(r"[0-9]{4}", m.group(0)) else nums).append((m.start(), m.end(), m.group(0)))
+    for m in NUMBER_WORD_RE.finditer(q):
+        nums.append((m.start(), m.end(), m.group(0)))
+    return sorted(nums), years
+
+
+def check_numeral_sentence(cite: dict, got: dict, numeral: str, year: str) -> None:
+    """A text citation for a count, so strict nothing is left to interpret (CoS ruling on PR #16):
+    the quote is one or more whole sentences of the cited lines; it holds exactly one number token
+    and exactly one four-digit year (no other number of any kind, no two-digit year, no year range,
+    no relative year); no negator and no qualifier anywhere in it; the declared spans `numeral_at`
+    and `year_at` are exactly those two tokens; the number equals the card's and the year the card's;
+    and a person has attested that the sentence means this count for this year (`attested`)."""
+    q, span = cite["quote"], got["_span"]
     where = f"{cite.get('text')} line {cite.get('line')}"
-    if re.fullmatch(r"\d{1,3}(,\d{3})+|\d+", sub):
-        val = int(sub.replace(",", ""))
-    elif sub.lower() in NUMBER_WORDS:
-        val = NUMBER_WORDS.index(sub.lower())
+    att = cite.get("attested")
+    if not (isinstance(att, dict) and all(str(att.get(k) or "").strip() for k in ("by", "date", "note"))):
+        raise MapRefused(f"{where}: a count from a text needs `attested: {{by, date, note}}`: a person's statement that "
+                         "the sentence means this count for this year")
+    starts = [i for i in range(len(span)) if span.startswith(q, i)
+              and (i == 0 or SENTENCE_GAP.search(span[:i])) and (i + len(q) == len(span) or span[i + len(q)].isspace())]
+    if not starts or not SENTENCE_END.search(q):
+        raise MapRefused(f"{where}: the quote is not one or more whole sentences of the cited lines; a count is "
+                         "quoted whole, never trimmed")
+    if any(ch.isdigit() and not ("0" <= ch <= "9") for ch in q):
+        raise MapRefused(f"{where}: the quote holds digits of another script; a count is read from ASCII digits only")
+    for rx, what in ((NEGATORS, "a negator"), (QUALIFIERS, "a qualifier"), (RELATIVE_YEAR, "a relative year"),
+                     (YEAR_RANGE, "a year range")):
+        m = rx.search(q)
+        if m:
+            raise MapRefused(f"{where}: the sentence holds {what} ({m.group(0)!r}); it does not state one count")
+    nums, years = sentence_tokens(q)
+    if len(nums) != 1:
+        raise MapRefused(f"{where}: the sentence holds {len(nums)} numbers ({[t[2] for t in nums]}); a count is "
+                         "cited from a sentence with exactly one")
+    if len(years) != 1:
+        raise MapRefused(f"{where}: the sentence holds {len(years)} years ({[t[2] for t in years]}); exactly one")
+    (ns, ne, ntext), (ys, ye, ytext) = nums[0], years[0]
+    if [ns, ne] != list(_declared(cite, "numeral_at")):
+        raise MapRefused(f"{where}: numeral_at {cite['numeral_at']} is not the sentence's number {ntext!r} at {[ns, ne]}")
+    if [ys, ye] != list(_declared(cite, "year_at")):
+        raise MapRefused(f"{where}: year_at {cite['year_at']} is not the sentence's year {ytext!r} at {[ys, ye]}")
+    if PERCENT_AFTER.match(q[ne:]):
+        raise MapRefused(f"{where}: {ntext!r} is a percentage, not a count")
+    if re.fullmatch(r"[0-9]{1,3}(,[0-9]{3})+|[0-9]+", ntext):
+        val = int(ntext.replace(",", ""))
+    elif ntext.lower() in NUMBER_WORDS:
+        val = NUMBER_WORDS.index(ntext.lower())
     else:
-        raise MapRefused(f"{where}: the declared span {sub!r} is not a numeral (digits, or one word zero to twelve)")
+        raise MapRefused(f"{where}: {ntext!r} is not a whole count (digits, or one word zero to twelve)")
     n = digits(numeral)
     if not n.isdigit() or int(n) != val:
-        raise MapRefused(f"{where}: the card says {numeral}; the declared span prints {sub!r} ({val})")
-    before, after = q[:s_], q[e_:]
-    if before and (before[-1].isalnum() or before[-1] in SEPARATORS) or GROUP_BEFORE.search(before):
-        raise MapRefused(f"{where}: {sub!r} is part of a longer number or word (before it: {before[-6:]!r})")
-    if after and (after[0].isalnum() or re.match(r"[.,\u00b7]\d", after)) or GROUP_AFTER.match(after):
-        raise MapRefused(f"{where}: {sub!r} is part of a longer number or word (after it: {after[:6]!r})")
-    if SCALE_AFTER.match(after):
-        raise MapRefused(f"{where}: {sub!r} is followed by a scale word ({after[:12].strip()!r}); it is not the count")
-    neg = [w for w in re.findall(r"[A-Za-z]+", before)[-4:] if w.lower() in NEGATORS]
-    if neg:
-        raise MapRefused(f"{where}: {sub!r} is negated by {neg[-1]!r} within the four words before it")
-    return val
-
-
-def quote_year(cite: dict, year: str) -> None:
-    """The year a quote's declared span prints: exactly the card's year, and no other four-digit
-    year anywhere in the quote."""
-    s_, e_, sub = _declared(cite, "year_at")
-    where = f"{cite.get('text')} line {cite.get('line')}"
-    if sub != year:
-        raise MapRefused(f"{where}: the card says {year}; the declared year span prints {sub!r}")
-    others = sorted({y for y in YEAR4.findall(cite["quote"]) if y != year})
-    if others:
-        raise MapRefused(f"{where}: the quote also prints {others}; a quote that names two years does not "
-                         "say which the number belongs to")
+        raise MapRefused(f"{where}: the card says {numeral}; the sentence's number is {ntext!r} ({val})")
+    if ytext != year:
+        raise MapRefused(f"{where}: the card says {year}; the sentence's year is {ytext}")
 
 
 # ---- doubts a film states about its own table
@@ -989,7 +1030,7 @@ def ne_code(props: dict) -> str | None:
     return None
 
 
-DATA_KEYS = ("csv", "sha256", "licence", "source", "columns", "year")
+DATA_KEYS = ("csv", "sha256", "doubts_sha256", "licence", "source", "columns", "year")
 
 
 def check_data_block(spec_id: str, data: dict, source_ids: list) -> None:
@@ -1189,7 +1230,8 @@ def _draw_data(cv, spec: dict, proj, geodata: Path, data_root, used: dict, recor
             why.append(f"{iso} reports {st['values'][iso]} in {st['year']} (line {st['lines'][iso]}) and is lit")
         raise MapRefused(f"{spec.get('id', '')}: the spec expects {sorted(exp)} lit in {st['year']}; the data lights "
                          f"{lit_in_view}: {'; '.join(why)}")
-    record.update({"year": st["year"], "csv": st["csv"], "sha256": st["sha256"], "column": st["column"],
+    record.update({"year": st["year"], "csv": st["csv"], "sha256": st["sha256"],
+                   "doubts_sha256": data["doubts_sha256"], "column": st["column"],
                    "lit_in_view": lit_in_view, "zero_in_view": sorted(in_view["zero"]),
                    "nodata_in_view": sorted(in_view["nodata"]), "territories_in_view": sorted(terr_in_view),
                    "cells": {iso: {"line": st["lines"][iso], "value": st["values"][iso]}
@@ -1230,7 +1272,7 @@ def panel_data_figures(spec: dict, data_root) -> list:
         if "{n}" not in text or re.search(r"\d", text.replace("{n}", "").replace(str(data["year"]), "")):
             raise MapRefused(f"{spec.get('id', '')}: a panel figure is a template with {{n}} and no other number "
                              f"but the data year: {text!r}")
-        cite = {k: data[k] for k in ("csv", "sha256", "licence", "source")}
+        cite = {k: data[k] for k in ("csv", "sha256", "doubts_sha256", "licence", "source")}
         cite.update(column=data["columns"]["value"],
                     row={data["columns"]["entity"]: pf["entity"], data["columns"]["year"]: str(data["year"])})
         try:
@@ -1924,6 +1966,23 @@ def check_any(spec: dict, data_root=None, geodata=None) -> None:
             panel_data_figures(spec, data_root)
 
 
+def doubts_pins(spec) -> list:
+    """Every table-doubts sha256 a spec pins (its CSV citations and data blocks)."""
+    out = set()
+
+    def walk(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k == "doubts_sha256" and isinstance(v, str):
+                    out.add(v)
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+    walk(spec)
+    return sorted(out)
+
+
 def ledger_for(spec: dict, info: dict) -> dict:
     """The ledger fields of a rendered spec: a map's from its spec, a count card's with the
     citations its render resolved."""
@@ -1994,6 +2053,7 @@ def main(argv=None) -> int:
         written.append(dst)
         report.append({"id": spec["id"], "kind": spec.get("kind", "map"), "file": str(dst),
                        "sha256": hashlib.sha256(data).hexdigest(), "pixels_sha256": pixels_sha256(img),
+                       "doubts_sha256": doubts_pins(spec),
                        "geodata": info["geodata"],
                        "warnings": info["warnings"], "ledger": ledger_for(spec, info)})
         print(f"{spec['id']}: {dst} sha256 {report[-1]['sha256'][:16]}"
