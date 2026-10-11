@@ -256,6 +256,10 @@ describe("the balance: per film, from its sources.json", () => {
     });
     // Partition's values declared as a block parse to the same figures: once the engine writes it, nothing changes.
     expect(parseSources({ ...base, balance: PARTITION_BALANCE }).balance).toEqual(PARTITION_BALANCE);
+    // As the engine will write it for Partition's next release (GRAMMAR A22: episode-v2 declares balance.sides as ids,
+    // the engine adds settings and sides): the same figures, so the page renders the same.
+    const rerender = { ...base, balance: { sides: ["britain", "india", "pakistan", "bangladesh", "sikh"] }, sides: ["britain", "india", "pakistan", "bangladesh", "sikh"], settings: { women_floor: 0.3, readings_floor: 0.2 } };
+    expect(parseSources(rerender).balance).toEqual(PARTITION_BALANCE);
     const readings = [r({ name: "Mountbatten", side: "britain" }), r({ name: "Baldev Singh", side: "sikh" })];
     expect(accountsSentence(d.balance, readings)).toBe("Accounts from Britain and the Sikh community.");
     expect(sideLabel(d.balance, "sikh")).toBe("Sikh");
@@ -292,12 +296,23 @@ describe("the balance: per film, from its sources.json", () => {
   });
 
   it("a malformed declared block shows no figures rather than guessed ones", () => {
-    for (const broken of [{}, { ...smallpox, sides: [] }, { ...smallpox, band: { min: 0.5, max: 0.2 } }, { ...smallpox, women_floor: 2 }, { ...smallpox, sides: [{ id: "usa" }] }, { ...smallpox, named_speakers_min: 1.5 }, { ...smallpox, roles: "officials" }]) {
+    for (const broken of [{}, { ...smallpox, sides: [] }, { ...smallpox, band: { min: 0.5, max: 0.2 } }, { ...smallpox, women_floor: 2 }, { ...smallpox, sides: [{ label: "no id" }] }, { ...smallpox, sides: ["usa", "usa"] }, { ...smallpox, named_speakers_min: 1.5 }, { ...smallpox, roles: "officials" }]) {
       expect(parseBalance(broken), JSON.stringify(broken)).toBeNull();
     }
     const d = parseSources({ v: 2, shots: [{ id: "S1", start_s: 0, end_s: 1, mark: { class: "CARD" } }], balance: { sides: "usa" } });
     expect(d.balance).toBeNull();
     expect(computeBalance([r({})], d.balance)).toBeNull();
+  });
+
+  it("reads the engine's other shapes: bare ids, the cast's sides, the film's own women_floor setting", () => {
+    // Bare ids with no labels: Partition's names where they are Partition's sides, else the id as a word.
+    expect(parseBalance({ sides: ["uk", "usa", "sikh"] })!.sides.map((s) => s.label)).toEqual(["UK", "USA", "Sikh"]);
+    // No balance block but the cast's sides (the engine always writes sides): those, with Partition's band.
+    const fromCast = parseSources({ v: 2, shots: [{ id: "S1", start_s: 0, end_s: 1, mark: { class: "CARD" } }], sides: ["uk", "usa"], settings: { women_floor: 0.4 } }).balance!;
+    expect(fromCast.sides.map((s) => s.id)).toEqual(["uk", "usa"]);
+    expect([fromCast.band, fromCast.women_floor]).toEqual([PARTITION_BALANCE.band, 0.4]);
+    // A block's own floor wins over the setting.
+    expect(parseBalance({ sides: ["uk"], women_floor: 0.5 }, { women_floor: 0.4 })!.women_floor).toBe(0.5);
   });
 
   it("the pages read the block, not constants", () => {
@@ -309,28 +324,30 @@ describe("the balance: per film, from its sources.json", () => {
 });
 
 describe("the imagery rule, stated on the Sources page", () => {
-  it("says the rule in plain words, stated lines first, in the brand voice", () => {
-    const lines = imagerySentences({
-      statement: "Every image is sourced, licensed and marked.",
-      subject: "smallpox",
-      show_disease: true,
-      name_only_where_source_names: true,
-      min_patient_hold_s: 8,
-      no_detail_on_face: true,
-      no_dissolve_into_patient: true,
-      unknown_setting: "ignored",
-    });
+  it("prints only a rule the film declared: the default rule (Partition's) prints nothing", () => {
+    // As the engine writes the default (studio/engine/policy.py DEFAULT_IMAGERY_RULE, declared false).
+    const partitionDefault = { show_disease: false, show_bodies: false, show_violence: false, name_only_where_source_names: true, min_hold_s: 8, no_detail_on_face: true, no_dissolve_into_patient: true, statement: "No footage or photograph of bodies, killing, wounds or corpses.", declared: false };
+    expect(imagerySentences(partitionDefault)).toEqual([]);
+    expect(imagerySentences(undefined)).toEqual([]);
+    expect(parseSources({ v: 2, shots: [{ id: "S1", start_s: 0, end_s: 1, mark: { class: "CARD" } }], imagery_rule: partitionDefault }).imagery).toEqual([]);
+  });
+
+  it("states a declared rule in plain words: the film's statement first, then the rules for a patient's photograph", () => {
+    const nought = { show_disease: true, show_bodies: false, show_violence: false, name_only_where_source_names: true, min_hold_s: 8, no_detail_on_face: true, no_dissolve_into_patient: true, statement: "This film shows smallpox as the record holds it.", declared: true, unknown_setting: "ignored" };
+    const lines = imagerySentences(nought);
     expect(lines).toEqual([
-      "Every image is sourced, licensed and marked.",
-      "This film shows smallpox as the photographs and films of the time record it.",
+      "This film shows smallpox as the record holds it.",
       "A person is named only where the source names them; anyone else is given the place and date of the picture.",
       "A photograph of a patient is held at least 8 s, never flashed.",
       "The camera never moves in close on a patient's face.",
       "A photograph of a patient never dissolves out of an unrelated picture.",
     ]);
     for (const l of lines) expect(l).not.toMatch(/[!—]/);
-    expect(imagerySentences(undefined)).toEqual([]);
-    expect(parseSources({ v: 2, shots: [{ id: "S1", start_s: 0, end_s: 1, mark: { class: "CARD" } }] }).imagery).toEqual([]);
+    // Without a statement, what it shows and does not show is said from the flags.
+    expect(imagerySentences({ ...nought, statement: undefined, subject: "smallpox" }).slice(0, 2)).toEqual([
+      "This film shows smallpox as the photographs and films of the time record it.",
+      "It shows no bodies or violence.",
+    ]);
   });
 
   it("the Sources page draws it only when the film has one, so Partition's page is unchanged", () => {

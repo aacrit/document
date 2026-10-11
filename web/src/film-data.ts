@@ -263,7 +263,7 @@ export function parseSources(json: unknown): FilmSources {
     narration,
     narrator: narration.length && isObj(json.narrator) ? str(json.narrator.credit) : null,
     trailer: parseTrailer(json.trailer),
-    balance: json.balance === undefined || json.balance === null ? PARTITION_BALANCE : parseBalance(json.balance),
+    balance: balanceOf(json),
     imagery: imagerySentences(json.imagery_rule),
   };
 }
@@ -599,36 +599,71 @@ const shareOf = (x: unknown): number | null => {
   return n !== null && n >= 0 && n <= 1 ? n : null;
 };
 
+/** A side with no label of its own: Partition's name for it, else its id as a word ("uk" as UK, "india" as India). */
+function defaultLabel(id: string): { label: string; phrase: string } {
+  const known = PARTITION_BALANCE.sides.find((s) => s.id === id);
+  if (known) return { label: known.label, phrase: known.phrase };
+  const word = id.length <= 3 ? id.toUpperCase() : id.replace(/[-_]/g, " ").replace(/^./, (c) => c.toUpperCase());
+  return { label: word, phrase: word };
+}
+
+/** Sides or roles as the engine writes them: bare ids, or objects with an id and optionally a label and phrase. */
 function parseLabelled(list: unknown): { id: string; label: string; phrase: string }[] | null {
   if (!Array.isArray(list)) return null;
   const out: { id: string; label: string; phrase: string }[] = [];
   for (const s of list) {
-    if (!isObj(s)) return null;
-    const id = str(s.id)?.toLowerCase();
-    const label = str(s.label);
-    if (!id || !BALANCE_ID.test(id) || !label || out.some((o) => o.id === id)) return null;
-    out.push({ id, label, phrase: str(s.phrase) ?? label });
+    const id = (typeof s === "string" ? s : isObj(s) ? str(s.id) : null)?.toLowerCase();
+    if (!id || !BALANCE_ID.test(id) || out.some((o) => o.id === id)) return null;
+    const fallback = defaultLabel(id);
+    const label = isObj(s) ? (str(s.label) ?? fallback.label) : fallback.label;
+    const phrase = isObj(s) ? (str(s.phrase) ?? (str(s.label) ? label : fallback.phrase)) : fallback.phrase;
+    out.push({ id, label, phrase });
   }
   return out;
 }
 
-/** Reads a declared balance block; null when anything in it is malformed (the page then prints no figures). */
-export function parseBalance(x: unknown): BalanceConfig | null {
+/**
+ * Reads a balance block as the engine writes it (sources.json `balance`, the
+ * screenplay's own: GRAMMAR 6.4 and A22). Only `sides` is required, as ids or
+ * as {id, label, phrase}; `roles` likewise; `band`, `women_floor` (else the
+ * film's `settings.women_floor`, else 0.30) and `named_speakers_min` are
+ * optional. null when anything present is malformed: the page then prints no
+ * figures rather than guessed ones.
+ */
+export function parseBalance(x: unknown, settings?: unknown): BalanceConfig | null {
   if (!isObj(x)) return null;
   const sides = parseLabelled(x.sides);
   if (!sides || sides.length === 0) return null;
   const roles = x.roles === undefined || x.roles === null ? [] : parseLabelled(x.roles);
   if (!roles) return null;
-  const min = isObj(x.band) ? shareOf(x.band.min) : null;
-  const max = isObj(x.band) ? shareOf(x.band.max) : null;
-  const floor = shareOf(x.women_floor);
-  if (min === null || max === null || min > max || floor === null) return null;
+  let band = PARTITION_BALANCE.band;
+  if (x.band !== undefined && x.band !== null) {
+    const min = isObj(x.band) ? shareOf(x.band.min) : null;
+    const max = isObj(x.band) ? shareOf(x.band.max) : null;
+    if (min === null || max === null || min > max) return null;
+    band = { min, max };
+  }
+  const stated = x.women_floor ?? (isObj(settings) ? settings.women_floor : undefined);
+  const floor = stated === undefined || stated === null ? PARTITION_BALANCE.women_floor : shareOf(stated);
+  if (floor === null) return null;
   let speakers: number | null = null;
   if (x.named_speakers_min !== undefined && x.named_speakers_min !== null) {
     speakers = num(x.named_speakers_min);
     if (speakers === null || speakers < 0 || !Number.isInteger(speakers)) return null;
   }
-  return { sides, roles: roles.map(({ id, label }) => ({ id, label })), band: { min, max }, women_floor: floor, named_speakers_min: speakers };
+  return { sides, roles: roles.map(({ id, label }) => ({ id, label })), band, women_floor: floor, named_speakers_min: speakers };
+}
+
+/**
+ * Which balance a sources.json gives: its declared `balance`; else its
+ * `sides` (the cast's sides, which the engine always writes) with Partition's
+ * band and floor; else, for a file written before films declared either
+ * (Partition's live one), Partition's own figures.
+ */
+export function balanceOf(json: Record<string, unknown>): BalanceConfig | null {
+  if (json.balance !== undefined && json.balance !== null) return parseBalance(json.balance, json.settings);
+  if (Array.isArray(json.sides) && json.sides.length) return parseBalance({ sides: json.sides }, json.settings);
+  return PARTITION_BALANCE;
 }
 
 /** The label a side prints under (the declared one), or the side's own id when the film declares none. */
@@ -845,27 +880,32 @@ export function posterCredit(p: Poster): string {
 // ---- The imagery rule (sources.json `imagery_rule`) ---------------------------------------
 
 /**
- * The film's imagery rule in plain sentences, for its Sources page. The
- * engine writes the rule from the screenplay (what a film shows is as its
- * rule states, and the rule is on the Sources page). Stated sentences
- * (`statement`, a string or a list) print first, as written; each known
- * setting adds one sentence. Anything else in the block is ignored, never
+ * The film's imagery rule in plain sentences, for its Sources page (GRAMMAR
+ * A21: what a film shows is as its rule states, and the rule is stated on the
+ * Sources page). The engine always writes the rule; only a rule the film
+ * declared (`declared: true`) is printed, so a film on the default rule (the
+ * Partition film, whose page already says it shows no bodies or killing) is
+ * unchanged. The film's own `statement` comes first, as written; then what
+ * the settings add, in plain words. Unknown settings are ignored, never
  * guessed at.
  */
 export function imagerySentences(x: unknown): string[] {
-  if (!isObj(x)) return [];
+  if (!isObj(x) || x.declared !== true) return [];
   const out: string[] = [];
-  const stated = typeof x.statement === "string" ? [x.statement] : Array.isArray(x.statement) ? x.statement : [];
-  for (const line of stated) if (typeof line === "string" && line.trim()) out.push(line.trim());
-  const subject = str(x.subject) ?? "the disease";
-  const show = x.show_disease ?? x.shows_disease;
-  if (show === true) out.push(`This film shows ${subject} as the photographs and films of the time record it.`);
-  if (show === false) out.push(`This film does not show ${subject}.`);
-  if (x.shows_bodies === false) out.push("It shows no bodies or killing.");
-  if (x.name_only_where_source_names === true) out.push("A person is named only where the source names them; anyone else is given the place and date of the picture.");
-  const hold = num(x.min_patient_hold_s);
-  if (hold !== null && hold > 0) out.push(`A photograph of a patient is held at least ${hold} s, never flashed.`);
-  if (x.no_detail_on_face === true) out.push("The camera never moves in close on a patient's face.");
-  if (x.no_dissolve_into_patient === true) out.push("A photograph of a patient never dissolves out of an unrelated picture.");
+  const stated = str(x.statement);
+  if (stated) out.push(stated.trim());
+  else {
+    if (x.show_disease === true) out.push(`This film shows ${str(x.subject) ?? "the disease"} as the photographs and films of the time record it.`);
+    const not = [x.show_bodies === false ? "bodies" : null, x.show_violence === false ? "violence" : null].filter(Boolean);
+    if (not.length) out.push(`It shows no ${not.join(" or ")}.`);
+  }
+  // The rules for a photograph of a patient apply where the film shows disease.
+  if (x.show_disease === true) {
+    if (x.name_only_where_source_names === true) out.push("A person is named only where the source names them; anyone else is given the place and date of the picture.");
+    const hold = num(x.min_hold_s);
+    if (hold !== null && hold > 0) out.push(`A photograph of a patient is held at least ${Math.round(hold)} s, never flashed.`);
+    if (x.no_detail_on_face === true) out.push("The camera never moves in close on a patient's face.");
+    if (x.no_dissolve_into_patient === true) out.push("A photograph of a patient never dissolves out of an unrelated picture.");
+  }
   return out;
 }
