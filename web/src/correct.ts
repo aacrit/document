@@ -1,6 +1,7 @@
 // Corrections: one form, posted to /feedback as same-origin JSON. It asks
 // where in the film, what is wrong and how they know; never a name or an
 // email. A send is confirmed in place ("Sent."), with no page jump.
+import "./app";
 import { correctionText, whereIsValid } from "./correction";
 import { formatTime, shotAt, type FilmSources } from "./film-data";
 import { byId, el, loadSources, numerals, slugOf } from "./site";

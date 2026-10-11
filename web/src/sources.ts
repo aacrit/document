@@ -2,6 +2,7 @@
 // was done to it, filterable by mark; every reading with its speaker, side,
 // year and source; and the balance of whose words the film holds. All of it
 // is generated from the film's sources.json.
+import "./app";
 import {
   MARK_CLASSES,
   PARTITION_BALANCE,

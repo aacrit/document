@@ -8,14 +8,20 @@
 // CSP meta into every page and writes dist/_headers (scripts/lib/csp.mjs).
 // Before Vite runs, the home page and every live film's pages are written
 // from films.json and web/templates/ (scripts/lib/films.mjs).
+// After it, the installable app: dist/manifest.webmanifest, dist/icons/*.png
+// (from the logomark and design/tokens.css, scripts/lib/pwa.mjs), the
+// manifest and theme-color tags in every page, and dist/sw.js for this
+// build tag (scripts/lib/sw.mjs).
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync, readdirSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runBin } from "./lib/run-bin.mjs";
 import { cspViolations, headersFile, injectCsp } from "./lib/csp.mjs";
 import { writeSite } from "./lib/films.mjs";
+import { appIcons, injectAppHead, manifest, readTokens } from "./lib/pwa.mjs";
+import { precacheList, swSource } from "./lib/sw.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const webDir = path.join(repoRoot, "web");
@@ -51,11 +57,20 @@ function main() {
   const tag = computeBuildTag();
   writeFileSync(path.join(distDir, "build-tag.txt"), `${tag}\n`);
 
+  // The installable app: manifest, icons and the service worker for this build.
+  const tokens = readTokens(readFileSync(path.join(repoRoot, "design", "tokens.css"), "utf8"));
+  writeFileSync(path.join(distDir, "manifest.webmanifest"), `${JSON.stringify(manifest(tokens), null, 2)}\n`);
+  mkdirSync(path.join(distDir, "icons"), { recursive: true });
+  const logomark = readFileSync(path.join(repoRoot, "design", "brand-kit", "logomark.svg"), "utf8");
+  for (const icon of appIcons(logomark, tokens)) writeFileSync(path.join(distDir, "icons", icon.file), icon.png);
+  const precache = precacheList(readFileSync(path.join(distDir, "index.html"), "utf8"), (p) => readFileSync(path.join(distDir, p), "utf8"));
+  writeFileSync(path.join(distDir, "sw.js"), swSource(tag, precache));
+
   // Every page in dist/, at any depth, gets the one policy.
   const htmlFiles = readdirSync(distDir, { recursive: true, encoding: "utf8" }).filter((f) => f.endsWith(".html"));
   for (const file of htmlFiles) {
     const full = path.join(distDir, file);
-    const stamped = injectCsp(stampHtml(readFileSync(full, "utf8"), tag));
+    const stamped = injectAppHead(injectCsp(stampHtml(readFileSync(full, "utf8"), tag)), tokens);
     // The page must work under its own policy: fail the build rather than
     // ship markup the CSP would block.
     const violations = cspViolations(stamped);

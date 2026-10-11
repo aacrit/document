@@ -286,6 +286,30 @@ export function whenDeclaredProblem(check) {
   return null;
 }
 
+/**
+ * What is wrong with a web app manifest, by what Chrome needs to install it
+ * (a name, a start_url, a display mode, a 192 and a 512 px PNG icon) and
+ * what this product requires on top (an id and a scope, maskable icons at
+ * both sizes, theme and background colours, no orientation lock). Empty
+ * when nothing is.
+ */
+export function manifestProblems(doc) {
+  if (!doc || typeof doc !== "object" || Array.isArray(doc)) return ["not a JSON object"];
+  const problems = [];
+  for (const field of ["id", "name", "short_name", "start_url", "scope", "display", "background_color", "theme_color"]) {
+    if (typeof doc[field] !== "string" || !doc[field]) problems.push(`no ${field}`);
+  }
+  if (doc.display && !["fullscreen", "standalone", "minimal-ui"].includes(doc.display)) problems.push(`display ${doc.display} cannot install`);
+  if ("orientation" in doc) problems.push("an orientation lock (landscape belongs to the player only)");
+  const icons = Array.isArray(doc.icons) ? doc.icons : [];
+  const has = (size, purpose) =>
+    icons.some((i) => i && i.type === "image/png" && String(i.sizes).split(/\s+/).includes(`${size}x${size}`) && String(i.purpose ?? "any").split(/\s+/).includes(purpose));
+  for (const size of [192, 512]) {
+    for (const purpose of ["any", "maskable"]) if (!has(size, purpose)) problems.push(`no ${size}px ${purpose} PNG icon`);
+  }
+  return problems;
+}
+
 async function runCheck(check, baseUrl, originalBase = baseUrl) {
   const target = joinUrl(baseUrl, check.path ?? "/");
   const label = check.name ?? `${check.type} ${check.path ?? "/"}`;
@@ -495,6 +519,31 @@ async function runCheck(check, baseUrl, originalBase = baseUrl) {
         const value = String(check.field).split(".").reduce((o, k) => (o == null ? undefined : o[k]), data);
         const pass = value !== undefined && value !== null && !(Array.isArray(value) && value.length === 0);
         return { label, pass, detail: pass ? undefined : `${check.path} has no ${check.field}` };
+      }
+      case "app_manifest": {
+        // The web app manifest: served as application/manifest+json, and it parses with what an install needs.
+        if (!response.ok) return { label, pass: false, detail: `${target} answered ${response.status}` };
+        const type = response.headers.get("content-type") ?? "";
+        const problems = type.split(";")[0].trim() === "application/manifest+json" ? [] : [`content-type is "${type}"`];
+        let doc;
+        try {
+          doc = JSON.parse(await response.text());
+        } catch {
+          return { label, pass: false, detail: [...problems, "does not parse as JSON"].join("; ") };
+        }
+        problems.push(...manifestProblems(doc));
+        // Every icon it names is served, as a PNG.
+        for (const icon of Array.isArray(doc?.icons) ? doc.icons : []) {
+          if (typeof icon?.src !== "string") {
+            problems.push("an icon with no src");
+            continue;
+          }
+          const r = await contractFetch(new URL(icon.src, target));
+          await r.arrayBuffer();
+          const t = (r.headers.get("content-type") ?? "").split(";")[0].trim();
+          if (r.status !== 200 || t !== "image/png") problems.push(`${icon.src} answered ${r.status} ${t || "with no type"}`);
+        }
+        return { label, pass: problems.length === 0, detail: problems.length ? problems.join("; ") : undefined };
       }
       case "forbidden": {
         const body = await response.text();
