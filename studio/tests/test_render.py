@@ -2649,3 +2649,58 @@ def test_a16_the_shape_check_cannot_be_reached_by_any_picture_at_the_film_resolu
                         if not reach:
                             guarded.append((at, ch))
                 assert guarded, (height, drawn, claimed)
+
+
+def _spread_take(hiss_db, seed=5):
+    """A take whose hiss drops out for 0.42 s inside its first pause: its floor frames spread far over 6 dB."""
+    x, spans = _speechlike(seed=seed, hiss_db=hiss_db)
+    a = spans[0][1] + int(0.05 * 48000)
+    x[a: a + int(0.42 * 48000)] = 0.0
+    return x
+
+
+def test_t1f_voice_chop_passes_a_wide_spread_under_an_inaudible_floor_and_says_why():
+    x = _spread_take(-100.0)
+    _, rep = R.clean_voice(x)
+    gain, _ = R.level_gain(x, R.DIALOGUE_LUFS)
+    assert rep["floor_spread_db"] > R.CLEAN_FLOOR_SPREAD_MAX_DB and rep["spread_why"]
+    assert rep["gate"]["threshold_dbfs"] + gain < R.CLEAN_FLOOR_MAX_DBFS               # the expander keys under -80 as levelled
+    j = J.Journal(film="inaudible-spread")
+    assert R._journal_clean(j, "LQ", rep, gain) == []
+    vc = [e for e in lints(J.read(j.path), "voice-chop") if e["unit"] == "LQ"][0]
+    ev = vc["evidence"]
+    assert vc["status"] == "pass" and ev["audible_floor"] is False and ev["floor_spread_db"] == rep["floor_spread_db"]
+    assert "nothing it turns down is audible" in ev["inaudible_floor_pass"] and ev["share"] == rep["chopped_audible_share"]
+
+
+def test_t1f_voice_chop_still_refuses_a_wide_spread_under_an_audible_floor():
+    x = _spread_take(-60.0)
+    _, rep = R.clean_voice(x)
+    assert rep["floor_spread_db"] > R.CLEAN_FLOOR_SPREAD_MAX_DB
+    j = J.Journal(film="audible-spread")
+    out = R._journal_clean(j, "LA", rep, 0.0)                                       # floor about -60 dBFS as levelled
+    vc = [e for e in lints(J.read(j.path), "voice-chop") if e["unit"] == "LA"][0]
+    assert vc["status"] == "fail" and vc["evidence"]["audible_floor"] is True and vc["evidence"]["inaudible_floor_pass"] is None
+    assert any("spread" in o for o in out)
+    # the dropout makes the floor's median digital zero, so the expander keys under -80 (speech - 60 dB) while the hiss
+    # stays at -60 untouched: the raw floor's p90 is what shows it audible
+    assert vc["evidence"]["expander_threshold_after_level_dbfs"] < R.CLEAN_FLOOR_MAX_DBFS < vc["evidence"]["floor_p90_raw_after_level_dbfs"]
+    hacked = dict(rep, chopped_audible_share=0.05, chopped_audible=99, spread_why=[], measure_why=[])   # the chop-share rule too
+    out2 = R._journal_clean(J.Journal(film="audible-chop"), "LB", hacked, 0.0)
+    assert any("frames cut over 3 dB" in o for o in out2)
+    assert R._journal_clean(J.Journal(film="inaudible-chop"), "LC", hacked, -60.0) == []   # the same, 60 dB down: inaudible
+
+
+def test_t1f_an_e_r01_like_take_with_too_few_pauses_is_refused_whatever_its_floor():
+    rng = np.random.default_rng(11)
+    tt = np.arange(48000 * 6) / 48000
+    am = 0.05 + 0.95 * np.abs(np.sin(2 * np.pi * 1.7 * tt)) ** 4
+    x = (0.1 * am * sum(np.sin(2 * np.pi * 150 * h * tt) / h for h in range(1, 10))
+         + rng.normal(0, 1e-4, len(tt))).astype(np.float32)
+    _, rep = R.clean_voice(x)
+    assert rep["pause_why"]
+    for lift in (0.0, -80.0):                                                       # audible, and pushed far under -80
+        j = J.Journal(film=f"few-pauses-{int(-lift)}")
+        out = R._journal_clean(j, "LR", rep, lift)
+        assert any("no pause quiet enough to measure" in o for o in out)
+        assert lints(J.read(j.path), "voice-chop")[0]["status"] == "fail"

@@ -2008,17 +2008,18 @@ def clean_voice(x: np.ndarray) -> tuple[np.ndarray, dict]:
     live = _live_frames(k, live_span(x))         # padding at the ends is not a pause either
     pause_share = float(np.mean(px[live] < 10 ** ((before["speech_dbfs"] - CLEAN_PAUSE_BELOW_DB) / 10)))
     spread = before["floor_p90_dbfs"] - before["floor_dbfs"]
-    why = []
+    pause_why, spread_why = [], []
     if pause_share < CLEAN_PAUSE_MIN_SHARE:
-        why.append(f"the take's floor is within {CLEAN_PAUSE_BELOW_DB:g} dB of its speech: no pause quiet enough to measure "
+        pause_why.append(f"the take's floor is within {CLEAN_PAUSE_BELOW_DB:g} dB of its speech: no pause quiet enough to measure "
                    f"(frames {CLEAN_PAUSE_BELOW_DB:g} dB under the speech are {100 * pause_share:.1f}% of the take; at least "
                    f"{100 * CLEAN_PAUSE_MIN_SHARE:g}% needed)")
     if spread > CLEAN_FLOOR_SPREAD_MAX_DB:
-        why.append(f"the floor frames spread {spread:.1f} dB (p90 over median; at most {CLEAN_FLOOR_SPREAD_MAX_DB:g}): the noise "
+        spread_why.append(f"the floor frames spread {spread:.1f} dB (p90 over median; at most {CLEAN_FLOOR_SPREAD_MAX_DB:g}): the noise "
                    "is not steady, so one floor does not describe it")
     rep.update(cleaned=True, denoise=den, gate=gate, speech_frames=int(sp.sum()), chopped_frames=int(np.sum(cut & sp)),
                near_floor_frames=int(near.sum()), near_floor_cut=int(np.sum(cut & near)),
-               pause_share=round(pause_share, 4), floor_spread_db=round(spread, 2), measure_ok=not why, measure_why=why,
+               pause_share=round(pause_share, 4), floor_spread_db=round(spread, 2), measure_ok=not (pause_why or spread_why), measure_why=pause_why + spread_why,
+               pause_why=pause_why, spread_why=spread_why,
                audible_frames=int(audible.sum()), chopped_audible=int(np.sum(cut & audible)),
                chopped_audible_share=round(float(np.sum(cut & audible)) / max(int(audible.sum()), 1), 4),
                after_denoise={k: v for k, v in mid.items() if not k.startswith("_")},
@@ -2056,9 +2057,16 @@ def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, 
     and after levelling) and two lints, blocking on a final render and warnings
     under --draft (CoS, T1e review). voice-clean: the inter-word floor after
     levelling is under -80 dBFS and the speech energy within 0.5 dB; a take
-    that could not be cleaned fails it. voice-chop: at most 2% of the frames
-    6 dB or more over the raw floor (breaths, tails, speech) lost more than
-    3 dB. Returns the reasons to refuse."""
+    that could not be cleaned fails it. voice-chop: always refuses a take
+    with too few pauses to measure its floor; and, when the expander's
+    threshold as levelled (its threshold on the raw take, at least the raw
+    floor + 3 dB, plus the line's levelling gain) or the raw floor frames'
+    p90 as levelled is above -80 dBFS (CLEAN_FLOOR_MAX_DBFS), so that what
+    the expander turns down, or leaves, is audible,
+    also refuses a floor that spreads over 6 dB or more than 2% of the frames
+    6 dB or more over the raw floor (breaths, tails, speech) cut by more than
+    3 dB. Under that, both numbers are journaled as an inaudible-floor pass
+    (T1f, CoS). Returns the reasons to refuse."""
     lift = level or 0.0
     sev = "warn" if draft else "block"
     b = rep["before"]
@@ -2088,8 +2096,16 @@ def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, 
                            "snr_before_db": b["snr_db"], "snr_after_db": a["snr_db"], "fix": None if ok else "re-render the take"})
     if not ok:
         out.append(f"{unit} (voice-clean: floor {floor_levelled} dBFS after levelling, speech {rep['speech_change_db']:+.2f} dB)")
-    chop_ok = rep["chopped_audible_share"] <= CLEAN_CHOP_MAX_SHARE and rep["measure_ok"]
-    journal.lint("voice-chop", chop_ok, stage="assembly", phase="preflight", unit=unit, severity=sev, grammar="A19",
+    thr_levelled = round(rep["gate"]["threshold_dbfs"] + lift, 2)
+    # the floor frames' p90 on the raw take, as levelled: a floor whose median is digital zero (a dropout in the hiss)
+    # keys the expander low while the rest of the noise stays loud and untouched, so both must sit under -80
+    p90_raw_levelled = None if b.get("floor_p90_dbfs") is None else round(b["floor_p90_dbfs"] + lift, 2)
+    audible_floor = thr_levelled > CLEAN_FLOOR_MAX_DBFS or (p90_raw_levelled is not None and p90_raw_levelled > CLEAN_FLOOR_MAX_DBFS)
+    chop_bad = rep["chopped_audible_share"] > CLEAN_CHOP_MAX_SHARE
+    pause_why, spread_why = rep.get("pause_why", []), rep.get("spread_why", [])
+    waived = not audible_floor and (chop_bad or bool(spread_why))
+    chop_ok = not pause_why and (not audible_floor or (not chop_bad and not spread_why))
+    journal.lint("voice-chop", chop_ok, stage="assembly", phase="preflight", unit=unit, severity=sev, grammar="A19, T1f",
                  evidence={"chopped": rep["chopped_audible"], "frames": rep["audible_frames"], "share": rep["chopped_audible_share"],
                            "max_share": CLEAN_CHOP_MAX_SHARE, "above_floor_db": CLEAN_CHOP_ABOVE_DB, "cut_db": CLEAN_CHOP_CUT_DB,
                            "speech_frames_chopped": rep["chopped_frames"],
@@ -2097,10 +2113,18 @@ def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, 
                            "near_floor_note": "frames from the floor to 6 dB over it are what the expander turns down; counted, not limited",
                            "pause_share": rep["pause_share"], "min_pause_share": CLEAN_PAUSE_MIN_SHARE,
                            "floor_spread_db": rep["floor_spread_db"], "max_floor_spread_db": CLEAN_FLOOR_SPREAD_MAX_DB,
-                           "why": rep["measure_why"] or None})
-    if rep["chopped_audible_share"] > CLEAN_CHOP_MAX_SHARE:
+                           "expander_threshold_after_level_dbfs": thr_levelled, "audible_max_dbfs": CLEAN_FLOOR_MAX_DBFS,
+                           "floor_p90_raw_after_level_dbfs": p90_raw_levelled,
+                           "audible_floor": audible_floor,
+                           "inaudible_floor_pass": (f"the expander acts only under {thr_levelled:g} dBFS as levelled and the raw floor's "
+                                                    f"p90 is {p90_raw_levelled:g}, both under the {CLEAN_FLOOR_MAX_DBFS:g} dBFS "
+                                                    "voice-clean limit: nothing it turns down is audible, so the floor spread "
+                                                    "and the chop share are journaled, not limited")
+                                                   if waived else None,
+                           "why": (pause_why + (spread_why if audible_floor else [])) or None})
+    if audible_floor and chop_bad:
         out.append(f"{unit} (voice-chop: {rep['chopped_audible']} of {rep['audible_frames']} frames cut over {CLEAN_CHOP_CUT_DB:g} dB)")
-    for w in rep["measure_why"]:
+    for w in pause_why + (spread_why if audible_floor else []):
         out.append(f"{unit} (voice-chop: {w})")
     return out if not draft else []
 
