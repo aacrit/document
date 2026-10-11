@@ -2802,14 +2802,13 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         if not ok_fmt:
             raise Refused(f"the master is {pr['width']}x{pr['height']} at {pr['fps']} fps with {pr['frames']} frames; "
                           f"expected {W}x{H} at 24 with {plan['frames']}")
-        extra = {"loudness": loud, "master": master.name}
+        # One write: a check render writes its own partial sources file and never the full one (T1d);
+        # a full render also records the master's sha256, which ties sources.json to its film (T7).
+        extra = {"loudness": loud, "master": master.name, "master_sha256": sha256_file(master)}
         if check:
             extra.update(partial=True, until_s=until_s)
         doc = sources_doc(plan, journal, extra)
         sources_path.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
-
-        doc = sources_doc(plan, journal, {"loudness": loud, "master": "master.mp4", "master_sha256": sha256_file(master)})
-        (out / "sources.json").write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
         for i in range(len(plan["shots"])):
             journal.artifact("motion", segs[i], unit=ids[i], role="check-segment" if check else "segment")
         journal.artifact("assembly", master, role="check-master" if check else "master")
