@@ -96,13 +96,20 @@ def _speaker(lt: dict | None, cue: Cue) -> str:
 
 
 def fold_lower_thirds(cues: list[Cue], play: dict) -> list[Cue]:
-    """Folds every lower-third cue that overlaps another cue into the first cue it overlaps."""
+    """Folds every lower-third cue into the first other cue that overlaps it, or that overlaps the
+    lower third's own time on screen (its text element). A screenplay may time the lower third's cue
+    just before the reading it names (the episode's LT-5 sits 0.1 s before R1); it is still that
+    reading's speaker, and a separate one-second cue would flash past."""
     texts = _text_elements(play)
     is_lt = {c.ref for c in cues if (texts.get(c.ref) or {}).get("kind") == "lower_third"}
     others = [c for c in cues if c.ref not in is_lt]
     out = list(others)
     for lt in (c for c in cues if c.ref in is_lt):
-        hits = [c for c in others if c.start < lt.end - 1e-9 and c.end > lt.start + 1e-9]
+        el = texts.get(lt.ref) or {}
+        spans = [(lt.start, lt.end)]
+        if "start_s" in el and "end_s" in el:
+            spans.append((float(el["start_s"]), float(el["end_s"])))
+        hits = [c for c in others if any(c.start < b - 1e-9 and c.end > a + 1e-9 for a, b in spans)]
         if not hits:
             out.append(lt)
             continue
@@ -138,15 +145,24 @@ def _deal(lines: list[str], n: int) -> list[list[str]]:
 
 
 def _timed(cue: Cue, groups: list[list[str]]) -> list[Cue]:
-    """Each group's share of the cue's time follows its characters, with about 1 s at least when the cue can afford it."""
+    """Each group's share of the cue's time follows its characters, but no part gets under 1 s when
+    the cue can afford it: a part that would is held at 1 s and the others share what is left."""
     dur = cue.end - cue.start
-    chars = [sum(len(line) for line in g) for g in groups]
-    floor = sum(chars) * min(MIN_CUE_S, dur / len(groups)) / dur
-    weights = [max(c, floor) for c in chars]
-    total = sum(weights) or 1
+    chars = [max(1, sum(len(line) for line in g)) for g in groups]
+    floor = min(MIN_CUE_S, dur / len(groups))
+    held: set[int] = set()
+    while True:
+        free = [i for i in range(len(groups)) if i not in held]
+        left = dur - floor * len(held)
+        share = {i: left * chars[i] / sum(chars[j] for j in free) for i in free}
+        low = {i for i, d in share.items() if d < floor - 1e-9}
+        if not low:
+            break
+        held |= low
+    lengths = [floor if i in held else share[i] for i in range(len(groups))]
     out, t = [], cue.start
-    for k, (g, w) in enumerate(zip(groups, weights)):
-        end = cue.end if k == len(groups) - 1 else round(t + dur * w / total, 3)
+    for k, g in enumerate(groups):
+        end = cue.end if k == len(groups) - 1 else round(t + lengths[k], 3)
         ref = cue.ref if len(groups) == 1 else f"{cue.ref}-{k + 1}"
         out.append(Cue(ref, round(t, 3), round(end, 3), "\n".join(g)))
         t = end

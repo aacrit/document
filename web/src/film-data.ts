@@ -30,6 +30,8 @@ export interface Shot {
   credit: string | null;
   licence: string | null;
   alterations: string[];
+  /** How the shot enters: a cut, a dissolve, or a dip to black of `s` seconds centred on the cut. */
+  transition: { type: string; s: number };
   preset: string | null;
   in_s: number | null;
   out_s: number | null;
@@ -150,6 +152,7 @@ function parseShot(x: unknown, i: number, fps: number): Shot {
     credit: str(x.credit),
     licence: str(x.licence),
     alterations: Array.isArray(x.alterations) ? x.alterations.filter((a): a is string => typeof a === "string") : [],
+    transition: isObj(x.transition_in) ? { type: str(x.transition_in.type) ?? "cut", s: num(x.transition_in.s) ?? 0 } : { type: "cut", s: 0 },
     preset: str(x.preset),
     in_s: num(x.in_s),
     out_s: num(x.out_s),
@@ -311,6 +314,36 @@ export function markAt(marks: MarkSpan[], t: number, fps: number): MarkSpan | nu
   if (marks.length === 0) return null;
   const i = lastStartingBy(marks, frameAt(t, fps), (m) => m.from_frame);
   return marks[Math.max(0, i)];
+}
+
+/** A dip's picture level at `t` seconds into a dip of `dur` (motion.py dip_level): 0 only on its black hold. */
+function dipBlack(t: number, dur: number, hold = 0.1): boolean {
+  if (dur <= 0) return false;
+  const u = t / dur;
+  const a = 0.5 * (1 - hold);
+  return u >= a && u <= 1 - a;
+}
+
+/**
+ * True on a dip's black hold, where the burned frame is all black and carries
+ * no mark (render.py picture_level and compose, founder ruling 2026-10-10), so
+ * the player draws no mark either. Same arithmetic as the engine, by frame.
+ */
+export function onDipBlack(shots: Shot[], t: number, fps: number): boolean {
+  const f = frameAt(t, fps);
+  const i = Math.max(0, lastStartingBy(shots, f, (s) => s.start_frame));
+  const shot = shots[i];
+  if (!shot) return false;
+  const tf = f / fps;
+  const tl = tf - shot.start_frame / fps;
+  if (shot.transition.type === "dip" && tl < shot.transition.s / 2 && dipBlack(tl + shot.transition.s / 2, shot.transition.s)) return true;
+  const next = shots[i + 1];
+  if (next && next.transition.type === "dip") {
+    const ds = next.transition.s;
+    const dt = next.start_frame / fps - tf;
+    if (dt > 0 && dt <= ds / 2 && dipBlack(ds / 2 - dt, ds)) return true;
+  }
+  return false;
 }
 
 /** The shot on the frame shown at time t (same rule as markAt). */
@@ -616,7 +649,8 @@ function listWords(items: string[]): string {
 export function archivesOnScreen(shots: Shot[]): string[] {
   const secs = new Map<string, number>();
   for (const s of shots) {
-    if (s.mark.class === "CARD" || !s.archive) continue;
+    // Only archival pictures: a DRAWN map or a CARD is not film or a photograph from an archive.
+    if ((s.mark.class !== "ARCHIVE" && s.mark.class !== "RECONSTRUCTED") || !s.archive) continue;
     for (const a of s.archive.split(/\s*\/\s*|\s*;\s*/)) if (a) secs.set(a, (secs.get(a) ?? 0) + (s.end_s - s.start_s));
   }
   return [...secs].sort((a, b) => b[1] - a[1]).map(([a]) => a);

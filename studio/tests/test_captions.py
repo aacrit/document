@@ -103,6 +103,13 @@ def test_split_shares_time_by_characters_and_keeps_two_lines():
     assert all(b.start == pytest.approx(a.end) for a, b in zip(parts, parts[1:]))
 
 
+def test_no_part_is_under_a_second_when_the_cue_can_afford_it():
+    # A last word alone ("injured.") must not flash past.
+    parts = C.split_cue(C.Cue("R1", 0.0, 10.4, "Verified casualties up to the evening of sixteenth March were one thousand and forty-six killed and one thousand one hundred and sixty-seven injured."))
+    assert all(p.end - p.start >= 1.0 - 1e-6 for p in parts), [(p.text, p.end - p.start) for p in parts]
+    assert parts[-1].end == 10.4
+
+
 def test_a_short_cue_stays_whole():
     assert [(p.ref, p.text) for p in C.split_cue(C.Cue("N5", 6.5, 9.0, "Punjab, 1947."))] == [("N5", "Punjab, 1947.")]
 
@@ -123,6 +130,22 @@ def test_a_lower_third_over_nothing_is_kept_and_one_over_a_reading_is_folded():
     assert [c.ref for c in cues] == ["R1", "T2"]
     assert cues[0].text.replace("\n", " ") == "[Sir Evan Jenkins] Neither the railways nor the main roads are safe."
     assert cues[1].text == "[Lahore, 1947]"
+
+
+def test_a_lower_third_cue_timed_just_before_its_reading_still_folds_into_it():
+    # The episode's LT-5: its cue ends 0.1 s before R1 starts, but the lower third is on screen over R1.
+    play = play_with(
+        [
+            {"ref": "LT-5", "start_s": 147.365, "end_s": 148.565, "en": "[Arthur Henderson, Under-Secretary of State for India, 1947. Read by a computer voice.]"},
+            {"ref": "T:R1", "start_s": 148.665, "end_s": 159.033, "en": "Verified casualties up to the evening of sixteenth March."},
+        ],
+        [{"id": "LT-5", "kind": "lower_third", "start_s": 148.665, "end_s": 153.665,
+          "lines": ["Arthur Henderson", "Under-Secretary of State for India, 1947", "Hansard  ·  read by a computer voice"]}],
+    )
+    cues = C.build_cues(play)
+    assert all(c.ref.startswith("T:R1") for c in cues)
+    assert cues[0].text.startswith("[Arthur Henderson] Verified")
+    assert all(c.end - c.start >= 1.0 for c in cues)
 
 
 def test_an_em_dash_or_a_backwards_cue_is_refused():

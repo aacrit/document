@@ -22,6 +22,7 @@ import {
   itemLinkLabel,
   lowerThirdAt,
   markAt,
+  onDipBlack,
   markWords,
   parseSources,
   parseTimecode,
@@ -358,9 +359,25 @@ describe("printed claims are derived from the film", () => {
 
   it("builds the credit line from the shots' archives and the readings' sources", () => {
     expect(archivesOnScreen(film.shots)).toEqual(["Wikimedia Commons", "US National Archives, via Internet Archive"]);
+    // A DRAWN map's maker is not an archive of film or photographs.
+    const drawn = film.shots.map((s, i) => (i === 3 ? { ...s, mark: { class: "DRAWN" as const, detail: "from x" }, archive: "void document studio" } : s));
+    expect(archivesOnScreen(drawn)).not.toContain("void document studio");
     expect(readingPublications(film.readings, film.lowerThirds)).toContain("Hansard");
     const line = creditsLine(film);
     expect(line).toMatch(/^Film and photographs from Wikimedia Commons and US National Archives, via Internet Archive\. Words from Hansard, Broadcast on All India Radio, Constituent Assembly of Pakistan Debates and 2 other sources\. /);
     expect(line).toMatch(/Sources lists every one\.$/);
+  });
+});
+
+describe("a dip's black hold carries no mark", () => {
+  // S03 enters by a dip of 1 s at frame 432 (18 s): the hold is the middle 10%: frames 431 to 433, as render.py picture_level gives them.
+  it("matches the engine's picture level frame by frame", () => {
+    const mid = (f: number) => (f + 0.5) / 24;
+    const black = [428, 429, 430, 431, 432, 433, 434, 435, 436].filter((f) => onDipBlack(film.shots, mid(f), 24));
+    // tl + 0.5 in [0.45, 0.55] s around the cut at 18 s: frames whose time is 17.95 to 18.05 s.
+    expect(black).toEqual([431, 432, 433]);
+    expect(onDipBlack(film.shots, mid(100), 24)).toBe(false);
+    // S02 enters by a dissolve: never black.
+    expect(onDipBlack(film.shots, mid(96), 24)).toBe(false);
   });
 });

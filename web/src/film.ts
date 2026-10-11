@@ -13,6 +13,7 @@ import {
   formatTime,
   lowerThirdAt,
   markAt,
+  onDipBlack,
   markHook,
   markWords,
   shotAt,
@@ -74,7 +75,12 @@ function drawMark(t: number): void {
     return;
   }
   const m = markAt(data.marks, t, data.fps);
-  if (!m) return;
+  // On a dip's black hold the burned frame carries no mark; neither does the overlay.
+  if (!m || onDipBlack(data.shots, t, data.fps)) {
+    markEl.hidden = true;
+    shownMark = "";
+    return;
+  }
   const key = `${m.class}|${m.detail}`;
   markEl.hidden = false;
   if (key === shownMark) return;

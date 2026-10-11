@@ -35,7 +35,10 @@
    "preset": null,
    "in_s": 0,
    "out_s": 5,
-   "text": null
+   "text": null,
+   "transition_in": {
+    "type": "cut"
+   }
   },
   {
    "id": "S02",
@@ -58,7 +61,11 @@
    "preset": "PUSH",
    "in_s": null,
    "out_s": null,
-   "text": null
+   "text": null,
+   "transition_in": {
+    "type": "dissolve",
+    "s": 1
+   }
   },
   {
    "id": "S03",
@@ -84,7 +91,11 @@
    "text": [
     "The Partition of India · Trailer",
     "void document"
-   ]
+   ],
+   "transition_in": {
+    "type": "dip",
+    "s": 1
+   }
   },
   {
    "id": "S04",
@@ -110,7 +121,10 @@
    "text": [
     "1  The count",
     "1946 to 3 June 1947"
-   ]
+   ],
+   "transition_in": {
+    "type": "cut"
+   }
   },
   {
    "id": "S05",
@@ -133,7 +147,11 @@
    "preset": null,
    "in_s": 9.5,
    "out_s": 19,
-   "text": null
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
   },
   {
    "id": "S06",
@@ -156,7 +174,10 @@
    "preset": null,
    "in_s": 21.5,
    "out_s": 26.5,
-   "text": null
+   "text": null,
+   "transition_in": {
+    "type": "cut"
+   }
   },
   {
    "id": "S07",
@@ -179,7 +200,10 @@
    "preset": null,
    "in_s": 84,
    "out_s": 95,
-   "text": null
+   "text": null,
+   "transition_in": {
+    "type": "cut"
+   }
   },
   {
    "id": "S08",
@@ -202,7 +226,11 @@
    "preset": null,
    "in_s": null,
    "out_s": null,
-   "text": null
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.75
+   }
   },
   {
    "id": "S09",
@@ -225,7 +253,11 @@
    "preset": "HOLD",
    "in_s": null,
    "out_s": null,
-   "text": null
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
   },
   {
    "id": "S10",
@@ -248,7 +280,11 @@
    "preset": null,
    "in_s": 45,
    "out_s": 55,
-   "text": null
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
   },
   {
    "id": "S11",
@@ -274,7 +310,11 @@
    "text": [
     "2  The line",
     "3 June to 15 August 1947"
-   ]
+   ],
+   "transition_in": {
+    "type": "dip",
+    "s": 0.75
+   }
   },
   {
    "id": "S12",
@@ -300,7 +340,11 @@
    "text": [
     "The record holds no open-licence photograph of Cyril Radcliffe or of the Commission's sittings.",
     "Searched: Wikimedia Commons, Library of Congress, NARA."
-   ]
+   ],
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
   },
   {
    "id": "S13",
@@ -323,7 +367,11 @@
    "preset": "PUSH",
    "in_s": null,
    "out_s": null,
-   "text": null
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
   },
   {
    "id": "S14",
@@ -346,7 +394,11 @@
    "preset": "PUSH",
    "in_s": null,
    "out_s": null,
-   "text": null
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
   },
   {
    "id": "S15",
@@ -369,7 +421,11 @@
    "preset": "HOLD",
    "in_s": null,
    "out_s": null,
-   "text": null
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
   },
   {
    "id": "S16",
@@ -395,7 +451,11 @@
    "text": [
     "3  The roads",
     "August to December 1947"
-   ]
+   ],
+   "transition_in": {
+    "type": "dip",
+    "s": 0.75
+   }
   },
   {
    "id": "S17",
@@ -418,7 +478,11 @@
    "preset": "DRIFT",
    "in_s": null,
    "out_s": null,
-   "text": null
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
   },
   {
    "id": "S18",
@@ -441,7 +505,11 @@
    "preset": "HOLD",
    "in_s": null,
    "out_s": null,
-   "text": null
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
   },
   {
    "id": "S19",
@@ -464,7 +532,11 @@
    "preset": "TILT",
    "in_s": null,
    "out_s": null,
-   "text": null
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.75
+   }
   },
   {
    "id": "S20",
@@ -487,7 +559,11 @@
    "preset": "DRIFT",
    "in_s": null,
    "out_s": null,
-   "text": null
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.75
+   }
   },
   {
    "id": "S21",
@@ -510,7 +586,11 @@
    "preset": "HOLD",
    "in_s": null,
    "out_s": null,
-   "text": null
+   "text": null,
+   "transition_in": {
+    "type": "dissolve",
+    "s": 1
+   }
   },
   {
    "id": "S22",
@@ -536,7 +616,11 @@
    "text": [
     "The record holds no first-person account under an open licence by a Bengali or Bangladeshi witness.",
     "Searched: FRUS, Hansard, Internet Archive, Wikisource, ADST, SOAS, The 1947 Partition Archive, Citizens Archive of Pakistan, na.gov.pk, sansad.in."
-   ]
+   ],
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
   },
   {
    "id": "S23",
@@ -559,7 +643,11 @@
    "preset": null,
    "in_s": 0,
    "out_s": 5,
-   "text": null
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   }
   },
   {
    "id": "S24",
@@ -582,7 +670,11 @@
    "preset": null,
    "in_s": null,
    "out_s": null,
-   "text": null
+   "text": null,
+   "transition_in": {
+    "type": "dip",
+    "s": 1
+   }
   }
  ],
  "marks": [
