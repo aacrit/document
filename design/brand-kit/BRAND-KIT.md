@@ -255,3 +255,15 @@ The logomark top right as section 3, at 0.36 opacity (was 0.6), with its halo at
 | let go | 1 - (0.5 - 0.5 cos(pi u)) over the last `dur` seconds | the label's departure (0.75 s), the lower third's (0.6 s): a quiet element thins out instead of dropping |
 
 Do: let the glyph do the work once the label has gone; keep the flag the strongest line of a partisan lower third. Don't: put a box behind the label; animate the glyph; bring the same label back at a cut; let a lower third stay past its hold.
+
+### 11a. Refined after the T1e review (2026-10-11, Chief of Staff; GRAMMAR A16 refined)
+
+These values replace section 11's where they differ.
+
+| | Value |
+|---|---|
+| Label at a cut | it surfaces at every cut, even when its words repeat the outgoing shot's (section 11's "repeated words" row no longer applies) |
+| AI-GENERATED label | never fades: it surfaces on `whisper` and stays up for the whole shot, because at 4 to 9 px the diamond and the square read alike |
+| DRAWN glyph | a square filling its whole box (no inset), so its top-left pixel is solid; no other shape's is |
+| Shape check | mark-coverage reads the hue at the glyph's centre and the shape at its top-left pixel: the class hue there only for the square |
+| Lower third's bracketed cue | a burned subtitle cue for a lower third ends when the drawn lower third does |

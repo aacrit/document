@@ -133,8 +133,8 @@ SILENCE_DBFS = -120.0               # A19: a mix sample at or under this is true
 SILENCE_WARN_S = 4.0                # digital-silence: a run longer than this outside an intended silence is a warning
 VOICELESS_FLOOR = 0.10              # GRAMMAR 6.1, A18: at least 10% of the runtime carries no voice
 READINGS_FLOOR = 0.30               # GRAMMAR 6.1: readings (read-by and archival testimony) carry at least 30%
-EVENT_FILM_MIN_S = 600.0            # the shares bind a GRAMMAR 3 event film (runtime target 10 min or more); shorter
-                                    # pieces (teaser, trailer, the test fixture) journal them as warnings
+EVENT_FILM_MIN_S = 600.0            # the shares bind unless both the film and its runtime target are under 10 min
+                                    # (teaser, trailer, the test fixture), which journal them as warnings
 MASTER_CRF = 18
 MASTER_THREADS = 4
 
@@ -1109,10 +1109,13 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         else:
             lint("kind-supported", False, unit=t["id"], grammar="12",
                  evidence={"kind": t["kind"], "drawn": ["lower_third", "overlay", *sorted(CARD_TEXT_KINDS)]})
+    lt_drawn_end = {lt["id"]: lt["end"] for lt in lower_thirds}
     if burn_subtitles:
         for c in play.get("subtitle_source", []):
             if c.get("en"):
-                subs.append({"ref": c.get("ref"), "start": float(c["start_s"]), "end": float(c["end_s"]), "text": c["en"]})
+                # A16: a lower third's bracketed cue ends when the drawn lower third does
+                end = min(float(c["end_s"]), lt_drawn_end.get(c.get("ref"), float("inf")))
+                subs.append({"ref": c.get("ref"), "start": float(c["start_s"]), "end": end, "text": c["en"]})
     screen_text = [x for s in shots for x in (s.get("text") or [])] + [x for lt in lower_thirds for x in lt["lines"] + [lt["flag"] or ""]]
     screen_text += [o["text"] for o in overlays]
     screen_text += [s["detail"] for s in shots] + [s["label"] for s in shots] + [c["text"] for c in subs]
@@ -1454,11 +1457,21 @@ def between_hues(px, a, b, tol: float = 3.0) -> bool:
     return float(np.max(np.abs(p - (a + u * d)))) <= tol
 
 
+def glyph_shape_ok(plan: dict, arr: np.ndarray, cls: str) -> bool:
+    """The glyph's shape per class (A16 refined): its top-left corner pixel is
+    the class hue only for the square (DRAWN), and never for the dot or the
+    diamond, whose corners are background under the dark contact ring."""
+    x, y = M.glyph_corner(M.Layout(plan["W"], plan["H"]))
+    on_hue = np.max(np.abs(arr[y, x, :3].astype(int) - np.array(M.MARK_HUE[cls]))) <= 2
+    return on_hue == (M.GLYPH_SHAPE[cls] == "square")
+
+
 def check_mark(plan: dict, arr: np.ndarray, f: int, i: int) -> str:
-    """'ok' when the glyph's centre shows the owning shot's class hue; 'fade'
-    inside the 4-frame class crossfade when it shows a mix of the outgoing and
-    incoming hues; 'dip' on a dip's black hold (all pixels off, A11, checked as
-    all zero); else 'fail'."""
+    """'ok' when the glyph's centre shows the owning shot's class hue and its
+    corner the class's shape (A16 refined); 'fade' inside the 4-frame class
+    crossfade when the centre shows a mix of the outgoing and incoming hues;
+    'dip' on a dip's black hold (all pixels off, A11, checked as all zero);
+    'shape' when the hue is right and the shape wrong; else 'fail'."""
     x, y = mark_probe(plan)
     s = plan["shots"][i]
     if picture_level(plan, f, i) <= 0.0:
@@ -1466,7 +1479,9 @@ def check_mark(plan: dict, arr: np.ndarray, f: int, i: int) -> str:
     px = arr[y, x, :3].astype(int)
     if i > 0 and plan["shots"][i - 1]["mark"] != s["mark"] and f - s["f0"] < round(M.LABEL["fade"] * FPS):
         return "fade" if between_hues(px, M.MARK_HUE[plan["shots"][i - 1]["mark"]], M.MARK_HUE[s["mark"]]) else "fail"
-    return "ok" if np.max(np.abs(px - np.array(M.MARK_HUE[s["mark"]]))) <= 2 else "fail"
+    if np.max(np.abs(px - np.array(M.MARK_HUE[s["mark"]]))) > 2:
+        return "fail"
+    return "ok" if glyph_shape_ok(plan, arr, s["mark"]) else "shape"
 
 
 def render_frame(plan: dict, f: int, pics: Pictures | None = None) -> np.ndarray:
@@ -1513,7 +1528,7 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
     pics = Pictures(plan)
     err = tempfile.TemporaryFile()
     enc = subprocess.Popen(encoder_cmd(plan, part), stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=err)
-    stats = {"ok": 0, "fade": 0, "dip": 0, "fail": 0, "fail_frames": [], "label": 0, "glyph_only": 0}
+    stats = {"ok": 0, "fade": 0, "dip": 0, "fail": 0, "shape": 0, "fail_frames": [], "label": 0, "glyph_only": 0}
     first_whole, first_detail = None, None
     ms = []
     try:
@@ -1525,7 +1540,7 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
             if res in ("ok", "fade"):           # A16: which of the two carried the provenance on this frame
                 st = M.mark_state(f / FPS, plan["marks"])
                 stats["label" if st and st["label_alpha"] > 0 else "glyph_only"] += 1
-            if res == "fail" and len(stats["fail_frames"]) < 10:
+            if res in ("fail", "shape") and len(stats["fail_frames"]) < 10:
                 stats["fail_frames"].append(f)
             if f == s["f0"] and s["kind"] == "archive_still":
                 first_detail = {}
@@ -1750,14 +1765,18 @@ CLEAN_MIN_SNR_DB = 15.0             # a take with less separation than this has 
 CLEAN_NFFT, CLEAN_HOP = 2048, 512   # denoise STFT (43 ms Hann, 75% overlap)
 CLEAN_OVERSUB = 2.0                 # spectral subtraction factor on the noise power
 CLEAN_MAX_REDUCTION_DB = 18.0       # "gentle": no bin is cut by more than this
-CLEAN_GATE_WIN_S = 0.010            # gate detector: RMS over 10 ms
-CLEAN_GATE_OPEN_DB = 12.0           # opens 12 dB over the denoised floor ...
-CLEAN_GATE_SPEECH_DB = 30.0         # ... or 30 dB under the speech level, whichever is higher (a take's breathy lead-in)
-CLEAN_ATTACK_S = 0.025              # lookahead: the gate opens on a 25 ms raised cosine that ends where a word starts
-CLEAN_HOLD_S = 0.060                # and stays open 60 ms after the detector falls
-CLEAN_RELEASE_S = 0.100             # then closes on a 100 ms raised cosine, so a word's tail fades, never clicks
-CLEAN_RANGE_DB = 80.0               # closed, the gate takes the floor down by this much
-CLEAN_FLOOR_MAX_DBFS = -80.0        # the inter-word floor a cleaned line must reach (journaled lint)
+CLEAN_GATE_WIN_S = 0.010            # expander detector: RMS over 10 ms
+CLEAN_EXP_OPEN_DB = 3.0             # full gain above the raw take's floor + 3 dB (under voice-chop's 6 dB line) ...
+CLEAN_EXP_SPEECH_DB = 60.0          # ... or 60 dB under the speech level, whichever is higher
+CLEAN_EXP_RATIO = 4.0               # under the threshold the gain falls 3 dB per dB (1:4 downward expansion)
+CLEAN_RANGE_DB = 26.0               # and never by more than 26 dB: a breath is turned down, not cut out (CoS: 20 to 30)
+CLEAN_LOOKAHEAD_S = 0.050           # the gain opens 50 ms before a word (CoS: 50 to 80 ms)
+CLEAN_HOLD_S = 0.040                # and holds 40 ms after it
+CLEAN_RELEASE_S = 0.050             # then recovers its depth with a 50 ms time constant, so a tail fades, never clicks
+CLEAN_CHOP_ABOVE_DB = 6.0           # voice-chop: frames this far over the raw floor (breaths, word tails, speech) ...
+CLEAN_CHOP_CUT_DB = 3.0             # ... that the cleanup cut by more than this are chopped
+CLEAN_CHOP_MAX_SHARE = 0.02         # at most 2% of them may be
+CLEAN_FLOOR_MAX_DBFS = -80.0        # the inter-word floor a cleaned line must reach after levelling (voice-clean, blocking)
 CLEAN_SPEECH_TOL_DB = 0.5           # and its speech energy must stay within this
 
 
@@ -1836,33 +1855,40 @@ def spectral_denoise(x: np.ndarray, noise_frames: np.ndarray | None = None) -> t
                                   "noise_frames": int(q), "time_smoothing_frames": 3}
 
 
-def word_gate(x: np.ndarray, floor_dbfs: float, speech_dbfs: float) -> tuple[np.ndarray, dict]:
-    """A downward gate between words. The detector is the RMS over 10 ms; the
-    gate opens above max(floor + 12 dB, speech - 30 dB), 25 ms early
-    (lookahead), holds 60 ms after the detector falls, then closes on a
-    100 ms raised cosine to -80 dB. Measured on the episode's takes
-    (T1e), no speech frame (20 dB over the floor) loses more than 3 dB.
-    Returns the gated line and its settings."""
+def word_expander(x: np.ndarray, floor_dbfs: float, speech_dbfs: float) -> tuple[np.ndarray, dict]:
+    """A downward expander between words (A19). The detector is the RMS over
+    10 ms. Below the threshold, max(denoised floor + CLEAN_EXP_OPEN_DB,
+    speech - CLEAN_EXP_SPEECH_DB), the gain falls CLEAN_EXP_RATIO - 1 dB per
+    dB, never past -CLEAN_RANGE_DB, so a breath is turned down, not cut out.
+    The gain looks ahead CLEAN_LOOKAHEAD_S (a word's onset is never clipped)
+    and holds CLEAN_HOLD_S after it (nor its tail), then recovers its depth
+    with a CLEAN_RELEASE_S time constant. Worked on 1 ms blocks, then
+    smoothed over 5 ms and interpolated to the samples."""
     n = len(x)
-    thr = max(floor_dbfs + CLEAN_GATE_OPEN_DB, speech_dbfs - CLEAN_GATE_SPEECH_DB)
+    thr = max(floor_dbfs + CLEAN_EXP_OPEN_DB, speech_dbfs - CLEAN_EXP_SPEECH_DB)
     win = max(1, int(round(CLEAN_GATE_WIN_S * AUDIO_RATE)))
     rms = np.sqrt(np.maximum(moving_average((x.astype(np.float64) ** 2).astype(np.float32), win), 0.0))
-    is_open = rms > 10 ** (thr / 20)
-    idx = np.arange(n)
-    att, hold, rel = (int(round(v * AUDIO_RATE)) for v in (CLEAN_ATTACK_S, CLEAN_HOLD_S, CLEAN_RELEASE_S))
-    last = np.maximum.accumulate(np.where(is_open, idx, -10 ** 12))                  # the last open sample at or before i
-    nxt = np.minimum.accumulate(np.where(is_open, idx, 10 ** 12)[::-1])[::-1]        # the next open sample at or after i
-    since, until = idx - last, nxt - idx
-    lo = 10 ** (-CLEAN_RANGE_DB / 20)
-    up_rel = np.where(since <= hold, 1.0, np.where(since <= hold + rel,
-                      0.5 + 0.5 * np.cos(np.pi * np.clip((since - hold) / max(rel, 1), 0, 1)), 0.0))
-    up_att = np.where(until <= att, 0.5 + 0.5 * np.cos(np.pi * np.clip(until / max(att, 1), 0, 1)), 0.0)
-    up = np.maximum(up_rel, up_att)
-    gain = lo + (1.0 - lo) * up
+    blk = AUDIO_RATE // 1000
+    nb = max(1, -(-n // blk))
+    pad = np.concatenate([rms, np.zeros(nb * blk - n, np.float32)]).reshape(nb, blk).max(axis=1)
+    level = 20 * np.log10(np.maximum(pad.astype(np.float64), 1e-12))
+    g = np.clip((level - thr) * (CLEAN_EXP_RATIO - 1.0), -CLEAN_RANGE_DB, 0.0)        # the static curve, dB
+    ahead, hold = int(round(CLEAN_LOOKAHEAD_S * 1000)), int(round(CLEAN_HOLD_S * 1000))
+    gp = np.concatenate([np.full(hold, -CLEAN_RANGE_DB), g, np.full(ahead, -CLEAN_RANGE_DB)])
+    g = np.lib.stride_tricks.sliding_window_view(gp, hold + ahead + 1).max(axis=1)     # open early, stay open
+    a = math.exp(-1.0 / max(CLEAN_RELEASE_S * 1000, 1e-9))                              # per-block release coefficient
+    out = np.empty_like(g)
+    cur = g[0]
+    for i, v in enumerate(g):                                                           # opens at once, closes slowly
+        cur = v if v >= cur else v + (cur - v) * a
+        out[i] = cur
+    out = moving_average(out.astype(np.float32), 5)
+    gain = 10 ** (np.interp(np.arange(n) / blk, np.arange(nb) + 0.5, out) / 20)
     y = (x * gain).astype(np.float32)
-    return y, {"threshold_dbfs": round(thr, 2), "detector_ms": CLEAN_GATE_WIN_S * 1000, "attack_ms": CLEAN_ATTACK_S * 1000,
-               "hold_ms": CLEAN_HOLD_S * 1000, "release_ms": CLEAN_RELEASE_S * 1000, "range_db": CLEAN_RANGE_DB,
-               "open_share": round(float(is_open.mean()), 4) if n else 0.0}
+    return y, {"kind": "downward expander", "threshold_dbfs": round(thr, 2), "ratio": CLEAN_EXP_RATIO,
+               "range_db": CLEAN_RANGE_DB, "detector_ms": CLEAN_GATE_WIN_S * 1000,
+               "lookahead_ms": CLEAN_LOOKAHEAD_S * 1000, "hold_ms": CLEAN_HOLD_S * 1000, "release_ms": CLEAN_RELEASE_S * 1000,
+               "at_full_depth_share": round(float(np.mean(out <= -CLEAN_RANGE_DB + 0.5)), 4)}
 
 
 def clean_voice(x: np.ndarray) -> tuple[np.ndarray, dict]:
@@ -1881,15 +1907,18 @@ def clean_voice(x: np.ndarray) -> tuple[np.ndarray, dict]:
         return x, rep
     y, den = spectral_denoise(x)
     mid = voice_floor(y, before["_gaps"], before["_speech"])
-    y, gate = word_gate(y, mid["floor_dbfs"], mid["speech_dbfs"])
+    y, gate = word_expander(y, before["floor_dbfs"], mid["speech_dbfs"])
     after = voice_floor(y, before["_gaps"], before["_speech"])
-    sp = before["_speech"]                       # speech frames the cleanup cut by more than 3 dB: chopped words
     n = int(round(CLEAN_FRAME_S * AUDIO_RATE))
-    k = len(sp)
-    px = (x[: k * n].astype(np.float64).reshape(k, n) ** 2).mean(axis=1)[sp]
-    py = (y[: k * n].astype(np.float64).reshape(k, n) ** 2).mean(axis=1)[sp]
-    chopped = int(np.sum(px > py * 10 ** 0.3))
-    rep.update(cleaned=True, denoise=den, gate=gate, speech_frames=int(sp.sum()), chopped_frames=chopped,
+    k = before["frames"]
+    px = (x[: k * n].astype(np.float64).reshape(k, n) ** 2).mean(axis=1)
+    py = (y[: k * n].astype(np.float64).reshape(k, n) ** 2).mean(axis=1)
+    sp = before["_speech"]                       # speech frames (20 dB over the floor) cut by more than 3 dB
+    audible = px >= 10 ** ((before["floor_dbfs"] + CLEAN_CHOP_ABOVE_DB) / 10)   # 6 dB over the floor: breaths and tails too
+    cut = px > py * 10 ** (CLEAN_CHOP_CUT_DB / 10)
+    rep.update(cleaned=True, denoise=den, gate=gate, speech_frames=int(sp.sum()), chopped_frames=int(np.sum(cut & sp)),
+               audible_frames=int(audible.sum()), chopped_audible=int(np.sum(cut & audible)),
+               chopped_audible_share=round(float(np.sum(cut & audible)) / max(int(audible.sum()), 1), 4),
                after_denoise={k: v for k, v in mid.items() if not k.startswith("_")},
                after={k: v for k, v in after.items() if not k.startswith("_")},
                floor_drop_db=round(before["floor_dbfs"] - after["floor_dbfs"], 2),
@@ -1920,32 +1949,47 @@ def _level(journal: Journal, unit: str, x: np.ndarray, target: float, what: str)
     return g
 
 
-def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None) -> None:
+def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, draft: bool = False) -> list[str]:
     """A19: a line's cleanup as a decision (the floor and SNR before and after,
-    and after levelling) and the voice-clean lint: the inter-word floor after
-    levelling under -80 dBFS and the speech energy within 0.5 dB. A warning:
-    the numbers are the evidence, and a take that could not be cleaned is said."""
+    and after levelling) and two lints, blocking on a final render and warnings
+    under --draft (CoS, T1e review). voice-clean: the inter-word floor after
+    levelling is under -80 dBFS and the speech energy within 0.5 dB; a take
+    that could not be cleaned fails it. voice-chop: at most 2% of the frames
+    6 dB or more over the raw floor (breaths, tails, speech) lost more than
+    3 dB. Returns the reasons to refuse."""
     lift = level or 0.0
+    sev = "warn" if draft else "block"
     b = rep["before"]
     if not rep["cleaned"]:
         journal.decision("assembly", f"{unit} not cleaned: {rep['why']}", "GRAMMAR A19 cleans synthetic voice lines before levelling",
                          unit=unit, evidence=rep)
-        journal.lint("voice-clean", False, stage="assembly", phase="preflight", unit=unit, severity="warn", grammar="A19",
-                     evidence={"cleaned": False, "why": rep["why"], "before": b})
-        return
+        journal.lint("voice-clean", False, stage="assembly", phase="preflight", unit=unit, severity=sev, grammar="A19",
+                     evidence={"cleaned": False, "why": rep["why"], "before": b, "fix": "re-render the take"})
+        return [] if draft else [f"{unit} (voice-clean: {rep['why']})"]
     a = rep["after"]
     floor_levelled = None if a["floor_dbfs"] is None else round(a["floor_dbfs"] + lift, 2)
     journal.decision("assembly", f"{unit} cleaned: floor {b['floor_dbfs']:.1f} to {a['floor_dbfs']:.1f} dBFS, SNR {b['snr_db']:.1f} to "
                      f"{a['snr_db']:.1f} dB, speech {rep['speech_change_db']:+.2f} dB",
-                     "GRAMMAR A19: gentle spectral denoise, then a downward gate between words (lookahead, hold, release), "
+                     "GRAMMAR A19: gentle spectral denoise, then a downward expander between words (lookahead, hold, release), "
                      "before levelling; measured on the same 20 ms frames before and after", unit=unit,
                      evidence=dict(rep, level_gain_db=None if level is None else round(level, 2), floor_after_level_dbfs=floor_levelled,
                                    floor_raw_after_level_dbfs=None if b["floor_dbfs"] is None else round(b["floor_dbfs"] + lift, 2)))
+    out = []
     ok = floor_levelled is not None and floor_levelled < CLEAN_FLOOR_MAX_DBFS and abs(rep["speech_change_db"]) <= CLEAN_SPEECH_TOL_DB
-    journal.lint("voice-clean", ok, stage="assembly", phase="preflight", unit=unit, severity="warn", grammar="A19",
+    journal.lint("voice-clean", ok, stage="assembly", phase="preflight", unit=unit, severity=sev, grammar="A19",
                  evidence={"floor_after_level_dbfs": floor_levelled, "max_dbfs": CLEAN_FLOOR_MAX_DBFS,
                            "speech_change_db": rep["speech_change_db"], "tolerance_db": CLEAN_SPEECH_TOL_DB,
-                           "snr_before_db": b["snr_db"], "snr_after_db": a["snr_db"]})
+                           "snr_before_db": b["snr_db"], "snr_after_db": a["snr_db"], "fix": None if ok else "re-render the take"})
+    if not ok:
+        out.append(f"{unit} (voice-clean: floor {floor_levelled} dBFS after levelling, speech {rep['speech_change_db']:+.2f} dB)")
+    chop_ok = rep["chopped_audible_share"] <= CLEAN_CHOP_MAX_SHARE
+    journal.lint("voice-chop", chop_ok, stage="assembly", phase="preflight", unit=unit, severity=sev, grammar="A19",
+                 evidence={"chopped": rep["chopped_audible"], "frames": rep["audible_frames"], "share": rep["chopped_audible_share"],
+                           "max_share": CLEAN_CHOP_MAX_SHARE, "above_floor_db": CLEAN_CHOP_ABOVE_DB, "cut_db": CLEAN_CHOP_CUT_DB,
+                           "speech_frames_chopped": rep["chopped_frames"]})
+    if not chop_ok:
+        out.append(f"{unit} (voice-chop: {rep['chopped_audible']} of {rep['audible_frames']} frames cut over {CLEAN_CHOP_CUT_DB:g} dB)")
+    return out if not draft else []
 
 
 def _journal_peak(journal: Journal, unit: str, peak: dict, draft: bool) -> None:
@@ -2260,7 +2304,7 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
     n = int(round(plan["frames"] / FPS * AUDIO_RATE))
     voice, music, amb, clips = (np.zeros(n, np.float32) for _ in range(4))
     placed = {"lines": [], "cues": [], "clips": [], "missing": []}
-    missing_voice, bad_takes = [], []
+    missing_voice, bad_takes, unclean = [], [], []
     narr: dict[str, dict] = {}                   # narration line id -> its voice profile, for narrator-consistency
     for ln in plan["lines"]:
         wav = film / (ln.get("wav") or f"audio/{ln['id']}.wav")
@@ -2280,7 +2324,7 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
             x, cleaned = clean_voice(x)
         level = _level(journal, ln["id"], x, DIALOGUE_LUFS, "dialogue") if synthetic else None
         if cleaned is not None:
-            _journal_clean(journal, ln["id"], cleaned, level)
+            unclean += _journal_clean(journal, ln["id"], cleaned, level, draft)
         peak = None
         if level is not None:                    # A13: peak control on a synthetic line, after its levelling
             x = x * np.float32(10 ** (level / 20))
@@ -2336,6 +2380,8 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False) 
         raise Refused(f"voice WAVs missing for {', '.join(missing_voice)} (render with --draft to place silence)")
     if bad_takes and not draft:
         raise Refused(f"voice-peak-control (A13): bad takes, re-render them instead of crushing them: {'; '.join(bad_takes)}")
+    if unclean:
+        raise Refused(f"voice-clean and voice-chop (A19): re-render these takes (or render with --draft): {'; '.join(unclean)}")
     if narrator_off and not draft:
         raise Refused(f"narrator-consistency and narrator-drift (A14): not the narrator's voice: {'; '.join(narrator_off)}")
     mix = voice + clips + music * duck_gain(voice) + amb
@@ -2413,11 +2459,12 @@ def sound_lints(journal: Journal, plan: dict, mix: np.ndarray, placed: dict, *, 
                            "intended": plan.get("silences", []),
                            "fix": "carry underscore (a music cue) through it, or mark the moment silence: intended" if runs else None})
     sh = voice_shares(plan, placed)
-    target = float(plan.get("runtime_target_s") or plan["duration_s"])
-    binding = not draft and not plan.get("until_s") and target >= EVENT_FILM_MIN_S
+    # CoS ruling (T1e review): the longer of the target and the film itself, so neither can be shrunk to dodge the floors
+    length = max(float(plan.get("runtime_target_s") or 0.0), float(plan["duration_s"]))
+    binding = not draft and not plan.get("until_s") and length >= EVENT_FILM_MIN_S
     sev = "block" if binding else "warn"
     why = None if binding else ("draft" if draft else "check render (--until)" if plan.get("until_s") else
-                                f"runtime target {target:g} s is under {EVENT_FILM_MIN_S:g} s (not an event film)")
+                                f"the film and its runtime target are both under {EVENT_FILM_MIN_S:g} s (a short piece)")
     out = []
     for rule, ok, ev in (("voiceless-floor", sh["voiceless"] >= VOICELESS_FLOOR, {"voiceless": sh["voiceless"], "min": VOICELESS_FLOOR}),
                          ("readings-floor", sh["readings"] >= READINGS_FLOOR, {"readings": sh["readings"], "min": READINGS_FLOOR})):
@@ -3079,11 +3126,14 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         # Marks lint on what was rendered.
         current.update(stage="marks", unit=None)
         journal.stage("marks", "start")
-        fails = {plan["shots"][i]["id"]: r["mark"]["fail_frames"] for i, r in results.items() if r["mark"]["fail"]}
-        checked = sum(r["mark"]["ok"] + r["mark"]["fade"] + r["mark"].get("dip", 0) + r["mark"]["fail"] for r in results.values())
+        fails = {plan["shots"][i]["id"]: r["mark"]["fail_frames"] for i, r in results.items()
+                 if r["mark"]["fail"] or r["mark"].get("shape", 0)}
+        checked = sum(r["mark"]["ok"] + r["mark"]["fade"] + r["mark"].get("dip", 0) + r["mark"]["fail"] + r["mark"].get("shape", 0)
+                      for r in results.values())
         journal.lint("mark-coverage", not fails and checked == plan["frames"], stage="marks", grammar="1.3, 4, A11", phase="post-render",
                      evidence={"frames": plan["frames"], "checked": checked, "ok": sum(r["mark"]["ok"] for r in results.values()),
-                               "probe": "the class glyph's centre (A16): the glyph is the mark on every frame",
+                               "probe": "the class glyph's centre for the hue and its corner for the shape (A16 refined)",
+                               "wrong_shape": sum(r["mark"].get("shape", 0) for r in results.values()),
                                "label_frames": sum(r["mark"].get("label", 0) for r in results.values()),
                                "glyph_only_frames": sum(r["mark"].get("glyph_only", 0) for r in results.values()),
                                "crossfade": sum(r["mark"]["fade"] for r in results.values()),

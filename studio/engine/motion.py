@@ -336,7 +336,9 @@ LABEL = dict(
 )
 LABEL_MAX_S = WHISPER.settle_time() + LABEL["hold"] + LABEL["exit"]
 # The class glyph's shape, so classes that share a hue still differ (DRAWN and AI-GENERATED are both cold blue).
-# Every shape is solid at its centre: the mark-coverage lint reads the hue there.
+# Every shape is solid at its centre, where the mark-coverage lint reads the hue; only the square is solid at its
+# top-left corner, where the lint reads the shape. At 4 to 9 px a dot and a diamond read alike, so an AI-GENERATED
+# shot also keeps its label up for the whole shot (A16 refined): the words, not the glyph, say it is generated.
 GLYPH_SHAPE = {"ARCHIVE": "dot", "RECONSTRUCTED": "dot", "CARD": "dot", "DRAWN": "square", "AI-GENERATED": "diamond"}
 CLASS_WORD = {"ARCHIVE": "Archive", "RECONSTRUCTED": "Reconstructed", "AI-GENERATED": "AI-generated", "DRAWN": "Drawn",
               "CARD": "void document"}
@@ -556,6 +558,12 @@ def glyph_origin(L: Layout) -> tuple[int, int]:
     return int(round(L.w(LABEL["x"]))), int(round(L.h(LABEL["y"])))
 
 
+def glyph_corner(L: Layout) -> tuple[int, int]:
+    """The glyph box's top-left pixel: solid only in the square (DRAWN). The
+    mark-coverage lint reads the shape here."""
+    return glyph_origin(L)
+
+
 def glyph_centre(L: Layout) -> tuple[int, int]:
     """The pixel at the glyph's centre, solid in every shape: the
     mark-coverage lint reads the class hue here."""
@@ -573,8 +581,7 @@ def _glyph(cls: str, d: int, ss: int = 4) -> Image.Image:
     dm = ImageDraw.Draw(mask)
     shape = GLYPH_SHAPE[cls]
     if shape == "square":
-        inset = big * 0.09                    # a square looks larger than a dot in the same box: shrink it a little
-        dm.rectangle([inset, inset, big - 1 - inset, big - 1 - inset], fill=255)
+        dm.rectangle([0, 0, big - 1, big - 1], fill=255)   # the whole box: its corner pixel is solid, which no other shape's is
     elif shape == "diamond":
         c = (big - 1) / 2.0
         dm.polygon([(c, 0), (big - 1, c), (c, big - 1), (0, c)], fill=255)
@@ -603,38 +610,28 @@ def _glyph_layer(W: int, H: int, cls: str) -> Image.Image:
     return layer
 
 
-def label_alpha(t: float, start: float) -> float:
+LABEL_STAYS = {"AI-GENERATED"}       # A16 refined (CoS, T1e review): this label never fades; it stays the whole shot
+
+
+def label_alpha(t: float, start: float, cls: str | None = None) -> float:
     """The label's opacity factor (0..1) at ``t`` for a label that surfaced at
     ``start``: up on `whisper`, held LABEL.hold s, let go over LABEL.exit s;
-    0 from LABEL_MAX_S on."""
+    0 from LABEL_MAX_S on. An AI-GENERATED label never goes: it stays up."""
     if t < start:
         return 0.0
     u = t - start
+    if cls in LABEL_STAYS:
+        return clamp01(WHISPER.progress(u))
     if u >= LABEL_MAX_S:
         return 0.0
     return clamp01(WHISPER.progress(u)) * let_go(u, LABEL_MAX_S, LABEL["exit"])
 
 
 def label_starts(shots) -> list[float | None]:
-    """When each shot's label surfaced (``shots`` sorted by start). A shot
-    change brings the label up again, except into a shot whose label is word
-    for word the outgoing one's (two stills of one class and year): the same
-    words again at a cut are noise, and the glyph already carries them. A CARD
-    has no label."""
-    out, prev_start, prev_label = [], None, None
-    for s in shots:
-        label = s.get("label") or ""
-        if s["cls"] == "CARD" or not label:
-            out.append(None)
-            prev_start, prev_label = None, None
-            continue
-        if label == prev_label and prev_start is not None:
-            out.append(prev_start)
-        else:
-            out.append(s["start"])
-            prev_start = s["start"]
-        prev_label = label
-    return out
+    """When each shot's label surfaces (``shots`` sorted by start): at every
+    cut, its own start, as A16 says, even when the words repeat the outgoing
+    shot's. A CARD has no label (the card's own words say what it is)."""
+    return [None if s["cls"] == "CARD" or not s.get("label") else s["start"] for s in shots]
 
 
 def mark_state(t: float, shots) -> dict | None:
@@ -653,7 +650,7 @@ def mark_state(t: float, shots) -> dict | None:
     p = ss[prev] if prev is not None else None
     u = (t - s["start"]) / LABEL["fade"]
     mix = clamp01(u) if (p is not None and p["cls"] != s["cls"] and u < 1.0) else 1.0
-    la = label_alpha(t, starts[cur]) if starts[cur] is not None else 0.0
+    la = label_alpha(t, starts[cur], s["cls"]) if starts[cur] is not None else 0.0
     return {"cls": s["cls"], "prev_cls": p["cls"] if p is not None else None, "mix": mix,
             "label": s.get("label") or "", "label_alpha": la, "label_start": starts[cur]}
 
