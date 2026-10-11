@@ -311,7 +311,7 @@ Appended; sections 5 and 11 to 11c keep their text and are read with this. Where
 | CARD glyph | a ring, an outline in bone, its stroke 25% of its diameter (at least 1 px), hollow at the centre where the contact disc shows; it was a dot, which read as RECONSTRUCTED's bone dot (CoS 2026-10-11). The two bones now differ by shape as the two blues do; mark-coverage reads the centre as a shape probe beside the corner pair | stroke 2.25 px | stroke 1.5 px |
 | Label | set flush right against the glyph, 0.55 em left of it, the glyph at the middle of its x-height; it grows leftward and the glyph never moves | | |
 | Label type | Inter 400 at 1.6% of height (was 1.85%), numerals JetBrains Mono at 94%, `--mark-text` at 0.6 opacity (was 0.72); the soft shadow as section 11 | 17 px | 12 px |
-| AI-GENERATED label | keeps section 11's 1.85% at 0.72 (`LABEL_AI`): it is a truth label, up for the whole shot, and must stay readable at the smaller corner; it sits in the same zone | 20 px | 13 px |
+| AI-GENERATED label | keeps section 11's 1.85% at 0.72 (`LABEL_AI`): it is a truth label, up for the whole shot, and must stay readable at the smaller corner; its shadow is heavier than the other classes' (black at 0.78, blurred 0.16% of height, gain 2.8; theirs 0.42, 0.11%, 1.8) so the words hold on a bright, busy ground at 720p; it sits in the same zone | 20 px | 13 px |
 | Label measure | starts right of 60% of width (the lower third's measure, 4% + 56%); a longer label is refused, never cut (E15). Was "ends by 50%" | | |
 | Mark zone | x 60% to 96%, y 93% to 96.5% of the frame; the glyph's own zone x 95.0% to 96.6%, y 93.5% to 95.6% | | |
 

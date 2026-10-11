@@ -479,3 +479,25 @@ def test_the_fixture_render_journals_the_two_r2_lints(rendered):
     assert {e["unit"] for e in key} == {"mark-key:head", "mark-key:end"}
     assert all(e["status"] == "fail" and e["severity"] == "warn" for e in key)
     json.dumps(key)
+
+
+@pytest.mark.parametrize("W, H", SIZES)
+def test_the_ai_label_has_a_heavier_shadow_that_holds_on_a_bright_ground(W, H):
+    """CoS 2026-10-11: a truth label must read on a bright, busy ground at 720p.
+    Measured over a near-white ground with the same words: the AI-GENERATED
+    label's shadow reaches far darker and covers far more pixels than any
+    other class's, which keep theirs."""
+    assert M.label_shadow("AI-GENERATED") != M.label_shadow("DRAWN")
+    for cls in ("ARCHIVE", "RECONSTRUCTED", "DRAWN"):
+        assert M.label_shadow(cls) == (M.LABEL["shadow"], M.LABEL["blur"], 1.8)
+    L = M.Layout(W, H)
+    img = Image.new("RGB", (W, H), (245, 245, 245))
+    out = {}
+    for cls in ("AI-GENERATED", "DRAWN"):
+        shots = [{"start": 0.0, "cls": cls, "label": "AI-generated · context"}]
+        a = np.asarray(M.mark_frame(img, 1.5, shots, FONTS).convert("L")).astype(int)
+        out[cls] = a[int(0.92 * H):int(0.97 * H), int(L.w(M.LABEL_MIN_X)):M.glyph_origin(L)[0] - 2]
+    ai, other = out["AI-GENERATED"], out["DRAWN"]
+    assert ai.min() <= 90 and other.min() >= 140                                # its darkest edge: black enough to hold
+    assert (ai < 200).sum() >= 3 * (other < 200).sum()                          # a denser ground under the words
+    assert ai.max() >= 245                                                      # and the words stay near-white

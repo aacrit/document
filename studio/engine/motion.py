@@ -359,7 +359,18 @@ LABEL = dict(
 LABEL_MAX_S = WHISPER.settle_time() + LABEL["hold"] + LABEL["exit"]
 # A31 (CoS 2026-10-11): the AI-GENERATED label is a truth label, up for the whole shot; it keeps A16's size and
 # opacity so it stays readable at the new, smaller corner.
-LABEL_AI = dict(size=1.85, alpha=0.72)
+LABEL_AI = dict(size=1.85, alpha=0.72,
+                # a heavier shadow (CoS 2026-10-11): darker, wider and denser than the others', so the words hold on a
+                # bright, busy ground at 720p; the other classes keep LABEL.shadow, LABEL.blur and a gain of 1.8
+                shadow=0.78, blur=0.16, gain=2.8)
+LABEL_SHADOW_GAIN = 1.8
+
+
+def label_shadow(cls: str | None) -> tuple[float, float, float]:
+    """The label's shadow for a class: alpha, blur (% of H) and gain on the blurred coverage."""
+    if cls == "AI-GENERATED":
+        return LABEL_AI["shadow"], LABEL_AI["blur"], LABEL_AI["gain"]
+    return LABEL["shadow"], LABEL["blur"], LABEL_SHADOW_GAIN
 
 
 def label_type(cls: str | None) -> tuple[float, float]:
@@ -897,7 +908,8 @@ def _label_tile(L: Layout, text: str, alpha: float, dx: float, fonts: Fonts,
     gx, _ = glyph_origin(L)
     x = label_right(L, cls) - _measure(text, f_txt, f_num) + dx
     baseline = label_baseline(L, cls)
-    radius = max(1.0, L.h(LABEL["blur"]))
+    sh_alpha, sh_blur, sh_gain = label_shadow(cls)
+    radius = max(1.0, L.h(sh_blur))
     margin = int(math.ceil(3 * radius)) + 2
     x0, y0 = max(0, int(math.floor(x)) - margin), max(0, int(math.floor(baseline - 1.1 * px)) - margin)
     x1 = max(x0, min(gx - max(1, L.px(LABEL["halo"])), int(math.ceil(x + _measure(text, f_txt, f_num))) + margin + 1))
@@ -908,7 +920,7 @@ def _label_tile(L: Layout, text: str, alpha: float, dx: float, fonts: Fonts,
     # the shadow: the words' own coverage, blurred, in black at LABEL.shadow (scaled with the label's opacity)
     cover = np.asarray(words.getchannel("A"), dtype=np.float32) / max(opacity * alpha, 1e-6)
     blurred = Image.fromarray(np.clip(cover, 0, 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(radius))
-    sh = np.clip(np.asarray(blurred, dtype=np.float32) * 1.8, 0, 255) * (LABEL["shadow"] * alpha)
+    sh = np.clip(np.asarray(blurred, dtype=np.float32) * sh_gain, 0, 255) * (sh_alpha * alpha)
     out = Image.new("RGBA", words.size, (0, 0, 0, 0))
     out.putalpha(Image.fromarray(sh.astype(np.uint8)))
     out.alpha_composite(words)
