@@ -1835,6 +1835,9 @@ CLEAN_TRUE_PAUSE_MIN = 5            # ... and with fewer than 5 of them the floo
 CLEAN_NOISE_FLATNESS = 0.4          # a frame this spectrally flat (white noise reads about 0.56, voiced speech under 0.05)
                                     # is noise, not speech, so it never guards a true pause (T1f: a hiss 25 dB under the
                                     # speech would otherwise count as speech and hide every pause it fills)
+CLEAN_PAUSE_GATE_DB = 40.0          # T1f (CoS): the pause gate's fixed depth; a true pause is turned down this far, never up
+CLEAN_PAUSE_RAMP_S = 0.040          # its raised-cosine ramps, each inside the region; a region without at least one 20 ms
+                                    # frame at full depth between its ramps (under 100 ms) is left as it is
 CLEAN_SILENT_DBFS = -120.0          # a take's live span runs from its first to its last 20 ms frame over this; digital
                                     # silence padding a take's ends is outside it and never counts as floor or pause
 
@@ -1868,7 +1871,8 @@ def _live_frames(k: int, span: tuple[int, int] | None) -> np.ndarray:
     return m if m.sum() >= 4 else np.ones(k, bool)
 
 
-def voice_floor(x: np.ndarray, gaps: np.ndarray | None = None, speech: np.ndarray | None = None) -> dict:
+def voice_floor(x: np.ndarray, gaps: np.ndarray | None = None, speech: np.ndarray | None = None,
+                ref: np.ndarray | None = None) -> dict:
     """Measure a voice line over 20 ms frames: the noise floor (dBFS, the
     median power of the quietest 10% of the frames inside the take's live
     span (``live_span``), or of ``gaps`` frames when given;
@@ -1889,7 +1893,8 @@ def voice_floor(x: np.ndarray, gaps: np.ndarray | None = None, speech: np.ndarra
         gaps[cand[np.argsort(p[cand], kind="stable")[:q]]] = True
     floor = _db(float(np.median(p[gaps]))) if gaps.any() else None
     p90 = _db(float(np.percentile(p[gaps], 90))) if gaps.any() else None
-    heard = gaps & (p > 10 ** (CLEAN_SILENT_DBFS / 10))       # floor frames that are not digital silence
+    pr = p if ref is None else (ref[: k * n].astype(np.float64).reshape(k, n) ** 2).mean(axis=1)
+    heard = gaps & (pr > 10 ** (CLEAN_SILENT_DBFS / 10))      # floor frames that are not digital silence (in ``ref``, the raw take)
     floor_heard = _db(float(np.median(p[heard]))) if heard.any() else None
     if speech is None:
         speech = p > (10 ** ((floor if floor is not None else -300) / 10)) * 10 ** (CLEAN_SPEECH_ABOVE_DB / 10)
@@ -2005,34 +2010,98 @@ def _cut_stats(x: np.ndarray, y: np.ndarray, before: dict) -> dict:
             "chopped_audible_share": round(float(np.sum(cut & audible)) / max(int(audible.sum()), 1), 4), "_px": px}
 
 
-def true_pauses(x: np.ndarray, y: np.ndarray, before: dict, live: np.ndarray) -> dict:
-    """T1f review (CoS): what is heard between words. Near-speech frames are
-    raw frames within CLEAN_NEAR_SPEECH_DB of the take's speech level. True
-    pauses are live frames at least CLEAN_TRUE_PAUSE_GUARD_S from any of
-    them (a near-speech frame as flat as noise, CLEAN_NOISE_FLATNESS, is
-    noise and guards nothing); their median power on the cleaned take (frames that are digital
-    silence in the raw take left out) is the noise a listener hears in the
-    silences. The speech-referenced chop is the share of near-speech frames
-    the cleanup cut by more than CLEAN_CHOP_CUT_DB."""
+def true_pause_mask(x: np.ndarray, before: dict, live: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """T1f review (CoS): the raw take's near-speech frames (within
+    CLEAN_NEAR_SPEECH_DB of its speech level), the voiced ones among them (a
+    frame as flat as noise, CLEAN_NOISE_FLATNESS, is noise and guards
+    nothing) and the true pauses: live frames at least
+    CLEAN_TRUE_PAUSE_GUARD_S from any voiced frame. Returns (true pauses,
+    near speech, voiced), one bool per 20 ms frame."""
     n = int(round(CLEAN_FRAME_S * AUDIO_RATE))
     k = before["frames"]
     px = (x[: k * n].astype(np.float64).reshape(k, n) ** 2).mean(axis=1)
-    py = (y[: k * n].astype(np.float64).reshape(k, n) ** 2).mean(axis=1)
     near = px >= 10 ** ((before["speech_dbfs"] - CLEAN_NEAR_SPEECH_DB) / 10)
     F = np.abs(np.fft.rfft(x[: k * n].astype(np.float64).reshape(k, n) * np.hanning(n), axis=1)[:, 2:]) ** 2 + 1e-30
     flatness = np.exp(np.mean(np.log(F), axis=1)) / np.mean(F, axis=1)       # Wiener entropy, above 100 Hz
     voiced = near & (flatness < CLEAN_NOISE_FLATNESS)
     g = int(round(CLEAN_TRUE_PAUSE_GUARD_S / CLEAN_FRAME_S))
     guard = np.convolve(voiced.astype(np.int32), np.ones(2 * g + 1, np.int32), mode="same") > 0
-    tp = live & ~guard
+    return live & ~guard, near, voiced
+
+
+def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
+    d = np.diff(np.concatenate(([0], mask.astype(np.int8), [0])))
+    return list(zip(np.flatnonzero(d == 1).tolist(), np.flatnonzero(d == -1).tolist()))
+
+
+def _ramp_frames() -> int:
+    return int(math.ceil(CLEAN_PAUSE_RAMP_S / CLEAN_FRAME_S - 1e-9))
+
+
+def pause_regions(tp: np.ndarray) -> list[tuple[int, int]]:
+    """The true-pause runs (frame index ranges) long enough for the gate:
+    two ramps (CLEAN_PAUSE_RAMP_S each) and at least one 20 ms frame at full
+    depth between them. Shorter ones are left as they are."""
+    m = 2 * _ramp_frames() + 1
+    return [(a, b) for a, b in _runs(tp) if b - a >= m]
+
+
+def pause_gate(y: np.ndarray, regions: list[tuple[int, int]]) -> tuple[np.ndarray, dict]:
+    """T1f (CoS): turn each true-pause region down by CLEAN_PAUSE_GATE_DB,
+    with raised-cosine ramps of CLEAN_PAUSE_RAMP_S placed entirely inside
+    the region, so no sample outside it (none within 100 ms of voiced
+    speech) changes. Never a boost."""
+    n = int(round(CLEAN_FRAME_S * AUDIO_RATE))
+    r = int(round(CLEAN_PAUSE_RAMP_S * AUDIO_RATE))
+    depth = 10 ** (-CLEAN_PAUSE_GATE_DB / 20)
+    gain = np.ones(len(y), np.float64)
+    ramp = 0.5 + 0.5 * np.cos(np.pi * (np.arange(r) + 0.5) / r)              # 1 -> 0 inside the ramp
+    for a, b in regions:
+        s0, s1 = a * n, min(b * n, len(y))
+        seg = np.full(s1 - s0, depth)
+        seg[:r] = depth + (1 - depth) * ramp
+        seg[-r:] = depth + (1 - depth) * ramp[::-1]
+        gain[s0:s1] = seg
+    out = (y * gain).astype(np.float32)
+    return out, {"regions_s": [[round(a * CLEAN_FRAME_S, 3), round(b * CLEAN_FRAME_S, 3)] for a, b in regions],
+                 "regions": len(regions), "gated_s": round(sum(b - a for a, b in regions) * CLEAN_FRAME_S, 3),
+                 "depth_db": CLEAN_PAUSE_GATE_DB, "ramp_ms": CLEAN_PAUSE_RAMP_S * 1000,
+                 "min_region_ms": round((2 * _ramp_frames() + 1) * CLEAN_FRAME_S * 1000), "boost": False}
+
+
+def true_pauses(x: np.ndarray, y: np.ndarray, before: dict, live: np.ndarray, gated: np.ndarray | None = None) -> dict:
+    """T1f review (CoS): what is heard between words, on the take as used:
+    the median power of the true pauses (``true_pause_mask``; frames that
+    are digital silence in the raw take left out), and the loudest true
+    pause, the highest median over the regions long enough to gate
+    (``pause_regions``). The speech-referenced chop is the share of
+    near-speech frames outside the gated regions that the cleanup cut by
+    more than CLEAN_CHOP_CUT_DB."""
+    n = int(round(CLEAN_FRAME_S * AUDIO_RATE))
+    k = before["frames"]
+    px = (x[: k * n].astype(np.float64).reshape(k, n) ** 2).mean(axis=1)
+    py = (y[: k * n].astype(np.float64).reshape(k, n) ** 2).mean(axis=1)
+    tp, near, voiced = true_pause_mask(x, before, live)
     heard = tp & (px > 10 ** (CLEAN_SILENT_DBFS / 10))
     cut = px > py * 10 ** (CLEAN_CHOP_CUT_DB / 10)
+    judged = near & ~(gated if gated is not None else np.zeros(k, bool))
+    r = _ramp_frames()                       # the loudest pause is judged where the gate is at full depth
+    loud = [(_db(float(np.median(py[a + r:b - r]))), a, b) for a, b in pause_regions(tp)
+            if (px[a + r:b - r] > 10 ** (CLEAN_SILENT_DBFS / 10)).any()]
+    top = max(loud) if loud else None
+    short = [(_db(float(np.median(py[a:b]))), a, b) for a, b in _runs(tp) if b - a < 2 * r + 1
+             and (px[a:b] > 10 ** (CLEAN_SILENT_DBFS / 10)).any()]
+    stop = max(short) if short else None
     return {"true_pause_frames": int(tp.sum()), "true_pause_heard_frames": int(heard.sum()),
             "near_speech_flat_frames": int(np.sum(near & ~voiced)),
             "true_pause_dbfs": round(_db(float(np.median(py[heard]))), 2) if heard.any() else None,
             "true_pause_p90_dbfs": round(_db(float(np.percentile(py[heard], 90))), 2) if heard.any() else None,
-            "near_speech_frames": int(near.sum()), "near_speech_cut": int(np.sum(cut & near)),
-            "speech_chop_share": round(float(np.sum(cut & near)) / max(int(near.sum()), 1), 4)}
+            "loudest_pause_dbfs": None if top is None else round(top[0], 2),
+            "loudest_pause_at_s": None if top is None else [round(top[1] * CLEAN_FRAME_S, 3), round(top[2] * CLEAN_FRAME_S, 3)],
+            "loudest_short_pause_dbfs": None if stop is None else round(stop[0], 2),
+            "loudest_short_pause_at_s": None if stop is None else [round(stop[1] * CLEAN_FRAME_S, 3), round(stop[2] * CLEAN_FRAME_S, 3)],
+            "near_speech_frames": int(judged.sum()), "near_speech_cut": int(np.sum(cut & judged)),
+            "speech_chop_share": round(float(np.sum(cut & judged)) / max(int(judged.sum()), 1), 4)}
 
 
 def clean_voice(x: np.ndarray) -> tuple[np.ndarray, dict]:
@@ -2089,9 +2158,18 @@ def clean_voice(x: np.ndarray) -> tuple[np.ndarray, dict]:
         dn.pop("_px")
         st = dict(dn, denoise_chopped_audible=dn["chopped_audible"], denoise_chopped_audible_share=dn["chopped_audible_share"],
                   chopped_audible=0, chopped_audible_share=0.0)      # nothing is expanded on this path
-    after = voice_floor(y, before["_gaps"], before["_speech"])
-    tp = true_pauses(x, y, before, live)
-    rep.update(cleaned=True, path=path, first_pass=first, denoise=den, gate=gate, **st, **tp,
+    # T1f (CoS): the pause gate, on the take as cleaned: true pauses turned down, nothing near speech touched
+    tp_mask, _, _ = true_pause_mask(x, before, live)
+    regions = pause_regions(tp_mask)
+    pre = true_pauses(x, y, before, live)
+    y, pg = pause_gate(y, regions)
+    gated = np.zeros(k, bool)
+    for a_, b_ in regions:
+        gated[a_:b_] = True
+    pg.update(true_pause_before_dbfs=pre["true_pause_dbfs"], loudest_pause_before_dbfs=pre["loudest_pause_dbfs"])
+    after = voice_floor(y, before["_gaps"], before["_speech"], ref=x)
+    tp = true_pauses(x, y, before, live, gated)
+    rep.update(cleaned=True, path=path, first_pass=first, denoise=den, gate=gate, pause_gate=pg, **st, **tp,
                pause_share=round(pause_share, 4), floor_spread_db=round(spread, 2),
                measure_ok=not (pause_why or spread_why), measure_why=pause_why + spread_why,
                pause_why=pause_why, spread_why=spread_why,
@@ -2179,9 +2257,21 @@ def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, 
     else:
         pause_lvl = None if rep.get("true_pause_dbfs") is None else round(rep["true_pause_dbfs"] + lift, 2)
     pause_ok = pause_lvl is None or pause_lvl < CLEAN_FLOOR_MAX_DBFS
+    # T1f (CoS): the loudest true pause long enough to gate, at the gate's full depth, as levelled
+    loudest = None if rep.get("loudest_pause_dbfs") is None else round(rep["loudest_pause_dbfs"] + lift, 2)
+    loudest_ok = loudest is None or loudest < CLEAN_FLOOR_MAX_DBFS
+    pg = rep.get("pause_gate") or {}
+    journal.decision("assembly", f"{unit} pause gate: {pg.get('regions', 0)} true pauses, {pg.get('gated_s', 0):g} s, "
+                     f"turned down {pg.get('depth_db', CLEAN_PAUSE_GATE_DB):g} dB",
+                     "GRAMMAR A19 refined, pause gate (T1f): true pauses (100 ms or more from voiced speech) are turned down "
+                     "with raised-cosine ramps inside them; nothing near speech changes", unit=unit,
+                     evidence=dict(pg, loudest_pause_after_level_dbfs=loudest,
+                                   loudest_short_pause_after_level_dbfs=None if rep.get("loudest_short_pause_dbfs") is None
+                                   else round(rep["loudest_short_pause_dbfs"] + lift, 2),
+                                   short_note="true pauses under 100 ms are left as they are and journaled, not judged"))
     out = []
     ok = (floor_levelled is not None and floor_levelled < CLEAN_FLOOR_MAX_DBFS and abs(rep["speech_change_db"]) <= CLEAN_SPEECH_TOL_DB
-          and (heard is None or heard < CLEAN_FLOOR_MAX_DBFS) and pause_ok)
+          and (heard is None or heard < CLEAN_FLOOR_MAX_DBFS) and pause_ok and loudest_ok)
     journal.lint("voice-clean", ok, stage="assembly", phase="preflight", unit=unit, severity=sev, grammar="A19, T1f",
                  evidence={"measure": "median power of the raw take's quietest 10% of 20 ms frames, on the cleaned and "
                                       "levelled line, and of its true pauses (live frames 100 ms or more from any frame within "
@@ -2191,6 +2281,7 @@ def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, 
                            "floor_heard_after_level_dbfs": heard,
                            "true_pause_after_level_dbfs": pause_lvl, "true_pause_frames": rep.get("true_pause_frames"),
                            "true_pause_fallback_p90": fallback,
+                           "loudest_pause_after_level_dbfs": loudest, "loudest_pause_at_s": rep.get("loudest_pause_at_s"),
                            "true_pause_p90_after_level_dbfs": None if rep.get("true_pause_p90_dbfs") is None else
                            round(rep["true_pause_p90_dbfs"] + lift, 2),
                            "speech_change_db": rep["speech_change_db"], "tolerance_db": CLEAN_SPEECH_TOL_DB,
@@ -2200,6 +2291,7 @@ def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, 
                    + (f", {heard} dBFS where not digital silence" if heard is not None and heard != floor_levelled else "")
                    + (f", true pauses {pause_lvl} dBFS" + (" (floor p90, too few true pauses)" if fallback else "")
                       if not pause_ok else "")
+                   + (f", loudest true pause {loudest} dBFS at {rep.get('loudest_pause_at_s')} s" if not loudest_ok else "")
                    + f", speech {rep['speech_change_db']:+.2f} dB{', denoise only' if denoise_only else ''})")
     pause_why = rep.get("pause_why", [])
     sc = rep.get("speech_chop_share", 0.0)

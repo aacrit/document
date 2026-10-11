@@ -2397,9 +2397,11 @@ def test_a19_a_take_that_stays_noisy_refuses_a_final_render_and_warns_under_draf
     assert vc and vc[0]["status"] == "fail" and vc[0]["severity"] == "warn"
 
 
-def test_a19_the_expander_turns_a_breath_down_without_cutting_it():
+def test_a19_the_expander_turns_a_breath_down_without_cutting_it(monkeypatch):
     """A breath 10 dB over the hiss between two words: an expander keeps it
-    (turned down, not gone), the hiss falls by the expander's range."""
+    (turned down, not gone), the hiss falls by the expander's range. The
+    pause gate (T1f) is set aside here; see the breath test below."""
+    monkeypatch.setattr(R, "CLEAN_PAUSE_GATE_DB", 0.0)
     rate = 48000
     x, spans = _speechlike(seed=7, words=2, gap_s=1.2, hiss_db=-66.0)
     a = spans[0][1] + int(0.45 * rate)
@@ -2670,7 +2672,8 @@ def test_t1f_an_unsteady_floor_takes_the_denoise_only_path_and_passes_when_low()
     x = _spread_take(-100.0)                                                    # spread far over 6 dB, hiss far under -80
     y, rep = R.clean_voice(x)
     y_dn, _ = R.spectral_denoise(x)
-    assert rep["path"] == "denoise-only" and np.array_equal(y, y_dn) and rep["gate"] is None
+    keep = _ungated_samples(rep, len(y))
+    assert rep["path"] == "denoise-only" and np.array_equal(y[keep], y_dn[keep]) and rep["gate"] is None
     assert "not one steady floor" in rep["first_pass"]["why"] and rep["first_pass"]["floor_spread_db"] == rep["floor_spread_db"]
     gain, _ = R.level_gain(y, R.DIALOGUE_LUFS)
     j = J.Journal(film="denoise-only-low")
@@ -2685,19 +2688,21 @@ def test_t1f_an_unsteady_floor_takes_the_denoise_only_path_and_passes_when_low()
     assert [e for e in lints(evs, "voice-clean") if e["unit"] == "LQ"][0]["status"] == "pass"
 
 
-def test_t1f_an_unsteady_take_with_audible_hiss_still_refuses_on_voice_clean():
+def test_t1f_an_unsteady_take_with_hiss_in_its_pauses_refuses_without_the_gate_and_is_clean_with_it(monkeypatch):
     """The hiss (-60 dBFS) drops to digital zero inside a pause: the floor's
     median is zero, so the median of the floor frames that are not digital
-    silence is what voice-clean must hold under -80."""
+    silence, and the true pauses, are what voice-clean holds under -80.
+    Without the pause gate the take refuses; with it its pauses are clean."""
     x = _spread_take(-60.0)
-    y, rep = R.clean_voice(x)
-    assert rep["path"] == "denoise-only" and rep["after"]["floor_dbfs"] < -200
-    gain, _ = R.level_gain(y, R.DIALOGUE_LUFS)
-    j = J.Journal(film="denoise-only-loud")
-    out = R._journal_clean(j, "LA", rep, gain)
-    vc = [e for e in lints(J.read(j.path), "voice-clean") if e["unit"] == "LA"][0]
-    assert vc["status"] == "fail" and vc["evidence"]["floor_heard_after_level_dbfs"] > R.CLEAN_FLOOR_MAX_DBFS
-    assert any("voice-clean" in o and "denoise only" in o for o in out)
+    with monkeypatch.context() as m:
+        m.setattr(R, "CLEAN_PAUSE_GATE_DB", 0.0)
+        rep0, out0, vc0, _ = _verdict(x, "spread-nogate")
+    assert rep0["path"] == "denoise-only" and rep0["after"]["floor_dbfs"] < -200
+    assert vc0["status"] == "fail" and any("voice-clean" in o and "denoise only" in o for o in out0)
+    rep, out, vc, _ = _verdict(x, "spread-gate")
+    assert vc["status"] == "pass" and out == []
+    assert vc["evidence"]["true_pause_after_level_dbfs"] < R.CLEAN_FLOOR_MAX_DBFS
+    assert vc["evidence"]["loudest_pause_after_level_dbfs"] < R.CLEAN_FLOOR_MAX_DBFS
 
 
 def test_t1f_a_steady_hiss_take_still_gets_the_expander():
@@ -2757,24 +2762,46 @@ def _verdict(x, name):
 
 
 @pytest.mark.parametrize("quiet_s,burst_db", [(0.4, -55), (0.4, -62), (0.5, -55)])
-def test_t1f_review_denoise_only_cannot_pass_hiss_in_the_pauses(quiet_s, burst_db):
+def test_t1f_review_denoise_only_cannot_pass_hiss_in_the_pauses(monkeypatch, quiet_s, burst_db):
     """Blocker 1 (attack2.py): one quiet stretch made the floor unsteady, the
-    take went denoise-only and passed with its pauses at -53 dBFS levelled."""
-    rep, out, vc, _ = _verdict(_one_quiet_stretch(burst_db, quiet_s), f"attack2-{quiet_s}-{-burst_db}")
-    assert rep["path"] == "denoise-only"
-    assert vc["status"] == "fail" and vc["evidence"]["true_pause_after_level_dbfs"] > R.CLEAN_FLOOR_MAX_DBFS
-    assert any("true pauses" in o for o in out)
+    take went denoise-only and passed with its pauses at -53 dBFS levelled.
+    Without the pause gate it now refuses on its true pauses; with the gate
+    its pauses are clean. At -55 the hiss also runs up to the words (it is
+    within 30 dB of the speech there, where the gate never reaches), so that
+    take still refuses, on voice-chop: the denoise cuts it beside the words."""
+    with monkeypatch.context() as m:
+        m.setattr(R, "CLEAN_PAUSE_GATE_DB", 0.0)
+        rep0, out0, vc0, _ = _verdict(_one_quiet_stretch(burst_db, quiet_s), f"attack2-nogate-{quiet_s}-{-burst_db}")
+    assert rep0["path"] == "denoise-only" and vc0["status"] == "fail"
+    assert vc0["evidence"]["true_pause_after_level_dbfs"] > R.CLEAN_FLOOR_MAX_DBFS and any("true pauses" in o for o in out0)
+    rep, out, vc, ch = _verdict(_one_quiet_stretch(burst_db, quiet_s), f"attack2-{quiet_s}-{-burst_db}")
+    assert vc["status"] == "pass"
+    assert vc["evidence"]["true_pause_after_level_dbfs"] < R.CLEAN_FLOOR_MAX_DBFS
+    assert vc["evidence"]["loudest_pause_after_level_dbfs"] < R.CLEAN_FLOOR_MAX_DBFS
+    if burst_db == -55:
+        assert ch["status"] == "fail" and all("voice-chop" in o for o in out)
+    else:
+        assert out == []
 
 
+@pytest.mark.parametrize("gaps", [6, 3, 1])
 @pytest.mark.parametrize("burst_db", [-55, -60, -65])
-def test_t1f_review_the_expander_cannot_pass_hiss_in_every_pause(burst_db):
-    """attack.py: a steady floor of -110 between words that are each followed
-    by white hiss. The quietest 10% stayed clean, so voice-clean passed; the
-    true pauses hear the hiss. At -55 the hiss is within 30 dB of the speech,
-    and only its flatness (white noise) keeps it from counting as speech."""
-    rep, out, vc, _ = _verdict(_hiss_in_pauses(burst_db), f"attack-{-burst_db}")
-    assert rep["path"] == "expander" and vc["status"] == "fail"
-    assert vc["evidence"]["true_pause_after_level_dbfs"] > R.CLEAN_FLOOR_MAX_DBFS
+def test_t1f_review_hiss_in_every_pause_or_some_refuses_without_the_gate_and_is_clean_with_it(monkeypatch, burst_db, gaps):
+    """attack.py: a steady floor of -110 between words, white hiss in some or
+    all of the pauses after the words' tails. Without the gate: all pauses
+    hissing fails on the true-pause median (at -55 only the flatness rule
+    keeps the hiss from counting as speech); some pauses hissing fails on
+    the loudest true pause, which the median misses. With the gate: clean."""
+    with monkeypatch.context() as m:
+        m.setattr(R, "CLEAN_PAUSE_GATE_DB", 0.0)
+        rep0, out0, vc0, _ = _verdict(_hiss_in_pauses(burst_db, gaps), f"attack-nogate-{-burst_db}-{gaps}")
+    assert rep0["path"] == "expander" and vc0["status"] == "fail"
+    assert vc0["evidence"]["loudest_pause_after_level_dbfs"] > R.CLEAN_FLOOR_MAX_DBFS
+    if gaps == 6:
+        assert vc0["evidence"]["true_pause_after_level_dbfs"] > R.CLEAN_FLOOR_MAX_DBFS
+    rep, out, vc, _ = _verdict(_hiss_in_pauses(burst_db, gaps), f"attack-{-burst_db}-{gaps}")
+    assert vc["status"] == "pass" and out == []
+    assert vc["evidence"]["loudest_pause_after_level_dbfs"] < R.CLEAN_FLOOR_MAX_DBFS
 
 
 def test_t1f_review_true_pauses_fall_back_to_the_floor_p90_when_there_are_too_few(film):
@@ -2801,3 +2828,78 @@ def test_t1f_review_voice_chop_is_speech_referenced_on_both_paths():
         out = R._journal_clean(j2, "LC", bad, 0.0)
         assert any("within 30 dB of the speech cut over 3 dB" in o for o in out), path
         assert lints(J.read(j2.path), "voice-chop")[0]["status"] == "fail"
+
+
+def _ungated_samples(rep, n):
+    keep = np.ones(n, bool)
+    for a, b in rep["pause_gate"]["regions_s"]:
+        keep[int(round(a * 48000)): int(round(b * 48000))] = False
+    return keep
+
+
+def test_t1f_pause_gate_leaves_every_sample_near_speech_identical(monkeypatch):
+    """Every sample outside the gated regions is the same with and without the
+    gate, and every gated sample lies 100 ms or more from any voiced frame."""
+    x, spans = _speechlike(seed=6, gap_s=0.8)
+    y, rep = R.clean_voice(x)
+    with monkeypatch.context() as m:
+        m.setattr(R, "CLEAN_PAUSE_GATE_DB", 0.0)
+        y0, _ = R.clean_voice(x)
+    pg = rep["pause_gate"]
+    assert pg["regions"] >= 5 and pg["gated_s"] > 1.0 and pg["depth_db"] == R.CLEAN_PAUSE_GATE_DB and pg["boost"] is False
+    keep = _ungated_samples(rep, len(y))
+    assert np.array_equal(y[keep], y0[keep])
+    assert np.all(np.abs(y[~keep]) <= np.abs(y0[~keep]) + 1e-12)               # never a boost
+    b = R.voice_floor(x)
+    _, _, voiced = R.true_pause_mask(x, b, R._live_frames(b["frames"], R.live_span(x)))
+    vs = np.zeros(len(y), bool)
+    for f in np.flatnonzero(voiced):
+        vs[max(0, f * 960 - 4800): f * 960 + 960 + 4800] = True                    # each voiced frame and 100 ms either side
+    assert not np.any(vs & ~keep)
+    for a, bb in spans:                                                         # each word, tail included, untouched
+        assert np.array_equal(y[a:bb], y0[a:bb])
+
+
+def test_t1f_pause_gate_turns_a_breath_in_a_true_pause_down_and_that_is_accepted():
+    """A breath (white, 10 dB over the hiss) 450 ms after a word is a true
+    pause by the flatness rule, so the gate turns it down by its full depth.
+    The founder's ask is silence between Tara's words; the breath goes too."""
+    rate = 48000
+    x, spans = _speechlike(seed=7, words=2, gap_s=1.2, hiss_db=-66.0)
+    a = spans[0][1] + int(0.45 * rate)
+    rng = np.random.default_rng(9)
+    x[a: a + int(0.25 * rate)] += rng.normal(0, 10 ** (-56 / 20), int(0.25 * rate)).astype(np.float32)
+    y, rep = R.clean_voice(x)
+    br = slice(a + 2400, a + int(0.25 * rate) - 2400)
+    assert _db(y[br]) - _db(x[br]) < -R.CLEAN_PAUSE_GATE_DB + 3                   # turned down by about the gate's depth
+    assert any(s0 * rate <= a and a + int(0.25 * rate) <= s1 * rate for s0, s1 in rep["pause_gate"]["regions_s"])
+    g, _ = R.level_gain(y, R.DIALOGUE_LUFS)
+    j = J.Journal(film="breath-gate")
+    assert R._journal_clean(j, "LB", rep, g) == []
+    dec = [e for e in J.read(j.path) if e["kind"] == "decision" and "pause gate" in e["what"]]
+    assert dec and dec[0]["evidence"]["gated_s"] == rep["pause_gate"]["gated_s"] and dec[0]["evidence"]["regions_s"]
+
+
+def test_t1f_a_pause_shorter_than_two_ramps_and_a_frame_is_left_as_it_is():
+    tp = np.zeros(40, bool)
+    tp[3:7] = True                                                              # 80 ms: two 40 ms ramps, no full-depth frame
+    tp[10:15] = True                                                            # 100 ms: gated
+    assert R.pause_regions(tp) == [(10, 15)]
+    y = np.ones(40 * 960, np.float32)
+    g, pg = R.pause_gate(y, R.pause_regions(tp))
+    assert np.array_equal(g[: 10 * 960], y[: 10 * 960]) and np.array_equal(g[15 * 960:], y[15 * 960:])
+    assert np.allclose(g[12 * 960: 13 * 960], 10 ** (-R.CLEAN_PAUSE_GATE_DB / 20))   # the core at full depth
+    assert pg["min_region_ms"] == 100 and pg["gated_s"] == 0.1
+
+
+def test_t1f_archival_audio_is_never_gated(tmp_path):
+    film = make_film(tmp_path / "film")
+    raw = _hissy(film / "audio" / "L2.wav", seed=1)
+    _edit_play(film, lambda p: next(ln for part in p["parts"] for ln in part.get("lines", []) if ln["id"] == "L2")
+               .update(archival_audio=True))
+    plan, j = _plan(film, "archival-gate")
+    mix, placed = R.build_mix(plan, film, j)
+    by = {ln["id"]: ln for ln in placed["lines"]}
+    at = int(round(by["L2"]["at_s"] * 48000))
+    assert np.array_equal(mix[at: at + len(raw)], raw[: len(mix) - at])
+    assert not [e for e in J.read(j.path) if e.get("unit") == "L2" and "pause gate" in e.get("what", "")]
