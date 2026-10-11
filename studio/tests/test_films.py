@@ -69,6 +69,12 @@ def base(tmp_path_factory):
         "synthetic": True, "test_fixture": True, "data_source": "ffmpeg testsrc2 and sine, test fixture",
         "telecined": False, "people": False, "shows_bodies": False, "transcript_file": "transcripts/fx-reel.txt"}),
         "footage-ledger.json")
+    # A21: once checked, every cited asset states its content flags true or false (missing is never read as false)
+    for ledger in ("stills-ledger.json", "footage-ledger.json"):
+        _edit(film, lambda d: [x.update(graphic_medical=False, named_patient=False, shows_violence=False) for x in d["items"]], ledger)
+    # no speaker lower third over the stills a test makes a patient (A21: over an unnamed patient, place and date only)
+    _edit(film, lambda p: (p["parts"][1]["text"].remove(next(t for t in p["parts"][1]["text"] if t["id"] == "T1")),
+                           p["subtitle_source"].remove(next(c for c in p["subtitle_source"] if c["ref"] == "T1"))))
     return film
 
 
@@ -168,6 +174,65 @@ def test_e3_an_unnamed_patient_is_given_by_place_and_date_only(film):
     assert consent and consent[0]["severity"] == "review" and consent[0]["evidence"]["consent_basis"] is None
 
 
+def test_e3_a_missing_or_unknown_flag_is_refused_never_read_as_false(film):
+    _edit(film, lambda p: p.update(imagery_rule=SHOW))
+    _edit(film, lambda d: _still(d, "FX-STILL-C").pop("graphic_medical"), "stills-ledger.json")
+    with pytest.raises(R.Refused, match=r"content-flags \(S5\)"):
+        _plan(film, "flag-missing")
+    _edit(film, lambda d: _still(d, "FX-STILL-C").update(graphic_medical="unknown (check)"), "stills-ledger.json")
+    with pytest.raises(R.Refused, match=r"content-flags \(S5\)"):
+        _plan(film, "flag-unknown")
+    _edit(film, lambda p: p.pop("imagery_rule"))
+    with pytest.raises(R.Refused, match=r"content-flags \(S5\)"):              # the item uses the schema: same under Partition
+        _plan(film, "flag-unknown-default")
+    rule = dict(POL.DEFAULT_IMAGERY_RULE, declared=False)
+    assert [c["rule"] for c in POL.asset_checks({"shows_bodies": False}, rule)] == ["no-bodies"]   # a Partition item: unchanged
+
+
+def test_e3_the_statement_is_tied_to_the_flags():
+    assert POL.imagery_rule({"imagery_rule": {"statement": "No footage or photograph of bodies, killing, wounds, or corpses"}})[1] == []
+    assert POL.imagery_rule({"imagery_rule": {}})[1] == []
+    probs = POL.imagery_rule({"imagery_rule": {"statement": "This film shows smallpox."}})[1]
+    assert probs and "no flag differs" in probs[0]                                # words the flags do not back
+    probs = POL.imagery_rule({"imagery_rule": {"show_disease": True,
+                                               "statement": "no footage or photograph of BODIES killing wounds or corpses!"}})[1]
+    assert probs and "needs its own statement" in probs[0]                        # the default's words over a changed rule
+    assert POL.imagery_rule({"imagery_rule": SHOW})[1] == []
+
+
+@pytest.mark.parametrize("lines, why", [
+    (["Fixture folder", "Test stand-in, 2026", "Fixture source, studio test folder  ·  read by a computer voice"], "two-line place"),
+    (["Fixture folder", "a hard year"], "line 2 is a date"),
+    (["Fixture speaker", "2026"], "names Fixture speaker"),                       # a cast name
+    (["Test Patient", "16 October 1975"], "names Test Patient"),                  # a name a ledger item lists
+])
+def test_e3_over_an_unnamed_patient_only_place_and_date(film, lines, why):
+    _edit(film, lambda p: p.update(imagery_rule=SHOW))
+    _patient(film, people=[{"name": "Test Patient"}])
+    _edit(film, lambda p: p["parts"][1]["text"].append({"id": "T9", "kind": "lower_third", "start_s": 11.9, "end_s": 14.0,
+                                                        "lines": lines}))
+    with pytest.raises(R.Refused, match=r"patient-lower-third \(T9\)") as e:
+        _plan(film, "lt-form")
+    assert why in str(e.value)
+    assert POL.DATE_LINE.match("16 October 1975") and POL.DATE_LINE.match("1973 to 1975") and POL.DATE_LINE.match("May 1974")
+
+
+def test_e3_a_name_is_matched_as_whole_words():
+    assert POL.says_name("Rahima Banu in her mother's arms", "Rahima Banu")
+    assert not POL.says_name("Annabel, Kuralia, 1975", "Ann") and POL.says_name("Ann, Kuralia, 1975", "ann")
+    rule = dict(POL.imagery_rule({"imagery_rule": SHOW})[0])
+    item = {"shows_bodies": False, "graphic_medical": True, "named_patient": True, "shows_violence": False,
+            "people": [{"name": "Ann"}], "title": "Annabel with her mother", "consent_basis": "test"}
+    assert not next(c for c in POL.asset_checks(item, rule) if c["rule"] == "patient-named-by-source")["ok"]
+
+
+def test_e3_a_patient_with_no_consent_basis_is_never_the_poster():
+    rule = POL.imagery_rule({"imagery_rule": SHOW})[0]
+    item = {"shows_bodies": False, "graphic_medical": True, "named_patient": False, "shows_violence": False, "minor": False}
+    assert "no consent_basis: never a poster" in POL.poster_problem(item, rule)
+    assert POL.poster_problem(dict(item, consent_basis="government film of a public campaign"), rule) is None
+
+
 def test_e3_a_declared_rule_states_itself_and_knows_its_keys(film):
     _edit(film, lambda p: p.update(imagery_rule={"show_disease": True}))
     with pytest.raises(R.Refused, match=r"imagery-rule-declared"):
@@ -184,7 +249,7 @@ def test_e3_the_poster_reads_the_films_rule(tmp_path):
     ledger = tmp_path / "stills.json"
     ledger.write_text(json.dumps({"items": [
         {"id": "S-7762", "title": "A girl of two, test", "licence": "public domain", "shows_bodies": False, "graphic_medical": True,
-         "named_patient": False, "minor": True, "consent_basis": "test"},
+         "named_patient": False, "shows_violence": False, "minor": True, "consent_basis": "test"},
         {"id": "S-1", "title": "a crowd", "licence": "public domain", "shows_bodies": False}]}), encoding="utf-8")
     poster = tmp_path / "poster.jpg"
     poster.write_bytes(b"jpg")
@@ -259,7 +324,7 @@ def test_e9_a_shortfall_names_a_card_that_states_it(film):
     assert [e["status"] for e in lints(j, "shortfall-stated")] == ["pass", "pass"]
     assert all(sf["stated"] for sf in plan["shortfalls"])
     found = lints(j, "shortfall-stated")[0]["evidence"]["found"]
-    assert found["numbers_matching"] and "recording" in found["names_it"]       # "one sixth" and "recordings"
+    assert found["numbers_of_it"] and "recording" in found["names_it"] and not found["stray_numbers"]       # "one sixth" and "recordings"
     _with_card_d(film, [SF_READ], ["The record holds no open-licence words of anyone who had smallpox."])
     with pytest.raises(R.Refused, match=r"shortfall-stated \(shortfall:readings\).*does not state it"):
         _plan(film, "card-silent")
@@ -269,8 +334,14 @@ def test_e9_a_shortfall_names_a_card_that_states_it(film):
     _with_card_d(film, [dict(SF_READ, floor=0.30)])
     with pytest.raises(R.Refused, match=r"is not the film's readings_floor"):
         _plan(film, "wrong-floor")
-    _with_card_d(film, [dict(SF_READ, stated_as="about one sixth of its running time")])
+    _with_card_d(film, [dict(SF_READ, stated_as="The readings and recordings in this film are about one sixth of its running time")])
     _plan(film, "stated-as")
+    _with_card_d(film, [dict(SF_READ, stated_as="The film says so rather than invent.")])
+    with pytest.raises(R.Refused, match=r"stated_as is not on the card, or does not itself"):
+        _plan(film, "stated-as-says-nothing")
+    _with_card_d(film, [SF_READ], [CARD_D[0], "The readings in this film are 25 percent of its running time, under a fifth."])
+    with pytest.raises(R.Refused, match=r"prints 25.0%, which is no measured share"):
+        _plan(film, "card-false-number")
     _with_card_d(film, [dict(SF_READ, stated_as="a sixth of the film")])
     with pytest.raises(R.Refused, match=r"shortfall-stated"):
         _plan(film, "stated-as-missing")
@@ -307,7 +378,12 @@ def test_e9_a_stated_shortfall_becomes_a_review_item_and_an_unstated_one_refuses
     out = R.sound_lints(J.Journal(film="sf-unstated"), _event(plan, shortfalls=[]), MIX, _placed(0.16))
     assert any(o.startswith("readings-floor") and "'min': 0.2" in o for o in out)
     out = R.sound_lints(J.Journal(film="sf-false"), event, MIX, _placed(0.10))   # the card says a sixth; the film has a tenth
-    assert any("says 0.16; the film measures 0.1" in o for o in out)
+    assert any("says 0.16, " in o and "the film measures 0.1 " in o for o in out)
+    # the card prints "one sixth" (16.7%): at 13.5% the declared 16% is within 3 points, the printed sixth is not
+    printed = _event(plan, shortfalls=[dict(SF_READ, stated=True, card_numbers=[1 / 6])])
+    out = R.sound_lints(J.Journal(film="sf-card-false"), printed, MIX, _placed(0.135))
+    assert any("says 0.166667; the film measures 0.135" in o for o in out)
+    assert R.sound_lints(J.Journal(film="sf-card-true"), printed, MIX, _placed(0.15)) == []
     j2 = J.Journal(film="sf-met")
     assert R.sound_lints(j2, event, MIX, _placed(0.25)) == []
     assert lints(j2, "shortfall-measured")[0]["severity"] == "warn"              # the card would claim a shortfall: said
@@ -336,7 +412,7 @@ def test_e9_the_womens_floor_is_a_review_item_until_a_film_states_it(film):
     placed = _placed(0.25, women_s=30.0)                                          # women 12% of testimony
     j = J.Journal(film="women-partition")
     assert R.sound_lints(j, _event(plan), MIX, placed) == []                      # T1f: the engine did not lint 6.5
-    assert lints(j, "women-floor")[0]["severity"] == "review"
+    assert not lints(j, "women-floor")                                            # nor journals it, for a film that states nothing
     stated = _event(plan, settings_stated={"women_floor": 0.30})
     out = R.sound_lints(J.Journal(film="women-stated"), stated, MIX, placed)
     assert any(o.startswith("women-floor") for o in out)
@@ -355,7 +431,7 @@ ARCH_LINE = {"id": "A1", "kind": "testimony", "speaker": "sp-reel", "year": 2026
              "in_s": 1.0, "out_s": 2.5, "start_s": 17.9, "text": ARCH_TEXT, "source": "FX-REEL",
              "transcript_source": "fixture transcript (transcripts/fx-reel.txt)"}
 ARCH_LT = {"id": "T3", "kind": "lower_third", "start_s": 17.9, "end_s": 19.4,
-           "lines": ["Fixture reel", "Test reel, 2026", "Fixture reel, studio test folder  ·  original recording"]}
+           "lines": ["Fixture reel, original narration", "Test reel, 2026", "Fixture reel, studio test folder  ·  original recording"]}
 
 
 def _archival(film, line=None, lt=None, cue=None):
@@ -388,6 +464,11 @@ def test_e11_an_archival_span_line_passes_its_lints(film):
     ({"cue": {"en": "The reel speaks, in its own words."}}, "archival-subtitles"),
     ({"lt": {"lines": ["Fixture reel", "Test reel, 2026", "Fixture reel  ·  read by a computer voice"]}}, "archival-lower-third"),
     ({"line": {"out_s": 99.0}}, "archival-span"),
+    ({"lt": {"lines": ["Someone else", "Test reel, 2026", "Fixture reel, studio test folder  ·  original recording"]}},
+     "archival-lower-third"),
+    ({"lt": {"lines": ["Fixture reel, original narration", "Test reel, 2026", "National Library of Medicine  ·  original recording"]}},
+     "archival-lower-third"),
+    ({"line": {"in_s": 5.0, "out_s": 6.5}}, "archival-transcript"),         # the words are in the transcript, at 1 to 4 s
     ({"line": {"mark": "RECONSTRUCTED"}}, "archival-span"),
     ({"line": {"transcript_source": None}}, "archival-transcript"),
 ])
@@ -455,3 +536,49 @@ def test_e11_a_long_reel_is_trimmed_to_a_cached_span_before_conform(film, monkey
         b.close()
     again = R.cached_span(film, s6["_item"]["_path"], 3.0, 6.0, video=True, pad_s=R.SPAN_PAD_S)
     assert again["sha256"] == sp["sha256"] and len(list((film / "cache" / "spans").glob("*.mkv"))) == 1   # cut once
+
+
+def test_e11_an_untimed_transcript_cannot_place_a_span(film):
+    (film / "transcripts" / "fx-reel.txt").write_text("The reel speaks for itself, in its own words.\n", encoding="utf-8")
+    _archival(film)
+    with pytest.raises(R.Refused, match=r"archival-transcript \(A1\)"):
+        _plan(film, "untimed")
+    assert R.transcript_cues(film / "transcripts" / "fx-reel.txt") == []         # no cue times: no span can be placed in it
+
+
+def test_e11_transcript_cues_read_nlm_vtt_and_srt(tmp_path):
+    f = tmp_path / "t.vtt"
+    f.write_text("WEBVTT\n\n00:01.000 --> 00:02.500 line:62%\nFirst words\nacross two lines\n\n"
+                 "00:00:03,000 --> 00:00:04,000\n[Music] second\n", encoding="utf-8")
+    assert R.transcript_cues(f) == [(1.0, 2.5, "First words across two lines"), (3.0, 4.0, "second")]
+    assert R.transcript_window(R.transcript_cues(f), 0.5, 1.5) == "First words across two lines"
+
+
+def test_e11_an_audio_only_clip_is_measured_too(film):
+    from conftest import tone
+    tone(film / "footage" / "fx-audio.wav", 3.0)
+    _edit(film, lambda d: d["items"].append({"id": "FX-AUDIO", "file": "fx-audio.wav", "title": "Test tone, test fixture",
+                                             "date": "2026", "archive": "studio test fixture", "licence": "CC0", "synthetic": True,
+                                             "transcript_file": "transcripts/fx-reel.txt"}), "footage-ledger.json")
+    _archival(film, line={"clip": "FX-AUDIO", "in_s": 1.0, "out_s": 4.0})
+    with pytest.raises(R.Refused, match=r"archival-span \(A1\).*past the clip's end"):
+        _plan(film, "audio-past-end")
+    _edit(film, lambda p: next(l for l in p["parts"][1]["lines"] if l["id"] == "A1").update(out_s=2.5))
+    _plan(film, "audio-in-range")
+
+
+def test_e11_a_line_gain_never_lifts_an_archival_span_past_the_ceiling(film):
+    _archival(film, line={"gain_db": 30.0})
+    plan, j = _plan(film, "arch-gain")
+    mix, placed = R.build_mix(plan, film, j)
+    seg = mix[int(17.9 * 48000): int(19.4 * 48000)]
+    assert R._measure_line(seg)["input_tp"] <= R.VOICE_TP + 0.2                   # never limited, so held back instead
+
+
+def test_e11_a_cached_span_whose_bytes_changed_is_cut_again(film):
+    src = film / "footage" / "fx-reel.mp4"
+    first = R.cached_span(film, src, 1.0, 2.5, video=False)
+    Path(first["file"]).write_bytes(b"RIFF" + b"\0" * 64)                       # exFAT ate it
+    again = R.cached_span(film, src, 1.0, 2.5, video=False)
+    assert again["file"] == first["file"] and R.sha256_file(Path(again["file"])) == first["sha256"]
+    assert first["edges"] == R.edge_digest(src)

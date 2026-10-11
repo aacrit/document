@@ -16,7 +16,8 @@ these were settings:
   GRAMMAR 2.6).
 - ``shortfalls``: ``[{what, measured, floor, stated_on, stated_as?}]``. A share
   under its floor passes as a journaled review item only when it is declared
-  here and the card named by ``stated_on`` states it in words a viewer reads.
+  here and the card named by ``stated_on`` states it in words a viewer reads,
+  and every share that card prints is one the film measures.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ DEFAULT_IMAGERY_RULE = {
     "show_disease": False,                    # graphic_medical: true is refused
     "show_bodies": False,                     # shows_bodies must be stated false on every cited asset (GRAMMAR 1.6)
     "show_violence": False,                   # shows_violence: true is refused
-    "name_only_where_source_names": True,     # a named patient is named only as the source's own caption names them
+    "name_only_where_source_names": True,     # a patient is named only where the source's own caption names them
     "min_hold_s": 8.0,                        # a patient still is held at least this long (A10's face hold)
     "no_detail_on_face": True,                # no DETAIL move on a patient's face
     "no_dissolve_into_patient": True,         # a patient shot is never the second half of a dissolve from another subject
@@ -43,14 +44,28 @@ RULE_TYPES = {"show_disease": bool, "show_bodies": bool, "show_violence": bool, 
               "no_detail_on_face": bool, "no_dissolve_into_patient": bool, "min_hold_s": (int, float, type(None)),
               "statement": str}
 CONTENT_FIELDS = ("graphic_medical", "shows_bodies", "shows_violence", "named_patient", "minor", "consent_basis", "people")
+# flags every cited asset states true or false once the film states a rule or the asset uses the content schema
+REQUIRED_FLAGS = ("graphic_medical", "named_patient", "shows_violence")
 # words a lower third never uses for an unnamed patient (the founder's imagery rule 4 for Nought): place and date only
 PATIENT_WORDS = re.compile(r"\b(victims?|sufferers?|afflicted|stricken)\b", re.I)
+_MONTH = r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
+_DATE1 = rf"(?:(?:\d{{1,2}} )?{_MONTH} )?\d{{4}}s?"
+# line 2 of a place lower third over an unnamed patient: a date as a caption gives it, and nothing else
+DATE_LINE = re.compile(rf"^(?:about |c\. ?)?{_DATE1}(?:(?: to |-){_DATE1})?$", re.I)
+
+
+def statement_key(text) -> str:
+    """A statement for comparison: lower case, words and digits only."""
+    return re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).strip()
 
 
 def imagery_rule(play: dict) -> tuple[dict, list[str]]:
     """The film's imagery rule with the default filled in, and what is wrong
-    with the declared one (unknown keys, wrong types, a declared rule that
-    differs from the default without a statement for the sources page)."""
+    with the declared one (unknown keys, wrong types). The printed statement
+    is tied to the flags: when no flag differs from the default it is absent
+    or the default's own words; when any flag differs it must be the film's
+    own words, never the default's (compared with case, spacing and
+    punctuation set aside)."""
     declared = play.get("imagery_rule")
     rule = dict(DEFAULT_IMAGERY_RULE)
     problems: list[str] = []
@@ -74,9 +89,15 @@ def imagery_rule(play: dict) -> tuple[dict, list[str]]:
         rule[k] = v
     if rule["min_hold_s"] is not None and (not math.isfinite(float(rule["min_hold_s"])) or float(rule["min_hold_s"]) < 0):
         problems.append(f"min_hold_s must be 0 or more, not {rule['min_hold_s']!r}")
-    differs = any(rule[k] != DEFAULT_IMAGERY_RULE[k] for k in RULE_TYPES if k != "statement")
-    if differs and (not str(declared.get("statement") or "").strip() or rule["statement"] == PARTITION_STATEMENT):
-        problems.append("a rule that differs from GRAMMAR 1.6 needs its own statement, in plain words, for the sources page")
+    differs = [k for k in RULE_TYPES if k != "statement" and rule[k] != DEFAULT_IMAGERY_RULE[k]]
+    said = statement_key(declared.get("statement"))
+    default = statement_key(PARTITION_STATEMENT)
+    if differs and (not said or said == default):
+        problems.append(f"the rule differs from GRAMMAR 1.6 ({', '.join(differs)}) and needs its own statement, in plain "
+                        "words, for the sources page")
+    if not differs and said and said != default:
+        problems.append("the statement says something the flags do not: no flag differs from GRAMMAR 1.6, so the "
+                        "statement is absent or 1.6's own words")
     return dict(rule, declared=True), problems
 
 
@@ -90,8 +111,8 @@ def carries_content_fields(item: dict | None) -> bool:
     return bool(item) and any(k in item for k in CONTENT_FIELDS if k not in ("shows_bodies", "people"))
 
 
-def _names(item: dict) -> list[str]:
-    people = item.get("people")
+def names_of(item: dict | None) -> list[str]:
+    people = (item or {}).get("people")
     if not isinstance(people, list):
         return []
     out = []
@@ -106,6 +127,12 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", str(text or "")).strip().lower()
 
 
+def says_name(text: str, name: str) -> bool:
+    """The name, as whole words, in the text (case and spacing set aside)."""
+    n = _norm(name)
+    return bool(n) and re.search(rf"(?<!\w){re.escape(n)}(?!\w)", _norm(text)) is not None
+
+
 def bodies_value(item: dict):
     """The ledger's shows_bodies, or the older shows_violence_or_bodies."""
     return item.get("shows_bodies", item.get("shows_violence_or_bodies"))
@@ -116,34 +143,37 @@ def asset_checks(item: dict, rule: dict) -> list[dict]:
     ``{rule, ok, severity, evidence}``. ``no-bodies`` is always present (the
     Partition lint, unchanged under the default rule); the others appear only
     when the asset uses the content schema or the film states its own rule,
-    so a film on the default rule journals exactly what it did before."""
+    so a film on the default rule journals exactly what it did before. Then
+    graphic_medical, named_patient and shows_violence are stated true or false
+    on the asset: a missing or "unknown" flag is refused, never read as false."""
     out = []
     bodies = bodies_value(item)
     if rule["show_bodies"]:
-        out.append({"rule": "no-bodies", "ok": True, "severity": "block",
-                    "evidence": {"shows_bodies": bodies, "imagery_rule": "show_bodies: true (the film's rule)"}})
+        out.append({"rule": "no-bodies", "ok": bodies in (True, False), "severity": "block",
+                    "evidence": {"shows_bodies": bodies, "imagery_rule": "show_bodies: true (the film's rule)",
+                                 "why": None if bodies in (True, False) else "shows_bodies must be stated true or false"}})
     else:
         out.append({"rule": "no-bodies", "ok": bodies is False, "severity": "block", "evidence": {"shows_bodies": bodies}})
     if not (rule.get("declared") or carries_content_fields(item)):
         return out
+    unstated = {k: item.get(k, "(absent)") for k in REQUIRED_FLAGS if item.get(k) not in (True, False)}
+    out.append({"rule": "content-flags", "ok": not unstated, "severity": "block",
+                "evidence": {"unstated": unstated, "why": None if not unstated else
+                             "stated true or false on every cited asset once checked; missing or unknown is never read as false"}})
     gm = item.get("graphic_medical")
     ev = {"graphic_medical": gm, "show_disease": rule["show_disease"]}
-    if gm not in (None, True, False):
-        out.append({"rule": "imagery-rule", "ok": False, "severity": "block",
-                    "evidence": dict(ev, why=f"graphic_medical must be true or false once checked, not {gm!r}")})
-    elif gm is True and not rule["show_disease"]:
+    if gm is True and not rule["show_disease"]:
         out.append({"rule": "imagery-rule", "ok": False, "severity": "block",
                     "evidence": dict(ev, why="the film's imagery rule does not show disease")})
     else:
         out.append({"rule": "imagery-rule", "ok": True, "severity": "block", "evidence": ev})
-    viol = item.get("shows_violence")
-    if viol is True and not rule["show_violence"]:
+    if item.get("shows_violence") is True and not rule["show_violence"]:
         out.append({"rule": "imagery-rule", "ok": False, "severity": "block",
                     "evidence": {"shows_violence": True, "why": "the film's imagery rule does not show violence"}})
     if item.get("named_patient") is True and rule["name_only_where_source_names"]:
-        names = _names(item)
-        caption = _norm(" ".join(str(item.get(k) or "") for k in ("title", "caption")))
-        unnamed = [n for n in names if _norm(n) not in caption]
+        names = names_of(item)
+        caption = " ".join(str(item.get(k) or "") for k in ("title", "caption"))
+        unnamed = [n for n in names if not says_name(caption, n)]
         ok = bool(names) and not unnamed
         out.append({"rule": "patient-named-by-source", "ok": ok, "severity": "block",
                     "evidence": {"people": names, "not_in_caption": unnamed, "caption": item.get("caption") or item.get("title"),
@@ -163,26 +193,33 @@ def asset_checks(item: dict, rule: dict) -> list[dict]:
 
 def poster_problem(item: dict, rule: dict) -> str | None:
     """Why a still cannot be the poster under the film's rule, or None. Under
-    the default rule this is the Partition poster rule, word for word."""
+    the default rule this is the Partition poster rule, word for word. A
+    patient with no consent_basis is never the poster, whatever its age."""
     for c in asset_checks(item, rule):
         if c["ok"] or c["severity"] != "block":
             continue
-        if c["rule"] == "no-bodies":
+        if c["rule"] == "no-bodies" and not rule["show_bodies"]:
             return (f"is not recorded as showing no bodies or violence (shows_bodies: {c['evidence']['shows_bodies']!r}): "
                     "never a poster")
         why = c["evidence"].get("why") or c["evidence"].get("fix") or c["rule"]
         return f"fails the film's imagery rule ({c['rule']}: {why}): never a poster"
+    if is_patient(item) and not str(item.get("consent_basis") or "").strip():
+        return "shows a patient and states no consent_basis: never a poster"
     return None
 
 
-def patient_shot_checks(shots: list[dict], assets: dict, rule: dict, lower_thirds: list[dict]) -> list[dict]:
+def patient_shot_checks(shots: list[dict], assets: dict, rule: dict, lower_thirds: list[dict],
+                        cast_names: list[str] | tuple = ()) -> list[dict]:
     """The shot-level half of the rule, for patient shots only: the hold of a
     patient still (shots of one asset joined by a cut or a dissolve are one
     hold), no DETAIL on a patient still unless the shot says ``face: false``,
-    no dissolve into a patient shot from another subject, and no
-    characterising word in a lower third over an unnamed patient."""
+    no dissolve into a patient shot from another subject. Over a patient the
+    source does not name, the only lower third accepted is the two-line place
+    form, place then a date, naming nobody: no name from the shot's people[],
+    the cast or any ledger item, and no characterising word."""
     out = []
     holds: list[list[dict]] = []
+    ledger_names = [n for it in assets.values() for n in names_of(it)]
     prev = None
     for s in shots:
         item = assets.get(s.get("asset")) if s.get("asset") else None
@@ -206,15 +243,27 @@ def patient_shot_checks(shots: list[dict], assets: dict, rule: dict, lower_third
                 holds[-1].append(s)
             else:
                 holds.append([s])
-        if patient:
+        if patient and item.get("named_patient") is not True and rule["name_only_where_source_names"]:
             a, b = float(s["start_s"]), float(s["start_s"]) + float(s["_dur"])
+            forbidden = sorted(set(names_of(item) + list(cast_names) + ledger_names))
             for lt in lower_thirds:
-                if lt["start"] < b and lt["end"] > a and item.get("named_patient") is not True:
-                    words = sorted({m.group(0).lower() for ln in lt["lines"] for m in PATIENT_WORDS.finditer(ln)})
-                    if words and rule["name_only_where_source_names"]:
-                        out.append({"rule": "patient-lower-third", "ok": False, "unit": lt["id"], "severity": "block",
-                                    "evidence": {"shot": s["id"], "words": words, "lines": lt["lines"],
-                                                 "fix": "an unnamed patient is given by place and date only"}})
+                if not (lt["start"] < b and lt["end"] > a):
+                    continue
+                lines = list(lt["lines"])
+                why = []
+                if len(lines) != 2 or lt.get("flag"):
+                    why.append("only the two-line place form (place, then date) over a patient the source does not name")
+                elif not DATE_LINE.match(lines[1].strip()):
+                    why.append(f"line 2 is a date as the caption gives it, not {lines[1]!r}")
+                named = [n for n in forbidden if any(says_name(ln, n) for ln in lines)]
+                if named:
+                    why.append(f"names {', '.join(named)}")
+                words = sorted({m.group(0).lower() for ln in lines for m in PATIENT_WORDS.finditer(ln)})
+                if words:
+                    why.append(f"characterises the patient ({', '.join(words)})")
+                out.append({"rule": "patient-lower-third", "ok": not why, "unit": lt["id"], "severity": "block",
+                            "evidence": {"shot": s["id"], "lines": lines, "problems": why,
+                                         "fix": None if not why else "an unnamed patient is given by place and date only"}})
         prev = s
     if rule["min_hold_s"] is not None:
         for h in holds:
@@ -239,7 +288,8 @@ SETTING_BOUNDS = {                        # what GRAMMAR allows a film to set
     "ai_generated_share_max": (0.0, 0.15),   # 2.6 and A2: at most 15% of runtime
 }
 SHORTFALL_WHAT = {"readings": "readings_floor", "voiceless": "voiceless_floor", "women": "women_floor"}
-SHORTFALL_TOL = 0.03                      # a stated share within 3 points of the measured one
+SHORTFALL_TOL = 0.03                      # a printed share within 3 points of the measured one
+FLOOR_EXACT = 0.005                       # a printed share that is the floor itself ("under the fifth the grammar asks")
 SHORTFALL_WORDS = {
     "readings": ("reading", "recording", "testimony", "first-person", "first person", "own words"),
     "voiceless": ("silence", "silent", "voiceless", "no voice", "without a voice"),
@@ -278,34 +328,55 @@ def film_settings(play: dict) -> tuple[dict, dict, list[str]]:
     return settings, stated, problems
 
 
-def _numbers(text: str) -> list[float]:
-    """Shares a card states: '16 percent', '16%', '16 per cent', and fractions ('one sixth', 'a fifth')."""
-    t = text.lower()
+def printed_shares(text: str) -> list[float]:
+    """Shares a text prints: '16 percent', '16%', '16 per cent', and fractions ('one sixth', 'a fifth')."""
+    t = str(text or "").lower()
     out = [float(m.group(1)) / 100 for m in re.finditer(r"(\d+(?:\.\d+)?)\s*(?:%|per\s*cent|percent)", t)]
     for word, v in FRACTIONS.items():
-        if re.search(rf"\b{word}s?\b", t):
-            out.append(v)
+        out += [v] * len(re.findall(rf"\b{word}s?\b", t))
     return out
 
 
-def shortfall_stated(sf: dict, card_text: str) -> tuple[bool, dict]:
-    """Does the card's text state this shortfall? With ``stated_as``, that
-    phrase must be on the card. Otherwise the card names what is short (a word
-    for readings, voiceless or women) and says it is short: a share within 3
-    points of the measured or the floor, or a word of shortfall."""
-    text = _norm(card_text)
-    what = sf.get("what")
+def _share(x) -> float | None:
+    return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) else None
+
+
+def _states(sf: dict, text: str, siblings: list[dict]) -> tuple[bool, dict]:
+    """The word-and-number test on one text: it names what is short, says it
+    is short (a share within 3 points of the measured one, or a word of
+    shortfall), and prints no share that is neither a measured share of a
+    shortfall stated on this card (within 3 points) nor one of their floors."""
+    t = _norm(text)
+    measured = [m for m in (_share(s.get("measured")) for s in siblings) if m is not None]
+    floors = [f for f in (_share(s.get("floor")) for s in siblings) if f is not None]
+    nums = printed_shares(t)
+    stray = [n for n in nums if not any(abs(n - m) <= SHORTFALL_TOL for m in measured)
+             and not any(abs(n - f) <= FLOOR_EXACT for f in floors)]
+    m0 = _share(sf.get("measured"))
+    mine = [n for n in nums if m0 is not None and abs(n - m0) <= SHORTFALL_TOL]
+    names = [w for w in SHORTFALL_WORDS.get(sf.get("what"), ()) if w in t]
+    short = [w for w in SHORT_WORDS if re.search(rf"\b{w}\b", t)]
+    ok = bool(names) and bool(mine or short) and not stray
+    return ok, {"names_it": names, "numbers_on_card": [round(n, 4) for n in nums], "numbers_of_it": [round(n, 4) for n in mine],
+                "stray_numbers": [round(n, 4) for n in stray], "shortfall_words": short}
+
+
+def shortfall_stated(sf: dict, card_text: str, siblings: list[dict] | None = None) -> tuple[bool, dict]:
+    """Does the card's text state this shortfall truthfully? The card names
+    what is short and says it is short, and every share it prints is the
+    measured share of a shortfall it states (within 3 points) or that
+    shortfall's floor. With ``stated_as``, that phrase is on the card and
+    passes the same test on its own. ``how["numbers_of_it"]`` are the card's
+    shares for this shortfall, which the mix checks against the film."""
+    siblings = siblings or [sf]
+    ok, how = _states(sf, card_text, siblings)
     if sf.get("stated_as"):
         phrase = _norm(sf["stated_as"])
-        return phrase in text, {"stated_as": sf["stated_as"], "found": phrase in text}
-    words = [w for w in SHORTFALL_WORDS.get(what, ()) if w in text]
-    nums = _numbers(text)
-    targets = [float(sf[k]) for k in ("measured", "floor") if isinstance(sf.get(k), (int, float)) and not isinstance(sf.get(k), bool)]
-    matched = [n for n in nums if any(abs(n - t) <= SHORTFALL_TOL for t in targets)]
-    short = [w for w in SHORT_WORDS if re.search(rf"\b{w}\b", text)]
-    ok = bool(words) and bool(matched or short)
-    return ok, {"names_it": words, "numbers_on_card": [round(n, 4) for n in nums], "numbers_matching": [round(n, 4) for n in matched],
-                "shortfall_words": short}
+        own_ok, own = _states(sf, phrase, siblings)
+        on_card = phrase in _norm(card_text)
+        how = dict(how, stated_as=sf["stated_as"], stated_as_on_card=on_card, stated_as_test=own)
+        ok = ok and on_card and own_ok
+    return ok, how
 
 
 def shortfall_problems(sf: dict, settings: dict) -> list[str]:
@@ -319,12 +390,12 @@ def shortfall_problems(sf: dict, settings: dict) -> list[str]:
         return out
     for k in ("measured", "floor"):
         v = sf.get(k)
-        if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= float(v) <= 1:
+        if _share(v) is None or not 0 <= float(v) <= 1:
             out.append(f"{k} must be a share from 0 to 1, not {v!r}")
     floor = settings[SHORTFALL_WHAT[what]]
-    if isinstance(sf.get("floor"), (int, float)) and abs(float(sf["floor"]) - floor) > 1e-6:
+    if _share(sf.get("floor")) is not None and abs(float(sf["floor"]) - floor) > 1e-6:
         out.append(f"floor {sf['floor']:g} is not the film's {SHORTFALL_WHAT[what]} ({floor:g})")
-    if isinstance(sf.get("measured"), (int, float)) and isinstance(sf.get("floor"), (int, float)) and sf["measured"] >= sf["floor"]:
+    if _share(sf.get("measured")) is not None and _share(sf.get("floor")) is not None and sf["measured"] >= sf["floor"]:
         out.append(f"measured {sf['measured']:g} is not under the floor {sf['floor']:g}: nothing is short")
     if not sf.get("stated_on"):
         out.append("stated_on must name the card shot that states it")
