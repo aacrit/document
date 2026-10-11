@@ -2515,6 +2515,9 @@ def _spoken(kind, a, b):
     (19.0, [("narration", 0.0, 3.0), ("narration", 15.0, 19.0)], False),        # narration plus a 12 s pause
     (19.0, [("narration", 0.0, 8.0), ("narration", 8.5, 9.5), ("narration", 9.2, 12.0)], True),  # 7 s silent at the end
     (29.0, [("testimony", 0.5, 10.0), ("narration", 9.0, 19.5)], True),         # overlapping spans merge; 9.5 s silent
+    (25.0, [("testimony", -5.0, 0.2), ("narration", 0.5, 24.8)], False),        # T1f review: a reading's 0.2 s tail does not
+    (25.0, [("testimony", -5.0, 5.2), ("narration", 5.5, 24.8)], True),         # lift a narrated still to 30 s; 19.8 s unread is fine
+    (30.5, [("testimony", 0.0, 30.5)], False),                                   # a hold is at most 30 s, read or not
 ])
 def test_a20a_a_still_holds_by_what_is_spoken_over_it(dur, lines, ok):
     plan = _still_plan(dur)
@@ -2540,7 +2543,11 @@ def test_a20a_stills_of_one_asset_are_one_hold_and_a_detail_is_at_most_5_s():
     dissolved = [dict(shots[0]), dict(shots[1], start_s=7.25, transition_in={"type": "dissolve", "s": 0.75})]
     assert R.still_holds({"shots": dissolved}, {"lines": []})[0]["shots"] == ["P1", "P2"]
     dipped = [dict(shots[0]), dict(shots[1], transition_in={"type": "dip", "s": 0.5})]
-    assert [x["shots"] for x in R.still_holds({"shots": dipped}, {"lines": []})] == [["P1"], ["P2"]]
+    hdip = R.still_holds({"shots": dipped}, {"lines": []})
+    assert [x["shots"] for x in hdip] == [["P1", "P2"]] and [x["shots"] for x in hdip[0]["holds"]] == [["P1"], ["P2"]]
+    assert hdip[0]["longest_voiceless_s"] == 16.0 and hdip[0]["ok"] is False   # a dip does not reset the 10 s silence
+    talk = {"lines": [_spoken("narration", 0.5, 7.5), _spoken("narration", 8.5, 15.5)]}
+    assert R.still_holds({"shots": dipped}, talk)[0]["ok"] is True
     narr = {"lines": [_spoken("narration", 0.5, 15.5)]}
     assert R.still_holds({"shots": shots[:2]}, narr)[0]["ok"] is True              # one 16 s hold under narration
     detail = [dict(shots[0]), dict(shots[1], end_s=14.0, preset="DETAIL")]
@@ -2570,7 +2577,7 @@ def test_a20a_a_final_render_with_a_silent_still_over_10_s_is_refused(tmp_path):
                 c["end_s"] += 8.0
     _edit_play(film, stretch)
     from studio.engine.render import render
-    with pytest.raises(R.Refused, match=r"still-hold \(S5: 11 s, at most 10 s with no voice over it"):
+    with pytest.raises(R.Refused, match=r"still-hold \(S5: 11 s with no voice"):
         render(film, tmp_path / "out", height=360, workers=1, min_free_gb=1, encode_preset="veryfast", audio_only=True)
 
 
@@ -2578,7 +2585,7 @@ def test_a20a_the_still_hold_lint_runs_on_the_fixture_and_passes(plan):
     placed = {"lines": [_spoken("narration", 5.0, 7.0)]}
     holds = R.still_holds(plan, placed)
     assert {h["id"] for h in holds} == {"S3", "S4", "S5"} and all(h["ok"] for h in holds)
-    assert next(h for h in holds if h["id"] == "S3")["voices"] == ["narration"]
+    assert next(h for h in holds if h["id"] == "S3")["longest_voiceless_s"] < 4.0          # L1 speaks over S3
 
 
 def test_a19_a_zero_padded_noisy_take_now_fails_voice_clean():
@@ -2672,7 +2679,8 @@ def test_t1f_an_unsteady_floor_takes_the_denoise_only_path_and_passes_when_low()
     dec = [e for e in evs if e["kind"] == "decision" and e.get("unit") == "LQ" and "denoise alone" in e["what"]]
     assert len(dec) == 1 and dec[0]["evidence"]["first_pass"]["floor_spread_db"] > R.CLEAN_FLOOR_SPREAD_MAX_DB
     vc = [e for e in lints(evs, "voice-chop") if e["unit"] == "LQ"][0]
-    assert vc["status"] == "pass" and vc["evidence"]["path"] == "denoise-only" and vc["evidence"]["share"] == 0.0
+    assert vc["status"] == "pass" and vc["evidence"]["path"] == "denoise-only" and vc["evidence"]["floor_referenced"]["share"] == 0.0
+    assert vc["evidence"]["speech_chop_share"] <= R.CLEAN_CHOP_MAX_SHARE
     assert vc["evidence"]["floor_spread_db"] == rep["floor_spread_db"]                      # journaled, not refused
     assert [e for e in lints(evs, "voice-clean") if e["unit"] == "LQ"][0]["status"] == "pass"
 
@@ -2715,3 +2723,81 @@ def test_t1f_an_e_r01_like_take_with_too_few_pauses_is_refused_whatever_its_floo
         out = R._journal_clean(j, "LR", rep, lift)
         assert any("no pause quiet enough to measure" in o for o in out)
         assert lints(J.read(j.path), "voice-chop")[0]["status"] == "fail"
+
+
+def _hiss_in_pauses(burst_db, gaps=6, seed=3):
+    """The reviewer's attack.py: a clean take with white hiss filling its pauses after each word's tail."""
+    x, spans = _speechlike(seed=seed, hiss_db=-110.0)
+    rng = np.random.default_rng(9)
+    for i in range(gaps):
+        a = spans[i][1] + int(0.12 * 48000)
+        b = spans[i + 1][0] if i + 1 < len(spans) else len(x)
+        x[a:b] += rng.normal(0, 10 ** (burst_db / 20), b - a).astype(np.float32)
+    return x
+
+
+def _one_quiet_stretch(burst_db, quiet_s, seed=3):
+    """The reviewer's attack2.py: white hiss everywhere but one 0.4 to 0.5 s stretch at -92 dBFS (an unsteady floor)."""
+    x, spans = _speechlike(seed=seed, hiss_db=-110.0)
+    rng = np.random.default_rng(9)
+    hiss = rng.normal(0, 10 ** (burst_db / 20), len(x)).astype(np.float32)
+    q0 = spans[2][1] + int(0.12 * 48000)
+    q1 = q0 + int(quiet_s * 48000)
+    hiss[q0:q1] = rng.normal(0, 10 ** (-92 / 20), q1 - q0)
+    return x + hiss
+
+
+def _verdict(x, name):
+    y, rep = R.clean_voice(x)
+    g, _ = R.level_gain(y, R.DIALOGUE_LUFS)
+    j = J.Journal(film=name)
+    out = R._journal_clean(j, "LT", rep, g)
+    evs = J.read(j.path)
+    return rep, out, lints(evs, "voice-clean")[-1], lints(evs, "voice-chop")[-1]
+
+
+@pytest.mark.parametrize("quiet_s,burst_db", [(0.4, -55), (0.4, -62), (0.5, -55)])
+def test_t1f_review_denoise_only_cannot_pass_hiss_in_the_pauses(quiet_s, burst_db):
+    """Blocker 1 (attack2.py): one quiet stretch made the floor unsteady, the
+    take went denoise-only and passed with its pauses at -53 dBFS levelled."""
+    rep, out, vc, _ = _verdict(_one_quiet_stretch(burst_db, quiet_s), f"attack2-{quiet_s}-{-burst_db}")
+    assert rep["path"] == "denoise-only"
+    assert vc["status"] == "fail" and vc["evidence"]["true_pause_after_level_dbfs"] > R.CLEAN_FLOOR_MAX_DBFS
+    assert any("true pauses" in o for o in out)
+
+
+@pytest.mark.parametrize("burst_db", [-55, -60, -65])
+def test_t1f_review_the_expander_cannot_pass_hiss_in_every_pause(burst_db):
+    """attack.py: a steady floor of -110 between words that are each followed
+    by white hiss. The quietest 10% stayed clean, so voice-clean passed; the
+    true pauses hear the hiss. At -55 the hiss is within 30 dB of the speech,
+    and only its flatness (white noise) keeps it from counting as speech."""
+    rep, out, vc, _ = _verdict(_hiss_in_pauses(burst_db), f"attack-{-burst_db}")
+    assert rep["path"] == "expander" and vc["status"] == "fail"
+    assert vc["evidence"]["true_pause_after_level_dbfs"] > R.CLEAN_FLOOR_MAX_DBFS
+
+
+def test_t1f_review_true_pauses_fall_back_to_the_floor_p90_when_there_are_too_few(film):
+    import soundfile as sf
+    x, _ = sf.read(str(film / "audio" / "L2.wav"), dtype="float32")             # a 1.2 s tone with one 0.2 s pause
+    rep, out, vc, _ = _verdict(x, "few-true-pauses")
+    assert rep["true_pause_frames"] < R.CLEAN_TRUE_PAUSE_MIN and vc["evidence"]["true_pause_fallback_p90"] is True
+    assert vc["status"] == "pass" and out == []
+
+
+def test_t1f_review_voice_chop_is_speech_referenced_on_both_paths():
+    x, _ = _speechlike(seed=6)
+    _, rep = R.clean_voice(x)
+    assert rep["path"] == "expander" and rep["speech_chop_share"] <= R.CLEAN_CHOP_MAX_SHARE
+    old_only = dict(rep, chopped_audible_share=0.05, chopped_audible=99)          # the floor-referenced share: journal only
+    j = J.Journal(film="chop-old")
+    assert not [o for o in R._journal_clean(j, "LO", old_only, 0.0) if "voice-chop" in o]
+    ch = lints(J.read(j.path), "voice-chop")[0]
+    assert ch["status"] == "pass" and ch["evidence"]["floor_referenced"]["share"] == 0.05
+    for path in ("expander", "denoise-only"):
+        bad = dict(rep, path=path, speech_chop_share=0.03, near_speech_cut=9, near_speech_frames=300,
+                   first_pass=rep.get("first_pass") or {"why": "test"})
+        j2 = J.Journal(film=f"chop-{path}")
+        out = R._journal_clean(j2, "LC", bad, 0.0)
+        assert any("within 30 dB of the speech cut over 3 dB" in o for o in out), path
+        assert lints(J.read(j2.path), "voice-chop")[0]["status"] == "fail"

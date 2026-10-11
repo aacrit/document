@@ -1828,6 +1828,13 @@ CLEAN_CHOP_MAX_SHARE = 0.02         # at most 2% of them may be
 CLEAN_FLOOR_MAX_DBFS = -80.0        # voice-clean (blocking): the median power of the raw take's quietest 10% of frames,
                                     # cleaned and levelled, under this; their p90 is journaled, not limited
 CLEAN_SPEECH_TOL_DB = 0.5           # and its speech energy must stay within this
+CLEAN_NEAR_SPEECH_DB = 30.0         # T1f review (CoS): frames within 30 dB of the take's speech level are speech for the
+                                    # speech-referenced chop and, with a guard, never true pauses
+CLEAN_TRUE_PAUSE_GUARD_S = 0.100    # a true pause is a live frame at least 100 ms from any such frame ...
+CLEAN_TRUE_PAUSE_MIN = 5            # ... and with fewer than 5 of them the floor frames' p90 stands in
+CLEAN_NOISE_FLATNESS = 0.4          # a frame this spectrally flat (white noise reads about 0.56, voiced speech under 0.05)
+                                    # is noise, not speech, so it never guards a true pause (T1f: a hiss 25 dB under the
+                                    # speech would otherwise count as speech and hide every pause it fills)
 CLEAN_SILENT_DBFS = -120.0          # a take's live span runs from its first to its last 20 ms frame over this; digital
                                     # silence padding a take's ends is outside it and never counts as floor or pause
 
@@ -1998,6 +2005,36 @@ def _cut_stats(x: np.ndarray, y: np.ndarray, before: dict) -> dict:
             "chopped_audible_share": round(float(np.sum(cut & audible)) / max(int(audible.sum()), 1), 4), "_px": px}
 
 
+def true_pauses(x: np.ndarray, y: np.ndarray, before: dict, live: np.ndarray) -> dict:
+    """T1f review (CoS): what is heard between words. Near-speech frames are
+    raw frames within CLEAN_NEAR_SPEECH_DB of the take's speech level. True
+    pauses are live frames at least CLEAN_TRUE_PAUSE_GUARD_S from any of
+    them (a near-speech frame as flat as noise, CLEAN_NOISE_FLATNESS, is
+    noise and guards nothing); their median power on the cleaned take (frames that are digital
+    silence in the raw take left out) is the noise a listener hears in the
+    silences. The speech-referenced chop is the share of near-speech frames
+    the cleanup cut by more than CLEAN_CHOP_CUT_DB."""
+    n = int(round(CLEAN_FRAME_S * AUDIO_RATE))
+    k = before["frames"]
+    px = (x[: k * n].astype(np.float64).reshape(k, n) ** 2).mean(axis=1)
+    py = (y[: k * n].astype(np.float64).reshape(k, n) ** 2).mean(axis=1)
+    near = px >= 10 ** ((before["speech_dbfs"] - CLEAN_NEAR_SPEECH_DB) / 10)
+    F = np.abs(np.fft.rfft(x[: k * n].astype(np.float64).reshape(k, n) * np.hanning(n), axis=1)[:, 2:]) ** 2 + 1e-30
+    flatness = np.exp(np.mean(np.log(F), axis=1)) / np.mean(F, axis=1)       # Wiener entropy, above 100 Hz
+    voiced = near & (flatness < CLEAN_NOISE_FLATNESS)
+    g = int(round(CLEAN_TRUE_PAUSE_GUARD_S / CLEAN_FRAME_S))
+    guard = np.convolve(voiced.astype(np.int32), np.ones(2 * g + 1, np.int32), mode="same") > 0
+    tp = live & ~guard
+    heard = tp & (px > 10 ** (CLEAN_SILENT_DBFS / 10))
+    cut = px > py * 10 ** (CLEAN_CHOP_CUT_DB / 10)
+    return {"true_pause_frames": int(tp.sum()), "true_pause_heard_frames": int(heard.sum()),
+            "near_speech_flat_frames": int(np.sum(near & ~voiced)),
+            "true_pause_dbfs": round(_db(float(np.median(py[heard]))), 2) if heard.any() else None,
+            "true_pause_p90_dbfs": round(_db(float(np.percentile(py[heard], 90))), 2) if heard.any() else None,
+            "near_speech_frames": int(near.sum()), "near_speech_cut": int(np.sum(cut & near)),
+            "speech_chop_share": round(float(np.sum(cut & near)) / max(int(near.sum()), 1), 4)}
+
+
 def clean_voice(x: np.ndarray) -> tuple[np.ndarray, dict]:
     """A19: clean one synthetic voice line before levelling: measure its floor
     and speech, denoise, gate between words, and measure again on the same
@@ -2053,7 +2090,8 @@ def clean_voice(x: np.ndarray) -> tuple[np.ndarray, dict]:
         st = dict(dn, denoise_chopped_audible=dn["chopped_audible"], denoise_chopped_audible_share=dn["chopped_audible_share"],
                   chopped_audible=0, chopped_audible_share=0.0)      # nothing is expanded on this path
     after = voice_floor(y, before["_gaps"], before["_speech"])
-    rep.update(cleaned=True, path=path, first_pass=first, denoise=den, gate=gate, **st,
+    tp = true_pauses(x, y, before, live)
+    rep.update(cleaned=True, path=path, first_pass=first, denoise=den, gate=gate, **st, **tp,
                pause_share=round(pause_share, 4), floor_spread_db=round(spread, 2),
                measure_ok=not (pause_why or spread_why), measure_why=pause_why + spread_why,
                pause_why=pause_why, spread_why=spread_why,
@@ -2132,56 +2170,62 @@ def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, 
                                               "denoise_chopped_audible_share": rep.get("denoise_chopped_audible_share"),
                                               "floor_after_level_dbfs": floor_levelled})
     heard = None if a.get("floor_heard_dbfs") is None else round(a["floor_heard_dbfs"] + lift, 2)
+    p90_levelled = None if a.get("floor_p90_dbfs") is None else round(a["floor_p90_dbfs"] + lift, 2)
+    # T1f review (CoS): the true pauses, what a listener hears in the silences, on both paths; with too few of them
+    # the floor frames' p90 stands in
+    fallback = rep.get("true_pause_frames", 0) < CLEAN_TRUE_PAUSE_MIN
+    if fallback:
+        pause_lvl = p90_levelled
+    else:
+        pause_lvl = None if rep.get("true_pause_dbfs") is None else round(rep["true_pause_dbfs"] + lift, 2)
+    pause_ok = pause_lvl is None or pause_lvl < CLEAN_FLOOR_MAX_DBFS
     out = []
     ok = (floor_levelled is not None and floor_levelled < CLEAN_FLOOR_MAX_DBFS and abs(rep["speech_change_db"]) <= CLEAN_SPEECH_TOL_DB
-          and (heard is None or heard < CLEAN_FLOOR_MAX_DBFS))
-    p90_levelled = None if a.get("floor_p90_dbfs") is None else round(a["floor_p90_dbfs"] + lift, 2)
-    journal.lint("voice-clean", ok, stage="assembly", phase="preflight", unit=unit, severity=sev, grammar="A19",
+          and (heard is None or heard < CLEAN_FLOOR_MAX_DBFS) and pause_ok)
+    journal.lint("voice-clean", ok, stage="assembly", phase="preflight", unit=unit, severity=sev, grammar="A19, T1f",
                  evidence={"measure": "median power of the raw take's quietest 10% of 20 ms frames, on the cleaned and "
-                                      "levelled line; their p90 is reported, not limited",
+                                      "levelled line, and of its true pauses (live frames 100 ms or more from any frame within "
+                                      "30 dB of the speech; the floor p90 when there are under 5)",
                            "floor_after_level_dbfs": floor_levelled, "max_dbfs": CLEAN_FLOOR_MAX_DBFS,
                            "floor_p90_after_level_dbfs": p90_levelled, "path": rep.get("path", "expander"),
                            "floor_heard_after_level_dbfs": heard,
-                           "heard_note": "median of the floor frames that are not digital silence, also under the limit",
+                           "true_pause_after_level_dbfs": pause_lvl, "true_pause_frames": rep.get("true_pause_frames"),
+                           "true_pause_fallback_p90": fallback,
+                           "true_pause_p90_after_level_dbfs": None if rep.get("true_pause_p90_dbfs") is None else
+                           round(rep["true_pause_p90_dbfs"] + lift, 2),
                            "speech_change_db": rep["speech_change_db"], "tolerance_db": CLEAN_SPEECH_TOL_DB,
                            "snr_before_db": b["snr_db"], "snr_after_db": a["snr_db"], "fix": None if ok else "re-render the take"})
     if not ok:
         out.append(f"{unit} (voice-clean: floor {floor_levelled} dBFS after levelling"
                    + (f", {heard} dBFS where not digital silence" if heard is not None and heard != floor_levelled else "")
+                   + (f", true pauses {pause_lvl} dBFS" + (" (floor p90, too few true pauses)" if fallback else "")
+                      if not pause_ok else "")
                    + f", speech {rep['speech_change_db']:+.2f} dB{', denoise only' if denoise_only else ''})")
-    pause_why, spread_why = rep.get("pause_why", []), rep.get("spread_why", [])
-    if denoise_only:
-        chop_ok = not pause_why
-        journal.lint("voice-chop", chop_ok, stage="assembly", phase="preflight", unit=unit, severity=sev, grammar="A19, T1f",
-                     evidence={"path": "denoise-only", "chopped": 0, "share": 0.0, "max_share": CLEAN_CHOP_MAX_SHARE,
-                               "note": "nothing was expanded; the floor spread and the denoise's own cuts are journaled, not limited",
-                               "first_pass": rep["first_pass"], "floor_spread_db": rep["floor_spread_db"],
-                               "denoise_chopped_audible": rep.get("denoise_chopped_audible"),
-                               "denoise_chopped_audible_share": rep.get("denoise_chopped_audible_share"),
-                               "frames": rep["audible_frames"], "pause_share": rep["pause_share"],
-                               "speech_frames_chopped": rep["chopped_frames"],
-                               "near_floor_frames": rep["near_floor_frames"], "near_floor_cut": rep["near_floor_cut"],
-                               "min_pause_share": CLEAN_PAUSE_MIN_SHARE, "why": pause_why or None})
-        out += [f"{unit} (voice-chop: {w})" for w in pause_why]
-        return out if not draft else []
-    # on the expander path the floor is steady (spread at most 6 dB) and the first pass chopped at most 2%, or the
-    # take would have been re-cleaned by the denoise alone; both are still checked here, so a hand-made report cannot pass
-    chop_bad = rep["chopped_audible_share"] > CLEAN_CHOP_MAX_SHARE
-    chop_ok = not pause_why and not chop_bad and not spread_why
+    pause_why = rep.get("pause_why", [])
+    sc = rep.get("speech_chop_share", 0.0)
+    chop_bad = sc > CLEAN_CHOP_MAX_SHARE
+    chop_ok = not pause_why and not chop_bad
     journal.lint("voice-chop", chop_ok, stage="assembly", phase="preflight", unit=unit, severity=sev, grammar="A19, T1f",
-                 evidence={"path": "expander", "chopped": rep["chopped_audible"], "frames": rep["audible_frames"],
-                           "share": rep["chopped_audible_share"],
-                           "max_share": CLEAN_CHOP_MAX_SHARE, "above_floor_db": CLEAN_CHOP_ABOVE_DB, "cut_db": CLEAN_CHOP_CUT_DB,
+                 evidence={"path": rep.get("path", "expander"),
+                           "measure": "frames within 30 dB of the take's speech level cut by more than 3 dB, at most 2%",
+                           "speech_chop_share": sc, "near_speech_frames": rep.get("near_speech_frames"),
+                           "near_speech_cut": rep.get("near_speech_cut"), "max_share": CLEAN_CHOP_MAX_SHARE,
+                           "floor_referenced": {"note": "frames 6 dB or more over the raw floor cut by over 3 dB; journaled, not limited",
+                                                "chopped": rep["chopped_audible"], "frames": rep["audible_frames"],
+                                                "share": rep["chopped_audible_share"],
+                                                "denoise_chopped_audible_share": rep.get("denoise_chopped_audible_share")},
                            "speech_frames_chopped": rep["chopped_frames"],
                            "near_floor_frames": rep["near_floor_frames"], "near_floor_cut": rep["near_floor_cut"],
-                           "near_floor_note": "frames from the floor to 6 dB over it are what the expander turns down; counted, not limited",
                            "pause_share": rep["pause_share"], "min_pause_share": CLEAN_PAUSE_MIN_SHARE,
                            "floor_spread_db": rep["floor_spread_db"], "max_floor_spread_db": CLEAN_FLOOR_SPREAD_MAX_DB,
-                           "expander_threshold_after_level_dbfs": round(rep["gate"]["threshold_dbfs"] + lift, 2),
-                           "why": (pause_why + spread_why) or None})
+                           "first_pass": rep.get("first_pass"),
+                           "expander_threshold_after_level_dbfs": None if not rep.get("gate") else
+                           round(rep["gate"]["threshold_dbfs"] + lift, 2),
+                           "why": pause_why or None})
     if chop_bad:
-        out.append(f"{unit} (voice-chop: {rep['chopped_audible']} of {rep['audible_frames']} frames cut over {CLEAN_CHOP_CUT_DB:g} dB)")
-    for w in pause_why + spread_why:
+        out.append(f"{unit} (voice-chop: {rep.get('near_speech_cut')} of {rep.get('near_speech_frames')} frames within "
+                   f"{CLEAN_NEAR_SPEECH_DB:g} dB of the speech cut over {CLEAN_CHOP_CUT_DB:g} dB)")
+    for w in pause_why:
         out.append(f"{unit} (voice-chop: {w})")
     return out if not draft else []
 
@@ -2651,67 +2695,90 @@ def voice_shares(plan: dict, placed: dict) -> dict:
             "voiceless": round(1.0 - any_voice.sum() / n, 4)}
 
 
+def _merge_spans(spans: list[tuple[float, float]], a: float, b: float) -> list[list[float]]:
+    """Spans clipped to [a, b], sorted and merged where they touch or overlap."""
+    out: list[list[float]] = []
+    for f, t in sorted((max(f, a), min(t, b)) for f, t in spans if f < b and t > a):
+        if out and f <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], t)
+        else:
+            out.append([f, t])
+    return out
+
+
+def _longest_gap(merged: list[list[float]], a: float, b: float) -> tuple[float, float]:
+    """The longest stretch of [a, b] outside the merged spans."""
+    edges = [a] + [v for m in merged for v in m] + [b]
+    return max(((edges[i], edges[i + 1]) for i in range(0, len(edges), 2)), key=lambda x: x[1] - x[0])
+
+
 def still_holds(plan: dict, placed: dict) -> list[dict]:
     """Each archive still's hold against what is spoken over it (GRAMMAR
-    7.2, A9, A20(a)). Consecutive archive_still shots of one asset (joined by
-    a cut or a dissolve) are one hold. Inside a hold the speech-active spans
-    of the narration and testimony lines that overlap it are merged, and:
-    the longest stretch with no voice is at most STILL_MAX_S (10 s); the
-    whole hold is at most 30 s with a reading over it, 20 s with only
-    narration, 10 s with no voice; and a DETAIL shot is at most 5 s. Read
-    from the placed lines (as the mix hears them), never from estimates."""
-    spans = []
+    7.2, A9, A20(a) refined in the T1f review). Consecutive archive_still
+    shots of one asset joined by a cut or a dissolve are one hold; holds of
+    one asset joined by a dip are linked for the silence check. Inside each
+    hold, with the speech-active spans of the lines that overlap it merged:
+    the whole hold is at most 30 s; the longest stretch not under a reading
+    is at most 20 s; and across the linked holds the longest stretch with no
+    voice is at most 10 s. A DETAIL shot is at most 5 s. Read from the
+    placed lines (as the mix hears them), never from estimates."""
+    voice, reading = [], []
     for ln in placed["lines"]:
         kind = ln.get("line_kind", "narration" if ln.get("kind") == "narration" else "testimony")
         if kind not in VOICE_KINDS:
             continue
         f, t = ln.get("speech_from_s", ln["at_s"]), ln.get("speech_to_s", ln["at_s"] + ln["dur_s"])
         if f is not None and t > f:
-            spans.append((float(f), float(t), kind))
-    groups: list[list[dict]] = []
+            voice.append((float(f), float(t)))
+            if kind == "testimony":
+                reading.append((float(f), float(t)))
+    chains: list[list[list[dict]]] = []          # chains of holds (joined by dips) of holds (shots joined by cut or dissolve)
     prev = None
     for s in plan["shots"]:
         if s.get("kind") != "archive_still":
             prev = None
             continue
         tr = (s.get("transition_in") or {}).get("type", "cut")
-        if prev is not None and s.get("asset") and s.get("asset") == prev.get("asset") and tr in ("cut", "dissolve"):
-            groups[-1].append(s)
+        same = prev is not None and s.get("asset") and s.get("asset") == prev.get("asset")
+        if same and tr in ("cut", "dissolve"):
+            chains[-1][-1].append(s)
+        elif same and tr == "dip":
+            chains[-1].append([s])
         else:
-            groups.append([s])
+            chains.append([[s]])
         prev = s
     tol = 0.5 / FPS
     out = []
-    for g in groups:
-        a, b = float(g[0]["start_s"]), float(g[-1]["end_s"])
-        inside = sorted((max(f, a), min(t, b), k) for f, t, k in spans if f < b and t > a)
-        over = {k for _, _, k in inside}
-        merged: list[list[float]] = []
-        for f, t, _ in inside:
-            if merged and f <= merged[-1][1]:
-                merged[-1][1] = max(merged[-1][1], t)
-            else:
-                merged.append([f, t])
-        edges = [a] + [v for m in merged for v in m] + [b]
-        gaps = [(edges[i], edges[i + 1]) for i in range(0, len(edges), 2)]
-        silent = max(gaps, key=lambda x: x[1] - x[0])
+    for chain in chains:
+        ca, cb = float(chain[0][0]["start_s"]), float(chain[-1][-1]["end_s"])
+        silent = _longest_gap(_merge_spans(voice, ca, cb), ca, cb)
         silent_s = round(silent[1] - silent[0], 3)
-        limit = (STILL_UNDER_READING_MAX_S if "testimony" in over else
-                 STILL_UNDER_NARRATION_MAX_S if "narration" in over else STILL_MAX_S)
-        dur = round(b - a, 3)
-        details = [{"id": s["id"], "dur_s": round(float(s["end_s"]) - float(s["start_s"]), 3)}
-                   for s in g if str(s.get("preset") or "").upper() == "DETAIL"]
-        why = []
-        if dur > limit + tol:
-            why.append(f"{dur:g} s, at most {limit:g} s with {' and '.join(sorted(over)) or 'no voice'} over it")
+        why, holds = [], []
         if silent_s > STILL_MAX_S + tol:
             why.append(f"{silent_s:g} s with no voice ({silent[0]:.2f} to {silent[1]:.2f} s), at most {STILL_MAX_S:g}")
-        for d in details:
-            if d["dur_s"] > STILL_DETAIL_MAX_S + tol:
-                why.append(f"DETAIL {d['id']} {d['dur_s']:g} s, at most {STILL_DETAIL_MAX_S:g}")
-        out.append({"id": g[0]["id"], "shots": [s["id"] for s in g], "asset": g[0].get("asset"), "dur_s": dur,
-                    "voices": sorted(over), "max_s": limit, "longest_voiceless_s": silent_s,
-                    "voiceless_max_s": STILL_MAX_S, "details": details, "ok": not why, "why": why})
+        for g in chain:
+            a, b = float(g[0]["start_s"]), float(g[-1]["end_s"])
+            dur = round(b - a, 3)
+            unread = _longest_gap(_merge_spans(reading, a, b), a, b)
+            unread_s = round(unread[1] - unread[0], 3)
+            narrated = bool(_merge_spans(voice, a, b))
+            holds.append({"shots": [s["id"] for s in g], "dur_s": dur, "longest_not_under_reading_s": unread_s})
+            if dur > STILL_UNDER_READING_MAX_S + tol:
+                why.append(f"{g[0]['id']}: hold {dur:g} s, at most {STILL_UNDER_READING_MAX_S:g}")
+            if unread_s > STILL_UNDER_NARRATION_MAX_S + tol:
+                why.append(f"{g[0]['id']}: {unread_s:g} s not under a reading ({unread[0]:.2f} to {unread[1]:.2f} s), "
+                           f"at most {STILL_UNDER_NARRATION_MAX_S:g}" + ("" if narrated else " (and no voice at all)"))
+            for s in g:
+                if str(s.get("preset") or "").upper() == "DETAIL":
+                    d = round(float(s["end_s"]) - float(s["start_s"]), 3)
+                    if d > STILL_DETAIL_MAX_S + tol:
+                        why.append(f"DETAIL {s['id']} {d:g} s, at most {STILL_DETAIL_MAX_S:g}")
+        shots = [s for g in chain for s in g]
+        out.append({"id": shots[0]["id"], "shots": [s["id"] for s in shots], "asset": shots[0].get("asset"),
+                    "dur_s": round(cb - ca, 3), "holds": holds, "longest_voiceless_s": silent_s,
+                    "limits": {"voiceless_s": STILL_MAX_S, "not_under_reading_s": STILL_UNDER_NARRATION_MAX_S,
+                               "hold_s": STILL_UNDER_READING_MAX_S, "detail_s": STILL_DETAIL_MAX_S},
+                    "ok": not why, "why": why})
     return out
 
 
@@ -2725,8 +2792,8 @@ def still_hold_lints(journal: Journal, plan: dict, placed: dict, *, draft: bool 
     for h in still_holds(plan, placed):
         journal.lint("still-hold", h["ok"], stage="assembly", phase="preflight", unit=h["id"],
                      severity="block" if binding else "warn", grammar="7.2, A9, A20(a)",
-                     evidence=dict(h, rule="at most 10 s with no voice anywhere in the hold; the hold at most 20 s under narration, "
-                                                "30 s under a reading; a DETAIL at most 5 s",
+                     evidence=dict(h, rule="at most 10 s with no voice (holds of one photograph linked across a dip); at most "
+                                                "20 s not under a reading; a hold at most 30 s; a DETAIL at most 5 s",
                                    fix=None if h["ok"] else "shorten the still, or cut to another picture"))
         if not h["ok"] and binding:
             out.append(f"still-hold ({h['id']}: {'; '.join(h['why'])})")
