@@ -63,7 +63,8 @@ describe("the public pages", () => {
 
   it("the home page says what the film shows and does not show; how it is voiced and whether any of it is AI-generated come from sources.json", () => {
     const html = read("web/index.html");
-    const home = visible(html);
+    // The theatre is the film page's own player (its marks legend names AI-GENERATED as a class): the claims are judged outside it.
+    const home = visible(html.replace(/<dialog class="theatre"[\s\S]*?<\/dialog>/, " "));
     expect(home).toContain("This film shows no bodies or killing.");
     // A dip's black hold carries no mark (A11) and the label fades to a glyph (A16): every shot carries one, not every second.
     expect(home).toContain("Every shot carries a mark that says what it is.");
