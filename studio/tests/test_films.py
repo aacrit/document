@@ -1060,3 +1060,90 @@ def test_e15_an_archival_line_with_no_span_is_refused_even_when_its_source_names
     _reel_names(film, speakers_on_screen=[_on(REEL_NAME)])
     with pytest.raises(R.Refused, match=r"archival-span \(A1\).*archival-named-on-screen \(A1\)"):
         _plan(film, f"named-no-{drop}")
+
+
+# ---- A3 refined: the unsigned apart (a women's-share card with testimony of unstated gender) ----------------------------
+
+def test_a3_refined_the_unsigned_are_measured_apart_as_seconds_and_as_voices(film):
+    plan, _ = _plan(film, "unsigned-values")
+    plan = _event(plan, speakers={"sp-m": {"name": "M", "side": "usa"}, "sp-f": {"name": "F", "side": "uk", "gender": "f"}})
+    values = R.shortfall_values(plan, _placed(0.135, women_s=30.0))
+    w = values["women"]
+    assert w["unknown_s"] > 0 and 0 < w["unsigned_share"] < 1
+    assert w["speakers"] == {"all": 2, "f": 1, "m": 0, "unsigned": 1}
+    assert R.card_values_problems(values) == []
+
+
+def test_a3_refined_a_card_that_prints_the_unsigned_apart_fills(film):
+    _with_card_d(film, [SF_WOMEN], text=[CARD_D[0], "Of {women_speakers} voices in this film, {women_speakers_f} is a "
+                                                   "woman, {women_speakers_m} are men, {women_speakers_unsigned} are unsigned."])
+    plan, j = _plan(film, "unsigned-card")
+    assert not [e for e in lints(j, "shortfall-card") if e["status"] == "fail"]
+    plan = _event(plan, speakers={"sp-m": {"name": "M", "side": "usa"}, "sp-f": {"name": "F", "side": "uk", "gender": "f"}})
+    values = R.shortfall_values(plan, _placed(0.135, women_s=30.0))
+    R.fill_cards(plan, values, j)
+    s7 = next(s for s in plan["shots"] if s["id"] == "S7")
+    assert s7["text"][1] == "Of 2 voices in this film, 1 is a woman, 0 are men, 1 are unsigned."
+    assert lints(j, "shortfall-fill")[-1]["status"] == "pass"
+
+
+def test_a3_refined_womens_share_beside_the_unsigned_share_fills_and_alone_refuses():
+    vals = {"women": {"share": 0.04, "floor": 0.3, "unknown_s": 60.0, "unsigned_share": 0.12,
+                      "speakers": {"all": 21, "f": 1, "m": 18, "unsigned": 2}}}
+    assert POL.fill_placeholders("a woman {women_share:pct}, unsigned {women_unsigned_share:pct}", vals) == \
+        "a woman 4 percent, unsigned 12 percent"
+    assert POL.fill_placeholders("{women_speakers:words} voices, {women_speakers_unsigned:words} unsigned", vals) == \
+        "twenty-one voices, two unsigned"
+    with pytest.raises(POL.FillError, match="no stated gender"):
+        POL.fill_placeholders("a woman's voice carries {women_share:pct}", vals)               # the known share alone
+    with pytest.raises(POL.FillError, match="women_speakers_unsigned"):
+        POL.fill_placeholders("{women_speakers_f} is a woman, {women_speakers_m} are men", vals)   # counts without the unsigned
+    with pytest.raises(POL.FillError, match="women's shortfall only"):
+        POL.fill_placeholders("{readings_unsigned_share}", {"readings": {"share": 0.1, "floor": 0.2, "unsigned_share": 0.1}})
+    # no unsigned testimony: the known share prints alone, as before
+    assert POL.fill_placeholders("{women_share:pct}", {"women": {"share": 0.29, "floor": 0.30, "unknown_s": 0}}) == "29 percent"
+
+
+def test_a3_refined_the_card_template_accepts_the_counts_and_still_refuses_stray_numbers():
+    ok = "Of {women_speakers} voices in this film, {women_speakers_f} is a woman, {women_speakers_m} are men, {women_speakers_unsigned} are unsigned."
+    probs, _ = POL.template_problems(ok, {"women"}, needs_share=True)
+    assert probs == []
+    probs, _ = POL.template_problems("Of 21 voices, {women_speakers_f} is a woman.", {"women"}, needs_share=True)
+    assert any("numbers outside a placeholder" in p for p in probs)
+    probs, _ = POL.template_problems("The readings are {readings_speakers} voices.", {"readings"}, needs_share=False)
+    assert any("women's shortfall only" in p for p in probs)
+    probs, _ = POL.template_problems("Women are under-heard.", {"women"}, needs_share=True)
+    assert any("no {<what>_share}" in p for p in probs)
+
+
+def test_a3_refined_card_values_check_the_new_fields():
+    good = {"readings": {"share": 0.1, "floor": 0.2}, "voiceless": {"share": 0.5, "floor": 0.1},
+            "women": {"share": 0.1, "floor": 0.3, "unknown_s": 3.0, "unsigned_share": 0.05,
+                      "speakers": {"all": 3, "f": 1, "m": 1, "unsigned": 1}}}
+    assert R.card_values_problems(good) == []
+    bad = dict(good, women=dict(good["women"], unsigned_share=1.5, speakers={"all": 3, "f": 1.5, "m": 1, "unsigned": 1}))
+    probs = R.card_values_problems(bad)
+    assert any("unsigned_share" in p for p in probs) and any("speakers" in p for p in probs)
+
+
+# ---- the span cache can live off the film's disk (DOCUMENT_SPANS_CACHE) -----------------------------------------------
+
+def test_spans_cache_defaults_to_the_film_and_follows_the_env(film, tmp_path, monkeypatch):
+    monkeypatch.delenv("DOCUMENT_SPANS_CACHE", raising=False)
+    assert R.spans_cache_dir(film) == film / "cache" / "spans"
+    other = tmp_path / "elsewhere" / "spans"
+    monkeypatch.setenv("DOCUMENT_SPANS_CACHE", str(other))
+    assert R.spans_cache_dir(film) == other
+
+
+def test_spans_cache_env_moves_the_cut_spans_off_the_film(film, tmp_path, monkeypatch):
+    _edit(film, lambda p: (_shot(p, "S6").update(asset="FX-REEL", in_s=3.0, out_s=6.0, native_fps=24),
+                           p["parts"][1]["text"].remove(next(t for t in p["parts"][1]["text"] if t["id"] == "T2")),
+                           p["subtitle_source"].remove(next(c for c in p["subtitle_source"] if c["ref"] == "T2"))))
+    monkeypatch.setattr(R, "LONG_REEL_BYTES", 1)
+    other = tmp_path / "data-disk" / "spans"
+    monkeypatch.setenv("DOCUMENT_SPANS_CACHE", str(other))
+    plan, _ = _plan(film, "spans-elsewhere")
+    sp = next(s for s in plan["shots"] if s["id"] == "S6")["_span"]
+    assert Path(sp["file"]).parent == other and list(other.glob("*.mkv"))
+    assert not list((film / "cache" / "spans").glob("*.mkv"))                      # nothing cut onto the film's disk

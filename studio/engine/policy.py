@@ -298,7 +298,13 @@ SETTING_BOUNDS = {                        # what GRAMMAR allows a film to set
 SHORTFALL_WHAT = {"readings": "readings_floor", "voiceless": "voiceless_floor", "women": "women_floor"}
 # A25 refined (CoS design reset): a shortfall card prints its numbers only through placeholders, filled from
 # the film's own measurement at the mix; the card may hold no other number of any kind.
-PLACEHOLDER = re.compile(r"\{(readings|women|voiceless)_(share|floor)(?::(pct|words|fraction))?\}")
+# A3 refined (unsigned voices): women's shortfall may also print the speakers the cut hears by stated gender and the
+# unsigned (no stated gender) apart, as counts or as the unsigned speakers' share of testimony seconds; these kinds
+# exist for women only (template_problems refuses them elsewhere).
+WOMEN_ONLY_KINDS = ("unsigned_share", "speakers_unsigned", "speakers_f", "speakers_m", "speakers")
+PLACEHOLDER = re.compile(r"\{(readings|women|voiceless)_(unsigned_share|speakers_unsigned|speakers_f|speakers_m|speakers|share|floor)"
+                         r"(?::(pct|words|fraction))?\}")
+UNSIGNED_KINDS = ("unsigned_share", "speakers_unsigned")
 ANY_BRACE = re.compile(r"\{[^{}]*\}")
 FRACTION_FORMS = ((1 / 2, "a half"), (1 / 3, "a third"), (1 / 4, "a quarter"), (1 / 5, "a fifth"), (1 / 10, "a tenth"))
 FRACTION_EXACT = 0.005                    # a share within half a point of a fraction is written as that fraction
@@ -380,27 +386,64 @@ def fill_placeholders(text: str, values: dict) -> str:
     A share is formatted against its floor (rounded down under it); as a
     backstop, a share under its floor whose text equals the floor's in any
     format is refused (it would print the floor as the measurement). A
-    ``{women_share}`` is refused when any testimony's speaker states no
-    gender (``unknown_s`` > 0): gender is never inferred (A3)."""
+    ``{women_share}`` (or a count of women's or men's voices) is refused when
+    any testimony's speaker states no gender (``unknown_s`` > 0) unless the
+    same text also prints the unsigned apart (``{women_unsigned_share}`` or
+    ``{women_speakers_unsigned}``): gender is never inferred, and a share
+    of the known never stands for the whole (A3 refined). Counts print as
+    digits, or as words with ``:words``."""
+    text = str(text or "")
+    accounts = any(m.group(1) == "women" and m.group(2) in UNSIGNED_KINDS for m in PLACEHOLDER.finditer(text))
+
     def one(m):
         what, kind, fmt = m.group(1), m.group(2), m.group(3)
-        if what not in values or kind not in values[what]:
-            raise FillError(f"no measured value for {m.group(0)}")
-        v, floor = float(values[what][kind]), values[what].get("floor")
+        src = values.get(what) or {}
+        if kind.startswith("speakers"):
+            sp = src.get("speakers") or {}
+            key = {"speakers": "all", "speakers_f": "f", "speakers_m": "m", "speakers_unsigned": "unsigned"}[kind]
+            if key not in sp:
+                raise FillError(f"no measured value for {m.group(0)}")
+            v, floor = sp[key], None
+        else:
+            if what not in values or kind not in src:
+                raise FillError(f"no measured value for {m.group(0)}")
+            v, floor = float(src[kind]), src.get("floor")
+        if (kind in ("speakers_f", "speakers_m") and what == "women" and float(src.get("unknown_s") or 0) > 0
+                and not accounts):
+            raise FillError(f"{m.group(0)}: some testimony has no stated gender, so a count of women's or men's voices "
+                            "is printed only with {women_speakers_unsigned} beside it (A3 refined)")
         if kind == "floor":
             return format_share(v, fmt)
-        if what == "women" and float(values[what].get("unknown_s") or 0) > 0:
+        if kind in WOMEN_ONLY_KINDS and what != "women":
+            raise FillError(f"{m.group(0)}: speaker counts and the unsigned share exist for women's shortfall only")
+        if kind == "unsigned_share":
+            return format_share(v, fmt)
+        if kind.startswith("speakers"):
+            if float(v) != int(v) or v < 0:
+                raise FillError(f"{m.group(0)}: a count of voices is a whole number, not {v!r}")
+            return number_words(int(v)) if fmt == "words" and int(v) <= 100 else str(int(v))
+        if what == "women" and float(values[what].get("unknown_s") or 0) > 0 and not accounts:
             raise FillError(f"{m.group(0)}: {values[what]['unknown_s']:g} s of testimony has no stated gender, so women's "
-                            "share cannot be printed (gender is never inferred, A3)")
+                            "share cannot be printed without the unsigned apart ({women_unsigned_share} or "
+                            "{women_speakers_unsigned} on the same card; gender is never inferred, A3)")
         out = format_share(v, fmt, floor)
         if floor is not None and v < float(floor) and out in {format_share(float(floor), f) for f in ("pct", "words", "fraction")}:
             raise FillError(f"{m.group(0)} would print {out!r}, the floor itself, for a share of {v:.4f} under it")
         return out
-    return PLACEHOLDER.sub(one, str(text or ""))
+    return PLACEHOLDER.sub(one, text)
 
 
 def has_placeholder(text: str) -> bool:
     return bool(ANY_BRACE.search(str(text or "")))
+
+
+def states_shortfall(what: str, text: str) -> bool:
+    """A card states a shortfall by printing the film's measured share
+    (``{<what>_share}``); women's shortfall may instead print the voices the
+    cut hears by stated gender (``{women_speakers_f}``), A3 refined."""
+    t = str(text or "")
+    return bool(re.search(rf"\{{{what}_share(?::\w+)?\}}", t)
+                or (what == "women" and re.search(r"\{women_speakers_f(?::\w+)?\}", t)))
 
 
 def template_problems(text: str, whats: set | list, *, needs_share: bool) -> tuple[list[str], dict]:
@@ -413,7 +456,12 @@ def template_problems(text: str, whats: set | list, *, needs_share: bool) -> tup
     probs = []
     unknown = [m.group(0) for m in ANY_BRACE.finditer(t) if not PLACEHOLDER.fullmatch(m.group(0))]
     if unknown:
-        probs.append(f"unknown placeholders {unknown} (known: {{<readings|women|voiceless>_<share|floor>[:pct|words|fraction]}})")
+        probs.append(f"unknown placeholders {unknown} (known: {{<readings|women|voiceless>_<share|floor>[:pct|words|fraction]}}, "
+                     "and for women {women_unsigned_share}, {women_speakers}, {women_speakers_f}, {women_speakers_m}, "
+                     "{women_speakers_unsigned})")
+    wrong_kind = [m.group(0) for m in PLACEHOLDER.finditer(t) if m.group(2) in WOMEN_ONLY_KINDS and m.group(1) != "women"]
+    if wrong_kind:
+        probs.append(f"{wrong_kind}: speaker counts and the unsigned share exist for women's shortfall only")
     used = {m.group(1) for m in PLACEHOLDER.finditer(t)}
     others = sorted(used - set(whats))
     if others:
@@ -421,7 +469,7 @@ def template_problems(text: str, whats: set | list, *, needs_share: bool) -> tup
     stray = stray_numbers(ANY_BRACE.sub(" ", t))
     if stray:
         probs.append(f"numbers outside a placeholder: {stray}; a shortfall card prints numbers only through placeholders")
-    missing = sorted(w for w in whats if needs_share and not re.search(rf"\{{{w}_share(?::\w+)?\}}", t))
+    missing = sorted(w for w in whats if needs_share and not states_shortfall(w, t))
     if missing:
         probs.append(f"no {{<what>_share}} for {', '.join(missing)}: a card that states a shortfall prints the film's measured share")
     return probs, {"placeholders": sorted({m.group(0) for m in PLACEHOLDER.finditer(t)}), "stray": stray}
