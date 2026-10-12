@@ -377,11 +377,16 @@ def format_share(v: float, fmt: str | None, floor: float | None = None) -> str:
     return f"{n} percent"
 
 
+def prints_unsigned(text: str) -> bool:
+    """True when ``text`` prints the unsigned share or count apart (A3 refined)."""
+    return any(m.group(1) == "women" and m.group(2) in UNSIGNED_KINDS for m in PLACEHOLDER.finditer(str(text or "")))
+
+
 class FillError(ValueError):
     """A placeholder that cannot be filled truthfully."""
 
 
-def fill_placeholders(text: str, values: dict) -> str:
+def fill_placeholders(text: str, values: dict, *, accounts: bool | None = None) -> str:
     """Every placeholder filled from ``values`` ({what: {"share", "floor"}}).
     A share is formatted against its floor (rounded down under it); as a
     backstop, a share under its floor whose text equals the floor's in any
@@ -393,7 +398,8 @@ def fill_placeholders(text: str, values: dict) -> str:
     of the known never stands for the whole (A3 refined). Counts print as
     digits, or as words with ``:words``."""
     text = str(text or "")
-    accounts = any(m.group(1) == "women" and m.group(2) in UNSIGNED_KINDS for m in PLACEHOLDER.finditer(text))
+    if accounts is None:  # a caller filling one piece of a longer statement (a split caption cue) says whether the whole accounts
+        accounts = prints_unsigned(text)
 
     def one(m):
         what, kind, fmt = m.group(1), m.group(2), m.group(3)

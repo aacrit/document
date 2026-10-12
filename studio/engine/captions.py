@@ -228,12 +228,16 @@ def fill_play(play: dict, values: dict | None) -> dict:
     placeholder left unfilled is refused, never published as written."""
     from studio.engine import policy as POL
     out = dict(play, subtitle_source=[dict(c) for c in play.get("subtitle_source", [])])
-    for c in out["subtitle_source"]:
+    cues = out["subtitle_source"]
+    for i, c in enumerate(cues):
         if POL.has_placeholder(c.get("en")):
+            # A card's sentence may be split across neighbouring cues: the unsigned count printed in
+            # the cue before or after accounts for this one (A3 refined).
+            near = [cues[j].get("en") for j in (i - 1, i, i + 1) if 0 <= j < len(cues)]
             if not values:
                 raise CaptionError(f"cue {c.get('ref')} holds a placeholder and no filled values were given "
                                    "(the render's sources.json card_fills)")
-            c["en"] = POL.fill_placeholders(c["en"], values)
+            c["en"] = POL.fill_placeholders(c["en"], values, accounts=any(POL.prints_unsigned(t) for t in near))
             if POL.has_placeholder(c["en"]):
                 raise CaptionError(f"cue {c.get('ref')} holds an unknown placeholder: {c['en']}")
     return out

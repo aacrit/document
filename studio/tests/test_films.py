@@ -1147,3 +1147,20 @@ def test_spans_cache_env_moves_the_cut_spans_off_the_film(film, tmp_path, monkey
     sp = next(s for s in plan["shots"] if s["id"] == "S6")["_span"]
     assert Path(sp["file"]).parent == other and list(other.glob("*.mkv"))
     assert not list((film / "cache" / "spans").glob("*.mkv"))                      # nothing cut onto the film's disk
+
+
+def test_a3_refined_a_caption_split_across_cues_counts_the_unsigned_in_its_neighbour():
+    from studio.engine import captions as CAP
+    vals = {"women": {"share": 0.04, "floor": 0.3, "unknown_s": 60.0, "unsigned_share": 0.12,
+                      "speakers": {"all": 15, "f": 1, "m": 11, "unsigned": 3}}}
+    play = {"subtitle_source": [
+        {"ref": "c1", "en": "[Of {women_speakers} voices in this\nfilm, {women_speakers_f} is a woman,"},
+        {"ref": "c2", "en": "{women_speakers_m} are men,\n{women_speakers_unsigned} are unsigned.]"}]}
+    out = CAP.fill_play(play, vals)["subtitle_source"]
+    assert out[0]["en"] == "[Of 15 voices in this\nfilm, 1 is a woman,"
+    assert out[1]["en"] == "11 are men,\n3 are unsigned.]"
+    # a lone cue with the counts and no unsigned anywhere near it is still refused
+    alone = {"subtitle_source": [{"ref": "c1", "en": "{women_speakers_f} is a woman, {women_speakers_m} are men"},
+                                 {"ref": "c2", "en": "Nothing here."}]}
+    with pytest.raises(POL.FillError, match="women_speakers_unsigned"):
+        CAP.fill_play(alone, vals)
