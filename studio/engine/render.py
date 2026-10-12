@@ -23,6 +23,11 @@ A9; design/brand-kit/BRAND-KIT.md; every graphic comes from motion.py):
   their named move on the rostrum curve; a still fills 16:9 only when the shot
   says ``fill_ok: true``, otherwise the camera moves inside the photograph's
   own shape;
+- FILL (A34): an archive still or clip narrower than 16:9 opens whole for
+  2.5 s, then moves over up to 6 s to the largest 16:9 window inside it about
+  its ``focus`` and holds there (the default for such a picture over 6 s that
+  declares no preset), never magnifying the source past the film's
+  ``fill_max_upscale``;
 - cards: title, chapter, record-is-silent, perspective, credits (generated
   from the timeline), and black under a voice;
 - on every frame the mark plate, the watermark (off on cards) and the lower
@@ -192,7 +197,17 @@ PRESETS = {                         # GRAMMAR 7.2, zoom relative to the largest 
     "TILT": ({"z": 1.2, "y": 0.0}, {"z": 1.2, "y": 1.0}),
     "DETAIL": ({"z": 1.3}, {"z": 1.3}),
 }
-PRESET_ZMAX = {"HOLD": 1.0, "PUSH": 1.12, "PULL": 1.12, "DRIFT": 1.15, "TILT": 1.2, "DETAIL": 1.3}
+PRESET_ZMAX = {"HOLD": 1.0, "PUSH": 1.12, "PULL": 1.12, "DRIFT": 1.15, "TILT": 1.2, "DETAIL": 1.3, "FILL": 1.0}
+# A34 (R12): FILL ends on the largest 16:9 window inside the picture, which is 7.2's z = 1 (so its relative zoom is
+# at most 1.0); its timing is motion.FILL. It never magnifies the source more than FILL_MAX_UPSCALE output pixels per
+# source pixel (the founder's figure; a film may set fill_max_upscale, 1.0 to 3.0): at 1.6 a 4:3 source of 1200 px
+# or more across fills 1080p; a 640x480 reel, already 2.25x in its plain fit (A5), stays whole and is journaled.
+FILL = "FILL"
+FILL_MAX_UPSCALE = 1.6
+FILL_ASPECT_TOL = 0.01              # narrower than 16:9 by more than 1% (a 1.77 transfer is 16:9)
+FILL_SAFE = (0.04, 0.05, 0.96, 0.75)   # the focus at the end framing: inside the marks' insets, above the lower thirds
+VIDEO_PRESETS = (FILL, "HOLD")      # a clip either plays as it is (HOLD, or no preset) or FILLs (A34)
+assert FILL_MAX_UPSCALE == POL.DEFAULT_SETTINGS["fill_max_upscale"]
 # 7.2, max 1.3. FIND (A32, a georeferenced sheet between extents) is not here: its limit is the
 # scan's own resolution, per shot and per delivery resolution (OV.scan_zmax, A32 refined, CoS 2026-10-11).
 SILENT_RE = re.compile(r"^The record holds no .+\.$")
@@ -703,9 +718,11 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int) -> dict:
     ox, oy = (W - fw) / 2.0, (H - fh) / 2.0
     fill = shot.get("fill_ok") is True
     base = max(W / fw, H / fh) if fill else 1.0
-    preset = str(shot.get("preset", "HOLD")).upper()
+    preset = shot_preset(shot, iw / ih, still=True)
     if preset == OV.FIND:                     # A32: between geographic extents on a georeferenced sheet
         return OV.find_camera(shot, img_size, W, H, open_s=OPEN_S)
+    if preset == FILL:                        # A34: the whole original, then a slow move that fills 16:9
+        return fill_camera(shot, img_size, W, H)
     if preset not in PRESETS:
         raise Refused(f"shot {shot['id']}: unknown preset {preset!r} (GRAMMAR 7.2)")
     frm, to = (dict(k) for k in PRESETS[preset])
@@ -734,6 +751,230 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int) -> dict:
     return {"path": path, "clamp": "image" if fill else "native", "fill_ok": fill, "preset": preset,
             "open_s": min(OPEN_S, 0.4 * dur), "z_max": max(p["z"] for p in path), "fit_scale": s,
             "z_rel_max": max(float(frm["z"]), float(to["z"]))}
+
+
+def narrower_than_frame(aspect: float, W: int = 1920, H: int = 1080) -> bool:
+    """A34: a picture narrower than 16:9 (4:3, square, portrait) by more than rounding."""
+    return aspect < (W / H) * (1.0 - FILL_ASPECT_TOL)
+
+
+def burned_names_in_shot(shot: dict, item: dict | None) -> list:
+    """A26 refined: the speakers' names the source burns into the picture
+    (``speakers_on_screen`` on the clip's ledger item) inside this shot's
+    clip span. A crop could cut them off, so A34 never fills such a shot."""
+    out = []
+    a, b = float(shot.get("in_s", 0.0) or 0.0), float(shot.get("out_s", 0.0) or 0.0)
+    for e in (item or {}).get("speakers_on_screen") or []:
+        if isinstance(e, dict) and float(e.get("in_s", 0)) < b and float(e.get("out_s", 0)) > a:
+            out.append(e)
+    return out
+
+
+def shot_preset(shot: dict, aspect: float, *, still: bool) -> str:
+    """The camera preset a picture shot uses. A declared ``preset`` wins. A34:
+    with none declared, an archive picture narrower than 16:9 that runs longer
+    than FILL's default_min_s FILLs (unless it says ``fill_ok: false``, or its
+    source burns names into the frame); else a still HOLDs and a clip plays
+    as it is (``None``). The choice is recorded on the shot (``_preset_from``)."""
+    declared = shot.get("preset")
+    if declared is not None:
+        shot["_preset_from"] = "declared"
+        return str(declared).upper()
+    dur = float(shot.get("_dur") or 0.0)
+    why = None
+    if not shot.get("kind", "").startswith("archive_"):
+        why = "not an archive picture"
+    elif not narrower_than_frame(aspect):
+        why = "not narrower than 16:9"
+    elif dur <= M.FILL["default_min_s"]:
+        why = f"{dur:g} s, not over {M.FILL['default_min_s']:g} s"
+    elif shot.get("fill_ok") is False:
+        why = "the shot says fill_ok: false"
+    elif burned_names_in_shot(shot, shot.get("_item")):
+        why = "the source burns speakers' names into this span (A26 refined); a crop could cut them off"
+    shot["_preset_from"] = "default" if why is None else f"no default fill: {why}"
+    if why is None:
+        return FILL
+    return "HOLD" if still else None
+
+
+def fill_camera(shot: dict, size: tuple[float, float], W: int, H: int, *, max_upscale: float | None = None) -> dict:
+    """A34 (FILL): the camera that opens on the whole picture (A7) and then
+    moves, on the rostrum curve, to the largest 16:9 window inside it about
+    ``focus`` ([x, y], 0 to 1 in the picture; the centre by default), and
+    holds there. ``size`` is the picture in source pixels (a clip's display
+    width, its stored height). The end window never leaves the picture
+    (still_view's ``image`` clamp). The move stops short of a full fill
+    where filling would magnify the source more than ``max_upscale`` output
+    pixels per source pixel (FILL_MAX_UPSCALE, or the film's
+    ``fill_max_upscale``); a source whose plain fit already magnifies it that
+    much (A5) does not move at all. Returns the camera, with its ``fill``
+    record: the numbers the journal and sources.json carry."""
+    iw, ih = float(size[0]), float(size[1])
+    s = min(W / iw, H / ih)
+    fw, fh = iw * s, ih * s
+    ox, oy = (W - fw) / 2.0, (H - fh) / 2.0
+    cap = float(max_upscale if max_upscale is not None else shot.get("_fill_max_upscale") or FILL_MAX_UPSCALE)
+    z_fill = max(W / fw, H / fh)
+    z_cap = max(1.0, cap / s)
+    z_end = min(z_fill, z_cap)
+    focus = shot.get("focus")
+    if focus is None:
+        fx, fy, focus_from = 0.5, 0.5, "centre (default)"
+    else:
+        ok = (isinstance(focus, (list, tuple)) and len(focus) == 2
+              and all(isinstance(v, (int, float)) and not isinstance(v, bool) and 0.0 <= float(v) <= 1.0 for v in focus))
+        if not ok:
+            raise Refused(f"shot {shot['id']}: focus must be [x, y], each 0 to 1 in the picture, not {focus!r} (A34)")
+        fx, fy, focus_from = float(focus[0]), float(focus[1]), "declared"
+    end = {"z": z_end, "x": (ox + fx * fw) / W, "y": (oy + fy * fh) / H}
+    whole = {"z": 1.0, "x": 0.5, "y": 0.5}
+    path = [whole] if z_end <= 1.0 + 1e-9 else [whole, end]
+    src, _ = M.still_view((iw, ih), M.Layout(W, H), z=z_end, cx=end["x"], cy=end["y"], clamp="image")
+    sw, sh = src[2] - src[0], src[3] - src[1]
+    at = ((fx * iw - src[0]) / sw, (fy * ih - src[1]) / sh) if sw > 0 and sh > 0 else (0.5, 0.5)
+    # each axis either crops inside the picture or (a fill stopped short) shows all of it on the field: never a pixel
+    # sampled from beyond the picture's own edge on an axis it crops
+    inside = all((lo >= -0.5 and hi <= n + 0.5) or (lo <= 0.5 and hi >= n - 0.5)
+                 for lo, hi, n in ((src[0], src[2], iw), (src[1], src[3], ih)))
+    dur = float(shot["_dur"])
+    open_s = M.FILL["open_s"] if dur >= M.FILL["open_s"] + M.FILL["move_min_s"] else 0.4 * dur
+    move_s = min(M.FILL["move_s"], dur - open_s)
+    fill = {"z_fill": round(z_fill, 4), "z_end": round(z_end, 4), "full": z_end >= z_fill - 1e-6,
+            "fit_upscale": round(s, 4), "end_upscale": round(s * z_end, 4), "full_fill_upscale": round(s * z_fill, 4),
+            "max_upscale": cap, "focus": [fx, fy], "focus_from": focus_from,
+            "focus_in_frame": [round(at[0], 4), round(at[1], 4)], "end_window_px": [round(v, 2) for v in src],
+            "end_inside_picture": inside, "picture": [round(iw, 2), round(ih, 2)], "open_s": round(open_s, 3),
+            "move_s": round(move_s, 3), "from": shot.get("_preset_from", "declared")}
+    return {"path": path, "clamp": "image", "fill_ok": True, "preset": FILL, "open_s": open_s, "move_s": move_s,
+            "z_max": max(p["z"] for p in path), "fit_scale": s, "z_rel_max": z_end / z_fill, "fill": fill}
+
+
+def fill_safe(fill: dict) -> bool:
+    """A34: the focus lands where nothing is drawn over it at the end framing:
+    above the lower thirds and subtitles (75% of the height, GRAMMAR 4.1) and
+    inside the marks' insets (4% of the width, 5% of the height)."""
+    x, y = fill["focus_in_frame"]
+    return FILL_SAFE[0] <= x <= FILL_SAFE[2] and FILL_SAFE[1] <= y <= FILL_SAFE[3]
+
+
+def fill_lints(lint, journal: Journal, s: dict, cam: dict | None) -> None:
+    """A34 at plan time, for a still or a clip. A FILL refuses: ``fill_ok:
+    false`` beside it (fill-declared), a first framing that is not the whole
+    picture or an opening under 2 s on a shot long enough for one
+    (fill-opens-whole), an end window outside the picture (fill-inside-picture),
+    a clip whose source burns names into the span (fill-burned-names). It
+    warns, as a reviewer item, where it stops short of a full fill
+    (fill-upscale) and where the focus ends under a lower third or a mark
+    (fill-focus-safe). Every FILL, and every default that did not fill a
+    picture narrower than 16:9, is journaled as a decision."""
+    why = str(s.get("_preset_from") or "")
+    if cam is None or cam.get("preset") != FILL:
+        if why.startswith("no default fill") and "not narrower" not in why and "not an archive" not in why:
+            journal.decision("motion", f"{s['id']}: no FILL ({why[len('no default fill: '):]})",
+                             "A34: FILL is the default only for an archive picture narrower than 16:9 over "
+                             f"{M.FILL['default_min_s']:g} s that does not say otherwise", unit=s["id"])
+        return
+    f = cam["fill"]
+    dur = float(s["_dur"])
+    lint("fill-declared", s.get("fill_ok") is not False, unit=s["id"], stage="motion", grammar="A7, A34",
+         evidence={"preset": FILL, "fill_ok": s.get("fill_ok"),
+                   "fix": None if s.get("fill_ok") is not False else "a FILL fills: drop fill_ok: false or the preset"})
+    first = cam["path"][0]
+    opens = (abs(first["z"] - 1.0) < 1e-9 and abs(first["x"] - 0.5) < 1e-9 and abs(first["y"] - 0.5) < 1e-9
+             and cam["open_s"] >= min(2.0, 0.4 * dur) - 1e-9)
+    lint("fill-opens-whole", opens, unit=s["id"], stage="motion", grammar="A7, A34",
+         evidence={"first": first, "open_s": round(cam["open_s"], 3), "dur_s": round(dur, 3)})
+    lint("fill-inside-picture", f["end_inside_picture"], unit=s["id"], stage="motion", grammar="4.2, A7, A34",
+         evidence={"end_window_px": f["end_window_px"], "picture": f["picture"]})
+    if s.get("kind") == "archive_video":         # A7 for a moving picture: the reviewer sees every person through the move
+        journal.lint("fill-ok", True, stage="motion", unit=s["id"], severity="review", grammar="A7, A34", phase="preflight",
+                     evidence={"fill_ok": True, "preset": FILL,
+                               "check": "Every person the clip is about is inside the frame through the move, or seen "
+                                        "whole in the opening, and no person who is the subject is cropped out."})
+    names = burned_names_in_shot(s, s.get("_item")) if s.get("kind") == "archive_video" else []
+    lint("fill-burned-names", not names, unit=s["id"], stage="motion", grammar="A26 refined, A34",
+         evidence={"speakers_on_screen": names, "fix": None if not names else
+                   "the source names its speakers in the frame; a crop could cut the names off: play it whole"})
+    journal.lint("fill-upscale", f["full"], stage="motion", unit=s["id"], severity="warn", grammar="A5, A34",
+                 phase="preflight", evidence=dict(f, why=None if f["full"] else (
+                     f"a full fill would magnify the source {f['full_fill_upscale']:g}x, over {f['max_upscale']:g}x; "
+                     f"the move stops at z {f['z_end']:g} of {f['z_fill']:g}" if f["z_end"] > 1.0 + 1e-9 else
+                     f"the plain fit already magnifies the source {f['fit_upscale']:g}x, over {f['max_upscale']:g}x: "
+                     "the picture stays whole"), reviewer="the founder rules whether the softer fill is wanted "
+                                                         "(the film's fill_max_upscale, up to 3.0)"))
+    journal.lint("fill-focus-safe", fill_safe(f), stage="motion", unit=s["id"], severity="warn", grammar="4.1, A34",
+                 phase="preflight", evidence={"focus": f["focus"], "focus_in_frame": f["focus_in_frame"], "safe": FILL_SAFE,
+                                              "fix": None if fill_safe(f) else "the focus ends under a lower third or a "
+                                                     "mark: move focus, or keep the shot whole"})
+    if not fill_safe(f) or not f["full"]:
+        journal.lint("fill-review", True, stage="motion", unit=s["id"], severity="review", grammar="A34", phase="preflight",
+                     evidence={"check": "the fill as framed: " + ("stops short of the frame; " if not f["full"] else "")
+                                        + ("the focus ends under a drawn area" if not fill_safe(f) else ""), "fill": f})
+    journal.decision("motion", f"{s['id']}: FILL ({f['from']}), whole for {f['open_s']:g} s, then a {f['move_s']:g} s "
+                     f"rostrum move to z {f['z_end']:g} about {f['focus']} ({f['focus_from']})",
+                     "A34: the whole original first (A7), then a crop inside the picture that fills 16:9; a crop is not a "
+                     "material alteration (4.2) and plain resampling never is (A5), so the mark and label are unchanged",
+                     unit=s["id"], evidence=f)
+
+
+IMAGE_KINDS = ("archive_still", "drawn", "generated")   # A35: an image is a still picture; a clip's shots are A33's
+IMAGE_MAX_PER_FILM, IMAGE_MAX_PER_PART = 2, 1
+
+
+def image_appearances(shots: list[dict]) -> list[dict]:
+    """A35: each showing of an image (a still asset), in film order. Shots of
+    one asset in a row, joined by a cut or a dissolve, are one showing (a
+    still split for a move, a FILL or a DETAIL on another region of it); a
+    dip, or any other shot between, starts a new one. Each carries its
+    number in the film and in its part, and the first shot's
+    ``repeat_reason``."""
+    out: list[dict] = []
+    prev = None
+    for s in shots:
+        a = s.get("asset")
+        if s.get("kind") not in IMAGE_KINDS or not a:
+            prev = None
+            continue
+        tr = (s.get("transition_in") or {}).get("type", "cut")
+        if prev is not None and prev.get("asset") == a and tr in ("cut", "dissolve"):
+            out[-1]["shots"].append(s["id"])
+        else:
+            out.append({"asset": a, "part": s.get("_part"), "shots": [s["id"]], "reason": s.get("repeat_reason")})
+        prev = s
+    film_n: dict = {}
+    part_n: dict = {}
+    for ap in out:
+        film_n[ap["asset"]] = film_n.get(ap["asset"], 0) + 1
+        part_n[(ap["asset"], ap["part"])] = part_n.get((ap["asset"], ap["part"]), 0) + 1
+        ap["n_film"], ap["n_part"] = film_n[ap["asset"]], part_n[(ap["asset"], ap["part"])]
+        ap["needs_reason"] = ap["n_film"] > IMAGE_MAX_PER_FILM or ap["n_part"] > IMAGE_MAX_PER_PART
+    return out
+
+
+def image_repeat_lints(lint, journal: Journal, shots: list[dict]) -> None:
+    """A35 (R12; founder: "we are reusing lots of images, why? Only show if it
+    makes sense"): an image may be shown at most twice in a film and at most
+    once in a part. A further showing needs ``repeat_reason`` on its first
+    shot, a return the story intends; each declared reason is journaled as a
+    decision and a reviewer item. Blocking, at plan time."""
+    for ap in image_appearances(shots):
+        if not ap["needs_reason"]:
+            continue
+        why = (f"showing {ap['n_film']} of {ap['asset']} in the film" if ap["n_film"] > IMAGE_MAX_PER_FILM else
+               f"showing {ap['n_part']} of {ap['asset']} in {ap['part']}")
+        reason = ap["reason"]
+        ok = isinstance(reason, str) and len(reason.split()) >= 3
+        ev = {"asset": ap["asset"], "part": ap["part"], "shots": ap["shots"], "in_film": ap["n_film"], "in_part": ap["n_part"],
+              "max_per_film": IMAGE_MAX_PER_FILM, "max_per_part": IMAGE_MAX_PER_PART, "repeat_reason": reason, "why": why}
+        lint("image-repeat", ok, unit=ap["shots"][0], stage="scout", grammar="A35",
+             evidence=dict(ev, fix=None if ok else "show another picture, or state repeat_reason on the shot (a return the "
+                                                   "story intends, in a sentence)"))
+        if ok:
+            journal.lint("image-repeat", True, stage="scout", unit=ap["shots"][0], severity="review", grammar="A35",
+                         phase="preflight", evidence=dict(ev, check="the return is one the story intends"))
+            journal.decision("scout", f"{ap['shots'][0]}: {ap['asset']} shown again ({why})", f"A35: {reason}",
+                             unit=ap["shots"][0], evidence=ev)
 
 
 def still_is_whole(size, src, dst, W: int, H: int) -> bool:
@@ -1115,6 +1356,11 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     if play.get("settings") is not None:
         lint("film-settings", not settings_problems, unit="settings", grammar="A25",
              evidence={"settings": settings, "stated": settings_stated, "bounds": POL.SETTING_BOUNDS, "problems": settings_problems})
+    # A38 (R12): the narrator voicing EQ, the house's unless the film declares its own (or off), journaled
+    narrator_eq, eq_how, eq_problems = SC.narrator_eq_setting(play)
+    lint("narrator-eq-declared", not eq_problems, unit="narrator_eq", grammar="A38",
+         evidence={"narrator_eq": narrator_eq, "declared": eq_how, "house": SC.NARRATOR_EQ_HOUSE,
+                   "bounds": SC.NARRATOR_EQ_BOUNDS, "problems": eq_problems})
     # A29 (R1): the house score standard, with what the film sets of it inside GRAMMAR's bounds
     score_std, score_stated, score_problems = SC.standard(play)
     if play.get("score_standard") is not None:
@@ -1268,6 +1514,8 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         lint("ai-generated-share-max", gen / total_frames <= gen_max + 1e-9, stage="marks", grammar="2.6, A2, A25",
              evidence={"generated_frames": gen, "frames": total_frames, "share": round(gen / total_frames, 4), "max": gen_max})
 
+    image_repeat_lints(lint, journal, shots)     # A35 (R12): an image is shown at most twice, once per part
+
     # Stills: the camera, the whole first frame (A7), the resampler (A5), fill_ok for the reviewer.
     for s in shots:
         if s["kind"] in ("archive_still", "drawn") and s.get("_item", {}).get("_path"):
@@ -1275,8 +1523,10 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                 s.setdefault("preset", "HOLD")
             with Image.open(s["_item"]["_path"]) as im:
                 size = im.size
+            s["_fill_max_upscale"] = settings["fill_max_upscale"]
             cam = still_camera(s, size, W, H)
             s["_cam"] = cam
+            fill_lints(lint, journal, s, cam)
             if cam["preset"] == OV.FIND:
                 # A32 refined (CoS 2026-10-11): an archive sheet's camera may push as deep as its own
                 # scan resolution, not the 1.3 still cap; find_camera already clamps to it, and
@@ -1354,6 +1604,24 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             s["_video"] = {"probe": pr, "conform": conf, "fit": [vw, vh], "neutralise_cast": neutral,
                            "resampler": {"method": "lanczos (ffmpeg scale)", "ml_upscaler": False,
                                          "scale": round(vh / pr["height"], 4)}}
+            # A34: a clip narrower than 16:9 FILLs (declared, or by default over 6 s); it is decoded large enough
+            # for its end framing, so the crop samples the source once (Lanczos), never an upsampled fit
+            preset = shot_preset(s, dar, still=False)
+            cam = None
+            if preset is not None and preset not in VIDEO_PRESETS:
+                lint("video-preset", False, unit=s["id"], stage="motion", grammar="7.1, A34",
+                     evidence={"preset": preset, "allowed": list(VIDEO_PRESETS),
+                               "fix": "a clip plays as it is (HOLD) or FILLs; Ken Burns presets are for stills"})
+            elif preset == FILL:
+                s["_fill_max_upscale"] = settings["fill_max_upscale"]
+                cam = fill_camera(s, (dar * pr["height"], pr["height"]), W, H)
+                s["_cam"] = cam
+                if len(cam["path"]) > 1:          # a FILL that cannot move (the upscale limit) plays as it is
+                    z = cam["z_max"]
+                    s["_video"]["decode"] = [even(vw * z), even(vh * z)]
+                    s["_video"]["resampler"] = dict(s["_video"]["resampler"], scale=round(vh * z / pr["height"], 4),
+                                                    camera="FILL: bicubic window of the decoded frame (PIL), at most 1:1")
+            fill_lints(lint, journal, s, cam)
             s["_resampler"] = s["_video"]["resampler"]
             u.settings = {"conform": conf, "resampler": s["_resampler"], "neutralise_cast": neutral}
             u.extra.update(conform=conf, resampler=s["_resampler"], fit=[vw, vh], neutralise_cast=neutral)
@@ -1566,6 +1834,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         "W": W, "H": H, "fps": FPS, "frames": total_frames, "duration_s": total_frames / FPS,
         "shots": shots, "assets": {k: {kk: vv for kk, vv in v.items()} for k, v in assets.items()},
         "lines": lines, "cues": cues, "speakers": speakers, "narrator_voice": narrator_voice(play), "silences": sorted(silences),
+        "narrator_eq": narrator_eq, "narrator_eq_declared": eq_how,
         "runtime_target_s": play.get("runtime_target_s"),
         "lower_thirds": lower_thirds, "overlays": overlays, "subtitles": subs, "burn_subtitles": burn_subtitles,
         "marks": [{"start": s["f0"] / FPS, "cls": s["mark"], "detail": s["detail"], "label": s["label"], "year": mark_year(s)}
@@ -1949,7 +2218,7 @@ class VideoReader:
     def __init__(self, shot: dict, start_local: float):
         self.shot_id = shot["id"]
         v = shot["_video"]
-        self.vw, self.vh = v["fit"]
+        self.vw, self.vh = v.get("decode") or v["fit"]          # A34: a FILL clip is decoded at its end framing's size
         self.nbytes = self.vw * self.vh * 3
         self.t0 = start_local
         conform = v["conform"]["filter"]
@@ -2056,6 +2325,10 @@ class Pictures:
                 self._retire(r)
             r = self.readers[s["id"]] = VideoReader(s, max(0.0, t_local))
         fr = r.frame(t_local)
+        cam = s.get("_cam")
+        if cam is not None and len(cam["path"]) > 1:   # A34: the whole frame first, then the rostrum move to the fill
+            f = OV.framing_at(cam, t_local, s["_dur"])
+            return M.fit_still(fr, self.L, z=f["z"], cx=f["x"], cy=f["y"], clamp=cam["clamp"])
         out = Image.new("RGB", (self.plan["W"], self.plan["H"]), M.PALETTE["letterbox"])
         out.paste(fr, ((self.plan["W"] - r.vw) // 2, (self.plan["H"] - r.vh) // 2))
         return out
@@ -2604,16 +2877,6 @@ def clip_file(s: dict) -> tuple[str, float]:
     if sp:
         return sp["file"], float(sp["offset_s"])
     return s["_item"]["_path"], 0.0
-
-
-def clip_audio(s: dict) -> np.ndarray | None:
-    src, base = clip_file(s)
-    r = subprocess.run([ffmpeg(), "-v", "error", "-filter_threads", "1", "-threads", "1",
-                        "-ss", f"{s['in_s'] - base:.4f}", "-t", f"{s['_dur']:.4f}", "-i", src,
-                        "-vn", "-ac", "1", "-ar", str(AUDIO_RATE), "-f", "f32le", "-"], capture_output=True)
-    if r.returncode or not r.stdout:
-        return None
-    return np.frombuffer(r.stdout, dtype=np.float32).copy()
 
 
 def moving_average(x: np.ndarray, k: int) -> np.ndarray:
@@ -3711,14 +3974,24 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
     placed = {"lines": [], "cues": [], "clips": [], "missing": []}
     missing_voice, bad_takes, unclean = [], [], []
     narr: dict[str, dict] = {}                   # narration line id -> its voice profile, for narrator-consistency
+    eq = plan.get("narrator_eq") if "narrator_eq" in plan else SC.narrator_eq_setting({})[0]
+    eq_lines: dict[str, dict] = {}               # A38: narration line id -> its EQ record
     parts: list[dict] = []                       # E14: every voice placement in order, so pass 2 can place them again
+    # A36 (R12): every archival segment's edges, planned together (a gap between two of one reel may be joined)
+    segs = archival_segments(plan, film)
+    plan_edges(segs, plan, film)
+    by_seg = {g["id"]: g for g in segs}
+    arch: list = []                              # the archival stem as placed: (start sample, sound, gain dB, segment)
     for ln in plan["lines"]:
         if archival_span(ln):
-            # A26 (E11): the clip's own soundtrack, cut at in and out, faded, one static gain; never cleaned or limited
-            k, act, gain = place_archival_span(voice, plan, film, journal, ln, stash=parts)
+            # A26 (E11): the clip's own soundtrack, cut at in and out, one static gain; never cleaned or limited.
+            # A36: its edges carry the reel's sound past the cut and fade it.
+            k, act, gain = place_archival_span(voice, plan, film, journal, ln, stash=parts, seg=by_seg.get(ln["id"]),
+                                               arch=arch)
             parts[-1]["i"] = len(placed["lines"])
             sp = plan["speakers"].get(ln.get("speaker"), {})
-            at = parts[-1]["at_s"]                   # A33(1b): the start the span was placed at, after any re-sync
+            # A33(1b): the start the span's words were placed at, after any re-sync (its head edge sits before it)
+            at = parts[-1]["at_s"] + parts[-1]["core"][0] / AUDIO_RATE
             placed["lines"].append({"id": ln["id"], "speaker": ln.get("speaker"), "side": sp.get("side"), "kind": "archival",
                                     "at_s": at, "dur_s": round(k / AUDIO_RATE, 3), "line_kind": ln.get("kind"),
                                     "speech_from_s": None if not len(act) else round(at + act[0] / AUDIO_RATE, 3),
@@ -3751,6 +4024,8 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
             if ln.get("kind") == "narration":
                 words = len(WORD_RE.findall(str(ln.get("text") or "")))
                 narr[ln["id"]] = dict(voice_profile(x, words), mood=(ln.get("delivery") or {}).get("mood"))
+                if eq is not None:               # A38: after the narrator's profile (A14 judges her own voice), before peaks
+                    x, eq_lines[ln["id"]] = SC.apply_voice_eq(x, eq)
             x0 = x                               # E14: pass 2 peak-controls the levelled line again, at its own ceiling
             x, peak = voice_peak_control(x)
             if peak:
@@ -3778,6 +4053,7 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
                                 "floor_after_dbfs": None if not (cleaned and cleaned["cleaned"]) else cleaned["after"]["floor_dbfs"],
                                 "peak_reduction_db": peak["max_reduction_db"] if peak else None})
     narrator_off = narrator_consistency_lints(journal, narr, draft, plan.get("narrator_voice")) if narr else []
+    eq_off = narrator_eq_lints(journal, plan, eq, eq_lines, draft)
     for c in plan["cues"]:
         wav = film / (c.get("wav") or f"audio/{c['id']}.wav")
         if not wav.exists():
@@ -3820,11 +4096,17 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
                                                                       unfaded=unfaded[:k] * np.float32(10 ** (gain / 20)))})
     for s in plan["shots"]:
         if s["kind"] == "archive_video" and (s.get("sound") or {}).get("mode", "own") == "own" and s["_video"]["probe"]["has_audio"]:
-            x = clip_audio(s)
-            if x is None:
+            g = by_seg.get(s["id"])
+            if g is None or not len(g["x"]):
                 journal.lint("audio-present", False, stage="assembly", phase="preflight", unit=s["id"], severity="warn", evidence="clip audio unreadable")
                 continue
-            _place(clips, x, s["f0"] / FPS, end_s=s["f1"] / FPS)
+            y, h, _ = segment_audio(g)           # A36: the clip's own sound, its edges carried past the cut and faded
+            at0 = g["t_in"] - h / AUDIO_RATE
+            _place(clips, y, at0)
+            arch.append((int(round(at0 * AUDIO_RATE)), y, 0.0, s["id"]))
+            journal.decision("assembly", f"{s['id']} plays its own sound with A36 edges",
+                             "A36: a clip's own sound never starts or stops on a hard cut of its noise floor", unit=s["id"],
+                             evidence={"head": g["head"], "tail": g["tail"]})
             placed["clips"].append(s["id"])
     if missing_voice and not draft:
         raise Refused(f"voice WAVs missing for {', '.join(missing_voice)} (render with --draft to place silence)")
@@ -3834,6 +4116,12 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
         raise Refused(f"voice-clean and voice-chop (A19): re-render these takes (or render with --draft): {'; '.join(unclean)}")
     if narrator_off and not draft:
         raise Refused(f"narrator-consistency and narrator-drift (A14): not the narrator's voice: {'; '.join(narrator_off)}")
+    if eq_off and not draft:
+        raise Refused(f"narrator-eq (A38): the EQ applied is not the one declared: {'; '.join(eq_off)}")
+    edge_off = archival_edge_lints(journal, arch, segs, draft=draft)
+    if edge_off:
+        raise Refused(f"archival-sound-edge (A36): the reel's sound stops in one step: {'; '.join(edge_off)}")
+    del arch, segs, by_seg
     spans = [(ln["speech_from_s"], ln["speech_to_s"]) for ln in placed["lines"] if ln.get("speech_from_s") is not None]
     duck = duck_gain(voice, spans=spans, hold_s=float(std["duck_hold_s"]))
     if stems is not None:
@@ -3851,6 +4139,40 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
     mix = (voice + clips + music * duck + amb).astype(np.float32)
     lifted = voice_ceiling_pass(mix, parts, clips, music, amb, placed, journal, draft=draft, work=work, duck=duck)
     return (mix if lifted is None else lifted), placed
+
+
+def narrator_eq_lints(journal: Journal, plan: dict, eq: dict | None, eq_lines: dict, draft: bool) -> list[str]:
+    """A38, narrator-eq: the voicing EQ applied to the narration is the one
+    the film declares (the house's by default): each narration line was EQ'd
+    with it, and the response measured on the line at each band (a bell at
+    its centre, a shelf at 1.5 times its corner) is within
+    NARRATOR_EQ_TOL_DB of the declared response there; journaled with
+    the setting and each line's re-level. Off, it journals that it is off.
+    Blocking on a final render. Returns the reasons to refuse."""
+    how = plan.get("narrator_eq_declared", "house (default)")
+    if eq is None:
+        journal.lint("narrator-eq", True, stage="assembly", phase="preflight", unit="narrator", grammar="A38",
+                     evidence={"narrator_eq": None, "declared": how, "lines": 0})
+        return []
+    bad, worst = [], 0.0
+    for lid, rec in eq_lines.items():
+        if rec.get("eq") != eq:
+            bad.append(f"{lid} was EQ'd with {rec.get('eq')}, not the declared {eq}")
+        for c in rec["response"]:
+            if c.get("error_db") is None:
+                continue
+            worst = max(worst, c["error_db"])
+            if c["error_db"] > SC.NARRATOR_EQ_TOL_DB:
+                bad.append(f"{lid} {c['band']} {c['measured_db']:+.2f} dB, declared {c['declared_db']:+.2f}")
+    ok = not bad
+    journal.lint("narrator-eq", ok, stage="assembly", phase="preflight", unit="narrator", grammar="A38",
+                 severity="warn" if draft else "block",
+                 evidence={"narrator_eq": eq, "declared": how, "lines": len(eq_lines),
+                           "at_hz": {k: {"declared_db": SC.eq_db_at(b["hz"], eq)} for k, b in eq.items()},
+                           "worst_error_db": round(worst, 3), "tol_db": SC.NARRATOR_EQ_TOL_DB, "off_lines": bad[:20],
+                           "relevel_db": {lid: r["relevel_db"] for lid, r in list(eq_lines.items())[:200]},
+                           "readers": "not EQ'd (A38 is the narrator's voicing only)"})
+    return bad
 
 
 def derived_voice_ceiling(lift_db: float) -> tuple[float, float, str | None]:
@@ -3982,11 +4304,13 @@ def voice_ceiling_pass(mix: np.ndarray, parts: list[dict], clips: np.ndarray, mu
         g, line = got[k], placed["lines"][p["i"]] if "i" in p else None
         if p["kind"] == "fixed":
             continue
-        k_n = int(min(len(g["x"]), max(0, len(mix) - int(round(p["at_s"] * AUDIO_RATE)))))
-        act = speech_active(g["x"][:k_n], g["db"])
+        h, core = p.get("core") or (0, len(g["x"]))     # A36: an archival span's words are its core, not its edges
+        at_core = p["at_s"] + h / AUDIO_RATE
+        k_n = int(min(core, len(g["x"]) - h, max(0, len(mix) - int(round(at_core * AUDIO_RATE)))))
+        act = speech_active(g["x"][h:h + k_n], g["db"])
         line.update(voice_ceiling_dbtp=ceiling,
-                    speech_from_s=None if not len(act) else round(p["at_s"] + act[0] / AUDIO_RATE, 3),
-                    speech_to_s=None if not len(act) else round(p["at_s"] + (act[-1] + 1) / AUDIO_RATE, 3))
+                    speech_from_s=None if not len(act) else round(at_core + act[0] / AUDIO_RATE, 3),
+                    speech_to_s=None if not len(act) else round(at_core + (act[-1] + 1) / AUDIO_RATE, 3))
         if p["kind"] == "synthetic":
             peak = g["peak"]
             if peak:
@@ -4048,30 +4372,325 @@ def archival_gain(x: np.ndarray) -> tuple[float | None, dict]:
     return gain, dict(m, target_gain_db=round(g, 2), held_by_peak=held)
 
 
+# A36 (R12; founder: "in some places there is sudden silence after old footage (noise disappears abruptly)"): an
+# archival segment (an archival line's span, or a clip shot playing its own sound) never starts or ends on a hard cut
+# of its noise floor. Each edge carries the reel's own sound on past the cut, where the reel has no speech there and
+# nothing else is placed, and fades it over EDGE_FADE_S (EDGE_LONG_S where silence follows or precedes), on the house
+# sine in-out in dB down to EDGE_DEPTH_DB under its level, so the noise eases away at the rate a room decays rather
+# than in one 20 ms step. Where the reel speaks too soon after the out point, the fade starts inside the span's own
+# A33 tail (after the last word and its decay, EDGE_GUARD_AFTER_S, A19's speech extent), so it is at least EDGE_MIN_S
+# long where there is room; the reel's next word (less EDGE_GUARD_BEFORE_S for its onset) is never carried. Two segments
+# of one reel whose gap keeps their source timing, with no speech and no voice line in it, are joined: the reel's
+# sound plays through the gap at its own level. archival-sound-edge refuses an edge whose noise floor still steps by
+# more than EDGE_STEP_MAX_DB within 50 ms (edge_steps: the edit's own step, the reel's own changes and words set aside).
+# Calibration (R12, The Next Village, r-20261011-204507): its 9 archival spans and 3 own-sound clips have 24 edges.
+# As cut before R12 (A26's 20 ms fade, own sound cut hard), the 22 with a floor under them stepped 20.1 to 56.7 dB in
+# 50 ms (the other 2 sat on the reel's own digital silence); on the master's mix their 50 ms steps were 30.7 to
+# 71.6 dB. Planned by A36, the 21 edges with room step 3.6 to 13.5 dB; 3 are speech-bound (the reel speaks on both
+# sides of the cut: 21.2 to 24.6 dB), a warning and a reviewer item. A sine-dB fade steps 7.9 dB at 0.6 s, 11.8 at 0.4.
+EDGE_FADE_S = 0.6
+EDGE_LONG_S = 1.5
+EDGE_MIN_S = 0.4
+EDGE_DEPTH_DB = 60.0
+EDGE_GUARD_AFTER_S, EDGE_GUARD_BEFORE_S = 0.060, 0.040   # A19's speech extent: a word's decay, a word's onset
+EDGE_PAD_S = 1.6                    # the reel read either side of a segment, so an edge can carry on past its cut
+EDGE_JOIN_MAX_S = 3.0               # a gap this short between two segments of one reel in step may be joined
+EDGE_STEP_MAX_DB = 15.0
+EDGE_FLOOR_DBFS = -80.0
+EDGE_WIN_S, EDGE_HOP_S = 0.050, 0.010
+
+
+def edge_gain(n: int, *, rising: bool) -> np.ndarray:
+    """A36: n samples of gain on the sine in-out in dB, from -EDGE_DEPTH_DB
+    to 0 (rising) or from 0 to -EDGE_DEPTH_DB."""
+    if n <= 0:
+        return np.ones(0, np.float32)
+    u = (np.arange(n) + 0.5) / n
+    db = -EDGE_DEPTH_DB * (0.5 + 0.5 * np.cos(np.pi * u)) if rising else -EDGE_DEPTH_DB * (0.5 - 0.5 * np.cos(np.pi * u))
+    return (10 ** (db / 20)).astype(np.float32)
+
+
+def reel_audio(src, a: float, b: float) -> np.ndarray:
+    """A reel's sound from a to b (its own time, a >= 0), mono 48 kHz float."""
+    r = subprocess.run([ffmpeg(), "-v", "error", "-filter_threads", "1", "-threads", "1", "-ss", f"{max(0.0, a):.4f}",
+                        "-t", f"{max(0.0, b - a):.4f}", "-i", str(src), "-vn", "-ac", "1", "-ar", str(AUDIO_RATE),
+                        "-f", "f32le", "-"], capture_output=True)
+    if r.returncode:
+        return np.zeros(0, np.float32)
+    return np.frombuffer(r.stdout, dtype=np.float32).copy()
+
+
+def archival_segments(plan: dict, film: Path) -> list[dict]:
+    """A36: every archival segment the mix places, in time order, with the
+    reel's sound read EDGE_PAD_S either side and its speech runs: each
+    archival line's span (at its A33(1b)-corrected start) and each clip shot
+    that plays its own sound."""
+    segs = []
+    for ln in plan["lines"]:
+        if not archival_span(ln):
+            continue
+        item = plan["assets"].get(ln["clip"]) or {}
+        in_s, out_s = float(ln["in_s"]), float(ln["out_s"])
+        sp = cached_span(film, item["_path"], in_s, out_s, video=False, pad_s=EDGE_PAD_S)
+        t_in = float(ln["start_s"]) - CL.av_correction_s(item)
+        segs.append({"id": ln["id"], "kind": "span", "asset": ln["clip"], "src_in": in_s, "src_out": out_s, "t_in": t_in,
+                     "t_out": t_in + out_s - in_s, "x": _read_wav(Path(sp["file"])), "x0": float(sp["offset_s"]),
+                     "span": sp, "ln": ln})
+    for s in plan["shots"]:
+        if not (s["kind"] == "archive_video" and (s.get("sound") or {}).get("mode", "own") == "own"
+                and s["_video"]["probe"]["has_audio"]):
+            continue
+        src, base = clip_file(s)
+        t_in, t_out = s["f0"] / FPS, s["f1"] / FPS
+        src_in = float(s["in_s"])
+        a = max(base, src_in - EDGE_PAD_S)
+        x = reel_audio(src, a - base, src_in + (t_out - t_in) + EDGE_PAD_S - base)
+        segs.append({"id": s["id"], "kind": "own", "asset": s.get("asset"), "src_in": src_in,
+                     "src_out": src_in + (t_out - t_in), "t_in": t_in, "t_out": t_out, "x": x, "x0": a, "shot": s})
+    for g in segs:
+        g["runs"] = CL.speech_runs(g["x"], g["x0"], sr=AUDIO_RATE)[0] if len(g["x"]) else []
+        g["x_end"] = g["x0"] + len(g["x"]) / AUDIO_RATE
+        g["head"] = g["tail"] = None
+    return sorted(segs, key=lambda g: (g["t_in"], g["id"]))
+
+
+def _voice_intervals(plan: dict, film: Path) -> list[tuple[float, float, str]]:
+    out = []
+    for ln in plan["lines"]:
+        if archival_span(ln) or ln.get("kind") not in VOICE_KINDS:
+            continue
+        w = voice_wav(film, ln)
+        if w.exists():
+            out.append((float(ln["start_s"]), float(ln["start_s"]) + wav_seconds(w), ln["id"]))
+    return out
+
+
+def plan_edges(segs: list[dict], plan: dict, film: Path) -> None:
+    """A36: each segment's ``head`` and ``tail``: how far the reel's sound
+    carries past the cut (``ext``), how long the fade is (``fade``, of which
+    ``inside`` lies within the segment) and why, or ``joined`` to the
+    neighbouring segment of the same reel."""
+    voices = _voice_intervals(plan, film)
+    music = [(float(c["start_s"]), float(c["end_s"])) for c in plan.get("cues", [])]
+
+    def others(g: dict) -> list[tuple[float, float]]:
+        return [(v[0], v[1]) for v in voices] + [(h["t_in"], h["t_out"]) for h in segs if h is not g]
+
+    def quiet(a: float, b: float, g: dict) -> bool:
+        return not any(x0 < b and x1 > a for x0, x1 in others(g) + music)
+
+    for i, g in enumerate(segs):
+        nxt = segs[i + 1] if i + 1 < len(segs) else None
+        gap = nxt["t_in"] - g["t_out"] if nxt else None
+        if (nxt is not None and nxt["asset"] == g["asset"] and 0.0 <= gap <= EDGE_JOIN_MAX_S
+                and abs(gap - (nxt["src_in"] - g["src_out"])) <= 1.0 / FPS
+                and not any(a < nxt["src_in"] and b > g["src_out"] for a, b in g["runs"])
+                and not any(v0 < nxt["t_in"] and v1 > g["t_out"] for v0, v1, _ in voices)
+                and g["x_end"] >= nxt["src_in"] - 1e-3):
+            g["tail"] = {"joined": nxt["id"], "ext": round(gap, 4), "fade": 0.0, "inside": 0.0}
+            nxt["head"] = {"joined": g["id"], "ext": 0.0, "fade": 0.0, "inside": 0.0}
+            continue
+        g["tail"] = _edge(g, "tail", quiet(g["t_out"], g["t_out"] + EDGE_LONG_S, g), others(g))
+    for g in segs:
+        if g["head"] is None:
+            g["head"] = _edge(g, "head", quiet(g["t_in"] - EDGE_LONG_S, g["t_in"], g), others(g))
+
+
+def _edge(g: dict, side: str, silent: bool, others: list[tuple[float, float]]) -> dict:
+    """A36: one edge's plan (see plan_edges)."""
+    want = EDGE_LONG_S if silent else EDGE_FADE_S
+    if side == "tail":
+        nxt_speech = min([a for a, b in g["runs"] if a >= g["src_out"] - 1e-3] or [math.inf])
+        avail_src = min(nxt_speech - EDGE_GUARD_BEFORE_S, g["x_end"]) - g["src_out"]
+        avail_t = min([a for a, b in others if a >= g["t_out"] - 1e-6] or [math.inf]) - g["t_out"]
+        last = max([b for a, b in g["runs"] if a < g["src_out"] - 1e-3] or [g["src_in"]])
+        room_in = g["src_out"] - max(g["src_in"], min(g["src_out"], last + EDGE_GUARD_AFTER_S))
+    else:
+        prv_speech = max([b for a, b in g["runs"] if b <= g["src_in"] + 1e-3] or [-math.inf])
+        avail_src = g["src_in"] - max(prv_speech + EDGE_GUARD_AFTER_S, g["x0"])
+        avail_t = g["t_in"] - max([b for a, b in others if b <= g["t_in"] + 1e-6] or [-math.inf])
+        first = min([a for a, b in g["runs"] if b > g["src_in"] + 1e-3] or [g["src_out"]])
+        room_in = min(g["src_out"], max(g["src_in"], first - EDGE_GUARD_BEFORE_S)) - g["src_in"]
+    room_in = max(0.0, room_in)
+    ext = max(0.0, min(want, avail_src, avail_t))
+    if ext >= EDGE_MIN_S - 1e-9:
+        inside = 0.0
+    else:
+        inside = min(EDGE_MIN_S - ext, room_in)
+        if ext + inside < 2 * ARCHIVAL_FADE_S:      # no room at all: A26's 20 ms fade, so the cut never clicks
+            inside = min(ARCHIVAL_FADE_S, room_in)
+    limit = ("wanted" if ext >= want - 1e-9 else "the reel speaks or ends" if avail_src <= min(want, avail_t) + 1e-9
+             else "another sound is placed")
+    return {"ext": round(ext, 4), "fade": round(ext + inside, 4), "inside": round(inside, 4), "wanted": want,
+            "silence": silent, "limited_by": limit}
+
+
+def segment_audio(g: dict) -> tuple[np.ndarray, int, int]:
+    """A36: the segment's sound with its edges: the reel from in - head ext
+    to out + tail ext, the head and tail fades on it. Returns it, the
+    samples before the core (the head's ext) and the core's length."""
+    lo, hi = g["src_in"] - g["head"]["ext"], g["src_out"] + g["tail"]["ext"]
+    i0 = max(0, int(round((lo - g["x0"]) * AUDIO_RATE)))
+    i1 = max(i0, int(round((hi - g["x0"]) * AUDIO_RATE)))
+    y = np.zeros(i1 - i0, np.float32)
+    got = g["x"][i0:i1]
+    y[: len(got)] = got
+    h = int(round(g["head"]["ext"] * AUDIO_RATE))
+    core = int(round((g["src_out"] - g["src_in"]) * AUDIO_RATE))
+    for side in ("head", "tail"):
+        e = g[side]
+        n = min(len(y), int(round(e["fade"] * AUDIO_RATE)))
+        if e.get("joined") or n <= 0:
+            continue
+        if side == "head":
+            y[:n] *= edge_gain(n, rising=True)
+        else:
+            y[len(y) - n:] *= edge_gain(n, rising=False)
+    return y, h, core
+
+
+def stem_window(parts, i0: int, i1: int, *, skip: str | None = None) -> np.ndarray:
+    """The archival stem from sample i0 to i1, summed from its placed parts
+    ((start sample, sound, gain dB, segment id)), without holding a
+    film-long buffer; ``skip`` leaves one segment out."""
+    out = np.zeros(max(0, i1 - i0), np.float64)
+    for st, y, db, sid in parts:
+        if sid == skip:
+            continue
+        a, b = max(i0, st), min(i1, st + len(y))
+        if b > a:
+            out[a - i0: b - i0] += y[a - st: b - st] * 10 ** (db / 20)
+    return out
+
+
+def _levels(x: np.ndarray) -> np.ndarray:
+    w, hop = int(EDGE_WIN_S * AUDIO_RATE), int(EDGE_HOP_S * AUDIO_RATE)
+    fr = np.lib.stride_tricks.sliding_window_view(x, w)[::hop]
+    return np.maximum(10 * np.log10(np.mean(fr * fr, axis=1) + 1e-20), EDGE_FLOOR_DBFS)
+
+
+def edge_steps(parts, segs: list[dict]) -> list[dict]:
+    """A36, archival-sound-edge: the step the edit puts into the reel's sound
+    at each edge that is not joined. Across the fade and 100 ms past it, on
+    50 ms windows every 10 ms, the edited stem's level and the level the reel
+    would have had playing on unedited (the same segment, the same gain, no
+    fade, no cut), each floored at EDGE_FLOOR_DBFS. The step is the edited
+    level's change within 50 ms in the fade's direction (a fall at a tail, a
+    rise at a head) less the reel's own change that way, so a fall the reel
+    makes by itself (its own silence) is not the edit's. Windows over the
+    reel's speech are left out: a word the edit deliberately does not carry
+    (the next speaker, the previous sentence) is not its noise floor.
+    ``parts``: (start sample, sound, gain dB, segment id) for every placed
+    archival segment."""
+    out = []
+    k = int(round(EDGE_WIN_S / EDGE_HOP_S))
+    gains = {sid: db for _, _, db, sid in parts}
+    for g in segs:
+        for side in ("head", "tail"):
+            e = g[side]
+            if e is None or e.get("joined") or g["id"] not in gains:
+                continue
+            if side == "tail":
+                end = g["t_out"] + e["ext"]
+                a, b = end - e["fade"] - EDGE_WIN_S, end + 0.1
+            else:
+                start = g["t_in"] - e["ext"]
+                a, b = start - 0.1, start + e["fade"] + EDGE_WIN_S
+            i0, i1 = max(0, int(round(a * AUDIO_RATE))), int(round(b * AUDIO_RATE))
+            if i1 - i0 < int(EDGE_WIN_S * AUDIO_RATE) + k * int(EDGE_HOP_S * AUDIO_RATE):
+                continue
+            edited = stem_window(parts, i0, i1)
+            reel_at = int(round((g["t_in"] - (g["src_in"] - g["x0"])) * AUDIO_RATE))
+            unedited = stem_window(parts, i0, i1, skip=g["id"]) + stem_window([(reel_at, g["x"], gains[g["id"]], g["id"])], i0, i1)
+            le, lu = _levels(edited), _levels(unedited)
+            t0 = i0 / AUDIO_RATE + np.arange(len(le)) * EDGE_HOP_S - g["t_in"] + g["src_in"]   # each window in reel time
+            words = np.zeros(len(le), bool)
+            for ra, rb in g["runs"]:
+                words |= (t0 < rb) & (t0 + EDGE_WIN_S > ra)
+            sign = 1.0 if side == "tail" else -1.0                    # a fall at a tail, a rise at a head
+            de, du = sign * (le[:-k] - le[k:]), sign * (lu[:-k] - lu[k:])
+            d = np.where(words[k:] | words[:-k], -np.inf, de - np.maximum(du, 0.0))
+            if not np.isfinite(d).any():
+                continue
+            i = int(np.argmax(d))
+            out.append({"segment": g["id"], "kind": g["kind"], "edge": side,
+                        "at_s": round(g["t_out"] if side == "tail" else g["t_in"], 3), "step_db": round(float(d[i]), 1),
+                        "step_at_s": round(a + i * EDGE_HOP_S, 3), "plan": e,
+                        "reel_dbfs": round(float(np.percentile(_levels(unedited), 50)), 1),
+                        "speech_bound": e.get("limited_by") == "the reel speaks or ends" and e["fade"] < EDGE_MIN_S - 1e-9})
+    return out
+
+
+def archival_edge_lints(journal: Journal, parts: list, segs: list[dict], *, draft: bool = False) -> list[str]:
+    """A36: archival-sound-edge, one lint per segment edge, on the archival
+    stem as placed (``parts``, as edge_steps reads them). A step over
+    EDGE_STEP_MAX_DB is refused on a final render (a warning under --draft),
+    except at a speech-bound edge (the reel speaks on both sides of the cut,
+    so no speech-safe fade of EDGE_MIN_S fits): that is a warning and a
+    reviewer item, since only a different cut can give it room. Returns the
+    reasons to refuse."""
+    out = []
+    for st in edge_steps(parts, segs):
+        ok = st["step_db"] <= EDGE_STEP_MAX_DB + 1e-9
+        bound = not ok and st["speech_bound"]
+        unit = f"{st['segment']}:{st['edge']}"
+        journal.lint("archival-sound-edge", ok, stage="assembly", phase="preflight", unit=unit,
+                     severity="warn" if draft or bound else "block", grammar="8.5, A26, A36",
+                     evidence=dict(st, max_step_db=EDGE_STEP_MAX_DB, window_s=EDGE_WIN_S, floor_clip_dbfs=EDGE_FLOOR_DBFS,
+                                   fix=None if ok else (
+                                       "the reel speaks right at this cut, so no speech-safe fade fits: a cut in a "
+                                       "longer pause gives it room" if bound else
+                                       "the reel's sound stops in one step: give the edge room (move the next sound "
+                                       "later, or cut in a pause)")))
+        if bound:
+            journal.lint("archival-sound-edge", True, stage="assembly", phase="preflight", unit=unit, severity="review",
+                         grammar="A36", evidence={"check": "a speech-bound edge: hear whether the cut sounds abrupt",
+                                                  "step_db": st["step_db"], "plan": st["plan"]})
+        elif not ok and not draft:
+            out.append(f"{st['segment']} {st['edge']} steps {st['step_db']:g} dB in 50 ms")
+    joined = [{"from": g["id"], "to": g["tail"]["joined"], "gap_s": g["tail"]["ext"]} for g in segs
+              if g["tail"] and g["tail"].get("joined")]
+    if joined:
+        journal.decision("assembly", f"{len(joined)} archival gaps joined: the reel plays through at its own level",
+                         "A36: two segments of one reel in step, with no speech and no voice in the gap", unit="archival",
+                         evidence={"joined": joined})
+    return out
+
+
 def place_archival_span(voice: np.ndarray, plan: dict, film: Path, journal: Journal, ln: dict,
-                        stash: list | None = None) -> tuple[int, np.ndarray, float]:
+                        stash: list | None = None, seg: dict | None = None,
+                        arch: list | None = None) -> tuple[int, np.ndarray, float]:
     """A26 (E11): place an archival line from its clip's own soundtrack. The
     span is cut from the source once into the span cache (a long reel is
-    never read whole), faded in and out over ARCHIVAL_FADE_S, brought to the
-    archival dialogue level by one static gain (plus the line's own
-    ``gain_db``, if any), and placed. Never cleaned (A19), never peak
-    controlled (A13), never judged as the narrator (A14). Returns the samples
-    placed, its speech-active samples and the gain. ``stash`` keeps what pass 2
-    (A15 refined, E14) needs to place it again under a derived ceiling."""
+    never read whole), brought to the archival dialogue level by one static
+    gain measured on the span itself (plus the line's own ``gain_db``, if
+    any), and placed. A36: its edges carry the reel's sound past the cut and
+    fade it (``seg``, from plan_edges; without one, A26's 20 ms fades). Never
+    cleaned (A19), never peak controlled (A13), never judged as the narrator
+    (A14). Returns the span's samples, its speech-active samples and the
+    gain. ``stash`` keeps what pass 2 (A15 refined, E14) needs to place it
+    again under a derived ceiling; ``arch`` receives it too (the archival
+    stem archival-sound-edge reads)."""
     item = plan["assets"].get(ln["clip"]) or {}
     in_s, out_s = float(ln["in_s"]), float(ln["out_s"])
-    sp = cached_span(film, item["_path"], in_s, out_s, video=False)
-    x = _read_wav(Path(sp["file"]))[: int(round((out_s - in_s) * AUDIO_RATE))]
-    x = cue_fades(x, out_s - in_s, ARCHIVAL_FADE_S, ARCHIVAL_FADE_S)
-    gain, m = archival_gain(x)
+    if seg is None:
+        sp = cached_span(film, item["_path"], in_s, out_s, video=False)
+        core_x = _read_wav(Path(sp["file"]))[: int(round((out_s - in_s) * AUDIO_RATE))]
+        x, h, core = cue_fades(core_x, out_s - in_s, ARCHIVAL_FADE_S, ARCHIVAL_FADE_S), 0, len(core_x)
+    else:
+        sp = seg["span"]
+        x, h, core = segment_audio(seg)
+    # the level is the span's own, measured as A26 cut it (20 ms fades), whatever its edges carry
+    gain, m = archival_gain(cue_fades(x[h:h + core], out_s - in_s, ARCHIVAL_FADE_S, ARCHIVAL_FADE_S))
     line_gain = float(ln.get("gain_db", 0.0) or 0.0)
     total = _archival_total(gain, m, line_gain)
     journal.decision("assembly", f"{ln['id']} plays {ln['clip']} {in_s:.2f} to {out_s:.2f} s at its own dynamics, "
-                     f"{total:+.2f} dB", "A26: an archival span is cut with "
-                     f"{ARCHIVAL_FADE_S * 1000:g} ms fades and brought to {ARCHIVAL_DIALOGUE_LUFS:g} LUFS by one static gain "
-                     "(held back to the voice ceiling, never limited), never cleaned", unit=ln["id"],
+                     f"{total:+.2f} dB", "A26: an archival span is brought to "
+                     f"{ARCHIVAL_DIALOGUE_LUFS:g} LUFS by one static gain (held back to the voice ceiling, never limited), "
+                     "never cleaned; A36: its edges carry the reel's own sound past the cut and fade it", unit=ln["id"],
                      evidence={"span": sp, "measured": m, "static_gain_db": None if gain is None else round(gain, 2),
-                               "line_gain_db": ln.get("gain_db"), "cleaned": False, "limited": False})
+                               "line_gain_db": ln.get("gain_db"), "cleaned": False, "limited": False,
+                               "edges": None if seg is None else {"head": seg["head"], "tail": seg["tail"]}})
     # A33(1b): a clip whose lip-measured offset lies outside BT.1359's window is put back on its picture by placing the
     # span earlier (sound late) or later (sound early); the words and their edges are the span's own, never re-cut
     corr = CL.av_correction_s(item)
@@ -4083,11 +4702,15 @@ def place_archival_span(voice: np.ndarray, plan: dict, film: Path, journal: Jour
                          f"natural {CL.LIPS_NATURAL_LAG_MS:g} ms lag", unit=ln["id"],
                          evidence={"av_offset_ms": item.get("av_offset_ms"), "correction_s": corr,
                                    "measure": item.get("av_offset_measure")})
-    k = _place(voice, x, at, total)
+    start = at - h / AUDIO_RATE
+    k = _place(voice, x, start, total)
+    if arch is not None:
+        arch.append((int(round(start * AUDIO_RATE)), x, total, ln["id"]))
+    k_core = max(0, min(core, k - h))
     if stash is not None:
-        stash.append({"kind": "archival", "id": ln["id"], "x": x, "at_s": at, "gain": gain, "m": m,
-                      "line_gain": line_gain, "total": total})
-    return k, speech_active(x[:k], total), round(total, 2)
+        stash.append({"kind": "archival", "id": ln["id"], "x": x, "at_s": start, "gain": gain, "m": m,
+                      "line_gain": line_gain, "total": total, "core": (h, core)})
+    return k_core, speech_active(x[h:h + k_core], total), round(total, 2)
 
 
 def cue_fades(x: np.ndarray, span_s: float, fade_in_s: float, fade_out_s: float) -> np.ndarray:
@@ -4109,7 +4732,9 @@ def duck_gain(voice: np.ndarray, spans: list[tuple[float, float]] | None = None,
     """Music gain under voice (GRAMMAR 8.5): -9 dB wherever a voice speaks,
     with gaps shorter than ``hold_s`` closed (a morphological closing of
     the voice activity), so the bed holds still between words and between
-    lines instead of pumping, and a 250 ms centred ramp in and out. A29: each
+    lines instead of pumping; it comes back up on a 250 ms centred ramp, and
+    goes down on A37's pre-roll (about 1 s, eased in dB, full depth on the
+    onset). A29: each
     of ``spans`` (a line's spoken span, first to last word) counts as voice
     throughout, so the duck holds through every pause written into a line."""
     active = (np.abs(voice) > DUCK_VOICE_THRESHOLD).astype(np.float32)
@@ -4120,7 +4745,9 @@ def duck_gain(voice: np.ndarray, spans: list[tuple[float, float]] | None = None,
     closed = (moving_average(grown, k) > 1 - 1e-6).astype(np.float32)       # erode back: only the short gaps stay filled
     closed = np.maximum(closed, active)
     env = np.clip(moving_average(closed, int(round(DUCK_SMOOTH_S * AUDIO_RATE))), 0.0, 1.0)
-    return (1.0 - env * (1.0 - 10 ** (-DUCK_DB / 20))).astype(np.float32)
+    g = (1.0 - env * (1.0 - 10 ** (-DUCK_DB / 20))).astype(np.float32)
+    # A37 (R12): the attack is a pre-roll eased in dB over SC.DUCK_ATTACK_S, at full depth on the voice's onset
+    return SC.duck_attack(g, closed, AUDIO_RATE, smooth_s=DUCK_SMOOTH_S)
 
 
 def digital_silence(mix: np.ndarray, intended: list, min_s: float = SILENCE_WARN_S) -> list[dict]:
@@ -4521,9 +5148,10 @@ def black_dip_lints(journal: Journal, plan: dict, *, draft: bool = False) -> lis
     sources.json), and a reading over it has a lower third. dip-budget: over
     each part at most one dip per DIP_EVERY_S on average (rounded up, so a
     short part keeps one), and over the film at most DIP_SECONDS_PER_10MIN_MAX
-    seconds of dip per 10 minutes; binding on an event film (10 min or more).
-    Blocking on a final render; warnings under --draft, --audio-only and
-    --until (``draft``). Returns the reasons to refuse."""
+    seconds of dip per 10 minutes, a pacing guide (A39): a warning and a
+    reviewer item, never a refusal. black-under-voice is blocking on a final
+    render; a warning under --draft, --audio-only and --until (``draft``).
+    Returns the reasons to refuse."""
     out = []
     sev = "warn" if draft else "block"
     runs = plan["dark_voice"] if "dark_voice" in plan else dark_voice_runs(plan)
@@ -4566,9 +5194,8 @@ def black_dip_lints(journal: Journal, plan: dict, *, draft: bool = False) -> lis
     secs_ok = srate <= DIP_SECONDS_PER_10MIN_MAX + 1e-9
     count_ok = n <= film_allowed
     ok = not over and secs_ok and count_ok
-    journal.lint("dip-budget", ok, stage="scout", phase="preflight", unit="dips", severity="block" if binding else "warn",
-                 grammar="7.3, A10, A30",
-                 evidence={"dips": n, "film_allowed_dips": film_allowed, "dip_s": round(secs, 2),
+    pacing_review(journal, "dip-budget", ok, stage="scout", unit="dips", grammar="7.3, A10, A30",
+                  evidence={"dips": n, "film_allowed_dips": film_allowed, "dip_s": round(secs, 2),
                            "dip_s_per_10min": round(srate, 2),
                            "one_dip_per_s": DIP_EVERY_S, "max_dip_s_per_10min": DIP_SECONDS_PER_10MIN_MAX,
                            "allowed_dip_s": round(DIP_SECONDS_PER_10MIN_MAX * dur / 600.0, 2),
@@ -4580,12 +5207,6 @@ def black_dip_lints(journal: Journal, plan: dict, *, draft: bool = False) -> lis
                                f"make cuts of {n - film_allowed} dip(s) across the film" if not count_ok else
                                "shorten the dips") + " (a cut inside a scene; a breath between scenes is a held frame or 1.5 s "
                                                      "with no voice, A10)"})
-    if not ok and binding:
-        out.append(f"dip-budget ({n} dips, {secs:g} s of dip in {dur:.0f} s"
-                   + (f"; over one per {DIP_EVERY_S:g} s in " + ", ".join(f"{p} ({v['dips']} in {v['part_s']:.0f} s, at most "
-                                                                           f"{v['allowed']})" for p, v in over.items()) if over else "")
-                   + ("" if count_ok else f"; {n} in the film, at most {film_allowed} (one per {DIP_EVERY_S:g} s)")
-                   + ("" if secs_ok else f"; {srate:.1f} s of dip per 10 min, at most {DIP_SECONDS_PER_10MIN_MAX:g}") + ")")
     return out
 
 
@@ -4714,31 +5335,43 @@ def card_fill_lints(journal: Journal, plan: dict) -> list[str]:
     return out
 
 
+PACING_GUIDE = "A39: pacing is guidance; the founder judges rhythm (a warning and a reviewer item, never a refusal)"
+PACING_ADVISORY = ("still-hold", "dip-budget", "voiceless-floor")   # A39: moved from blocking to advisory (R12)
+
+
+def pacing_review(journal: Journal, rule: str, ok: bool, *, unit=None, stage: str = "assembly", grammar=None,
+                  evidence=None) -> None:
+    """A39 (founder, R12: "Max hold times etc should be guidance, not rule"): a
+    pacing limit is journaled as a warning and, where it is not met, as a
+    reviewer item (``pacing-guide``) naming the rule; it never refuses."""
+    ev = dict(evidence or {}, advisory=PACING_GUIDE)
+    journal.lint(rule, ok, stage=stage, phase="preflight", unit=unit, severity="warn", grammar=grammar, evidence=ev)
+    if not ok:
+        journal.lint("pacing-guide", True, stage=stage, phase="preflight", unit=unit, severity="review",
+                     grammar=f"{grammar}, A39" if grammar else "A39",
+                     evidence={"rule": rule, "check": "the founder judges this rhythm", "found": ev})
+
+
 def still_hold_lints(journal: Journal, plan: dict, placed: dict, *, draft: bool = False) -> list[str]:
-    """still-hold (GRAMMAR 7.2, A9, A20(a)), one lint per archive still:
-    blocking on a final render, a warning under --draft or a check render
-    (--until, which may not place every line over its last shot). Returns
-    the reasons to refuse."""
-    binding = not draft and not plan.get("until_s")
-    out = []
+    """still-hold (GRAMMAR 7.2, A9, A20(a)), one lint per archive still: a
+    pacing guide (A39, founder R12: "Max hold times etc should be guidance,
+    not rule"), journaled as a warning and, where a hold runs over, a
+    reviewer item. Never a refusal: returns []."""
     for h in still_holds(plan, placed):
-        journal.lint("still-hold", h["ok"], stage="assembly", phase="preflight", unit=h["id"],
-                     severity="block" if binding else "warn", grammar="7.2, A9, A20(a)",
-                     evidence=dict(h, rule="at most 10 s with no voice (holds of one photograph linked across a dip); at most "
-                                                "20 s not under a reading; a hold at most 30 s; a DETAIL at most 5 s",
-                                   fix=None if h["ok"] else "shorten the still, or cut to another picture"))
-        if not h["ok"] and binding:
-            out.append(f"still-hold ({h['id']}: {'; '.join(h['why'])})")
-    return out
+        pacing_review(journal, "still-hold", h["ok"], unit=h["id"], grammar="7.2, A9, A20(a)",
+                      evidence=dict(h, rule="at most 10 s with no voice (holds of one photograph linked across a dip); at "
+                                             "most 20 s not under a reading; a hold at most 30 s; a DETAIL at most 5 s",
+                                    fix=None if h["ok"] else "the guide suggests a shorter hold or another picture"))
+    return []
 
 
 def sound_lints(journal: Journal, plan: dict, mix: np.ndarray, placed: dict, *, draft: bool = False) -> list[str]:
     """A17, A18 and A19 on the mix. digital-silence (a warning): true digital
     silence over 4 s outside an intended silence. voiceless-floor and
     readings-floor (GRAMMAR 6.1): at least 10% of the runtime has no voice
-    and readings carry at least 20% (founder, 2026-10-10; was 30%); blocking on a full, final render of an
-    event film, a warning on a draft, a check render (--until) or a short
-    piece. The narration ceiling is lifted (A17): narration is reported, never
+    and readings carry at least 20% (founder, 2026-10-10; was 30%); readings-floor is blocking on a full, final
+    render of an event film, a warning on a draft, a check render (--until) or a short piece; voiceless-floor
+    judges the film's breath, a rhythm, and is a pacing guide (A39): a warning and a reviewer item. The narration ceiling is lifted (A17): narration is reported, never
     capped. Returns the reasons to refuse."""
     runs = digital_silence(mix, plan.get("silences", []))
     journal.lint("digital-silence", not runs, stage="assembly", phase="preflight", severity="warn", grammar="8.4, A19",
@@ -4772,6 +5405,10 @@ def sound_lints(journal: Journal, plan: dict, mix: np.ndarray, placed: dict, *, 
         ev = {what: value, "min": floor}
         extra = {"women": women} if what == "women" else {}
         sf = declared.get(what)
+        if sf is None and rule in PACING_ADVISORY:
+            # A39: the voiceless floor judges the film's breath, a rhythm: a warning and a reviewer item
+            pacing_review(journal, rule, ok, grammar=grammar, evidence=dict(ev, shares=sh, binding=binding, warning_because=why))
+            continue
         if sf is None:
             journal.lint(rule, ok, stage="assembly", phase="preflight", severity=severity, grammar=grammar,
                          evidence=dict(ev, shares=sh, binding=binding, warning_because=why, **extra))
@@ -5166,6 +5803,7 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             "creator": it.get("creator"), "credit": it.get("credit"), "licence": it.get("licence"), "basis": it.get("basis"),
             "alterations": s.get("alterations") or [], "transition_in": s["transition_in"],
             "preset": (s.get("_cam") or {}).get("preset"), "fill_ok": (s.get("_cam") or {}).get("fill_ok"),
+            "fill": (s.get("_cam") or {}).get("fill"),
             "in_s": s.get("in_s"), "out_s": s.get("out_s"),
             "resampler": s.get("_resampler"), "conform": (s.get("_video") or {}).get("conform"),
             "neutralise_cast": (s.get("_video") or {}).get("neutralise_cast"),

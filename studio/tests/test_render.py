@@ -10,6 +10,7 @@ from PIL import Image
 from studio.engine import journal as J
 from studio.engine import motion as M
 from studio.engine import render as R
+from studio.engine import score as SC
 from conftest import HEIGHT, ROOT, WORKERS, make_film
 
 LETTERBOX = np.array(M.PALETTE["letterbox"])
@@ -2021,7 +2022,8 @@ def _held_dissolve_film(tmp_path):
         for k in ("silent_record", "text"):
             s7.pop(k, None)
         s7.update(kind="archive_still", asset="FX-STILL-A", preset="HOLD", start_s=16.75, dur_s=3.5, mark="DRAWN",
-                  transition_in={"type": "dissolve", "s": 1.0})
+                  transition_in={"type": "dissolve", "s": 1.0},
+                  repeat_reason="the test returns to the chapter's first still on purpose (A35)")
     _edit_play(film, edit)
     return film
 
@@ -2299,11 +2301,12 @@ def test_a19_ducking_holds_still_under_a_long_bed():
     for a, b in groups:
         inside = g[int((a + R.DUCK_SMOOTH_S / 2) * rate): int((b - R.DUCK_SMOOTH_S / 2) * rate)]   # past the ramps
         assert np.allclose(inside, floor, atol=1e-6), "the bed pumps between words or lines"
-        assert g[int((b + 1.0) * rate)] == pytest.approx(1.0) and g[int((a - 0.5) * rate)] == pytest.approx(1.0)
+        assert g[int((b + 1.0) * rate)] == pytest.approx(1.0) and g[int((a - SC.DUCK_ATTACK_S - 0.05) * rate)] == pytest.approx(1.0)
+        assert g[int(a * rate)] == pytest.approx(floor, abs=1e-6)              # A37: at full depth on the onset
     step = np.abs(np.diff(g.astype(np.float64))).max()
-    assert step <= (1 - floor) / (R.DUCK_SMOOTH_S * rate) * 1.01               # a 250 ms ramp, never a jump
+    assert step <= (1 - floor) / (R.DUCK_SMOOTH_S * rate) * 1.01               # a 250 ms ramp up, an eased pre-roll down
     edges = np.flatnonzero(np.abs(np.diff(g.astype(np.float64))) > 1e-9)
-    runs = np.split(edges, np.flatnonzero(np.diff(edges) > 1) + 1)
+    runs = np.split(edges, np.flatnonzero(np.diff(edges) > int(0.05 * rate)) + 1)   # the eased pre-roll's first samples
     assert len(runs) == 4                                                       # down and up once per scene, nothing else
 
 
@@ -2390,8 +2393,13 @@ def test_a16_a_lower_thirds_burned_cue_ends_with_the_drawn_span(film, plan, tmp_
 def test_a17_a18_a_short_target_cannot_dodge_the_floors_on_a_long_film(plan):
     placed = {"lines": [{"id": "N", "kind": "narration", "at_s": 0.0, "dur_s": 700.0}]}
     long_film = dict(plan, duration_s=720.0, runtime_target_s=60)            # a 12 min film claiming a 1 min target
-    out = R.sound_lints(J.Journal(film="dodge"), long_film, np.full(48000, 1e-3, np.float32), placed)
-    assert any(o.startswith("readings-floor") for o in out) and any(o.startswith("voiceless-floor") for o in out)
+    j = J.Journal(film="dodge")
+    out = R.sound_lints(j, long_film, np.full(48000, 1e-3, np.float32), placed)
+    # A39 (R12): the voiceless floor judges rhythm, so it is a warning and a reviewer item; the readings floor binds
+    assert any(o.startswith("readings-floor") for o in out) and not any(o.startswith("voiceless-floor") for o in out)
+    vf = lints(J.read(j.path), "voiceless-floor")[0]
+    assert vf["status"] == "fail" and vf["severity"] == "warn"
+    assert [e["evidence"]["rule"] for e in lints(J.read(j.path), "pacing-guide")] == ["voiceless-floor"]
     no_target = dict(plan, duration_s=720.0, runtime_target_s=None)
     assert R.sound_lints(J.Journal(film="dodge2"), no_target, np.full(48000, 1e-3, np.float32), placed)
 
@@ -2545,10 +2553,14 @@ def test_a20a_a_still_holds_by_what_is_spoken_over_it(dur, lines, ok):
     assert h[0]["ok"] is ok, h
     j = J.Journal(film="still-hold")
     out = R.still_hold_lints(j, plan, placed)
-    ev = lints(J.read(j.path), "still-hold")[0]
-    assert ev["status"] == ("pass" if ok else "fail") and ev["severity"] == "block"
-    assert bool(out) is not ok
-    assert R.still_hold_lints(J.Journal(film="still-hold-draft"), plan, placed, draft=True) == []   # a warning under --draft
+    evs = J.read(j.path)
+    ev = lints(evs, "still-hold")[0]
+    # A39 (R12, founder: "Max hold times etc should be guidance, not rule"): measured as before, never a refusal
+    assert ev["status"] == ("pass" if ok else "fail") and ev["severity"] == "warn" and out == []
+    review = lints(evs, "pacing-guide")
+    assert [e["evidence"]["rule"] for e in review] == ([] if ok else ["still-hold"])
+    assert all(e["severity"] == "review" for e in review)
+    assert R.still_hold_lints(J.Journal(film="still-hold-draft"), plan, placed, draft=True) == []
 
 
 def test_a20a_stills_of_one_asset_are_one_hold_and_a_detail_is_at_most_5_s():
@@ -2574,7 +2586,7 @@ def test_a20a_stills_of_one_asset_are_one_hold_and_a_detail_is_at_most_5_s():
     assert R.still_holds({"shots": [dict(shots[0]), dict(shots[1], end_s=13.0, preset="DETAIL")]}, narr)[0]["ok"] is True
 
 
-def test_a20a_a_final_render_with_a_silent_still_over_10_s_is_refused(tmp_path):
+def test_a39_a_final_render_with_a_silent_still_over_10_s_is_guided_not_refused(tmp_path):
     film = make_film(tmp_path / "film")
 
     def stretch(p):                                                            # S5 (no voice over it) runs 11 s, not 3
@@ -2595,8 +2607,11 @@ def test_a20a_a_final_render_with_a_silent_still_over_10_s_is_refused(tmp_path):
                 c["end_s"] += 8.0
     _edit_play(film, stretch)
     from studio.engine.render import render
-    with pytest.raises(R.Refused, match=r"still-hold \(S5: 11 s with no voice"):
-        render(film, tmp_path / "out", height=360, workers=1, min_free_gb=1, encode_preset="veryfast", audio_only=True)
+    out = render(film, tmp_path / "out", height=360, workers=1, min_free_gb=1, encode_preset="veryfast", audio_only=True)
+    evs = J.read(Path(out["journal"]))
+    ev = next(e for e in lints(evs, "still-hold") if e["unit"] == "S5")
+    assert ev["status"] == "fail" and ev["severity"] == "warn" and "11 s with no voice" in ev["evidence"]["why"][0]
+    assert any(e["evidence"]["rule"] == "still-hold" and e["unit"] == "S5" for e in lints(evs, "pacing-guide"))
 
 
 def test_a20a_the_still_hold_lint_runs_on_the_fixture_and_passes(plan):

@@ -1684,6 +1684,14 @@ def credits_frame(img: Image.Image, t: float, *, start: float, blocks, fonts: Fo
 # --------------------------------------------------------------------------
 
 
+# A34 (R12, founder: "show the original, then slowly zoom in to what matters... it should fill the screen"): the
+# FILL camera preset for a picture narrower than 16:9 (4:3 footage, a square or portrait photograph). It opens on
+# the whole original for ``open_s`` (pillarboxed, A7), then moves on the rostrum curve (section 6's Ken Burns ease)
+# over ``move_s`` to the largest 16:9 window inside the picture about its focus, and holds there. A shot shorter
+# than open_s + move_min_s opens for 40% of itself and moves over the rest.
+FILL = dict(open_s=2.5, move_s=6.0, move_min_s=3.0, curve="rostrum", default_min_s=6.0)
+
+
 def still_view(size, L: Layout, *, z: float = 1.0, cx: float = 0.5, cy: float = 0.5, clamp: str = "frame"):
     """Where a still lands for a camera at zoom z about the frame-space centre
     (cx, cy). z = 1 is the whole photograph fitted at its native aspect on the

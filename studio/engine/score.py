@@ -75,6 +75,13 @@ ORPHAN_HEADROOM_DB = 4.0            # a transition with no bed in the film is he
                                     # loudest 400 ms sits 3 to 4 dB over its integrated level: Partition, Nought)
 HOP_S = 0.1                         # the analysis grid: 100 ms windows (momentary loudness is 4 of them, 400 ms)
 DUCK_GRID_S = 0.01                  # duck-pumping is judged on a 10 ms grid
+# A37 (R12; founder: "before Tara is about to speak, the music drops too sharply"): the duck's attack is a pre-roll
+# that eases in, in dB, on the house sine in-out (BRAND-KIT 6, the dissolve's curve) over DUCK_ATTACK_S before the
+# voice's onset and is at full depth on the onset. Its steepest drop is DUCK_DB * pi / 2 per DUCK_ATTACK_S
+# (1.41 dB per 100 ms at 1.0 s); the old 250 ms centred linear ramp fell about 5 dB in its steepest 100 ms (4.75 on
+# the 10 ms grid) and reached only half depth at the onset. duck-slope refuses an attack steeper than DUCK_ATTACK_MAX_DB per 100 ms.
+DUCK_ATTACK_S = 1.0
+DUCK_ATTACK_MAX_DB = 2.0            # per 100 ms: a 0.7 s sine pre-roll (2.0 dB) is the steepest that passes
 
 ROLES = ("bed", "transition", "sting", "outro", "regional", "motif", "brand_pulse", "palette")
 UNDERSCORE = ("bed", "transition", "sting", "outro", "regional")   # levelled to the bed target; under the score standard
@@ -87,7 +94,7 @@ FEATURED = ("motif", "brand_pulse", "palette")            # heard for itself, le
 MUSIC_ROLES = ("underscore", "house_motif", "brand_pulse", "palette")    # a music cue's `role`; absent is underscore
 RULES = ("bed-under-voice", "bed-low-end", "music-treble", "bed-breathing", "underscore-level", "ambience-level",
          "ambience-low-end", "transition-ceiling", "regional-density", "brand-pulse-place", "bed-reuse",
-         "score-repetition", "phone-check", "music-entry", "music-exit", "music-holes", "duck-pumping")
+         "score-repetition", "phone-check", "music-entry", "music-exit", "music-holes", "duck-pumping", "duck-slope")
 CUE_KINDS = ("music", "ambience")                          # a cue's `kind`, stated on every cue; nothing else is placed
 # Ambience under the voice (A29(1)): at most this share of its energy may be tonal and under LOW_END_HZ (spectral
 # lines standing 10x over their neighbourhood on a 1 Hz Welch spectrum, 20 to 230 Hz). Calibrated (R1 review): two real
@@ -333,6 +340,133 @@ def k_weight(x: np.ndarray) -> np.ndarray:
     return _filtered(x, k_mag)
 
 
+def integrated_lufs(x: np.ndarray) -> float | None:
+    """BS.1770 integrated loudness of ``x`` (K-weighted 400 ms blocks every
+    100 ms, gated), as analyse_cue measures a cue."""
+    y = k_weight(np.asarray(x, np.float32)).astype(np.float64)
+    b, h = int(0.4 * RATE), int(0.1 * RATE)
+    if len(y) < b:
+        y = np.concatenate([y, np.zeros(b - len(y))])
+    c = np.concatenate(([0.0], np.cumsum(y * y)))
+    starts = np.arange(0, len(y) - b + 1, h)
+    return gated_loudness((c[starts + b] - c[starts]) / b)
+
+
+# --------------------------------------------------------------------------
+# A38 (R12; founder: "Tara's voice sounds a little too much treble; can't we have some bass to supplement?"): the
+# house narrator voicing EQ, applied at the mix to the narrator's lines only, zero-phase, then re-levelled so the line
+# stays at the dialogue target. Chosen from Tara's long-term spectrum over the pilot's 81 narration takes against
+# ANSI S3.5's speech spectrum (normalised at 500 Hz to 1 kHz): 6.3 kHz +6.3 dB and 8 kHz +14.5 dB over it (the
+# treble the founder hears); 160 to 200 Hz already +8 to +9 dB (her fundamental, median 176 Hz), 250 Hz +4.6;
+# 2.5 to 4 kHz 2 to 4 dB under it (her presence, which must not lose more). So the cut is a high shelf of the top
+# of the founder's range, -2.5 dB with its half-gain point at 6 kHz: -1.4 at 6.3 kHz, -2.0 at 8 kHz, -2.3 at 10 kHz,
+# and only -0.4 at 4 kHz. The warmth is a bell, not a shelf (Tara has nothing under 125 Hz for a shelf to lift):
+# +2.5 dB at 200 Hz, Q 1.2 (+1.7 at 150, +1.9 at 250, +1.25 at 300 Hz), so it gives the chest just over her
+# fundamental and leaves the low-mids that muddy speech nearly alone (+0.6 at 400 Hz, +0.3 at 500); most of it sits
+# above a phone's 150 Hz cut, where it adds to the voice band rather than to what the phone throws away.
+# --------------------------------------------------------------------------
+
+NARRATOR_EQ_HOUSE = {"low": {"type": "bell", "hz": 200.0, "gain_db": 2.5, "q": 1.2},
+                     "high": {"type": "high_shelf", "hz": 6000.0, "gain_db": -2.5, "slope": 1.0}}
+NARRATOR_EQ_BOUNDS = {"low": {"type": ("bell",), "hz": (100.0, 300.0), "gain_db": (0.0, 3.0), "q": (0.5, 2.0)},
+                      "high": {"type": ("high_shelf",), "hz": (5000.0, 9000.0), "gain_db": (-3.0, 0.0), "slope": (0.5, 1.0)}}
+NARRATOR_EQ_TOL_DB = 0.5             # narrator-eq: the response measured on each line within this of the declared one
+NARRATOR_EQ_MIN_SHARE = 1e-3         # ... in a band holding at least this share of the line's energy (else inconclusive:
+                                     # a test tone has nothing at 9 kHz but the filter's own ringing at its edges)
+
+
+def _biquad_mag(f: np.ndarray, b, a) -> np.ndarray:
+    z = np.exp(-2j * np.pi * np.asarray(f, np.float64) / RATE)
+    return np.abs((b[0] + b[1] * z + b[2] * z * z) / (a[0] + a[1] * z + a[2] * z * z))
+
+
+def _band_coeffs(band: dict):
+    """RBJ cookbook coefficients at RATE for a bell or a high shelf."""
+    A = 10 ** (float(band["gain_db"]) / 40)
+    w0 = 2 * math.pi * float(band["hz"]) / RATE
+    cw, sw = math.cos(w0), math.sin(w0)
+    if band["type"] == "bell":
+        al = sw / (2 * float(band["q"]))
+        return (1 + al * A, -2 * cw, 1 - al * A), (1 + al / A, -2 * cw, 1 - al / A)
+    al = sw / 2 * math.sqrt((A + 1 / A) * (1 / float(band["slope"]) - 1) + 2)
+    sa = 2 * math.sqrt(A) * al
+    b = (A * ((A + 1) + (A - 1) * cw + sa), -2 * A * ((A - 1) + (A + 1) * cw), A * ((A + 1) + (A - 1) * cw - sa))
+    a = ((A + 1) - (A - 1) * cw + sa, 2 * ((A - 1) - (A + 1) * cw), (A + 1) - (A - 1) * cw - sa)
+    return b, a
+
+
+def eq_mag(f: np.ndarray, eq: dict) -> np.ndarray:
+    """The EQ's magnitude: the product of its bands' (low, high)."""
+    m = np.ones(len(np.atleast_1d(f)))
+    for k in ("low", "high"):
+        if eq.get(k):
+            m = m * _biquad_mag(f, *_band_coeffs(eq[k]))
+    return m
+
+
+def eq_db_at(hz: float, eq: dict) -> float:
+    return round(float(20 * np.log10(eq_mag(np.array([float(hz)]), eq)[0])), 3)
+
+
+def narrator_eq_setting(play: dict) -> tuple[dict | None, str, list[str]]:
+    """A38: the film's ``narrator_eq``: absent or ``"house"`` is the house EQ
+    (on by default), ``false`` or ``"off"`` none, an object {low, high} the
+    film's own inside NARRATOR_EQ_BOUNDS. Returns (eq or None, how it was
+    declared, problems)."""
+    v = play.get("narrator_eq", "house") if isinstance(play, dict) else "house"
+    if v is None or v == "house":
+        return {k: dict(b) for k, b in NARRATOR_EQ_HOUSE.items()}, ("house (default)" if "narrator_eq" not in play else "house"), []
+    if v is False or v == "off":
+        return None, "off", []
+    if not isinstance(v, dict) or set(v) - {"low", "high"} or not v:
+        return None, "invalid", [f"narrator_eq must be \"house\", \"off\" or {{low, high}}, not {v!r}"]
+    problems, eq = [], {}
+    for k, band in v.items():
+        bounds = NARRATOR_EQ_BOUNDS[k]
+        if not isinstance(band, dict) or set(band) != set(bounds):
+            problems.append(f"narrator_eq.{k} needs exactly {sorted(bounds)}")
+            continue
+        if band["type"] not in bounds["type"]:
+            problems.append(f"narrator_eq.{k}.type must be {bounds['type'][0]}")
+            continue
+        for p, (lo, hi) in ((p, r) for p, r in bounds.items() if p != "type"):
+            x = band[p]
+            if isinstance(x, bool) or not isinstance(x, (int, float)) or not lo <= float(x) <= hi:
+                problems.append(f"narrator_eq.{k}.{p} {x!r} is outside {lo:g} to {hi:g}")
+        eq[k] = dict(band)
+    return (None if problems else eq), "film", problems
+
+
+def apply_voice_eq(x: np.ndarray, eq: dict) -> tuple[np.ndarray, dict]:
+    """A38: the EQ on one narration line, zero-phase, then one static gain so
+    the line's integrated loudness is what it was (it stays at the dialogue
+    target). Returns the line and its record: the gain, and the response
+    measured on this line (output over input energy) in the bands either side
+    of each declared corner against the declared response there."""
+    y = _filtered(x, lambda f: eq_mag(f, eq))
+    before, after = integrated_lufs(x), integrated_lufs(y)
+    g = 0.0 if before is None or after is None else before - after
+    y = (y * np.float32(10 ** (g / 20))).astype(np.float32)
+    n = _fast_len(len(x) + RATE // 2)
+    fx = np.fft.rfftfreq(n, 1.0 / RATE)
+    X = np.abs(np.fft.rfft(np.asarray(x, np.float64), n)) ** 2
+    Y = np.abs(np.fft.rfft(np.asarray(y, np.float64) * 10 ** (-g / 20), n)) ** 2
+    checks = []
+    total = float(X.sum())
+    for k, band in eq.items():
+        hz = float(band["hz"]) if band["type"] == "bell" else float(band["hz"]) * 1.5
+        m = (fx >= hz / 2 ** (1 / 6)) & (fx < hz * 2 ** (1 / 6))
+        if X[m].sum() <= NARRATOR_EQ_MIN_SHARE * total or total <= 0:
+            checks.append({"band": k, "at_hz": round(hz, 1), "measured_db": None, "declared_db": None,
+                           "error_db": None, "why": "too little of the line here to measure: inconclusive"})
+            continue
+        meas = 10 * math.log10(Y[m].sum() / X[m].sum())
+        want = 10 * math.log10(float((X[m] * eq_mag(fx[m], eq) ** 2).sum() / X[m].sum()))
+        checks.append({"band": k, "at_hz": round(hz, 1), "measured_db": round(meas, 3), "declared_db": round(want, 3),
+                       "error_db": round(abs(meas - want), 3)})
+    return y, {"eq": eq, "relevel_db": round(g, 3), "lufs_before": before, "lufs_after_eq": after, "response": checks}
+
+
 # --------------------------------------------------------------------------
 # Measurements on one cue as placed
 # --------------------------------------------------------------------------
@@ -448,6 +582,47 @@ def held_gaps(active: np.ndarray, spans: list[tuple[float, float]], hold_s: floa
         elif inside[e0:s1].all():
             out.append((e0, s1, "a pause inside a line"))
     return out
+
+
+def duck_attack(gain: np.ndarray, closed: np.ndarray, rate: float, *, attack_s: float = DUCK_ATTACK_S,
+                smooth_s: float = 0.25, duck_db: float = DUCK_DB) -> np.ndarray:
+    """A37: the duck's pre-roll. ``gain`` is the duck as the centred ramp
+    builds it (its release is kept); ``closed`` the ducked stretches (voice
+    with its held gaps), on a grid of ``rate`` samples a second. Before each
+    stretch's onset the gain falls over ``attack_s`` on the sine in-out in dB,
+    reaching -duck_db on the onset and holding it through the half-ramp after
+    it (where the centred ramp was still at half depth). The deeper of the two
+    gains wins, so the release is unchanged. Returns the new gain (a copy)."""
+    g = np.asarray(gain, np.float32).copy()
+    c = np.asarray(closed) > 0.5
+    if not c.any():
+        return g
+    n = max(1, int(round(attack_s * rate)))
+    half = max(1, int(round(smooth_s / 2 * rate)))
+    u = (np.arange(n) + 1.0) / n
+    curve = (10 ** (-duck_db * (0.5 - 0.5 * np.cos(np.pi * u)) / 20)).astype(np.float32)   # ends at full depth
+    floor = np.float32(10 ** (-duck_db / 20))
+    edges = np.diff(np.concatenate(([0], c.astype(np.int8), [0])))
+    for a, b in zip(np.flatnonzero(edges == 1).tolist(), np.flatnonzero(edges == -1).tolist()):
+        lo = max(0, a - n)
+        if a > lo:
+            g[lo:a] = np.minimum(g[lo:a], curve[n - (a - lo):][: a - lo])
+        e = min(b, a + half)
+        g[a:e] = np.minimum(g[a:e], floor)
+    return g
+
+
+def duck_slopes(duck: np.ndarray, grid_s: float = DUCK_GRID_S) -> dict:
+    """A37, duck-slope: the duck gain's steepest fall and rise over any 100 ms
+    on its grid, in dB, and where."""
+    db = 20 * np.log10(np.maximum(np.asarray(duck, np.float64), 1e-6))
+    k = max(1, int(round(0.1 / grid_s)))
+    if len(db) <= k:
+        return {"attack_db_per_100ms": 0.0, "release_db_per_100ms": 0.0, "attack_at_s": None, "release_at_s": None}
+    d = db[k:] - db[:-k]
+    i, j = int(np.argmin(d)), int(np.argmax(d))
+    return {"attack_db_per_100ms": round(float(max(0.0, -d[i])), 2), "attack_at_s": round(i * grid_s, 2),
+            "release_db_per_100ms": round(float(max(0.0, d[j])), 2), "release_at_s": round(j * grid_s, 2)}
 
 
 def duck_pumps(active: np.ndarray, duck: np.ndarray, spans: list[tuple[float, float]], hold_s: float,
@@ -1207,6 +1382,12 @@ def score_checks(cues: list[dict], std: dict, *, duration_s: float, silences=(),
         out.append({"rule": "duck-pumping", "ok": not pumps, "unit": "music", "evidence": {
             "pumps": pumps[:30], "count": len(pumps), "hold_s": std["duck_hold_s"], "tol_db": DUCK_HELD_TOL_DB,
             "fix": None if not pumps else "the duck must hold: through every pause inside a line and every gap under the hold"}})
+    if duck_grid is not None:
+        sl = duck_slopes(duck_grid, grid_s)
+        ok = sl["attack_db_per_100ms"] <= DUCK_ATTACK_MAX_DB + 1e-6
+        out.append({"rule": "duck-slope", "ok": ok, "unit": "music", "evidence": dict(
+            sl, max_attack_db_per_100ms=DUCK_ATTACK_MAX_DB, attack_s=DUCK_ATTACK_S, curve="sine in-out in dB, ending on the onset",
+            fix=None if ok else "the music drops too fast before a voice: the duck's pre-roll eases in over about 1 s")})
     return out
 
 
@@ -1450,7 +1631,8 @@ def duck_from_activity(active: np.ndarray, spans, hold_s: float, grid_s: float =
             a[e0:s1] = 1.0
     k = max(1, int(round(smooth_s / grid_s)))
     env = np.clip(np.convolve(a, np.ones(k) / k, mode="same"), 0.0, 1.0)
-    return (1.0 - env * (1.0 - 10 ** (-duck_db / 20))).astype(np.float32)
+    g = (1.0 - env * (1.0 - 10 ** (-duck_db / 20))).astype(np.float32)
+    return duck_attack(g, a > 0, 1.0 / grid_s, smooth_s=smooth_s, duck_db=duck_db)     # A37: the eased pre-roll
 
 
 def main(argv=None) -> int:

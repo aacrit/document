@@ -151,6 +151,7 @@ Hooke's law with viscous damping, solved in closed form, so every frame is a fun
 | Dissolve (same class only) | 0.5 to 1.5 s, incoming weight on sine in-out; the label swaps on the first frame | |
 | Dip to black | 0.5 to 1.0 s: fade out over 45% (ease-in-quad), black for 10% (never under 2 frames), fade in over 45% (ease-out-quad); at 0.5 s and 24 fps: 5.4 + 1.2 + 5.4 frames | |
 | Ken Burns | the rostrum curve replaces `sketch.py`'s cosine ease: for an 8 s DRIFT, sine in-out never cruises and peaks at 1.57 times the mean speed; the rostrum ramps for 0.9 s, cruises at 1.13 times the mean for 6.2 s, and stops the same way, which is what a motion-control camera does | |
+| FILL (A34, section 14) | a picture narrower than 16:9 holds whole for 2.5 s, then grows on the rostrum curve over up to 6 s to the largest 16:9 window inside it, and holds the fill | |
 
 Type sizes on cards: chapter title Fraunces 300 at 5.6% of height (60 / 40 px) with the number in the data face at 80% opacity, baseline at 47% of height, rule 0.19% of height thick 1.6% below, dates in the data face at 2.6% (28 / 19 px) at 80% opacity; record-is-silent statement Fraunces 300 at 4.0% (43 / 29 px) on 1.35, at most 76% of width, Searched line Inter at 2.6%; film title Fraunces 300 at 7% (76 / 50 px) with the wordmark at 2.6% 2.2% of height beneath; credits Inter at 2.4% on 1.5 in a 70% column, headings in the data face at 1.85%.
 
@@ -375,3 +376,21 @@ A period map sheet is shown as it was printed, and what the film points to is dr
 **The band is the truth.** A line is never drawn thinner than it is known. Its band is as wide as its claimed precision (the georef's worst residual, the sheet's own drawing, the tracing and the source's precision) at the closest zoom, so a coarser source draws a softer, wider line, and a line too coarse for the zoom is not drawn.
 
 Do: draw a line only where the cited record runs, over the sheet's own printed line; ring places in the order the record names them; keep the sheet's printed names as they are. Don't: draw today's border on a period sheet; fill a district; draw a mark on a sheet without a georef; move a mark on anything but the house springs.
+
+## 14. FILL: the whole record, then the screen (2026-10-11, R12; GRAMMAR A34)
+
+The founder, on The Next Village pilot: "show the original, then slowly zoom in to what matters, but outward, meaning it should fill the screen, not zoom into the same 1:1." A picture narrower than 16:9 (4:3 footage, a square or portrait photograph) first shows all of itself, then grows to fill the frame on a crop inside its own pixels. `motion.FILL` holds the numbers; `render.fill_camera` draws it for a still and a clip alike.
+
+| Beat | What the viewer sees | Numbers |
+|---|---|---|
+| Open | the whole original, pillarboxed on black (A7): the record as it is | 2.5 s (`open_s`); a shot under 5.5 s opens for 40% of itself |
+| Move | the camera grows the picture until it fills 16:9, about its focus | the rostrum curve (section 6: velocity ramps on a smoothstep for 0.9 s, cruises, ramps down) over up to 6 s (`move_s`); at least 3 s where the shot allows |
+| Hold | the fill, still, for the rest of the shot | the largest 16:9 window inside the picture (7.2's z = 1) |
+
+**Focus.** A shot may say where the fill ends, `focus: [x, y]` in the picture (0 to 1); the centre otherwise. The focus must end inside the marks' insets and above the lower thirds (75% of the height), or the engine warns and a reviewer looks.
+
+**Softness.** The fill never magnifies the source past 1.6 output pixels per source pixel (`settings.fill_max_upscale`, at most 3.0): a 1440x1080 reel fills 1080p at 1.33x; a square scan of 1000 px stops short at 1.6x, its full width still on screen; a 640x480 reel, already 2.25x in its plain fit, stays whole.
+
+**Why the rostrum curve, not a spring.** A spring is an arrival of a graphic (section 6); a FILL is a camera, and the house camera is the rostrum: one even speed, eased in and out, the way a motion-control stand moves. A spring's exponential settle would read as the picture landing, which it does not do.
+
+Do: let every 4:3 or square archive picture over 6 s open whole and fill; name the focus where the subject sits off-centre. Don't: fill a clip whose source burns its speakers' names into the frame (the crop could cut them off; the engine refuses it); fill a document that must be read whole (state `preset: HOLD`); push past the fill (DETAIL is the move for a region).

@@ -218,7 +218,9 @@ def framing_at(cam: dict, t: float, dur: float) -> dict:
     p = cam["path"]
     if len(p) == 1 or t < cam["open_s"]:
         return dict(p[0])
-    return M.rostrum_framing(t - cam["open_s"], dur - cam["open_s"], p[0], p[-1], via=p[1:-1])
+    # A34 (FILL): a camera may move over ``move_s`` and then hold its end framing; otherwise the move fills the shot
+    move = cam.get("move_s") or (dur - cam["open_s"])
+    return M.rostrum_framing(min(t - cam["open_s"], move), move, p[0], p[-1], via=p[1:-1])
 
 
 # --------------------------------------------------------------------------
