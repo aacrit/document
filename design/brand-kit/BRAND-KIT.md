@@ -333,7 +333,7 @@ The YouTube branding watermark (section 3, "On YouTube") is withdrawn: YouTube d
 | Out | `let_go`, 0.75 s, as section 11; the glyph stays |
 | Whole label | 3.11 s from the cut to gone |
 | AI-GENERATED | unchanged (11a, 11b): full from the cut frame and up for the whole shot, whatever came before; counted once per change for the rate |
-| Rate | at most one surfacing per 15 s of film, over the film (n at most the duration over 15 s, rounded up), and at most 4 in any 60 s; the `label-rate` lint counts them, reports them per minute and the busiest minute, and refuses a final render past either cap |
+| Rate | at most one surfacing per 15 s of film, over the film (n at most the duration over 15 s, rounded up), and at most 4 in any 60 s; a guide, not a rule (GRAMMAR A39 refined): the `label-rate` lint counts them, reports them per minute and the busiest minute, and past either cap journals a warning and a reviewer item; it never refuses |
 | Empty AI label | refused at plan time (`ai-label`) |
 
 ### The key card: "What the marks mean"

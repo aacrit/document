@@ -789,3 +789,38 @@ Shown by: the pilot master (run r-20261011-204507-1d063458, D:/document-media/ne
 - **Pacing is guidance (A39).** Moved from blocking to a warning plus a `pacing-guide` reviewer item: still-hold, dip-budget, voiceless-floor. The engine has no chapter-length or runtime-target lint to move (the runtime target only sets whether the shares bind an event film).
 - **Caches.** Spans are now cut with 1.6 s of the reel either side (a new key: each span is cut once more); a FILL clip's segment key changes with its camera.
 - **Test environment note.** `test_preflight_refuses_a_full_disk_and_an_unhealthy_d` assumes pytest's temp folder is not on D:; with `PYTEST_DEBUG_TEMPROOT` on D: (C: at its floor) the D: health check also runs and the test's count differs. It passes with the default temp folder.
+
+## 2026-10-12 R13: label-rate becomes guidance (A39 refined) and readers get their own voicing EQ (A38 refined)
+Shown by: `studio/tests/test_r13_labels_readers.py`, `test_r2_marks.py` (label-rate), `test_r12_fill_sound.py` (A38, A39), and read-only measurements of both working films' reader takes (`python -m studio.engine.voicing measure smallpox episode-v2`; nothing in them was edited).
+- **label-rate is a pacing guide.** `label_rate_lint` now journals through `pacing_review`: a warning and, past either cap (one per 15 s, 4 in any 60 s), a `pacing-guide` reviewer item, on a draft and a final render alike; it returns nothing to refuse. `PACING_ADVISORY` carries it. The mark is unchanged: glyph, change-only label, its 2.0 s hold, the AI-GENERATED label and the mark key keep their own binding lints.
+- **The measure is now code.** `studio/engine/voicing.py` measures a voice's long-term spectrum (takes levelled to -20 LUFS, 4096-point Hann frames at 50% overlap over 0.01 RMS, pooled; mean power density per one-third octave band) against ANSI S3.5's normal-effort spectrum, matched at 500 Hz to 1 kHz. On the pilot's 81 narration takes it reads Tara at 160 Hz +9.6, 200 Hz +7.7, 250 Hz +4.6, 315 Hz +3.7 (R12: +9.2, +7.7, +4.6, +3.8) but 6.3 kHz +4.2 and 8 kHz +11.0 (R12: +6.3 and +14.5). R12 did not record its method; the readers are held to this one, applied to Tara too, so the comparison is like for like. Her median f0 measured so (the median of each take's) is 179.4 Hz (R12: 176).
+- **Derivation.** Bell at f0 x 200/179.4, its gain bringing the 160 to 315 Hz mean to Tara's after her EQ (+8.08 dB); shelf corner and cut (least squares on 5, 6.3, 8 kHz) to Tara's after hers (+0.44, +2.63, +8.84). Run on Tara's own spectrum it returns the house narrator EQ exactly (a test). The shelf may cut to -6 dB (the narrator's bound is -3) and never boosts.
+- **Readers measured, pooled over both films (20 voices, 41 takes).** Before, at 5 / 6.3 / 8 kHz over the reference; the founder's "+12 to +13" holds for the bright British voices but not for all: the South Asian voices sit at or under Tara.
+
+| voice | takes | f0 Hz | bell | shelf | chest before > after | 5k / 6.3k / 8k before | after |
+|---|---|---|---|---|---|---|---|
+| blend:br-m-1 | 3 | 108.5 | +3.0 dB @ 120 Hz | -2.5 dB @ 5.0 kHz | +3.2 > +4.2 | +7.7 / +5.6 / +7.0 | +6.4 / +3.7 / +4.7 |
+| blend:br-m-2 | 1 | 129.6 | +2.2 dB @ 145 Hz | -6.0 dB @ 5.0 kHz | +7.0 > +8.1 | +12.2 / +14.7 / +15.1 | +9.1 / +10.3 / +9.7 |
+| blend:br-m-3 | 3 | 115.8 | +3.0 dB @ 130 Hz | -6.0 dB @ 5.0 kHz | +3.4 > +4.6 | +10.7 / +13.3 / +15.2 | +7.6 / +8.9 / +9.8 |
+| blend:br-m-5 | 1 | 131.7 | +3.0 dB @ 145 Hz | -3.6 dB @ 5.0 kHz | +5.2 > +6.7 | +8.1 / +7.2 / +7.5 | +6.2 / +4.5 / +4.2 |
+| blend:sa-f-1 | 1 | 156.9 | +1.0 dB @ 175 Hz | -1.8 dB @ 5.0 kHz | +7.4 > +8.1 | +3.4 / +5.7 / +7.9 | +2.5 / +4.3 / +6.2 |
+| blend:sa-m-2 | 3 | 113.7 | +3.0 dB @ 125 Hz | none | +5.4 > +6.5 | -0.6 / +2.2 / +0.9 | -0.7 / +2.1 / +0.8 |
+| blend:sa-m-3 | 1 | 122.2 | +3.0 dB @ 135 Hz | -0.1 dB @ 5.0 kHz | +5.2 > +6.5 | +2.0 / +5.3 / +6.1 | +1.9 / +5.1 / +5.9 |
+| blend:sa-m-4 | 3 | 116.9 | +3.0 dB @ 130 Hz | none | +5.5 > +6.7 | +0.4 / +2.8 / +0.7 | +0.3 / +2.7 / +0.6 |
+| blend:sa-m-5 | 2 | 132.2 | +2.6 dB @ 145 Hz | none | +6.8 > +8.1 | +1.5 / +2.9 / +1.9 | +1.4 / +2.8 / +1.8 |
+| kokoro:af_sarah | 2 | 188.0 | +3.0 dB @ 210 Hz | -6.0 dB @ 5.0 kHz | +3.6 > +5.6 | +6.0 / +10.5 / +10.6 | +2.8 / +5.9 / +5.0 |
+| kokoro:am_fenrir | 1 | 129.1 | +3.0 dB @ 145 Hz | -1.5 dB @ 5.0 kHz | +2.9 > +4.4 | +3.5 / +7.7 / +5.9 | +2.6 / +6.5 / +4.5 |
+| kokoro:am_michael | 6 | 111.1 | +3.0 dB @ 125 Hz | -6.0 dB @ 5.0 kHz | +1.0 > +2.1 | +7.5 / +13.3 / +6.9 | +4.4 / +8.9 / +1.5 |
+| kokoro:bf_emma | 1 | 178.6 | +3.0 dB @ 200 Hz | -5.2 dB @ 5.0 kHz | +2.5 > +4.5 | +7.1 / +8.0 / +10.4 | +4.3 / +4.0 / +5.6 |
+| kokoro:bm_daniel | 1 | 119.1 | +3.0 dB @ 135 Hz | -3.3 dB @ 5.0 kHz | +4.9 > +6.2 | +7.0 / +6.7 / +7.9 | +5.3 / +4.2 / +4.9 |
+| kokoro:bm_george | 5 | 135.0 | none (0 dB @ 150 Hz) | -6.0 dB @ 5.0 kHz | +8.2 > +8.2 | +12.9 / +14.3 / +14.4 | +9.9 / +9.9 / +9.1 |
+| kokoro:bm_lewis | 1 | 85.1 | +3.0 dB @ 100 Hz | none | +4.2 > +4.9 | +3.8 / +4.2 / +3.4 | +3.8 / +4.2 / +3.4 |
+| kokoro:hf_alpha | 1 | 193.9 | none (0 dB @ 215 Hz) | none | +9.8 > +9.8 | -0.6 / +4.2 / +6.1 | -0.6 / +4.2 / +6.1 |
+| kokoro:hf_beta | 1 | 177.2 | +1.6 dB @ 200 Hz | none | +7.0 > +8.1 | +1.3 / +3.2 / +5.7 | +1.2 / +3.1 / +5.6 |
+| kokoro:hm_omega | 2 | 128.4 | +1.2 dB @ 145 Hz | none | +7.5 > +8.1 | -2.7 / +1.0 / +0.6 | -2.7 / +1.0 / +0.6 |
+| kokoro:hm_psi | 2 | 123.8 | +2.3 dB @ 140 Hz | none | +7.0 > +8.1 | -0.8 / -1.3 / -5.1 | -0.9 / -1.4 / -5.2 |
+
+- **Where the bounds hold a voice short.** br-m-2, br-m-3, af_sarah, am_michael and bm_george take the full -6 dB and stay 1 to 8 dB over Tara's treble (bm_george +9.1 to +9.9 against +0.4 to +8.8). The men's bells sit at 100 to 145 Hz, under the 160 Hz band where the chest is judged, so most reach the +3 dB bound and lift the measured chest by only about 1 dB. am_michael's treble is a 6.3 kHz peak (+13.3) over a plain 8 kHz (+6.9): a shelf cannot follow it, and the fit leaves 8 kHz under Tara's. A wider bound or a bell in the treble would be its own ruling.
+- **On the takes.** Each of the 41 takes EQ'd as the mix does (cleaned, levelled, EQ'd): re-level -1.42 to +0.17 dB; the response measured on every take matches its declaration (0.00 dB worst); 12 band checks are inconclusive, all a 0 dB shelf's 9 kHz band on a dark South Asian voice (under 0.1% of the take there).
+- **Archival audio is never EQ'd:** it is not levelled, so it never reaches the EQ, and `reader_voices` leaves out archival and clip lines; the reader-eq lint refuses an archival line with an EQ record.
+- **Open:** ten voices are measured on a single take; when a film adds takes, `voicing measure --write` re-pools them and the table's change shows in review (its sha is journaled with each plan).

@@ -71,6 +71,7 @@ from studio.engine import motion as M
 from studio.engine import overlays as OV
 from studio.engine import policy as POL
 from studio.engine import score as SC
+from studio.engine import voicing as VO
 from studio.engine.journal import Journal, sha256_file
 
 ENGINE_VERSION = "0.1.0"
@@ -218,7 +219,7 @@ LT_SUFFIXES = ("  ·  read by a computer voice", "  ·  original recording")
 EM_DASH = "—"
 
 _HERE = Path(__file__).resolve().parent
-ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py", "score.py", "overlays.py", "georef.py", "clips.py"))).hexdigest()[:12]
+ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py", "score.py", "overlays.py", "georef.py", "clips.py", "voicing.py"))).hexdigest()[:12]
 ENGINE_MODEL = {"name": "studio.engine.render", "version": f"{ENGINE_VERSION}+{ENGINE_HASH}"}
 
 
@@ -1024,6 +1025,50 @@ def fit_video(dar: float, W: int, H: int) -> tuple[int, int]:
     return min(W, even(H * dar)), H
 
 
+def reader_eq_plan(lint, journal: Journal, film: Path, play: dict) -> tuple[dict, str, str | None]:
+    """A38 refined (R13; founder: readers get the same house warmth as Tara):
+    each reader voice's EQ as the film declares it (``VO.setting``). A voice
+    the house table does not hold is measured on this film's takes and its
+    EQ derived as the table's are (``VO.derive``), journaled as a decision
+    and a reviewer item (``reader-eq-measured``); a voice with no take to
+    measure is not EQ'd (a warning). A reading whose ``read_by`` names no
+    cast voice cannot have a declared EQ. reader-eq-declared is blocking.
+    Returns ({voice: EQ or None}, how it was declared, the table's sha)."""
+    table, sha = VO.load_table()
+    per, how, problems = VO.setting(play, table)
+    who = VO.reader_voices(play)
+    if how != "off":
+        problems += [f"{lid}: read_by names no cast voice, so its reader EQ cannot be declared"
+                     for lid, k in who.items() if k is None]
+    lines = {ln["id"]: ln for part in play.get("parts", []) for ln in part.get("lines", []) if ln.get("id") in who}
+    for k, spec in per.items():
+        if spec["how"] != "house, measured on this film's takes":
+            continue
+        takes = [(film / (ln.get("wav") or f"audio/{lid}.wav"), len(str(ln.get("text") or "").split()))
+                 for lid, ln in lines.items() if who[lid] == k]
+        takes = [t for t in takes if t[0].exists()]
+        m = VO.measure_takes([t[0] for t in takes], [t[1] for t in takes]) if takes else None
+        if m is None:
+            spec["how"] = "house, no take to measure: not EQ'd"
+            lint("reader-eq-measured", False, unit=k, severity="warn", grammar="A38 refined",
+                 evidence={"voice": k, "takes": len(takes), "result": "not EQ'd: no take of this voice has a frame to measure"})
+            continue
+        spec["eq"], ev = VO.derive(m["excess"], m["f0_hz"])
+        journal.decision("scout", f"reader voice {k} measured on {m['takes']} takes of this film: EQ {spec['eq']}",
+                         "A38 refined: a voice the house table does not hold is measured as the table's voices are",
+                         unit=k, evidence=dict(ev, takes=m["takes"], frames=m["frames"]))
+        lint("reader-eq-measured", True, unit=k, severity="review", grammar="A38 refined",
+             evidence={"voice": k, "eq": spec["eq"], "takes": m["takes"], "f0_hz": m["f0_hz"],
+                       "check": "a voice outside the house table: hear it, and add it to the table "
+                                "(python -m studio.engine.voicing measure <films> --write)"})
+    eqs = {k: spec["eq"] for k, spec in per.items()}
+    lint("reader-eq-declared", not problems, unit="reader_eq", grammar="A38 refined",
+         evidence={"declared": how, "voices": {k: dict(spec) for k, spec in per.items()}, "table_sha": sha,
+                   "bounds": VO.READER_EQ_BOUNDS, "problems": problems,
+                   "archival": "never EQ'd: a real recording keeps its own sound"})
+    return eqs, how, sha
+
+
 def narrator_voice(play: dict) -> dict | None:
     """The cast voice the narration is read by (a narration line's
     ``read_by``, else the voice ``v-narrator``)."""
@@ -1361,6 +1406,8 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     lint("narrator-eq-declared", not eq_problems, unit="narrator_eq", grammar="A38",
          evidence={"narrator_eq": narrator_eq, "declared": eq_how, "house": SC.NARRATOR_EQ_HOUSE,
                    "bounds": SC.NARRATOR_EQ_BOUNDS, "problems": eq_problems})
+    # A38 refined (R13): each reader voice's EQ, the house table's (measured per voice), the film's own, or off
+    reader_eq, reader_eq_how, reader_eq_table = reader_eq_plan(lint, journal, film, play)
     # A29 (R1): the house score standard, with what the film sets of it inside GRAMMAR's bounds
     score_std, score_stated, score_problems = SC.standard(play)
     if play.get("score_standard") is not None:
@@ -1835,6 +1882,8 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         "shots": shots, "assets": {k: {kk: vv for kk, vv in v.items()} for k, v in assets.items()},
         "lines": lines, "cues": cues, "speakers": speakers, "narrator_voice": narrator_voice(play), "silences": sorted(silences),
         "narrator_eq": narrator_eq, "narrator_eq_declared": eq_how,
+        "reader_eq": reader_eq, "reader_eq_declared": reader_eq_how, "reader_eq_table": reader_eq_table,
+        "reader_voices": VO.reader_voices(play),
         "runtime_target_s": play.get("runtime_target_s"),
         "lower_thirds": lower_thirds, "overlays": overlays, "subtitles": subs, "burn_subtitles": burn_subtitles,
         "marks": [{"start": s["f0"] / FPS, "cls": s["mark"], "detail": s["detail"], "label": s["label"], "year": mark_year(s)}
@@ -3976,6 +4025,9 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
     narr: dict[str, dict] = {}                   # narration line id -> its voice profile, for narrator-consistency
     eq = plan.get("narrator_eq") if "narrator_eq" in plan else SC.narrator_eq_setting({})[0]
     eq_lines: dict[str, dict] = {}               # A38: narration line id -> its EQ record
+    reader_eqs = plan.get("reader_eq") or {}     # A38 refined (R13): reader voice -> its declared EQ (None: not EQ'd)
+    reader_of = plan.get("reader_voices") or {}  # reading line id -> its voice
+    rd_lines: dict[str, dict] = {}               # reading line id -> its EQ record
     parts: list[dict] = []                       # E14: every voice placement in order, so pass 2 can place them again
     # A36 (R12): every archival segment's edges, planned together (a gap between two of one reel may be joined)
     segs = archival_segments(plan, film)
@@ -4026,6 +4078,11 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
                 narr[ln["id"]] = dict(voice_profile(x, words), mood=(ln.get("delivery") or {}).get("mood"))
                 if eq is not None:               # A38: after the narrator's profile (A14 judges her own voice), before peaks
                     x, eq_lines[ln["id"]] = SC.apply_voice_eq(x, eq)
+            elif reader_eqs.get(reader_of.get(ln["id"])) is not None:
+                # A38 refined: a reading, through its own voice's EQ, at the same place (after levelling and A19's
+                # cleaning, before peak control); archival audio never reaches here (it is not levelled)
+                x, rec = SC.apply_voice_eq(x, reader_eqs[reader_of[ln["id"]]])
+                rd_lines[ln["id"]] = dict(rec, voice=reader_of[ln["id"]])
             x0 = x                               # E14: pass 2 peak-controls the levelled line again, at its own ceiling
             x, peak = voice_peak_control(x)
             if peak:
@@ -4054,6 +4111,7 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
                                 "peak_reduction_db": peak["max_reduction_db"] if peak else None})
     narrator_off = narrator_consistency_lints(journal, narr, draft, plan.get("narrator_voice")) if narr else []
     eq_off = narrator_eq_lints(journal, plan, eq, eq_lines, draft)
+    eq_off += reader_eq_lints(journal, plan, rd_lines, placed, draft)
     for c in plan["cues"]:
         wav = film / (c.get("wav") or f"audio/{c['id']}.wav")
         if not wav.exists():
@@ -4117,7 +4175,7 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
     if narrator_off and not draft:
         raise Refused(f"narrator-consistency and narrator-drift (A14): not the narrator's voice: {'; '.join(narrator_off)}")
     if eq_off and not draft:
-        raise Refused(f"narrator-eq (A38): the EQ applied is not the one declared: {'; '.join(eq_off)}")
+        raise Refused(f"narrator-eq and reader-eq (A38): the EQ applied is not the one declared: {'; '.join(eq_off)}")
     edge_off = archival_edge_lints(journal, arch, segs, draft=draft)
     if edge_off:
         raise Refused(f"archival-sound-edge (A36): the reel's sound stops in one step: {'; '.join(edge_off)}")
@@ -4171,7 +4229,51 @@ def narrator_eq_lints(journal: Journal, plan: dict, eq: dict | None, eq_lines: d
                            "at_hz": {k: {"declared_db": SC.eq_db_at(b["hz"], eq)} for k, b in eq.items()},
                            "worst_error_db": round(worst, 3), "tol_db": SC.NARRATOR_EQ_TOL_DB, "off_lines": bad[:20],
                            "relevel_db": {lid: r["relevel_db"] for lid, r in list(eq_lines.items())[:200]},
-                           "readers": "not EQ'd (A38 is the narrator's voicing only)"})
+                           "readers": "their own voices' EQ (A38 refined, the reader-eq lint)"})
+    return bad
+
+
+def reader_eq_lints(journal: Journal, plan: dict, rd_lines: dict, placed: dict, draft: bool) -> list[str]:
+    """A38 refined, reader-eq: every reading placed was EQ'd with exactly
+    its voice's declared EQ (none when its voice's is off), the response
+    measured on the line is within NARRATOR_EQ_TOL_DB of the declared one at
+    each band, and no archival line was EQ'd. Journaled per voice with each
+    line's re-level. Blocking on a final render. Returns the reasons to refuse."""
+    declared = plan.get("reader_eq") or {}
+    reader_of = plan.get("reader_voices") or {}
+    bad, worst, voices = [], 0.0, {}
+    for pl in placed["lines"]:
+        lid = pl["id"]
+        if pl["kind"] == "archival":
+            if lid in rd_lines:
+                bad.append(f"{lid} is archival audio and was EQ'd")
+            continue
+        if lid not in reader_of:
+            continue
+        k = reader_of[lid]
+        want, rec = declared.get(k), rd_lines.get(lid)
+        v = voices.setdefault(k, {"eq": want, "lines": 0, "relevel_db": {}})
+        got = None if rec is None else rec.get("eq")
+        if got != want:
+            bad.append(f"{lid} ({k}) was EQ'd with {got}, not the declared {want}")
+            continue
+        if rec is None:
+            continue
+        v["lines"] += 1
+        v["relevel_db"][lid] = rec["relevel_db"]
+        for c in rec["response"]:
+            if c.get("error_db") is None:
+                continue
+            worst = max(worst, c["error_db"])
+            if c["error_db"] > SC.NARRATOR_EQ_TOL_DB:
+                bad.append(f"{lid} ({k}) {c['band']} {c['measured_db']:+.2f} dB, declared {c['declared_db']:+.2f}")
+    if not voices and not bad:
+        return []
+    journal.lint("reader-eq", not bad, stage="assembly", phase="preflight", unit="readers", grammar="A38 refined",
+                 severity="warn" if draft else "block",
+                 evidence={"declared": plan.get("reader_eq_declared"), "table_sha": plan.get("reader_eq_table"),
+                           "voices": voices, "worst_error_db": round(worst, 3), "tol_db": SC.NARRATOR_EQ_TOL_DB,
+                           "off_lines": bad[:20], "archival": "never EQ'd"})
     return bad
 
 
@@ -5239,30 +5341,29 @@ PICTURE_CLASSES = ("ARCHIVE", "RECONSTRUCTED", "DRAWN", "AI-GENERATED")
 
 
 def label_rate_lint(journal: Journal, plan: dict, *, draft: bool = False) -> list[str]:
-    """label-rate (A31): the provenance label surfaces only on a change of
-    class or year (``M.label_surfacings``), and at most once per LABEL_RATE_S
+    """label-rate (A31, and A39 refined: founder 2026-10-12, a pacing guide):
+    the provenance label surfaces only on a change of class or year
+    (``M.label_surfacings``), and the guide is at most once per LABEL_RATE_S
     of film: n <= ceil(duration / 15), and at most LABEL_RATE_WINDOW_MAX in
     any 60 s window. The evidence counts the surfacings per minute and the
-    busiest minute. Blocking on a final render, a warning
-    under --draft. Returns the reasons to refuse."""
+    busiest minute. Journaled as a warning and, past either cap, a reviewer
+    item (``pacing-guide``); never a refusal, on a draft or a final render.
+    The mark itself (glyph, change-only label, key) is unchanged and its
+    own lints still bind. Returns [] (nothing to refuse)."""
     times = M.label_surfacings(plan["marks"])
     dur = float(plan["duration_s"])
     allowed = max(1, math.ceil(dur / LABEL_RATE_S - 1e-9))
     busiest = max((sum(1 for u in times if t <= u < t + 60.0) for t in times), default=0)
     ok = len(times) <= allowed and busiest <= LABEL_RATE_WINDOW_MAX
-    journal.lint("label-rate", ok, stage="scout", phase="preflight", severity="warn" if draft else "block",
-                 grammar="A16, A31, BRAND-KIT 12",
-                 evidence={"surfacings": len(times), "allowed": allowed, "duration_s": round(dur, 3),
-                           "per_minute": round(60.0 * len(times) / dur, 2) if dur > 0 else None,
-                           "busiest_minute": busiest, "busiest_minute_max": LABEL_RATE_WINDOW_MAX,
-                           "times_s": [round(t, 3) for t in times[:200]],
-                           "rule": f"at most one per {LABEL_RATE_S:g} s of film and {LABEL_RATE_WINDOW_MAX} in any 60 s, "
-                                   "only on a change of class or year",
-                           "fix": None if ok else "fewer changes of class or year between neighbouring picture shots: "
-                                                  "group the shots of one year, or cut to a card between eras"})
-    if not ok and not draft:
-        return [f"label-rate ({len(times)} label surfacings in {dur:.0f} s, at most {allowed}; "
-                f"{busiest} in the busiest minute, at most {LABEL_RATE_WINDOW_MAX})"]
+    pacing_review(journal, "label-rate", ok, stage="scout", grammar="A16, A31, BRAND-KIT 12",
+                  evidence={"surfacings": len(times), "allowed": allowed, "duration_s": round(dur, 3),
+                            "per_minute": round(60.0 * len(times) / dur, 2) if dur > 0 else None,
+                            "busiest_minute": busiest, "busiest_minute_max": LABEL_RATE_WINDOW_MAX,
+                            "times_s": [round(t, 3) for t in times[:200]],
+                            "rule": f"guide: at most one per {LABEL_RATE_S:g} s of film and {LABEL_RATE_WINDOW_MAX} in any "
+                                    "60 s, only on a change of class or year",
+                            "fix": None if ok else "the guide suggests fewer changes of class or year between neighbouring "
+                                                   "picture shots: group the shots of one year, or cut to a card between eras"})
     return []
 
 
@@ -5336,7 +5437,7 @@ def card_fill_lints(journal: Journal, plan: dict) -> list[str]:
 
 
 PACING_GUIDE = "A39: pacing is guidance; the founder judges rhythm (a warning and a reviewer item, never a refusal)"
-PACING_ADVISORY = ("still-hold", "dip-budget", "voiceless-floor")   # A39: moved from blocking to advisory (R12)
+PACING_ADVISORY = ("still-hold", "dip-budget", "voiceless-floor", "label-rate")   # A39: advisory (R12; label-rate R13)
 
 
 def pacing_review(journal: Journal, rule: str, ok: bool, *, unit=None, stage: str = "assembly", grammar=None,

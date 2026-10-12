@@ -397,7 +397,7 @@ def test_a38_the_eq_keeps_the_line_at_its_loudness_and_measures_as_declared():
     assert low["measured_db"] == pytest.approx(2.5, abs=0.3)
 
 
-def test_a38_only_the_narration_is_eqd_and_the_lint_holds_the_declared_eq(film, monkeypatch):
+def test_a38_the_narrator_eq_is_declared_and_held_and_the_readers_follow_their_own(film, monkeypatch):
     plan, j = _plan(film, "eq-house")
     _, placed = R.build_mix(plan, film, j)
     ev = lints(J.read(j.path), "narrator-eq")[0]
@@ -408,7 +408,7 @@ def test_a38_only_the_narration_is_eqd_and_the_lint_holds_the_declared_eq(film, 
     _, placed_off = R.build_mix(plan_off, film, j_off)
     assert lints(J.read(j_off.path), "narrator-eq")[0]["evidence"]["narrator_eq"] is None
     reading = {x["id"]: x for x in placed["lines"]}["L2"]
-    assert reading == {x["id"]: x for x in placed_off["lines"]}["L2"]          # the reader is never EQ'd
+    assert reading == {x["id"]: x for x in placed_off["lines"]}["L2"]          # the reader's EQ is its own (A38 refined)
     _edit(film, lambda p: p.update(narrator_eq={"low": {"type": "bell", "hz": 200.0, "gain_db": 5.0, "q": 1.0}}))
     with pytest.raises(R.Refused, match="narrator-eq-declared"):
         _plan(film, "eq-bad")
@@ -416,7 +416,7 @@ def test_a38_only_the_narration_is_eqd_and_the_lint_holds_the_declared_eq(film, 
     plan, j = _plan(film, "eq-swapped")
     real = SC.apply_voice_eq
     monkeypatch.setattr(SC, "apply_voice_eq", lambda x, eq: real(x, dict(eq, high=dict(eq["high"], gain_db=-1.0))))
-    with pytest.raises(R.Refused, match=r"narrator-eq \(A38\)"):
+    with pytest.raises(R.Refused, match=r"narrator-eq and reader-eq \(A38\): .*L1 was EQ'd"):
         R.build_mix(plan, film, j)
 
 
@@ -426,7 +426,7 @@ def test_a38_only_the_narration_is_eqd_and_the_lint_holds_the_declared_eq(film, 
 
 def test_a39_the_pacing_limits_are_advisory_and_the_truth_limits_still_bind(film):
     plan, _ = _plan(film, "a39-plan")
-    assert R.PACING_ADVISORY == ("still-hold", "dip-budget", "voiceless-floor")
+    assert R.PACING_ADVISORY == ("still-hold", "dip-budget", "voiceless-floor", "label-rate")
     placed = {"lines": [{"id": "N", "kind": "narration", "at_s": 0.0, "dur_s": 700.0}]}
     long_film = dict(plan, duration_s=720.0, runtime_target_s=1200)
     j = J.Journal(film="a39")
