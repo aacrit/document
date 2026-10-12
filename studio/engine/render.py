@@ -1864,8 +1864,9 @@ def shortfall_lints(lint, play: dict, shots: list[dict], settings: dict) -> list
             probs.append(f"{card['id']} is a {card['kind']} shot, not a card")
         elif card is not None:
             text = " ".join(card.get("text") or [])
-            if sf.get("what") in POL.SHORTFALL_WHAT and not re.search(rf"\{{{sf['what']}_share(?::\w+)?\}}", text):
-                probs.append(f"{card['id']} does not print {{{sf['what']}_share}}")
+            if sf.get("what") in POL.SHORTFALL_WHAT and not POL.states_shortfall(sf["what"], text):
+                probs.append(f"{card['id']} does not print {{{sf['what']}_share}}"
+                             + (" (or {women_speakers_f} with {women_speakers_unsigned})" if sf["what"] == "women" else ""))
             how = {"card_text": card.get("text")}
         lint("shortfall-stated", not probs, unit=f"shortfall:{sf.get('what')}", grammar="6.5, A25",
              evidence={"shortfall": sf, "found": how, "problems": probs})
@@ -2524,6 +2525,15 @@ def is_long_reel(item: dict | None) -> bool:
     return bool(p) and Path(p).exists() and Path(p).stat().st_size > LONG_REEL_BYTES
 
 
+def spans_cache_dir(film: Path) -> Path:
+    """Where cut spans of long reels are kept: ``<film>/cache/spans`` unless
+    ``DOCUMENT_SPANS_CACHE`` names another folder (a film on a near-full
+    system disk can keep its spans on a data disk; a span's file name carries
+    its source and cut, so one folder may serve several films)."""
+    env = os.environ.get("DOCUMENT_SPANS_CACHE")
+    return Path(env) if env else Path(film) / "cache" / "spans"
+
+
 def cached_span(film: Path, src: str | Path, in_s: float, out_s: float, *, video: bool, pad_s: float = 0.0) -> dict:
     """A26 (E11): the span [in_s - pad, out_s + pad] of a source, cut once by an
     input seek (ffmpeg never reads the reel before the seek point, and stops at
@@ -2540,7 +2550,7 @@ def cached_span(film: Path, src: str | Path, in_s: float, out_s: float, *, video
     rec = {"src": str(src.resolve()), "size": st.st_size, "mtime_ns": st.st_mtime_ns, "edges": edge_digest(src),
            "a": round(a, 4), "b": round(b, 4), "video": video, "v": SPAN_VERSION}
     key = hashlib.sha256(json.dumps(rec, sort_keys=True).encode()).hexdigest()[:16]
-    d = film / "cache" / "spans"
+    d = spans_cache_dir(film)
     d.mkdir(parents=True, exist_ok=True)
     out = d / f"{src.stem}.{key}.{'mkv' if video else 'wav'}"
     meta = out.with_name(out.name + ".json")
@@ -4158,7 +4168,8 @@ def shortfall_values(plan: dict, placed: dict) -> dict:
     settings = plan.get("settings") or POL.DEFAULT_SETTINGS
     return {"readings": {"share": sh["readings"], "floor": settings["readings_floor"]},
             "voiceless": {"share": sh["voiceless"], "floor": settings["voiceless_floor"]},
-            "women": {"share": women["share"], "floor": settings["women_floor"], "unknown_s": women["by_gender_s"]["unknown"]}}
+            "women": {"share": women["share"], "floor": settings["women_floor"], "unknown_s": women["by_gender_s"]["unknown"],
+                      "unsigned_share": women["unsigned_share"], "speakers": women["speakers"]}}
 
 
 def plan_has_placeholders(plan: dict) -> bool:
@@ -4185,6 +4196,15 @@ def card_values_problems(values) -> list[str]:
             x = v.get("unknown_s")
             if isinstance(x, bool) or not isinstance(x, (int, float)) or not x >= 0:
                 out.append(f"women.unknown_s must be seconds, 0 or more, not {x!r}")
+            if "unsigned_share" in v:             # A3 refined: optional, a share when present
+                x = v["unsigned_share"]
+                if isinstance(x, bool) or not isinstance(x, (int, float)) or not 0 <= float(x) <= 1:
+                    out.append(f"women.unsigned_share must be a share from 0 to 1, not {x!r}")
+            if "speakers" in v:
+                sp = v["speakers"]
+                if not isinstance(sp, dict) or any(not isinstance(sp.get(k), int) or isinstance(sp.get(k), bool) or sp.get(k) < 0
+                                                   for k in ("all", "f", "m", "unsigned")):
+                    out.append(f"women.speakers must give whole counts for all, f, m and unsigned, not {sp!r}")
     return out
 
 
@@ -4262,6 +4282,7 @@ def women_share(plan: dict, placed: dict) -> dict:
     cast states (A3; never inferred). Lines whose speaker states no gender are
     counted apart."""
     by = {"f": 0.0, "m": 0.0, "unknown": 0.0}
+    heard: dict = {}
     for ln in placed["lines"]:
         kind = ln.get("line_kind", "narration" if ln.get("kind") == "narration" else "testimony")
         if kind != "testimony":
@@ -4270,10 +4291,17 @@ def women_share(plan: dict, placed: dict) -> dict:
         if f is None or t is None or t <= f:
             continue
         g = (plan.get("speakers") or {}).get(ln.get("speaker"), {}).get("gender")
-        by[g if g in ("f", "m") else "unknown"] += float(t) - float(f)
+        g = g if g in ("f", "m") else "unknown"
+        by[g] += float(t) - float(f)
+        heard.setdefault(ln.get("speaker"), g)
     total = sum(by.values())
     return {"share": round(by["f"] / total, 4) if total else 0.0, "testimony_s": round(total, 3),
-            "by_gender_s": {k: round(v, 3) for k, v in by.items()}}
+            "by_gender_s": {k: round(v, 3) for k, v in by.items()},
+            # A3 refined: the unsigned apart, as a share of testimony seconds and as voices heard (each speaker once)
+            "unsigned_share": round(by["unknown"] / total, 4) if total else 0.0,
+            "speakers": {"all": len(heard), "f": sum(1 for g in heard.values() if g == "f"),
+                         "m": sum(1 for g in heard.values() if g == "m"),
+                         "unsigned": sum(1 for g in heard.values() if g == "unknown")}}
 
 
 def _merge_spans(spans: list[tuple[float, float]], a: float, b: float) -> list[list[float]]:
