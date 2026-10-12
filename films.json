@@ -53,11 +53,11 @@
     },
     {
       "slug": "smallpox-eradication",
-      "title": "Nought",
-      "dates": "1967 to 1980",
-      "status": "in_production",
+      "title": "The Next Village",
+      "dates": "1909 to 1980",
+      "status": "live",
       "order": 2,
-      "poster": null,
+      "poster": "poster.jpg",
       "languages": {
         "spoken": "en",
         "captions": [
@@ -65,24 +65,20 @@
             "lang": "en",
             "name": "English",
             "kind": "captions",
-            "review": "planned"
-          },
-          {
-            "lang": "bn",
-            "name": "Bengali",
-            "kind": "subtitles",
-            "review": "planned"
-          },
-          {
-            "lang": "hi",
-            "name": "Hindi",
-            "kind": "subtitles",
-            "review": "planned"
+            "review": "in_review"
           }
         ]
       },
       "related": [],
-      "screenplay_path": "~/document-work/smallpox/screenplay.json"
+      "screenplay_path": "~/document-work/smallpox/screenplay.json",
+      "logline": "a goddess, a needle, and a search from house to house",
+      "synopsis": "In the villages of Bihar the disease was called by the goddess's name: Sitala. Among the Yoruba it belonged to the god of the earth. From 1966, searchers went from house to house and from village to village to find every case of smallpox. A narrator tells it in the words of the time, with readings from the record: the goddess and the god, the ring around each case, the farewell in Bihar, the last known cases, and the two years of looking that followed.",
+      "content_note": "It shows people ill with smallpox, children among them.",
+      "shows": "This film shows people with smallpox in photographs and medical films of the time.",
+      "legend": {
+        "reconstructed": "archive film enlarged",
+        "drawn": "from a period report"
+      }
     }
   ]
 }

@@ -36,7 +36,11 @@ import viteConfig from "../web/vite.config";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (f: string) => readFileSync(path.join(root, f), "utf8");
-const registry = loadRegistry(path.join(root, "films.json"));
+// The pilot-era registry (Partition live, Nought in production), kept as a fixture so the
+// in-production rules stay tested now that both films are live in films.json.
+const registry = loadRegistry(path.join(root, "tests/fixtures/films-pilot.json"));
+/** films.json as shipped. */
+const live = loadRegistry(path.join(root, "films.json"));
 const templates = readTemplates(path.join(root, "web"));
 type Film = (typeof registry.films)[number];
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -45,7 +49,22 @@ const rawFilms = () => yamlParse(read("contract.yaml")).films;
 const partition = () => clone(registry.films.find((f: Film) => f.slug === "partition-of-india"));
 
 describe("films.json", () => {
-  it("is a sound registry: Partition live on the marquee, Nought in production, in order", () => {
+  it("as shipped: Partition and The Next Village both live, Partition on the marquee", () => {
+    expect(registryProblems(live)).toEqual([]);
+    expect(listedFilms(live).map((f: Film) => [f.slug, f.status])).toEqual([
+      ["partition-of-india", "live"],
+      ["smallpox-eradication", "live"],
+    ]);
+    expect(marqueeFilm(live).slug).toBe("partition-of-india");
+    const nv = live.films.find((f: Film) => f.slug === "smallpox-eradication");
+    expect(nv.title).toBe("The Next Village");
+    expect(nv.poster).toBe("poster.jpg");
+    const p = sitePages(live, templates);
+    expect(p["f/smallpox-eradication/index.html"]).toContain("<title>The Next Village · void document</title>");
+    expect(p["index.html"]).toContain('<li><a href="/f/smallpox-eradication/">');
+  });
+
+  it("the pilot-era fixture is a sound registry: Partition live on the marquee, Nought in production, in order", () => {
     expect(registryProblems(registry)).toEqual([]);
     expect(listedFilms(registry).map((f: Film) => [f.slug, f.status])).toEqual([
       ["partition-of-india", "live"],
@@ -94,7 +113,7 @@ describe("the generated pages", () => {
     expect(Object.keys(pages).sort()).toEqual(["f/partition-of-india/correct/index.html", "f/partition-of-india/index.html", "f/partition-of-india/sources/index.html", "index.html"]);
     // Vite builds exactly those pages (web/vite.config.ts reads films.json the same way).
     const input = (viteConfig as { build: { rollupOptions: { input: Record<string, string> } } }).build.rollupOptions.input;
-    expect(input).toEqual(viteInputs(registry));
+    expect(input).toEqual(viteInputs(live));
   });
 
   it("render Partition's film, sources and correct pages byte for byte as they were hand-written", () => {
@@ -205,13 +224,20 @@ describe("the contract, expanded from films.json", () => {
   const contract = loadContract(path.join(root, "contract.yaml"));
   const forFilm = (slug: string) => contract.checks.filter((c: { film?: string }) => c.film === slug);
 
-  it("gives Partition every check it had, and Nought only what a film in production can answer", () => {
-    expect(contract.checks).toHaveLength(51);
+  it("gives Partition every check it had, and The Next Village a live film's checks", () => {
+    expect(contract.checks).toHaveLength(68);
     expect(forFilm("partition-of-india")).toHaveLength(22);
-    const nought = forFilm("smallpox-eradication");
-    expect(nought.map((c: { name: string }) => c.name)).toEqual(["homepage names Nought", "Nought has no page until it is live"]);
-    expect(nought.find((c: { type: string }) => c.type === "status")).toMatchObject({ path: "/f/smallpox-eradication/", expect: 404 });
-    expect(JSON.stringify(nought)).not.toContain("/media/");
+    const nv = forFilm("smallpox-eradication");
+    expect(nv).toHaveLength(19);
+    expect(nv.some((c: { name: string }) => /has no page until/.test(c.name))).toBe(false);
+    expect(nv.find((c: { type: string }) => c.type === "json_has")).toMatchObject({ path: "/media/smallpox-eradication/sources.json", field: "balance.sides" });
+  });
+
+  it("a film in production gets only what it can answer (pilot-era fixture)", () => {
+    const out = expandFilmChecks({ checks: [{ expand: "films" }], films: rawFilms() }, registry).filter((c: { film?: string }) => c.film === "smallpox-eradication");
+    expect(out.map((c: { name: string }) => c.name)).toEqual(["homepage names Nought", "Nought has no page until it is live"]);
+    expect(out.find((c: { type: string }) => c.type === "status")).toMatchObject({ path: "/f/smallpox-eradication/", expect: 404 });
+    expect(JSON.stringify(out)).not.toContain("/media/");
   });
 
   it("keeps when_declared and undeclared_status on each film's trailer check", () => {

@@ -2,7 +2,10 @@
 // uploads to the film's folder in R2 with --remote and sources.json last, and
 // a dry run is plain data that never runs a command.
 import { describe, expect, it } from "vitest";
-import { BUCKET, MAX_PUT_BYTES, PACKET_ROOT, UPLOAD_ORDER, commandLine, videoKbps, webEncodeArgs, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease } from "../scripts/release-film.mjs";
+import { BUCKET, MAX_PUT_BYTES, PACKET_ROOT, UPLOAD_ORDER, commandLine, videoKbps, webEncodeArgs, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease, readLedgers, posterSource } from "../scripts/release-film.mjs";
+import { mkdtempSync, writeFileSync as wfs, mkdirSync as mkd } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as pjoin } from "node:path";
 
 type Step = { id: string; label: string; exe?: string; args?: string[]; check?: string; tolerate?: RegExp };
 
@@ -115,5 +118,18 @@ describe("release-film", () => {
 
   it("prints a command line a person can paste", () => {
     expect(commandLine({ exe: "ffmpeg", args: ["-i", "a b.mp4", "-vf", "scale=1280:720"] })).toBe('ffmpeg -i "a b.mp4" -vf scale=1280:720');
+  });
+});
+
+describe("the film's ledgers", () => {
+  it("resolve a screenplay's relative ledger and media paths against the film folder, not the repo", () => {
+    const dir = mkdtempSync(pjoin(tmpdir(), "film-"));
+    mkd(pjoin(dir, "stills"));
+    wfs(pjoin(dir, "screenplay.json"), JSON.stringify({ slug: "x-film", ledgers: { stills: { path: "stills-ledger.json", media: "stills" } } }));
+    wfs(pjoin(dir, "stills-ledger.json"), JSON.stringify({ items: [{ id: "S-1", file: "S-1.jpg" }] }));
+    const l = readLedgers(dir)!;
+    expect(l.ledger).toBe(pjoin(dir, "stills-ledger.json"));
+    expect(l.media).toBe(pjoin(dir, "stills"));
+    expect(posterSource(l, "S-1")).toBe(pjoin(dir, "stills", "S-1.jpg"));
   });
 });

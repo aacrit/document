@@ -131,7 +131,12 @@ export function readLedgers(filmDir) {
   if (!existsSync(file)) return null;
   const play = JSON.parse(readFileSync(file, "utf8"));
   const stills = play?.ledgers?.stills;
-  return stills?.path ? { slug: play.slug ?? null, ledger: stills.path, media: stills.media ?? path.dirname(stills.path) } : null;
+  if (!stills?.path) return null;
+  // A screenplay may name its ledger and media relative to its own folder (The Next Village does);
+  // every step runs from the repo root, so resolve them against the film folder here.
+  const ledger = path.resolve(filmDir, stills.path);
+  const media = path.resolve(filmDir, stills.media ?? path.dirname(stills.path));
+  return { slug: play.slug ?? null, ledger, media };
 }
 
 /** The poster still's file in the stills ledger. */

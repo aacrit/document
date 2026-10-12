@@ -13,7 +13,9 @@ const pages = readdirSync(path.join(root, "web"), { recursive: true, encoding: "
   .map((f) => `web/${f.split(path.sep).join("/")}`)
   // web/templates/ holds the page templates the build fills from films.json; the pages are what it writes.
   .filter((f) => f.endsWith(".html") && !f.startsWith("web/templates/"));
-const PUBLIC = ["web/index.html", "web/f/partition-of-india/index.html", "web/f/partition-of-india/sources/index.html", "web/f/partition-of-india/correct/index.html"];
+const filmPages = (slug: string) => [`web/f/${slug}/index.html`, `web/f/${slug}/sources/index.html`, `web/f/${slug}/correct/index.html`];
+// The home page and each live film's three pages (films.json): Partition and The Next Village.
+const PUBLIC = ["web/index.html", ...filmPages("partition-of-india"), ...filmPages("smallpox-eradication")];
 const visible = (html: string) =>
   html
     .replace(/<script[\s\S]*?<\/script>/g, " ")
@@ -25,7 +27,7 @@ const clientScripts = readdirSync(path.join(root, "web/src")).filter((f) => f.en
 const stringLiterals = (src: string) => [...src.matchAll(/"([^"\n]*)"|`([^`]*)`/g)].map((m) => m[1] ?? m[2]).join("\n");
 
 describe("the public pages", () => {
-  it("are the four charter surfaces plus privacy", () => {
+  it("are the charter surfaces (home, and each live film's three pages) plus privacy", () => {
     expect([...pages].sort()).toEqual([...PUBLIC, "web/privacy.html"].sort());
   });
 
