@@ -13,7 +13,8 @@ these were settings:
   under 0.10), ``voiceless_floor`` (0.10, A18; never under 0.10),
   ``women_floor`` (0.30, GRAMMAR 6.5; never under 0.30) and
   ``ai_generated_share_max`` (0.0, the pilots' decision; never over 0.15,
-  GRAMMAR 2.6).
+  GRAMMAR 2.6) and ``fill_max_upscale`` (1.6, A34: how far a FILL may
+  magnify its source, output pixels per source pixel; 1.0 to 3.0).
 - ``shortfalls``: ``[{what, floor, stated_on, measured?}]``. A share under its
   floor passes as a journaled review item only when it is declared here and
   the card named by ``stated_on`` prints it through ``{<what>_share}``, which
@@ -288,13 +289,16 @@ def patient_shot_checks(shots: list[dict], assets: dict, rule: dict, lower_third
 # Policy settings and stated shortfalls (E9, GRAMMAR A25)
 # --------------------------------------------------------------------------
 
-DEFAULT_SETTINGS = {"readings_floor": 0.20, "voiceless_floor": 0.10, "women_floor": 0.30, "ai_generated_share_max": 0.0}
+DEFAULT_SETTINGS = {"readings_floor": 0.20, "voiceless_floor": 0.10, "women_floor": 0.30, "ai_generated_share_max": 0.0,
+                    "fill_max_upscale": 1.6}
 SETTING_BOUNDS = {                        # what GRAMMAR allows a film to set
     "readings_floor": (0.10, 1.0),        # 6.1 as amended (T1f): 20% by default; never under 10%
     "voiceless_floor": (0.10, 1.0),       # A18: the 10% voiceless floor stays
     "women_floor": (0.30, 1.0),           # 6.5: at least 30% (a shortfall is stated, never set lower)
     "ai_generated_share_max": (0.0, 0.15),   # 2.6 and A2: at most 15% of runtime
+    "fill_max_upscale": (1.0, 3.0),       # A34: output pixels per source pixel a FILL may reach (1.6 by default)
 }
+SHARE_SETTINGS = ("readings_floor", "voiceless_floor", "women_floor", "ai_generated_share_max")
 SHORTFALL_WHAT = {"readings": "readings_floor", "voiceless": "voiceless_floor", "women": "women_floor"}
 # A25 refined (CoS design reset): a shortfall card prints its numbers only through placeholders, filled from
 # the film's own measurement at the mix; the card may hold no other number of any kind.
@@ -492,7 +496,8 @@ def film_settings(play: dict) -> tuple[dict, dict, list[str]]:
             problems.append(f"unknown setting {k!r} (known: {', '.join(sorted(SETTING_BOUNDS))})")
             continue
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(float(v)):
-            problems.append(f"{k} must be a share from 0 to 1, not {v!r}")
+            problems.append(f"{k} must be a share from 0 to 1, not {v!r}" if k in SHARE_SETTINGS else
+                            f"{k} must be a number, not {v!r}")
             continue
         lo, hi = SETTING_BOUNDS[k]
         if not lo - 1e-9 <= float(v) <= hi + 1e-9:

@@ -946,7 +946,7 @@ def write_av_offset(film: Path, play: dict, clip: str, measure: dict) -> Path:
 
 
 def measure_sync(master: Path | str, film_t: float, film_d: float, src: Path | str, src_base: float, in_s: float,
-                 shot_start: float, crop: str | None, *, audio_t: float | None = None) -> dict:
+                 shot_start: float, crop: str | None, *, audio_t: float | None = None, src_crop: str | None = None) -> dict:
     """In the master over [film_t, film_t + film_d]: which source time the
     picture shows (each sampled frame matched to the source's own frames
     around the expected time) and which source time is heard (the master's
@@ -954,11 +954,13 @@ def measure_sync(master: Path | str, film_t: float, film_d: float, src: Path | s
     far the sound trails the picture (positive: late). ``src_base`` is the
     reel time the source file starts at (a cached span's offset).
     Inconclusive when the picture does not change enough to be matched (a
-    still) or the sound does not correlate."""
+    still) or the sound does not correlate. ``crop`` takes the picture out
+    of the master's frame; ``src_crop`` the same window out of the source's
+    (a FILL's held end framing, A34)."""
     size = (160, 120)
     rt, RF = read_frames(master, film_t, film_d, size=size, crop=crop)
     exp = in_s + (film_t - shot_start)
-    st, SF = read_frames(src, exp - src_base - 1.5, film_d + 3.0, size=size)
+    st, SF = read_frames(src, exp - src_base - 1.5, film_d + 3.0, size=size, crop=src_crop)
     st = st + src_base
     out = {"picture_src_minus_film": None, "audio_src_minus_film": None, "audio_late_ms": None, "conclusive": False}
     if len(RF) >= 6 and len(SF) >= 6:
@@ -1020,8 +1022,29 @@ def rendered_sync_lints(journal, plan: dict, master: Path, *, draft: bool = Fals
             continue
         vw, vh = holder["_video"]["fit"]
         crop = f"{vw}:{vh}:{(W - vw) // 2}:{(H - vh) // 2}"
+        src_crop = None
+        cam = holder.get("_cam")
+        if cam is not None and len(cam["path"]) > 1:
+            # A34: a FILL clip is whole only in its opening and still only once the fill holds; it is measured in
+            # whichever of the two holds enough of the line, never during the move
+            f0 = holder["f0"] / 24
+            opened, held = f0 + cam["open_s"], f0 + cam["open_s"] + cam["move_s"]
+            if min(z, opened) - a >= RENDER_SYNC_MIN_S + 0.3:
+                z = min(z, opened)
+            elif z - max(a, held) >= RENDER_SYNC_MIN_S + 0.3:
+                a = max(a, held)
+                (x0, y0, x1, y1), (pw, ph) = cam["fill"]["end_window_px"], cam["fill"]["picture"]
+                crop = None
+                src_crop = (f"iw*{(x1 - x0) / pw:.6f}:ih*{(y1 - y0) / ph:.6f}:iw*{x0 / pw:.6f}:ih*{y0 / ph:.6f}")
+            else:
+                journal.lint("archival-sync-rendered", True, stage="assembly", unit=ln["id"], grammar="A33, A34",
+                             phase="post-render", status="inconclusive", severity="warn",
+                             evidence={"why": "the line sits on the FILL's move, where no frame is still to match",
+                                       "shot": holder["id"]})
+                continue
         src, base = clip_file(holder)
-        m = measure_sync(master, a + 0.15, min(4.0, z - a - 0.3), src, base, holder["in_s"], holder["f0"] / 24, crop)
+        m = measure_sync(master, a + 0.15, min(4.0, z - a - 0.3), src, base, holder["in_s"], holder["f0"] / 24, crop,
+                         src_crop=src_crop)
         expected = -corr * 1000
         ok = (m["audio_late_ms"] is not None and abs(m["audio_late_ms"] - expected) <= RENDER_SYNC_TOL_MS)
         ev = dict(m, shot=holder["id"], expected_ms=round(expected), tolerance_ms=RENDER_SYNC_TOL_MS, correction_s=corr)

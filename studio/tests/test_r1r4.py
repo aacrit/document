@@ -370,25 +370,27 @@ def _dips(parts, dur=None, *, s=0.75, target=None):
 
 
 def test_a30_dip_budget_per_part():
+    """A39 (R12, founder: pacing is guidance): the dip budget is measured as before, but over it is a warning and a
+    reviewer item (pacing-guide), never a refusal, on a final render of an event film too."""
     def run(plan, draft=False):
         j = J.Journal(film="dips")
         out = R.black_dip_lints(j, plan, draft=draft)
-        return out, _lints(j, "dip-budget")[0]
-    out, e = run(_dips({"p1": (400.0, 10), "p2": (200.0, 5)}))      # one a 40 s in each part, 11.25 s of dip
-    assert out == [] and e["status"] == "pass"
+        return out, _lints(j, "dip-budget")[0], _lints(j, "pacing-guide")
+    out, e, rv = run(_dips({"p1": (400.0, 10), "p2": (200.0, 5)}))      # one a 40 s in each part, 11.25 s of dip
+    assert out == [] and e["status"] == "pass" and rv == []
     assert e["evidence"]["by_part"]["p1"] == {"dips": 10, "part_s": 400.0, "allowed": 10, "over": 0}
-    out, e = run(_dips({"p1": (400.0, 4), "p2": (200.0, 8)}))       # 12 dips in 600 s, but p2 has 8 in 200 s
-    assert out and "p2 (8 in 200 s, at most 5)" in out[0] and e["severity"] == "block"
-    assert e["evidence"]["parts_over"] == ["p2"] and "make cuts of 3 dip(s) in p2" in e["evidence"]["fix"]
-    out, e = run(_dips({"t": (15.0, 1), "p1": (585.0, 14)}))        # a 15 s title part keeps its one dip
-    assert out == [] and e["evidence"]["by_part"]["t"]["allowed"] == 1
-    out, e = run(_dips({"p1": (600.0, 15)}, s=1.0))                 # 15 s of dip per 10 min: over the 12 s
-    assert out and "15.0 s of dip per 10 min" in out[0]
-    out, e = run(_dips({"p1": (300.0, 16)}))                        # a short piece: a warning
+    out, e, rv = run(_dips({"p1": (400.0, 4), "p2": (200.0, 8)}))       # 12 dips in 600 s, but p2 has 8 in 200 s
     assert out == [] and e["status"] == "fail" and e["severity"] == "warn"
-    out, e = run(_dips({"p1": (300.0, 16)}, target=1200.0))         # but not when its runtime target is a film's
-    assert out
-    out, e = run(_dips({"p1": (1200.0, 60)}), draft=True)
+    assert [r["evidence"]["rule"] for r in rv] == ["dip-budget"] and rv[0]["severity"] == "review"
+    assert e["evidence"]["parts_over"] == ["p2"] and "make cuts of 3 dip(s) in p2" in e["evidence"]["fix"]
+    assert "A39" in e["evidence"]["advisory"]
+    out, e, rv = run(_dips({"t": (15.0, 1), "p1": (585.0, 14)}))        # a 15 s title part keeps its one dip
+    assert out == [] and e["evidence"]["by_part"]["t"]["allowed"] == 1
+    out, e, rv = run(_dips({"p1": (600.0, 15)}, s=1.0))                 # 15 s of dip per 10 min: over the 12 s
+    assert out == [] and e["status"] == "fail" and rv
+    out, e, rv = run(_dips({"p1": (300.0, 16)}))                        # a short piece: a warning
+    assert out == [] and e["status"] == "fail" and e["severity"] == "warn"
+    out, e, rv = run(_dips({"p1": (1200.0, 60)}), draft=True)
     assert out == [] and e["severity"] == "warn"
 
 
@@ -569,7 +571,7 @@ def test_rereview_the_film_wide_dip_count_holds_over_many_short_parts():
         return R.black_dip_lints(j, plan), _lints(j, "dip-budget")[0]
     out, e = run(_dips({f"p{i}": (20.0, 1) for i in range(36)}))     # 36 parts of 20 s, one dip each: 30 per 10 min
     assert e["evidence"]["parts_over"] == [] and e["evidence"]["film_allowed_dips"] == 18
-    assert out and "36 in the film, at most 18" in out[0] and "make cuts of 18 dip(s) across the film" in e["evidence"]["fix"]
+    assert out == [] and e["status"] == "fail" and "make cuts of 18 dip(s) across the film" in e["evidence"]["fix"]
     out, e = run(_dips({f"p{i}": (40.0, 1) for i in range(15)}))     # 15 parts of 40 s: one per 40 s, exactly
     assert out == [] and e["status"] == "pass"
 

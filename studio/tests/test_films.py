@@ -289,7 +289,7 @@ def test_e3_e2_sources_json_states_the_rule_the_settings_and_the_films_own_sides
 def test_e9_settings_default_to_partition_and_stay_inside_grammar():
     assert POL.film_settings({}) == (POL.DEFAULT_SETTINGS, {}, [])
     assert POL.DEFAULT_SETTINGS == {"readings_floor": R.READINGS_FLOOR, "voiceless_floor": R.VOICELESS_FLOOR,
-                                    "women_floor": 0.30, "ai_generated_share_max": 0.0}
+                                    "women_floor": 0.30, "ai_generated_share_max": 0.0, "fill_max_upscale": R.FILL_MAX_UPSCALE}
     s, stated, probs = POL.film_settings({"settings": {"readings_floor": 0.12}})
     assert s["readings_floor"] == 0.12 and stated == {"readings_floor": 0.12} and not probs
     for bad, why in (({"readings_floor": 0.05}, "outside GRAMMAR's bounds"), ({"voiceless_floor": 0.0}, "outside"),
@@ -585,7 +585,9 @@ def test_e11_the_mix_plays_the_span_at_its_own_dynamics_never_cleaned_or_judged(
     env = np.abs(mid).reshape(-1, 480).max(axis=1)
     assert env.max() / env.min() < 1.1                                            # a steady tone stays steady: no gate, no expander
     cached = list((film / "cache" / "spans").glob("fx-reel.*.wav"))
-    assert len(cached) == 1 and R._read_wav(cached[0]).size == pytest.approx(1.5 * 48000, abs=480)
+    # A36: the span is cut with EDGE_PAD_S of the reel either side (from 0 here), so its edges can carry the reel's sound
+    want = (2.5 + R.EDGE_PAD_S - max(0.0, 1.0 - R.EDGE_PAD_S)) * 48000
+    assert len(cached) == 1 and R._read_wav(cached[0]).size == pytest.approx(want, abs=480)
 
 
 def test_e11_a_long_reel_is_trimmed_to_a_cached_span_before_conform(film, monkeypatch):

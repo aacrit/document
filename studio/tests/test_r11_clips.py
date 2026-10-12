@@ -646,3 +646,49 @@ def test_a_render_measures_every_archival_line_on_its_own_picture(talk, tmp_path
     assert len(got) == 1 and got[0]["unit"] == "A1" and got[0]["status"] == "pass", got
     assert abs(got[0]["evidence"]["audio_late_ms"]) <= C.RENDER_SYNC_TOL_MS
     assert s["clip_warnings"] == []
+
+
+# --------------------------------------------------------------------------
+# R12 (A34): a FILL clip is measured where its framing is still
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def late_talk(tmp_path_factory):
+    d = tmp_path_factory.mktemp("late-talk")
+    return make_media.talker(d / "late.mkv", words=((8.8, 9.6), (10.0, 10.9), (11.1, 11.8)))
+
+
+def _held_fill_master(src: Path, dest: Path, window, audio_shift: float = 0.0) -> Path:
+    """The first 12 s of src as a FILL holds it: the end window cropped out and scaled to 640x360."""
+    x0, y0, x1, y1 = (int(round(v)) for v in window)
+    subprocess.run([R.ffmpeg(), "-v", "error", "-y", "-t", "12", "-i", str(src), "-ss", f"{audio_shift}", "-t", "12", "-i", str(src),
+                    "-map", "0:v:0", "-map", "1:a:0", "-vf", f"fps=24,crop={x1 - x0}:{y1 - y0}:{x0}:{y0},scale=640:360",
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+                    "-ar", "48000", str(dest)], check=True, capture_output=True)
+    return dest
+
+
+def _fill_plan(src, cam, line_in, line_out):
+    item = {"_path": str(src)}
+    return {"W": 640, "H": 360, "assets": {"T": item},
+            "shots": [{"id": "V", "kind": "archive_video", "asset": "T", "f0": 0, "f1": 288, "in_s": 0.0, "_item": item,
+                       "_video": {"fit": [480, 360]}, "_cam": cam}],
+            "lines": [{"id": "A", "archival_audio": True, "clip": "T", "in_s": line_in, "out_s": line_out, "start_s": line_in}]}
+
+
+def test_a34_a_fill_clip_is_measured_on_its_held_fill_and_never_on_the_move(late_talk, tmp_path):
+    cam = R.fill_camera({"id": "V", "_dur": 12.0}, (320, 240), 640, 360, max_upscale=3.0)
+    assert cam["fill"]["full"]
+    assert cam["open_s"] + cam["move_s"] == pytest.approx(8.5)
+    good = _held_fill_master(late_talk, tmp_path / "good.mp4", cam["fill"]["end_window_px"])
+    j = J.Journal(film="fill-sync")
+    assert C.rendered_sync_lints(j, _fill_plan(late_talk, cam, 8.65, 11.95), good) == []
+    e = [x for x in J.read(j.path) if x.get("rule") == "archival-sync-rendered"][0]
+    assert e["status"] == "pass" and e["evidence"]["audio_late_ms"] == pytest.approx(0, abs=C.RENDER_SYNC_TOL_MS)
+    bad = _held_fill_master(late_talk, tmp_path / "bad.mp4", cam["fill"]["end_window_px"], audio_shift=-0.25)
+    assert C.rendered_sync_lints(J.Journal(film="fill-sync-bad"), _fill_plan(late_talk, cam, 8.65, 11.95), bad)
+    j = J.Journal(film="fill-sync-move")                                                   # the line sits on the move
+    assert C.rendered_sync_lints(j, _fill_plan(late_talk, cam, 3.0, 7.0), good) == []
+    e = [x for x in J.read(j.path) if x.get("rule") == "archival-sync-rendered"][0]
+    assert e["status"] == "inconclusive" and "move" in e["evidence"]["why"]
