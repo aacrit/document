@@ -1264,6 +1264,7 @@ def test_a13_a_line_over_1_db_for_a_quarter_of_it_is_a_bad_take(tmp_path):
     film = make_film(tmp_path / "film")
     _wav(film / "audio" / "L2.wav", x)
     plan, _ = _plan(film)
+    plan["reader_eq"] = {}     # this test is about peak control: no reader EQ (A38 refined) reshaping the take first
     with pytest.raises(R.Refused, match=r"voice-peak-control \(A13\).*L2 \(.*over 1 dB for"):
         R.build_mix(plan, film, J.Journal(film="crushed"))
 
