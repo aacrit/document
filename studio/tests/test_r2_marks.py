@@ -204,27 +204,32 @@ def _rate_plan(n, dur):
 @pytest.mark.parametrize("n, dur, ok", [(4, 60, True), (5, 60, False), (38, 600, True), (41, 600, False), (2, 25, True),
                                         (3, 25, False)])
 def test_label_rate_allows_one_surfacing_per_15_s(tmp_path, n, dur, ok):
-    j = J.Journal(film="r2-rate")
-    out = R.label_rate_lint(j, _rate_plan(n, dur))
-    e = lints(j, "label-rate")[0]
-    assert (e["status"] == "pass") is ok and (out == []) is ok and e["severity"] == "block"
-    assert e["evidence"]["surfacings"] == n and e["evidence"]["per_minute"] == round(60 * n / dur, 2)
-    j2 = J.Journal(film="r2-rate-draft")
-    assert R.label_rate_lint(j2, _rate_plan(n, dur), draft=True) == []
-    assert lints(j2, "label-rate")[0]["severity"] == "warn"
+    """A39 refined (founder, 2026-10-12): label-rate is a pacing guide, a
+    warning and, past a cap, a reviewer item; never a refusal, final or draft."""
+    for draft in (False, True):
+        j = J.Journal(film=f"r2-rate-{draft}")
+        assert R.label_rate_lint(j, _rate_plan(n, dur), draft=draft) == []
+        e = lints(j, "label-rate")[0]
+        assert (e["status"] == "pass") is ok and e["severity"] == "warn"
+        assert e["evidence"]["surfacings"] == n and e["evidence"]["per_minute"] == round(60 * n / dur, 2)
+        review = lints(j, "pacing-guide")
+        assert [r["evidence"]["rule"] for r in review] == ([] if ok else ["label-rate"])
+        assert all(r["severity"] == "review" and "A39" in r["grammar"] for r in review)
 
 
-def test_label_rate_caps_the_busiest_minute_at_4():
+def test_label_rate_caps_the_busiest_minute_at_4_as_a_reviewer_item():
     def plan(times):
         return {"marks": [{"start": t, "cls": "ARCHIVE", "label": f"Archive · {1900 + k}", "year": str(1900 + k)}
                           for k, t in enumerate(times)], "duration_s": 1200.0}
     burst = [100.0, 110.0, 120.0, 130.0, 140.0]                                 # 5 in 40 s, in a film that allows 80
     j = J.Journal(film="r2-rate-burst")
-    out = R.label_rate_lint(j, plan(burst))
+    assert R.label_rate_lint(j, plan(burst)) == []                              # guidance: never a refusal
     e = lints(j, "label-rate")[0]
-    assert out and "busiest minute" in out[0] and e["evidence"]["busiest_minute"] == 5 and e["status"] == "fail"
+    assert e["evidence"]["busiest_minute"] == 5 and e["status"] == "fail" and e["severity"] == "warn"
+    assert lints(j, "pacing-guide")[0]["evidence"]["found"]["busiest_minute"] == 5
     j = J.Journal(film="r2-rate-spread")
     assert R.label_rate_lint(j, plan([100.0, 110.0, 120.0, 130.0, 161.0])) == []    # the fifth 61 s after the first
+    assert lints(j, "label-rate")[0]["status"] == "pass" and not lints(j, "pacing-guide")
 
 
 def test_label_rate_counts_changes_not_cuts():
