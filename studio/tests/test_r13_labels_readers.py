@@ -113,7 +113,7 @@ def test_voice_names_follow_the_cast_files():
 def test_the_house_table_is_derived_never_hand_set_and_inside_the_bounds():
     data = json.loads(VO.TABLE.read_text(encoding="utf-8"))
     voices = data["voices"]
-    assert len(voices) == 20 and data["bounds"] == json.loads(json.dumps(VO.READER_EQ_BOUNDS))
+    assert len(voices) == 38 and data["bounds"] == json.loads(json.dumps(VO.READER_EQ_BOUNDS))
     assert data["target"]["warmth_db"] == VO.targets()["warmth_db"]
     for k, rec in voices.items():
         assert VO.eq_problems(k, rec["eq"]) == [], k
@@ -123,6 +123,18 @@ def test_the_house_table_is_derived_never_hand_set_and_inside_the_bounds():
     # the brightest readers measured (+14 dB at 6.3 to 8 kHz) take the deepest cut; the darkest keep their treble
     assert voices["kokoro:bm_george"]["eq"]["high"]["gain_db"] == -6.0
     assert voices["kokoro:hm_psi"]["eq"]["high"]["gain_db"] == 0.0
+
+
+def test_adding_a_films_new_voices_never_moves_an_entry_the_table_holds():
+    table = {"_note": "n", "target": {"warmth_db": 1.0}, "voices": {"kokoro:a": {"eq": {"high": {"hz": 6000, "gain_db": -1.0}}, "films": ["f1"]}}}
+    built = {"voices": {"kokoro:a": {"eq": {"high": {"hz": 5000, "gain_db": -6.0}}, "films": ["f2"]},
+                        "blend:b": {"eq": {"high": {"hz": 6000, "gain_db": 0.0}}, "films": ["f2"]}}}
+    out, added = VO.add_voices(table, built)
+    assert added == ["blend:b"]
+    assert out["voices"]["kokoro:a"] == table["voices"]["kokoro:a"]          # the held entry is kept exactly
+    assert out["voices"]["blend:b"] == built["voices"]["blend:b"] and out["_note"] == "n"
+    assert table["voices"].keys() == {"kokoro:a"}                             # the input is not changed
+    assert VO.add_voices(out, built)[1] == []                                  # nothing to add twice
 
 
 def test_the_declaration_house_off_and_per_voice():
