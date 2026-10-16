@@ -38,7 +38,9 @@
     {"text": "The commission must report by the fifteenth of August.", "expect": []},
     {"text": "The historical record of the vaccinators.", "expect": []},
     {"text": "Nehru called it “a tragic hour” in the Assembly.", "expect": []},
-    {"text": "The dead were counted by a judge; the villages burned.", "expect": []}
+    {"text": "The dead were counted by a judge; the villages burned.", "expect": []},
+    {"text": "Gazette of India Extraordinary, 31 January 1949, p. 91", "expect": []},
+    {"text": "The court called it an extraordinary decision.", "expect": ["extraordinary"]}
   ],
   "modern_names": [
     {"text": "In Dhaka, in March 1948.", "as_of": "1951", "expect": ["Dhaka"]},
