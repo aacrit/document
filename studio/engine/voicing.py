@@ -364,17 +364,40 @@ def build_table(films) -> dict:
             "bounds": READER_EQ_BOUNDS, "voices": voices}
 
 
+def add_voices(table: dict, built: dict) -> tuple[dict, list[str]]:
+    """The house table with only the voices it does not hold yet taken from ``built`` (a ``build_table`` result):
+    every voice already in the table keeps its entry exactly, so adding a film's new readers never moves another
+    film's EQ. Returns (table, the voices added)."""
+    out = json.loads(json.dumps(table))
+    have = out.setdefault("voices", {})
+    added = [k for k in sorted(built.get("voices", {})) if k not in have]
+    for k in added:
+        have[k] = built["voices"][k]
+    out["voices"] = dict(sorted(have.items()))
+    return out, added
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="GRAMMAR A38 refined: measure the reader voices and derive their house EQ")
     sub = ap.add_subparsers(dest="cmd", required=True)
     m = sub.add_parser("measure", help="measure every reader voice over the films' takes")
     m.add_argument("films", type=Path, nargs="+")
     m.add_argument("--write", action="store_true", help=f"write the house table ({TABLE.name})")
+    m.add_argument("--add", action="store_true", help="only add voices the house table does not hold yet; every entry it "
+                   "holds is kept exactly (with --write, writes the merged table)")
     a = ap.parse_args(argv)
     t = build_table([f.resolve() for f in a.films])
+    if a.add:
+        current = json.loads(TABLE.read_text(encoding="utf-8")) if TABLE.exists() else {"voices": {}}
+        merged, added = add_voices(current, t)
+        print(f"--add: {len(added)} new voice(s): {', '.join(added) or 'none'}; {len(current.get('voices', {}))} kept as they were")
+        t = dict(merged, voices={k: merged["voices"][k] for k in merged["voices"]})
+        shown = {k: t["voices"][k] for k in added}
+    else:
+        shown = t["voices"]
     print(f"target: warmth {t['target']['warmth_db']:+.2f} dB, treble {t['target']['treble_db']}")
     print(f"{'voice':<18} {'takes':>5} {'f0':>6}  {'bell':>16}  {'shelf':>17}  {'chest':>13}  {'5k / 6.3k / 8k before':>22}  after")
-    for k, r in t["voices"].items():
+    for k, r in shown.items():
         lo, hi = r["eq"].get("low"), r["eq"]["high"]
         ta = r["treble_after_db"]
         tb = {c: r["excess_db"][c] for c in ta}
