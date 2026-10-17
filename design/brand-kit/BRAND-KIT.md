@@ -428,6 +428,18 @@ The founder: "take the user through the artifact as needed, but use the full res
 
 Do: write regions of interest once per image (`roi`) and let `tour` visit each as the narration names it; keep moves continuing across a cut, or land the cut on a stop. Don't: pillarbox a still because it is a document or a painting (tour it); push a face past z 1.3; state `fill_exception` on a picture that can fill.
 
+### 14b. Framing truth, authored or automatic (2026-10-17, founder ruling 2; GRAMMAR A43)
+
+`motion.CINE` holds the numbers. A face cap no longer waits for a flag: it comes from the ledger's boxes.
+
+| Rule | Numbers |
+|---|---|
+| Face cap | a stop whose window frames half or more of a face or person box: z at most 1.3, creep included |
+| A name on a face, measured words | the camera arrives between 0.8 s before and 0.25 s after the name's onset |
+| A name on a face, estimated words | the camera arrives at least 1.0 s before the name and stays until it ends |
+| Machine boxes | `source: auto` under confidence 0.5 is set aside: the person counts as unlocated and the whole picture is toured |
+| One person | a face inside its figure (80% of the face box inside) is one person, for the binding rule |
+
 ## 15. The series titles: `void document · As It Was` (2026-10-17; GRAMMAR A40)
 
 The founder: "a cinematic ... intro ... after the hook of each video like it's a documentary episode." The series titles are the archive machine (`design/title-sequence/`: 12 beats, 57.0 s, G2 approved 2026-10-16), rendered once per film with that film's own record, and played by the engine as they are.

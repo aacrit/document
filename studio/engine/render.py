@@ -806,8 +806,14 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
                     a41="FIND held at the fill: its whole-sheet opening is the fill (A41)")
     dur = float(shot["_dur"])
     t0 = float(shot.get("start_s") or 0.0)
-    roi = [r for r in (item.get("roi") or []) if isinstance(r, dict)]
-    roi_by_name = {r.get("name"): r for r in roi}
+    # A43 (founder ruling 2): human wins over auto for the same name; a machine box under the confidence floor is
+    # ignored for framing (the person it marks counts as unlocated, so the still degrades toward the whole)
+    eff = T.effective_regions(item)
+    roi = eff["roi"]
+    persons = T.person_regions(item)
+    roi_by_name = {p["name"]: dict(p["entry"], kind="person") for p in persons
+                   if p["src"] == "people" and p["name"] is not None}
+    roi_by_name.update({r.get("name"): r for r in roi})
     zmax = max(1.0, zcap)
     if shot.get("face"):
         zmax = min(zmax, 1.3)                 # 7.2: a face is never pushed past z 1.3, creep included
@@ -849,13 +855,18 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
                  [float(region.get("x", 0.5)), float(region.get("y", 0.5))] if macro == "DETAIL" else None)
         stops = T.covering_stops(img_size, aspect, dur, focus, zmax=zmax)
         covering = True
+    # A43 face-cap-live: a stop that frames a face or a person never goes past z 1.3, creep included
+    stops = T.cap_faces(stops, persons, img_size, aspect)
+    if shot.get("match") == "prev" and stops:
+        stops[0] = dict(stops[0], match="prev")   # the schema: a shot's match is its first stop's (#9 draws it)
     tl = T.build(stops, dur, img_size, aspect, zmax, no_zoom=shot.get("no_zoom") is True)
     frame_path = [T.to_frame(st, img_size, W, H) for st in tl["stops"]]
     zf = max(W / fw, H / fh)
     return {"path": frame_path, "clamp": "image", "fill_ok": True, "preset": TOUR, "macro": macro, "open_s": 0.0,
             "z_max": zf * tl["z_max"], "fit_scale": s, "z_rel_max": max(max(1.0, float(st["z"])) for st in asked),
             "tour": tl, "W": W, "H": H, "opens_whole": False, "problems": problems, "zcap": zcap, "cap": cap,
-            "covering": covering, "capped": any(st.get("capped") for st in stops)}
+            "covering": covering, "capped": any(st.get("capped") for st in stops),
+            "cine": {"persons": persons, "regions": roi_by_name, "ignored": eff["ignored"], "words": words or []}}
 
 
 def narrower_than_frame(aspect: float, W: int = 1920, H: int = 1080) -> bool:
@@ -1027,6 +1038,8 @@ def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int)
     lint("tour-anchor", not anchor, unit=s["id"], stage="motion", grammar="A41",
          evidence={"problems": anchor, "fix": None if not anchor else
                    "anchor to a word the narration over this shot speaks (a word index or a cue), or give t"})
+    if cam.get("tour") and cam.get("cine") is not None:
+        cine_lints(lint, journal, s, cam)
     L = M.Layout(W, H)
     wins, bad, z_min = [], [], math.inf
     for k in range(int(math.floor(dur * FPS)) + 1):
@@ -1097,6 +1110,76 @@ def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int)
                                                   "check": "the path never shows the whole picture: what it leaves "
                                                            "out is the author's choice (A41: full visibility comes "
                                                            "from touring the whole surface)"})
+
+
+def cine_lints(lint, journal: Journal, s: dict, cam: dict) -> None:
+    """A43 at plan time, inside every preflight (founder ruling 2: automatic,
+    deterministic framing, a human optional; degrade, never block on missing
+    human input). Blocking: ``face-cap-live`` (a stop that frames a face or a
+    person, from the ledger's ``kind: face|person`` regions or its located
+    people, stays at or under z 1.3, creep included, with or without the
+    shot's ``face`` flag) and ``anchor-identity`` (a stop that lands on a
+    person and is anchored to a name arrives within [-0.8, +0.25] s of the
+    name on measured word timings, or at least 1.0 s early and holding
+    through it on estimated ones; and binds only when the item's own caption
+    names that one person and exactly one person is located). Never blocking:
+    a machine box ignored for framing (``source: auto`` under the confidence
+    floor, or overridden by a human entry of the same name) is journaled."""
+    cine, tl = cam["cine"], cam["tour"]
+    bad = T.face_cap_check(tl, cine["persons"])
+    lint("face-cap-live", not bad, unit=s["id"], stage="motion", grammar="7.2, A43",
+         evidence={"face_zmax": M.CINE["face_zmax"], "people": [p["name"] for p in cine["persons"]],
+                   "over": bad[:5], "fix": None if not bad else
+                   "a face or a person is never pushed past z 1.3: pull the stop back (leave z out and the engine "
+                   "caps it), or frame what is beside them"})
+    ident = T.anchor_identity_check(tl, s.get("_item") or {}, cine["regions"], cine["persons"], cine["words"])
+    lint("anchor-identity", not ident, unit=s["id"], stage="motion", grammar="A41, A43",
+         evidence={"stops": ident, "fix": None if not ident else (
+             "on estimated timings arrive at least 1.0 s before the name (lead_s) and hold through it, or measure "
+             "the words (words: [{w, t}] on the line); a name binds to one face only when the item's own caption "
+             "names that person and exactly one person is located: otherwise frame the group or the whole")})
+    if cine["ignored"]:
+        journal.decision("motion", f"{s['id']}: {len(cine['ignored'])} machine box(es) not used for framing",
+                         "A43 (founder ruling 2): a human entry wins over auto; under the confidence floor the "
+                         "box is ignored and the person it marks counts as unlocated, so the still degrades toward "
+                         "the whole", unit=s["id"], evidence={"ignored": cine["ignored"],
+                                                              "floor": M.CINE["auto_confidence_floor"]})
+
+
+def cine_schema_lints(lint, journal: Journal, shots: list[dict], words_for) -> None:
+    """A43: the cinematography fields of every still and its ledger item
+    against the schema, before any camera is drawn. Malformed values refuse
+    (the engine would misbehave on them); unknown keys on a person, a region,
+    a stop or ``subject_at`` warn; a ``subject_at`` the narration over the
+    shot never speaks warns (the rulebook then lands the subject at the end
+    of the shot's last line)."""
+    seen_items: set = set()
+    for s in shots:
+        item = s.get("_item") or {}
+        bad, unknown = T.shot_schema(s)
+        if item.get("id") not in seen_items:
+            seen_items.add(item.get("id"))
+            ib, iu = T.item_schema(item)
+            bad += [f"ledger {item.get('id')}: {b}" for b in ib]
+            unknown += [f"ledger {item.get('id')}: {u}" for u in iu]
+        lint("cine-schema", not bad, unit=s["id"], stage="motion", grammar="A43",
+             evidence={"malformed": bad, "fix": None if not bad else
+                       "boxes are {x, y, w, h} in 0 to 1 inside the picture; class, kind, facing and source take "
+                       "their closed lists; compose is golden or centred:<reason>; levels: none states levels_reason"})
+        if unknown:
+            journal.lint("cine-schema-keys", False, stage="motion", unit=s["id"], severity="warn", grammar="A43",
+                         phase="preflight", evidence={"unknown": unknown, "fix": "a misspelt key is read as absent"})
+        sa = s.get("subject_at")
+        if sa is not None and not bad:
+            at, line = (sa.get("at"), sa.get("line")) if isinstance(sa, dict) else (sa, None)
+            sp = T.anchor_span(at, words_for(s), line=line, t0=float(s["start_s"]))
+            ok = sp is not None and float(s["start_s"]) - 1e-9 <= sp["t"] <= float(s["end_s"]) + 1e-9
+            journal.lint("cine-subject-at", ok, stage="motion", unit=s["id"], severity="warn", grammar="A43",
+                         phase="preflight", evidence={"subject_at": sa, "onset_s": None if sp is None else
+                                                      round(sp["t"] - float(s["start_s"]), 3),
+                                                      "measured": None if sp is None else sp["measured"],
+                                                      "fix": None if ok else "a cue the narration over this shot "
+                                                      "speaks (digits alone are a word index)"})
 
 
 def ml_upscale_lint(lint, s: dict) -> None:
@@ -1909,6 +1992,13 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     # Stills: the camera (A41: a tour that fills, or whole under a fill exception), the people guard over each
     # shot, the resampler (A5), fill_ok for the reviewer.
     words_src = None
+    stills = [s for s in shots if s["kind"] in ("archive_still", "drawn") and s.get("_item", {}).get("_path")]
+    if any(x.get("camera") is not None or x.get("subject_at") is not None for x in stills):
+        words_src = tour_lines(play, film)
+    # A43: the cinematography fields against the schema first; a malformed box or list refuses before any camera
+    cine_schema_lints(lint, journal, stills, lambda x: T.shot_words(words_src or [], x["start_s"], x["end_s"]))
+    if lint_fail:
+        raise Refused("lint failed: " + "; ".join(lint_fail))
     for s in shots:
         if s["kind"] in ("archive_still", "drawn") and s.get("_item", {}).get("_path"):
             if s["kind"] == "drawn" and s.get("camera") is None:
@@ -1918,8 +2008,6 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             # A41 (founder, 2026-10-17): a still may go to 3.0x unless the film states its own fill_max_upscale
             s["_fill_max_upscale"] = (settings["fill_max_upscale"] if "fill_max_upscale" in settings_stated
                                       else STILL_MAX_UPSCALE)
-            if words_src is None and any(x.get("camera") is not None for x in shots):
-                words_src = tour_lines(play, film)
             words = T.shot_words(words_src or [], s["start_s"], s["end_s"])
             cam = still_camera(s, size, W, H, words=words)
             if cam["preset"] == TOUR and cam["macro"] in COVERABLE:
