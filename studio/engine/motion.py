@@ -323,7 +323,9 @@ LT = dict(                 # lower third (A16: quieter than the G2 kit in size, 
     max_w=56.0,            # % of W
     rule_len=5.0,          # % of W (was 7.5)
     rule_h=0.14,           # % of H (1.5 px at 1080p; was 0.19)
-    flag=2.0, name=3.3, role=2.1, source=1.8,        # font sizes, % of H (were 4.4, 2.8, 2.3)
+    # font sizes, % of H (were 4.4, 2.8, 2.3). The source line was 1.8 (7.0 px on a 693 px landscape phone, at the
+    # floor): 2.2 since the cinematography pass (founder, 2026-10-17), so it reads at 8.6 px (PHONE)
+    flag=2.0, name=3.3, role=2.1, source=2.2,
     lh_flag=1.4, lh_name=1.1, lh_role=1.3, lh_source=1.3,
     gap_flag=0.5, gap_rule=0.6, gap_name=0.5, gap_role=0.4,   # % of H
     # Flagged (partisan-source) form: the flag stays the first and largest line, set in
@@ -353,7 +355,8 @@ LABEL = dict(
     bottom=5.0,            # % of H from the frame's bottom edge to the glyph box's bottom edge (the watermark's top inset)
     glyph=0.85,            # % of H, the glyph's diameter (9 px at 1080p, 6 at 720p), never under 4 px
     glyph_min_px=4,
-    size=1.6,              # % of H, the label's text (17 px at 1080p, 12 at 720p; A16 was 1.85, the G2 plate 3.1)
+    size=2.0,              # % of H, the label's text (22 px at 1080p, 7.8 on a 693 px landscape phone; 1.6 until the
+                           # cinematography pass, founder 2026-10-17: 6.2 px there, under PHONE's floor; A16 was 1.85)
     gap=0.55,              # em of the label's size between the text and the glyph
     alpha=0.6,             # the label text's opacity (A16 was 0.72; the G2 plate's text was opaque on a 60% scrim)
     feather=0.35,          # em: the soft edge of the reveal (A42), so the fold reads as a fold, not a wipe's hard line
@@ -369,7 +372,9 @@ LABEL = dict(
 LABEL_MAX_S = WHISPER.settle_time() + LABEL["hold"] + LABEL["exit"]
 # A31 (CoS 2026-10-11): the AI-GENERATED label is a truth label, up for the whole shot; it keeps A16's size and
 # opacity so it stays readable at the new, smaller corner.
-LABEL_AI = dict(size=1.85, alpha=0.72,
+# Cinematography pass (2026-10-17): the other labels grew from 1.6 to 2.0, so this one grows from 1.85 to 2.3 and stays
+# the larger, as A31 meant it (a truth label is never the smaller of the two)
+LABEL_AI = dict(size=2.3, alpha=0.72,
                 # a heavier shadow (CoS 2026-10-11): darker, wider and denser than the others', so the words hold on a
                 # bright, busy ground at 720p; the other classes keep LABEL.shadow, LABEL.blur and a gain of 1.8
                 shadow=0.78, blur=0.16, gain=2.8)
@@ -407,6 +412,12 @@ SILENT = dict(size=4.0, lh=1.35, searched=2.6, max_w=76.0, fade=0.75, stagger=0.
               gap=1.2, safe_top=10.0, safe_bottom=90.0, min_scale=0.75, scale_step=0.05)
 TITLE = dict(size=7.0, wordmark=2.6, rise=0.6, exit=0.67, gap=2.2)
 CREDITS = dict(size=2.4, lh=1.5, heading=1.85, speed=5.2, fade_in=1.0, col_w=70.0)
+
+# Phone legibility (cinematography pass, founder 2026-10-17): the house's small screen is a landscape phone, the
+# 16:9 frame 693 px wide (a portrait phone shows a thumbnail). Every text a viewer must read renders at PHONE.min_px or
+# more there. The glyphs are marks, not text, and are not measured. Guidance (`phone-legibility`), never a refusal.
+PHONE = dict(width_px=693, min_px=7.0)
+
 
 # --------------------------------------------------------------------------
 # Drawing helpers (private). All return or mutate RGBA layers; composition is
@@ -1582,6 +1593,28 @@ KEY_HEADING = "What the marks mean"
 # The classes in key order: amber, the two bones (the dot and the card's ring) side by side, then the two cold blues
 # side by side, so each pair that shares a hue is compared by shape.
 KEY_CLASSES = tuple(GLYPH_SHAPE)
+
+
+def must_read_text() -> dict[str, float]:
+    """Every must-read text size the house draws, % of H, by element (the smallest a layout may step down to)."""
+    return {"lower third flag": LT["flag"], "lower third name": LT["name"], "lower third role": LT["role"],
+            "lower third source": LT["source"], "lower third flag (flagged)": LT["flag_f"],
+            "lower third name (flagged)": LT["name_f"], "provenance label": LABEL["size"],
+            "AI-generated label": LABEL_AI["size"], "subtitle": SUB["size"], "chapter title": CHAPTER["title"],
+            "chapter dates": CHAPTER["dates"], "statement card": SILENT["size"] * SILENT["min_scale"],
+            "statement card, searched": SILENT["searched"] * SILENT["min_scale"], "title": TITLE["size"],
+            "title wordmark": TITLE["wordmark"], "credits": CREDITS["size"], "credits heading": CREDITS["heading"],
+            "overlay": OVERLAY["size"], "mark key heading": KEY["heading"], "mark key word": KEY["word"]}
+
+
+def phone_legibility(width: int = 1920, height: int = 1080, extra: dict[str, float] | None = None) -> list[dict]:
+    """Each must-read text's rendered size on the landscape phone (PHONE), for a master of ``width`` x ``height``:
+    {element, pct_h, px, ok}. ``extra`` adds sizes drawn elsewhere (the map renderer's), % of H by element."""
+    scale = PHONE["width_px"] / float(width)
+    sizes = dict(must_read_text(), **(extra or {}))
+    return [{"element": k, "pct_h": round(v, 3), "px": round(v / 100.0 * height * scale, 2),
+             "ok": v / 100.0 * height * scale >= PHONE["min_px"] - 1e-9} for k, v in sizes.items()]
+
 KEY_WORD = dict(CLASS_WORD, CARD="Our own titles and cards")   # a card's own words say what it is; the key says whose
 # CoS 2026-10-11: a key shows only the classes the film uses; a film with no AI-GENERATED picture says so in a line
 # derived from the plan, because a key that showed the class could imply the film has it.

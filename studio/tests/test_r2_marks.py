@@ -68,7 +68,7 @@ def test_the_label_stays_in_its_zone_clear_of_subtitles_overlays_lower_thirds_an
 @pytest.mark.parametrize("W, H", SIZES)
 def test_the_label_is_smaller_and_fainter_and_its_size_is_the_kits(W, H):
     L = M.Layout(W, H)
-    assert L.px(M.LABEL["size"]) == {1080: 17, 720: 12}[H]
+    assert L.px(M.LABEL["size"]) == {1080: 22, 720: 14}[H]          # 2.0% since the cinematography pass (was 17 / 12)
     assert M.glyph_px(L) == {1080: 9, 720: 6}[H]
     assert M.LABEL["alpha"] == 0.6 and M.LABEL["hold"] == 2.0
 
@@ -141,7 +141,7 @@ def test_ai_generated_is_labelled_whenever_it_is_on_screen():
 @pytest.mark.parametrize("W, H", SIZES)
 def test_the_ai_label_keeps_a16s_size_and_opacity_and_stays_in_the_zone(W, H):
     L = M.Layout(W, H)
-    assert M.label_type("AI-GENERATED") == (1.85, 0.72) and M.label_type("ARCHIVE") == (1.6, 0.6)
+    assert M.label_type("AI-GENERATED") == (2.3, 0.72) and M.label_type("ARCHIVE") == (2.0, 0.6)
     text = M.mark_label("AI-GENERATED", None, "context")
     assert M.label_check(L, text, FONTS, "AI-GENERATED") > M.label_check(L, text, FONTS, "DRAWN")
     tile, (x, y) = M._label_tile(L, text, 1.0, 1.0, FONTS, "AI-GENERATED")
