@@ -148,19 +148,24 @@ def shot_words(lines: list[dict], t0: float, t1: float) -> list[dict]:
         a, b = float(ln["start"]), float(ln["start"]) + float(ln["dur"])
         if b <= t0 or a >= t1:
             continue
-        if ln.get("words"):
+        measured = bool(ln.get("words"))
+        if measured:
             ws = [{"w": w["w"], "n": norm_word(w["w"]), "i": i, "t": float(w["t"])} for i, w in enumerate(ln["words"])]
         else:
             ws = word_times(ln.get("text", ""), a, float(ln["dur"]))
-        for w in ws:
-            out.append(dict(w, line=ln["id"], kind=ln.get("kind")))
+        for k, w in enumerate(ws):
+            # a word ends where the next one starts, the last where the line ends (A43: "holds through the name")
+            end = ws[k + 1]["t"] if k + 1 < len(ws) else max(b, w["t"])
+            out.append(dict(w, line=ln["id"], kind=ln.get("kind"), e=end, m=measured))
     return out
 
 
-def anchor_time(at, words: list[dict], *, line: str | None = None, t0: float = 0.0) -> float | None:
-    """The absolute time of the word a stop's ``at`` names: an integer is a
-    word index in ``line`` (or in the first line heard in the shot), a string
-    a cue (one word or a phrase) the narration speaks, its first word's time.
+def anchor_span(at, words: list[dict], *, line: str | None = None, t0: float = 0.0) -> dict | None:
+    """The words a stop's ``at`` names: an integer (or a string of digits) is
+    a word index in ``line`` (or in the first line heard in the shot), any
+    other string a cue (one word or a phrase, "7 World Trade Center" too) the
+    narration speaks, the first time the shot hears it. Returns {t (onset),
+    end (the end of its last word), measured (every word measured), words}, or
     None when the narration in the shot does not hold it."""
     if not words:
         return None
@@ -170,17 +175,41 @@ def anchor_time(at, words: list[dict], *, line: str | None = None, t0: float = 0
         k = int(at)
         lid = line or words[0]["line"]
         ws = [w for w in words if w["line"] == lid]
-        return ws[k]["t"] if 0 <= k < len(ws) else None
-    cue = [norm_word(t) for t in str(at).split() if norm_word(t)]
-    if not cue:
-        return None
-    # a cue is the first time it is spoken in the shot (a line that began before the cut may say it earlier)
-    ws = [w for w in words if (line is None or w["line"] == line) and w["t"] >= t0 - 0.05]
-    for i in range(len(ws) - len(cue) + 1):
-        if all(ws[i + j]["n"] == cue[j] for j in range(len(cue))) and all(
-                ws[i + j]["line"] == ws[i]["line"] for j in range(len(cue))):
-            return ws[i]["t"]
-    return None
+        if not 0 <= k < len(ws):
+            return None
+        hit = [ws[k]]
+    else:
+        cue = [norm_word(t) for t in str(at).split() if norm_word(t)]
+        if not cue:
+            return None
+        # a cue is the first time it is spoken in the shot (a line that began before the cut may say it earlier)
+        ws = [w for w in words if (line is None or w["line"] == line) and w["t"] >= t0 - 0.05]
+        hit = None
+        for i in range(len(ws) - len(cue) + 1):
+            if all(ws[i + j]["n"] == cue[j] for j in range(len(cue))) and all(
+                    ws[i + j]["line"] == ws[i]["line"] for j in range(len(cue))):
+                hit = ws[i:i + len(cue)]
+                break
+        if hit is None:
+            return None
+    return {"t": hit[0]["t"], "end": hit[-1].get("e", hit[-1]["t"]), "measured": all(w.get("m") for w in hit),
+            "words": hit}
+
+
+def anchor_time(at, words: list[dict], *, line: str | None = None, t0: float = 0.0) -> float | None:
+    """The absolute time of the word a stop's ``at`` names (``anchor_span``'s
+    onset). None when the narration in the shot does not hold it."""
+    sp = anchor_span(at, words, line=line, t0=t0)
+    return None if sp is None else sp["t"]
+
+
+def _anchor_fields(sp: dict, t0: float) -> dict:
+    """What a stop anchored to the narration carries for the A43 lints: the
+    name's onset and end in shot seconds, whether its timing is measured, and
+    the words as spoken."""
+    return {"onset": sp["t"] - t0, "name_end": sp["end"] - t0, "measured": sp["measured"],
+            "spoken": [w["w"] for w in sp["words"]], "spoken_line": sp["words"][0]["line"],
+            "spoken_i": [w["i"] for w in sp["words"]]}
 
 
 # --------------------------------------------------------------------------
@@ -232,19 +261,29 @@ def tour_stops(roi: list[dict], words: list[dict], t0: float, dur: float, size, 
         if roi_box(r) is None:
             continue
         for c in cue_of(r):
-            at = anchor_time(c, words, t0=t0)
-            if at is not None and t0 - EPS <= at <= t0 + dur + EPS:
-                picks.append((at - t0, r))
+            sp = anchor_span(c, words, t0=t0)
+            if sp is not None and t0 - EPS <= sp["t"] <= t0 + dur + EPS:
+                picks.append((sp["t"] - t0, r, c, sp))
                 break
     if not picks:
         return None
     picks.sort(key=lambda p: p[0])
-    stops = [{"t": 0.0, "z": 1.0, "x": 0.5, "y": 0.5, "from": "tour: the fill"}]
-    for t, r in picks:
+    stops = [{"t": 0.0, "z": 1.0, "x": 0.5, "y": 0.5, "from": "tour: the fill", "placed": "engine"}]
+    for t, r, c, sp in picks:
         st = roi_stop(r, size, aspect, zmax)
-        st.update(t=max(0.0, min(dur, t)), roi=r.get("name"), **{"from": f"tour: {r.get('name')}"})
-        if st["t"] <= stops[-1]["t"] + EPS:
-            st["t"] = stops[-1]["t"] + 0.5     # never two stops at one moment (tour.mjs does the same)
+        st.update(t=max(0.0, min(dur, t)), roi=r.get("name"), at=c, placed="engine", **_anchor_fields(sp, t0),
+                  **{"from": f"tour: {r.get('name')}"})
+        if is_person_region(r):
+            # A43: a person is reached before their name (0.5 s on measured words, 1.0 s on estimated ones) and
+            # held until the name has been said, so the picture never names the wrong face
+            lead = CINE["anchor_lead_s"] if st["measured"] else CINE["anchor_estimated_lead_s"]
+            st["t"] = max(0.0, min(dur, t - lead))
+            st["hold"] = max(0.0, st["name_end"] - st["t"])
+        prev = stops[-1]
+        if st["t"] < prev["t"] + prev.get("hold", 0.0) - EPS:
+            st["t"] = prev["t"] + prev.get("hold", 0.0) + 0.5   # never cut short the person held before
+        elif st["t"] <= prev["t"] + EPS:
+            st["t"] = prev["t"] + 0.5          # never two stops at one moment (tour.mjs does the same)
         if st["t"] > dur + EPS:
             continue                           # named too late to reach in this shot (tour.mjs drops it too)
         stops.append(st)
@@ -395,7 +434,7 @@ def parse_path(path, dur: float, words: list[dict], t0: float, roi_by_name: dict
         if not isinstance(raw, dict):
             probs.append(f"stop {k}: not an object")
             continue
-        st = {"from": f"stop {k}"}
+        st = {"from": f"stop {k}", "placed": "author"}
         if raw.get("roi") is not None:
             r = roi_by_name.get(raw["roi"])
             if r is None or roi_box(r) is None:
@@ -409,6 +448,12 @@ def parse_path(path, dur: float, words: list[dict], t0: float, roi_by_name: dict
                     probs.append(f"stop {k}: {key} must be a finite number")
                     continue
                 st[key] = float(v)
+                if key == "z":
+                    st["z_authored"] = True       # A43: a written depth is judged as written, never capped quietly
+        if raw.get("match") is not None:
+            st["match"] = raw["match"]
+        if raw.get("scale") is not None:
+            st["scale"] = raw["scale"]
         st.setdefault("x", 0.5)
         st.setdefault("y", 0.5)
         st.setdefault("z", 1.0)
@@ -420,14 +465,21 @@ def parse_path(path, dur: float, words: list[dict], t0: float, roi_by_name: dict
         if "t" in raw and "at" in raw:
             probs.append(f"stop {k}: t or at, not both")
         if "at" in raw:
-            at = anchor_time(raw["at"], words, line=raw.get("line"), t0=t0)
-            if at is None:
+            sp = anchor_span(raw["at"], words, line=raw.get("line"), t0=t0)
+            if sp is None:
                 probs.append(f"anchor: stop {k}: at {raw['at']!r} is not spoken in this shot's narration")
                 continue
-            st["t"], st["at"] = at - t0, raw["at"]
+            st["t"], st["at"] = sp["t"] - t0, raw["at"]
+            st.update(_anchor_fields(sp, t0))
             if not (-EPS <= st["t"] <= dur + EPS):
                 probs.append(f"anchor: stop {k}: at {raw['at']!r} is spoken at {st['t']:.2f} s, outside the shot")
                 continue
+            lead = raw.get("lead_s", 0.0)
+            if not isinstance(lead, (int, float)) or isinstance(lead, bool) or not math.isfinite(lead) or lead < 0:
+                probs.append(f"stop {k}: lead_s is seconds before the word, 0 or more")
+                lead = 0.0
+            # A43: arrive lead_s before the word; a lead that reaches back past the cut arrives on the cut
+            st["t"] = max(0.0, st["t"] - float(lead))
         elif "t" in raw:
             if not isinstance(raw["t"], (int, float)) or isinstance(raw["t"], bool) or not math.isfinite(raw["t"]):
                 probs.append(f"stop {k}: t must be a finite number")
@@ -513,7 +565,11 @@ def build(stops: list[dict], dur: float, size, aspect: float, zmax: float, *, no
         if t1 - t0 <= after + EPS:
             segs.append({"t0": t0, "t1": t1, "a": p, "b": p, "kind": "hold"})
             return p
-        q, how = creep(p, t1 - t0, size, aspect, zmax, prefer=prefer, no_zoom=no_zoom)
+        # A43: a stop that frames a face or a person creeps under the face cap, not only the softness cap
+        zm = min(zmax, float(p.get("face_cap", math.inf)))
+        if p["z"] > zm + EPS:
+            zm = p["z"]                       # an authored depth past the cap: the lint refuses it; never pushed further
+        q, how = creep(p, t1 - t0, size, aspect, zm, prefer=prefer, no_zoom=no_zoom)
         if how == "held":
             held.append({"t0": round(t0, 3), "t1": round(t1, 3)})
         q = settle(q, size, aspect)
@@ -576,6 +632,564 @@ def samples(tl: dict, hz: float | None = None) -> list[tuple[float, dict]]:
 
 
 # --------------------------------------------------------------------------
+# A43: truth for authored and automatic framing (founder ruling 2, 2026-10-17)
+# --------------------------------------------------------------------------
+
+CINE = M.CINE
+CLASSES = ("person", "crowd", "place", "document", "map", "painting", "object")
+KINDS = ("face", "person", "group", "text", "object", "place")
+PERSON_KINDS = ("face", "person")
+FACINGS = ("left", "right", "camera", "away")
+SOURCES = ("auto", "human")
+SCALES = ("whole", "field", "detail")
+BOX = ("x", "y", "w", "h")
+PEOPLE_KEYS = set(BOX) | {"name", "facing", "source", "confidence", "model"}
+ROI_KEYS = set(BOX) | {"name", "kind", "facing", "source", "confidence", "model", "cue", "must_show", "person"}
+STOP_KEYS = {"t", "at", "line", "x", "y", "z", "hold", "roi", "scale", "lead_s", "match"}
+# the rulebook's own names for what it finds (the schema): never a person's name
+GENERIC_NAME = re.compile(r"(subject|(face|person|group|text|object|place)-\d+)$")
+
+
+def source_of(e: dict) -> str:
+    """``auto`` or ``human``. An entry with no ``source`` was written by a
+    person (A41's hand authoring), so it is human."""
+    return "auto" if e.get("source") == "auto" else "human"
+
+
+def is_person_region(r: dict) -> bool:
+    """A region of interest that marks a person: ``kind: face|person``, or
+    A41's ``person: true``."""
+    return r.get("kind") in PERSON_KINDS or r.get("person") is True
+
+
+def effective_regions(item: dict) -> dict:
+    """The ledger's people and regions as the camera may use them (founder
+    ruling 2): ``source: human`` wins over ``source: auto`` for the same name,
+    and a machine box under ``CINE['auto_confidence_floor']`` is ignored for
+    framing. An ignored box that marks a person still counts as a person the
+    ledger has not located (``unlocated``), so the guards ask for the whole
+    picture: a miss degrades toward the whole, never crops anyone out.
+    Returns {people, roi, unlocated, ignored}; ``people`` is the ledger's
+    value unchanged unless it is a list."""
+    floor = CINE["auto_confidence_floor"]
+    pe = item.get("people", None)
+    roi = [r for r in (item.get("roi") or []) if isinstance(r, dict)] if isinstance(item.get("roi"), list) else []
+    plist = pe if isinstance(pe, list) else []
+    human = {e.get("name") for e in [*roi, *[p for p in plist if isinstance(p, dict)]]
+             if source_of(e) == "human" and e.get("name") is not None}
+    ignored, unlocated = [], 0
+
+    def keep(e: dict, where: str, person: bool) -> bool:
+        nonlocal unlocated
+        if source_of(e) == "human":
+            return True
+        if e.get("name") is not None and e.get("name") in human:
+            ignored.append({"in": where, "name": e.get("name"), "why": "a human entry of the same name wins"})
+            return False
+        c = e.get("confidence")
+        if not isinstance(c, (int, float)) or isinstance(c, bool) or not math.isfinite(c) or c < floor:
+            ignored.append({"in": where, "name": e.get("name"), "confidence": c, "floor": floor,
+                            "why": "below the confidence floor: ignored for framing"})
+            if person:
+                unlocated += 1
+            return False
+        return True
+
+    out_people = pe
+    if isinstance(pe, list):
+        out_people = [p for p in pe if not isinstance(p, dict) or keep(p, "people", True)]
+    out_roi = [r for r in roi if keep(r, "roi", is_person_region(r))]
+    return {"people": out_people, "roi": out_roi, "unlocated": unlocated, "ignored": ignored}
+
+
+def person_regions(item: dict) -> list[dict]:
+    """Every located person the camera may frame: the effective ``people``
+    boxes and the ``kind: face|person`` regions, {name, kind, box, src}."""
+    eff = effective_regions(item)
+    out = []
+    for p in eff["people"] if isinstance(eff["people"], list) else []:
+        if isinstance(p, dict) and roi_box(p) is not None:
+            out.append({"name": p.get("name"), "kind": "person", "box": roi_box(p), "src": "people", "entry": p})
+    for r in eff["roi"]:
+        if is_person_region(r) and roi_box(r) is not None:
+            out.append({"name": r.get("name"), "kind": r.get("kind") or "person", "box": roi_box(r), "src": "roi",
+                        "entry": r})
+    return out
+
+
+def _area(b) -> float:
+    return max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
+
+
+def _inside_share(box, win) -> float:
+    """The share of ``box``'s area inside ``win`` (both x0, y0, x1, y1)."""
+    a = _area(box)
+    if a <= 0:
+        return 1.0 if win[0] <= box[0] <= win[2] and win[1] <= box[1] <= win[3] else 0.0
+    i = (max(box[0], win[0]), max(box[1], win[1]), min(box[2], win[2]), min(box[3], win[3]))
+    return _area(i) / a
+
+
+def located_persons(persons: list[dict]) -> int:
+    """How many people the boxes hold: a box mostly inside another (a face in
+    its figure, ``CINE['nest_share']``) is the same person."""
+    bs = sorted((p["box"] for p in persons), key=_area, reverse=True)
+    kept: list = []
+    for b in bs:
+        if not any(_inside_share(b, k) >= CINE["nest_share"] for k in kept):
+            kept.append(b)
+    return len(kept)
+
+
+def framed_persons(p: dict, persons: list[dict], size, aspect: float) -> list[dict]:
+    """The people a framing {z, x, y} frames: at least ``CINE['framed_share']``
+    of the box inside its window."""
+    iw, ih = float(size[0]), float(size[1])
+    x0, y0, x1, y1 = window(size, aspect, p["z"], p["x"], p["y"])
+    win = (x0 / iw, y0 / ih, x1 / iw, y1 / ih)
+    return [q for q in persons if _inside_share(q["box"], win) >= CINE["framed_share"] - EPS]
+
+
+def cap_faces(stops: list[dict], persons: list[dict], size, aspect: float) -> list[dict]:
+    """``face-cap-live`` in the engine (7.2, A43): every stop whose window
+    frames a face or a person creeps under ``CINE['face_zmax']``, and one the
+    engine placed (a region's stop, a macro, the default) is pulled back to it.
+    A depth the screenplay wrote (``z``) is left as written, for the lint to
+    refuse. Returns the stops, each marked ``face_cap`` where it applies."""
+    cap = CINE["face_zmax"]
+    out = []
+    for st in stops:
+        st = dict(st)
+        hit = framed_persons(settle(st, size, aspect), persons, size, aspect) if persons else []
+        if hit:
+            st["face_cap"] = cap
+            st["framed_people"] = [q["name"] for q in hit]
+            if st["z"] > cap + EPS and not st.get("z_authored"):
+                st["z"], st["capped"] = cap, "face"
+                st["framed_people"] = [q["name"] for q in framed_persons(settle(st, size, aspect), persons, size,
+                                                                         aspect)] or st["framed_people"]
+        out.append(st)
+    return out
+
+
+def face_cap_check(tl: dict, persons: list[dict], hz: float | None = None) -> list[dict]:
+    """``face-cap-live`` (A43, blocking): every framing of the path, the
+    stops, the holds and creeps on them and the moves between them (sampled,
+    ``samples``), that frames a face or a person stays at or under
+    ``CINE['face_zmax']``. A face less than half in frame (``framed_share``)
+    is not capped: the push is about what is beside it. Returns the framings
+    that do not, each with the stops it lies between."""
+    if not persons:
+        return []
+    cap = CINE["face_zmax"]
+    size, aspect = tl["size"], tl["aspect"]
+    pts = [(st["t"], st) for st in tl["stops"]] + list(samples(tl, hz))
+    for g in tl["segments"]:
+        pts += [(g["t0"], g["a"]), (g["t1"], g["b"])]
+    bad, seen_ = [], set()
+    for t, p in sorted(pts, key=lambda v: v[0]):
+        if p["z"] <= cap + 1e-9:
+            continue
+        hit = framed_persons(p, persons, size, aspect)
+        key = round(t, 3)
+        if hit and key not in seen_:
+            seen_.add(key)
+            bad.append({"t": round(t, 3), "z": round(p["z"], 4), "people": [q["name"] for q in hit],
+                        "stops": _stops_around(tl, t)})
+    return bad
+
+
+def _stops_around(tl: dict, t: float) -> list[int]:
+    """The indexes of the stops a moment of the path lies between (the stop
+    it holds on, or the two a move joins)."""
+    pts = tl["stops"]
+    before = [i for i, st in enumerate(pts) if st["t"] <= t + EPS]
+    after = [i for i, st in enumerate(pts) if st["t"] >= t - EPS]
+    out = []
+    if before:
+        out.append(before[-1])
+    if after and after[0] not in out:
+        out.append(after[0])
+    return out
+
+
+def authored(st: dict) -> bool:
+    """A stop a person wrote in the screenplay's ``camera`` list. Every other
+    stop (the tour resolver's, a preset's, the default's, the rulebook's) was
+    placed by the engine, and the engine's own output is never refused: it
+    is re-framed (founder ruling 2)."""
+    return st.get("placed") == "author"
+
+
+def enforce_face_cap(stops: list[dict], persons: list[dict], dur: float, size, aspect: float, zmax: float, *,
+                     no_zoom: bool = False) -> tuple[list[dict], list[dict]]:
+    """The engine's side of ``face-cap-live``: build the path, and where any
+    framing of it (a move included) frames a face past the cap, pull the
+    engine-placed stops around it back to ``CINE['face_zmax']`` and build
+    again. A depth a person wrote is left as written, for the lint. Returns
+    (stops, what was pulled back)."""
+    cap = CINE["face_zmax"]
+    pulled = []
+    for _ in range(len(stops) + 2):
+        tl = build(stops, dur, size, aspect, zmax, no_zoom=no_zoom)
+        bad = face_cap_check(tl, persons)
+        idx = sorted({i for v in bad for i in v["stops"]
+                      if tl["stops"][i]["z"] > cap + EPS and not tl["stops"][i].get("z_authored")})
+        if not idx:
+            break
+        stops = [dict(st) for st in stops]
+        for i in idx:
+            stops[i].update(z=cap, face_cap=cap, capped="face")
+            pulled.append({"stop": stops[i].get("from"), "t": round(stops[i]["t"], 3),
+                           "why": f"a move or a hold on it frames a face or a person past z {cap:g}"})
+    return stops, pulled
+
+
+def _norm_words(text) -> list[str]:
+    return [norm_word(t) for t in str(text or "").split() if norm_word(t)]
+
+
+def _contains(hay: list[str], needle: list[str]) -> bool:
+    return bool(needle) and any(hay[i:i + len(needle)] == needle for i in range(len(hay) - len(needle) + 1))
+
+
+def _same_name(a: list[str], b: list[str]) -> bool:
+    """One name holds the other ("Bush" and "President Bush")."""
+    return bool(a) and bool(b) and (_contains(a, b) or _contains(b, a))
+
+
+def names_a_person(spoken: list[str], item: dict, persons: list[dict]) -> bool:
+    """Whether an anchor is a person's name: it matches the name or the cue of
+    a person the ledger records (not the rulebook's own names: subject,
+    person-1, ...), or an entry of the item's ``caption_names``, or, when the
+    item states none, a cue its caption gives with a capital. A capital in
+    the narration alone never makes a name ("New York", "Pentagon")."""
+    cue = [norm_word(w) for w in spoken if norm_word(w)]
+    if not cue:
+        return False
+    for q in persons:
+        e = q.get("entry") or {}
+        for c in [e.get("name")] + (cue_of(e) if e.get("cue") is not None else []):
+            if isinstance(c, str) and not GENERIC_NAME.match(c) and _same_name(_norm_words(c), cue):
+                return True
+    names = item.get("caption_names")
+    if isinstance(names, list):
+        return any(_same_name(_norm_words(n), cue) for n in names if isinstance(n, str))
+    # no caption_names: a cue the caption itself gives with a capital is taken as a name, so the binding rule (and
+    # its check for other capitalised caption words) runs; a crowd still binds no one (stop_person)
+    toks = [w.strip(_QUOTES) for w in str(item.get("caption") or item.get("title") or "").split()]
+    toks = [w for w in toks if norm_word(w)]
+    for i in range(len(toks) - len(cue) + 1):
+        if [norm_word(w) for w in toks[i:i + len(cue)]] == cue and toks[i][:1].isupper():
+            return True
+    return False
+
+
+_SENTENCE_END = (".", "!", "?", ":", ";")
+_QUOTES = "\"'()[]“”‘’,"
+
+
+def caption_other_names(caption: str, cue: list[str]) -> list[str]:
+    """The approximate check, used only when the item states no
+    ``caption_names``: the capitalised words of the caption that are not the
+    cue and do not open it or a sentence. Any one of them may be another
+    person, so the caption is not taken to name exactly one."""
+    toks = str(caption or "").split()
+    out = []
+    for i, tok in enumerate(toks):
+        w = tok.strip(_QUOTES)
+        if not w or not w[0].isupper() or norm_word(w) in cue or w == "I":
+            continue
+        if i == 0 or toks[i - 1].rstrip(_QUOTES).endswith(_SENTENCE_END):
+            continue
+        out.append(w)
+    return out
+
+
+def binding_check(item: dict, spoken: list[str], region: dict | None, persons: list[dict]) -> list[str]:
+    """Founder ruling 2's binding rule (A43): a person may be bound to a name
+    the narration speaks only when the item's own caption names exactly that
+    one person (its ``caption_names`` lists exactly one name and it is the
+    spoken one; with no ``caption_names``, the caption, else the title, holds
+    the name and no other capitalised word past a sentence's start), exactly
+    one person is located and nobody else is in the picture unlocated, no
+    second person's name is recorded for it, and, when the person's box is
+    the machine's (``source: auto``), it is the rulebook's primary
+    ``subject``. Returns what fails (empty when the binding stands)."""
+    why = []
+    n = located_persons(persons)
+    unloc = people_of(item)["unlocated"]
+    if n != 1 or unloc:
+        why.append(f"the picture holds {n} located person(s) and {unloc} unlocated: a name binds to a face only "
+                   "when exactly one person is located and nobody else is in it")
+    cue = [norm_word(w) for w in spoken if norm_word(w)]
+    names = item.get("caption_names")
+    if isinstance(names, list):
+        if len(names) != 1 or not _same_name(_norm_words(names[0]), cue):
+            why.append(f"caption_names is {names!r}: it must name exactly one person, {' '.join(spoken)!r}")
+    else:
+        caption = item.get("caption") or item.get("title") or ""
+        if not _contains(_norm_words(caption), cue):
+            why.append(f"the item's own caption or title ({caption!r}) does not name {' '.join(spoken)!r}")
+        others = caption_other_names(caption, cue)
+        if others:
+            why.append(f"the caption may name someone else too ({', '.join(others)}): state caption_names")
+    recorded = {str(q["name"]) for q in persons if q.get("name") and not GENERIC_NAME.match(str(q["name"]))}
+    if len(recorded) > 1:
+        why.append(f"the ledger records more than one person's name here ({sorted(recorded)})")
+    own = region.get("name") if region else None
+    if own and not GENERIC_NAME.match(str(own)) and not _same_name(_norm_words(own), cue):
+        why.append(f"the region is {own!r}, not {' '.join(spoken)!r}")
+    if region is not None and source_of(region) == "auto" and own != "subject":
+        why.append(f"a machine box binds a name only as the rulebook's primary subject, not {own!r}")
+    return why
+
+
+def leave_time(tl: dict, i: int) -> float:
+    """When the camera leaves stop ``i`` (shot seconds): the start of the
+    first move after it (a hold, a creep or the same framing again keeps it
+    there), else the shot's end."""
+    t = tl["stops"][i]["t"]
+    for g in tl["segments"]:
+        if g["kind"] == "move" and g["t0"] >= t - EPS:
+            return g["t0"]
+    return tl["dur"]
+
+
+def stop_person(st: dict, regions: dict, persons: list[dict]) -> dict | None:
+    """The person a stop lands on: the region its ``roi`` names when that is
+    a person, else (a stop placed by x and y) the one person located, when
+    the window's centre falls in their box. A centre in one member of a
+    crowd frames the crowd: it binds no one. None when it lands on no one."""
+    if st.get("roi") is not None:
+        r = regions.get(st["roi"])
+        if r is not None and is_person_region(r):
+            return {"name": st["roi"], "region": r}
+        return None
+    if located_persons(persons) != 1:
+        return None
+    for q in persons:
+        b = q["box"]
+        if b[0] <= st["x"] <= b[2] and b[1] <= st["y"] <= b[3]:
+            return {"name": q["name"], "region": q["entry"]}
+    return None
+
+
+def anchor_identity_check(tl: dict, item: dict, regions: dict, persons: list[dict]) -> list[dict]:
+    """``anchor-identity`` (A43): a stop that lands on a person and is
+    anchored to their name (``names_a_person``) arrives within
+    [-``anchor_early_s``, +``anchor_late_s``] of the name's onset on measured
+    word timings, or at least ``anchor_estimated_lead_s`` early and holds
+    through the name on estimated ones; and the binding itself stands
+    (``binding_check``). Returns the stops that fail, each with its index,
+    whether a person wrote it, and why."""
+    out = []
+    for i, st in enumerate(tl["stops"]):
+        if st.get("onset") is None:
+            continue
+        who = stop_person(st, regions, persons)
+        if who is None or not names_a_person(st.get("spoken") or [], item, persons):
+            continue
+        why = []
+        d = st["t"] - st["onset"]
+        leave = leave_time(tl, i)
+        if st.get("measured"):
+            if not (-CINE["anchor_early_s"] - 1e-6 <= d <= CINE["anchor_late_s"] + 1e-6):
+                why.append(f"arrives {d:+.2f} s from the name on measured timings, outside "
+                           f"[-{CINE['anchor_early_s']:g}, +{CINE['anchor_late_s']:g}] s")
+        else:
+            if d > -CINE["anchor_estimated_lead_s"] + 1e-6:
+                why.append(f"arrives {d:+.2f} s from the name on estimated timings: at least "
+                           f"{CINE['anchor_estimated_lead_s']:g} s early (lead_s), or measure the words")
+            if leave < st["name_end"] - 1e-6:
+                why.append(f"leaves at {leave:.2f} s, before the name ends ({st['name_end']:.2f} s): hold through it")
+        why += binding_check(item, st.get("spoken") or [], who["region"], persons)
+        if why:
+            out.append({"i": i, "stop": st.get("from"), "person": who["name"], "at": st.get("at"),
+                        "authored": authored(st), "spoken": " ".join(st.get("spoken") or []),
+                        "arrives_s": round(st["t"], 3), "onset_s": round(st["onset"], 3),
+                        "measured": bool(st.get("measured")), "why": why})
+    return out
+
+
+def group_stop(persons: list[dict], size, aspect: float, who: dict | None = None) -> tuple[dict, str]:
+    """Where a person stop that may not bind a name goes instead (ruling 2),
+    and what it now frames: the group, every located person framed with a
+    margin and never past the face cap, when the group fits one window; else
+    (one person, or a group wider than any window, a panorama's two ends)
+    the fill about the person the stop visited, z 1, the whole picture's
+    framing and never a face push, so the visit still shows them."""
+    bs = [q["box"] for q in persons]
+    box = {"x": min(b[0] for b in bs), "y": min(b[1] for b in bs)}
+    box.update(w=max(b[2] for b in bs) - box["x"], h=max(b[3] for b in bs) - box["y"])
+    if located_persons(persons) > 1:
+        fw, fh = fill_window(size, aspect)
+        if box["w"] * float(size[0]) * 1.25 <= fw + EPS and box["h"] * float(size[1]) * 1.25 <= fh + EPS:
+            return roi_stop(box, size, aspect, CINE["face_zmax"]), "group"
+    b = who["box"] if who is not None else (box["x"], box["y"], box["x"] + box["w"], box["y"] + box["h"])
+    return {"z": 1.0, "x": (b[0] + b[2]) / 2.0, "y": (b[1] + b[3]) / 2.0}, "whole"
+
+
+def degrade_bindings(stops: list[dict], dur: float, item: dict, regions: dict, persons: list[dict], size,
+                     aspect: float, zmax: float, *, no_zoom: bool = False) -> tuple[list[dict], list[dict]]:
+    """The engine's side of ``anchor-identity`` (founder ruling 2: degrade,
+    never block): an engine-placed stop that lands on a person and fails the
+    timing or the binding is re-framed (``group_stop``), keeping its time, and
+    no longer binds the name. A stop a person wrote is left for the lint.
+    Returns (stops, what was re-framed)."""
+    if not persons:
+        return stops, []
+    tl = build(stops, dur, size, aspect, zmax, no_zoom=no_zoom)
+    fails = [f for f in anchor_identity_check(tl, item, regions, persons) if not f["authored"]]
+    if not fails:
+        return stops, []
+    stops = [dict(st) for st in stops]
+    done = []
+    for f in fails:
+        st = stops[f["i"]]               # build keeps one stop per input stop, in order
+        r = regions.get(st.get("roi")) if st.get("roi") is not None else None
+        who = {"box": roi_box(r)} if r is not None and roi_box(r) is not None else next(
+            (q for q in persons if q["name"] == f["person"]), None)
+        for key in ("roi", "at", "onset", "name_end", "measured", "spoken", "spoken_line", "spoken_i", "z_authored"):
+            st.pop(key, None)
+        g, now = group_stop(persons, size, aspect, who)
+        st.update(g, reframed=f["person"], **{"from": f"{st.get('from')}: re-framed to the {now}"})
+        done.append({"stop": f["stop"], "person": f["person"], "spoken": f["spoken"], "why": f["why"], "now": now})
+    return stops, done
+
+
+def _box_problems(e: dict, where: str) -> list[str]:
+    have = [k for k in BOX if k in e]
+    if not have:
+        return []
+    if len(have) < 4:
+        return [f"{where}: a box is x, y, w and h together (it has {', '.join(have)})"]
+    vals = {}
+    for k in BOX:
+        v = e[k]
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v):
+            return [f"{where}: {k} must be a number 0 to 1 (picture fractions), not {v!r}"]
+        vals[k] = float(v)
+    probs = []
+    if not all(0.0 <= vals[k] <= 1.0 for k in BOX):
+        probs.append(f"{where}: x, y, w and h are picture fractions 0 to 1 ({vals})")
+    if vals["w"] <= 0 or vals["h"] <= 0:
+        probs.append(f"{where}: w and h must be over 0")
+    if vals["x"] + vals["w"] > 1.0 + 1e-6 or vals["y"] + vals["h"] > 1.0 + 1e-6:
+        probs.append(f"{where}: the box runs past the picture's edge (x + w and y + h are at most 1)")
+    return probs
+
+
+def _entry_problems(e: dict, where: str, *, roi: bool) -> list[str]:
+    probs = _box_problems(e, where)
+    if e.get("facing") is not None and e["facing"] not in FACINGS:
+        probs.append(f"{where}: facing is one of {', '.join(FACINGS)}, not {e['facing']!r}")
+    if e.get("source") is not None and e["source"] not in SOURCES:
+        probs.append(f"{where}: source is auto or human, not {e['source']!r}")
+    c = e.get("confidence")
+    if c is not None and (not isinstance(c, (int, float)) or isinstance(c, bool) or not math.isfinite(c)
+                          or not 0.0 <= c <= 1.0):
+        probs.append(f"{where}: confidence is a number 0 to 1, not {c!r}")
+    if e.get("name") is not None and not isinstance(e["name"], str):
+        probs.append(f"{where}: name is a string")
+    if roi:
+        if not isinstance(e.get("name"), str) or not e["name"].strip():
+            probs.append(f"{where}: a region needs a name (the rulebook's subject, person-1, ...; or the author's)")
+        if e.get("kind") is not None and e["kind"] not in KINDS:
+            probs.append(f"{where}: kind is one of {', '.join(KINDS)}, not {e['kind']!r}")
+        cue = e.get("cue")
+        if cue is not None and not (isinstance(cue, str) or (isinstance(cue, list) and all(isinstance(x, str) for x in cue))):
+            probs.append(f"{where}: cue is a string or a list of strings")
+    return probs
+
+
+def item_schema(item: dict) -> tuple[list[str], list[str]]:
+    """The cinematography fields of a stills-ledger item against the schema
+    (WG-2, A43). Returns (malformed, unknown): malformed values would make the
+    engine misbehave and refuse; unknown keys on a person or a region warn."""
+    bad, unknown = [], []
+    cls = item.get("class")
+    if cls is not None and cls not in CLASSES:
+        bad.append(f"class is one of {', '.join(CLASSES)}, not {cls!r}")
+    pe = item.get("people")
+    if isinstance(pe, list):
+        for k, p in enumerate(pe):
+            if isinstance(p, dict):
+                bad += _entry_problems(p, f"people[{k}]", roi=False)
+                unknown += [f"people[{k}].{x}" for x in sorted(set(p) - PEOPLE_KEYS)]
+    roi = item.get("roi")
+    if roi is not None:
+        if not isinstance(roi, list):
+            bad.append("roi is a list of regions [{name, x, y, w, h, kind, ...}], never a keyed object")
+        else:
+            names: dict = {}
+            for k, r in enumerate(roi):
+                if not isinstance(r, dict):
+                    bad.append(f"roi[{k}]: a region is an object")
+                    continue
+                bad += _entry_problems(r, f"roi[{k}]", roi=True)
+                unknown += [f"roi[{k}].{x}" for x in sorted(set(r) - ROI_KEYS)]
+                key = (r.get("name"), source_of(r))
+                if r.get("name") is not None and key in names:
+                    bad.append(f"roi[{k}]: two {key[1]} regions are named {r.get('name')!r} (roi[{names[key]}])")
+                names.setdefault(key, k)
+    cn = item.get("caption_names")
+    if cn is not None and not (isinstance(cn, list) and all(isinstance(x, str) and x.strip() for x in cn)):
+        bad.append(f"caption_names is a list of the names the caption gives, not {cn!r}")
+    if "whole" in item and item["whole"] is not True:
+        bad.append(f"whole is true or absent, not {item['whole']!r}")
+    comp = item.get("compose")
+    if comp is not None and not (comp == "golden" or (isinstance(comp, str) and comp.startswith("centred:")
+                                                     and comp.split(":", 1)[1].strip())):
+        bad.append(f"compose is \"golden\" or \"centred:<reason>\", not {comp!r}")
+    lv = item.get("levels")
+    if lv is not None:
+        if lv != "none":
+            bad.append(f"levels is \"none\" (the opt-out from the automatic black floor), not {lv!r}")
+        elif not (isinstance(item.get("levels_reason"), str) and item["levels_reason"].strip()):
+            bad.append("levels: none needs a levels_reason (why the fade is the artifact)")
+    return bad, unknown
+
+
+def _at_ok(v) -> bool:
+    return (isinstance(v, str) and v.strip() != "") or (isinstance(v, int) and not isinstance(v, bool) and v >= 0)
+
+
+def shot_schema(shot: dict) -> tuple[list[str], list[str]]:
+    """A still shot's cinematography fields against the schema (A43):
+    ``subject_at``, ``match``, and each ``camera`` stop's keys and values.
+    Returns (malformed, unknown)."""
+    bad, unknown = [], []
+    sa = shot.get("subject_at")
+    if sa is not None:
+        if isinstance(sa, dict):
+            if not _at_ok(sa.get("at")):
+                bad.append(f"subject_at.at is a cue the narration speaks or a word index, not {sa.get('at')!r}")
+            if sa.get("line") is not None and not isinstance(sa["line"], str):
+                bad.append("subject_at.line is a line id")
+            unknown += [f"subject_at.{x}" for x in sorted(set(sa) - {"at", "line"})]
+        elif not (isinstance(sa, str) and sa.strip()):
+            bad.append(f"subject_at is a cue (a string) or {{at, line?}}, not {sa!r}")
+    if shot.get("match") is not None and shot["match"] != "prev":
+        bad.append(f"match is \"prev\", not {shot['match']!r}")
+    cam = shot.get("camera")
+    if isinstance(cam, list):
+        for k, st in enumerate(cam):
+            if not isinstance(st, dict):
+                continue                       # tour-path names it
+            unknown += [f"camera[{k}].{x}" for x in sorted(set(st) - STOP_KEYS)]
+            if st.get("scale") is not None and st["scale"] not in SCALES:
+                bad.append(f"camera[{k}].scale is one of {', '.join(SCALES)}, not {st['scale']!r}")
+            if st.get("match") is not None and st["match"] != "prev":
+                bad.append(f"camera[{k}].match is \"prev\", not {st['match']!r}")
+            if "at" in st and not _at_ok(st["at"]):
+                bad.append(f"camera[{k}].at is a cue the narration speaks or a word index, not {st['at']!r}")
+            if st.get("line") is not None and not isinstance(st["line"], str):
+                bad.append(f"camera[{k}].line is a line id")
+    return bad, unknown
+
+
+# --------------------------------------------------------------------------
 # Guards
 # --------------------------------------------------------------------------
 
@@ -591,11 +1205,13 @@ def people_of(item: dict, *, kind: str = "archive_still") -> dict:
     a region of interest with ``person: true`` is a located person. Absent on
     an archive picture it is unknown (unlocated); a drawn picture is nobody
     unless it says so."""
-    boxes, unlocated, known = [], 0, True
+    eff = effective_regions(item)
+    item = dict(item, people=eff["people"], roi=eff["roi"])
+    boxes, unlocated, known = [], eff["unlocated"], True
     pe = item.get("people", None)
     if pe is None:
         known = False
-        unlocated = 0 if kind == "drawn" else 1
+        unlocated += 0 if kind == "drawn" else 1
     elif pe is False or pe == [] or pe == 0:
         pass
     elif isinstance(pe, str):
@@ -611,7 +1227,7 @@ def people_of(item: dict, *, kind: str = "archive_still") -> dict:
     else:
         unlocated = 1
     for r in item.get("roi") or []:
-        if isinstance(r, dict) and r.get("person") is True and roi_box(r) is not None:
+        if isinstance(r, dict) and is_person_region(r) and roi_box(r) is not None:
             boxes.append({"name": r.get("name"), "box": roi_box(r)})
     return {"boxes": boxes, "unlocated": unlocated, "known": known}
 
