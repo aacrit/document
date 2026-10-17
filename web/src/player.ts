@@ -19,10 +19,6 @@ import {
   chapters as chaptersOf,
   formatTime,
   lowerThirdAt,
-  markAt,
-  onDipBlack,
-  markHook,
-  markWords,
   shotAt,
   silentRecord,
   stepChapter,
@@ -47,7 +43,6 @@ const FILM = filmPath(SLUG);
 
 const video = byId<HTMLVideoElement>("film");
 const frame = byId("frame");
-const markEl = byId("mark");
 const cueEl = byId("cue");
 const bigplay = byId<HTMLButtonElement>("bigplay");
 const playBtn = byId<HTMLButtonElement>("play");
@@ -79,32 +74,10 @@ let started = false;
 
 const duration = () => (Number.isFinite(video.duration) && video.duration > 0 ? video.duration : (data?.duration_s ?? 0));
 
-// ---- Marks, cues, the paused credit -------------------------------------------
+// ---- Cues, the paused credit -------------------------------------------
 
-let shownMark = "";
-function drawMark(t: number): void {
-  if (!data || !started || !endcard.hidden) {
-    markEl.hidden = true;
-    shownMark = "";
-    return;
-  }
-  const m = markAt(data.marks, t, data.fps);
-  // On a dip's black hold the burned frame carries no mark; neither does the overlay.
-  if (!m || onDipBlack(data.shots, t, data.fps)) {
-    markEl.hidden = true;
-    shownMark = "";
-    return;
-  }
-  const key = `${m.class}|${m.detail}`;
-  markEl.hidden = false;
-  if (key === shownMark) return;
-  shownMark = key;
-  const w = markWords(m);
-  markEl.dataset.class = markHook(m.class);
-  markEl.setAttribute("role", "img");
-  markEl.setAttribute("aria-label", w.detail ? `${w.cls} ${w.detail}` : w.cls);
-  markEl.replaceChildren(el("span", { class: "cls" }, w.cls), w.detail ? el("span", { class: "det" }, numerals(w.detail)) : "");
-}
+// The picture carries its own mark (the glyph, and the label when it says something new),
+// burned in by the engine; the player draws none over it.
 
 let track: TextTrack | null = null;
 function drawCue(t: number): void {
@@ -163,7 +136,6 @@ function drawTime(t: number): void {
 
 function draw(): void {
   const t = video.currentTime;
-  drawMark(t);
   drawCue(t);
   drawTime(t);
 }
