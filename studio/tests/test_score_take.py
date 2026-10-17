@@ -65,7 +65,7 @@ def _stem(seconds=40.0, *, zero=None):
 MANIFEST = {"room_tone": {"kind": "recording", "recording": "Freesound 329569, 'Roomtone Bedroom Yew' by leonelmail",
                           "licence": "CC0 (the sound page's licence line, read 2026-10-17)",
                           "licence_source": "https://freesound.org/people/leonelmail/sounds/329569/",
-                          "credit_line": "room tone: leonelmail on Freesound (CC0)", "sha256": "0" * 64},
+                          "credit_line": "room tone: leonelmail on Freesound (CC0)"},   # file and sha256: _manifest
             "room_ir": {"source": "Aachen Impulse Response Database 1.4, lecture room", "licence": "MIT",
                         "url": "https://www.iks.rwth-aachen.de/air", "credit_line": "room: Aachen AIR 1.4 (MIT)"}}
 
@@ -82,11 +82,18 @@ def _write(path, x):
     return path
 
 
-def _files(film, *, rests=RESTS, manifest=MANIFEST, stem=None):
+def _manifest(folder):
+    """MANIFEST with a real room-tone file beside it (relative to the manifest's folder) and its decoded sha256."""
+    f = _write(folder / "room.wav", _room(2.0))
+    return dict(MANIFEST, room_tone=dict(MANIFEST["room_tone"], file="room.wav", sha256=SC.audio_hashes(f)[0]))
+
+
+def _files(film, *, spans=SPANS, rests=RESTS, manifest=None, stem=None):
     _write(film / "score" / "score.whole.wav", _stem() if stem is None else stem)
-    (film / "score" / "score.spans.json").write_text(json.dumps(SPANS), encoding="utf-8")
+    (film / "score" / "score.spans.json").write_text(json.dumps(spans), encoding="utf-8")
     (film / "score" / "score.rests.json").write_text(json.dumps(rests), encoding="utf-8")
-    (film / "score" / "score.take.json").write_text(json.dumps(manifest), encoding="utf-8")
+    man = _manifest(film / "score") if manifest is None else manifest
+    (film / "score" / "score.take.json").write_text(json.dumps(man), encoding="utf-8")
 
 
 def _take_cue(end_s=40.0, **kw):
@@ -121,6 +128,8 @@ def test_the_take_is_anchored_at_zero_with_no_gain_and_no_fades():
     assert any("anchored at 0" in p for p in SC.take_cue_problems(_take_cue(start_s=0.5), 40.0))
     assert any("fade_in_s" in p and "niente" in p for p in SC.take_cue_problems(_take_cue(fade_in_s=2.0), 40.0))
     assert any("to its end" in p for p in SC.take_cue_problems(_take_cue(end_s=30.0), 40.0))
+    assert any("re-render the whole stem" in p for p in SC.take_cue_problems(_take_cue(), 40.0, wav_s=35.0))
+    assert SC.take_cue_problems(_take_cue(), 40.0, wav_s=40.0) == []
 
 
 def test_load_take_reads_the_maps_and_names_what_is_wrong(tmp_path):
@@ -135,6 +144,16 @@ def test_load_take_reads_the_maps_and_names_what_is_wrong(tmp_path):
     assert any("role 'title'" in p for p in probs) and any("says why" in p for p in probs)
     tk, probs = SC.load_take(film, _take_cue(manifest="score/nowhere.json"))
     assert tk is None and any("is not there" in p for p in probs)
+
+
+def test_load_take_refuses_overlapping_spans_and_a_rest_over_a_span(tmp_path):
+    film = tmp_path / "film"
+    _files(film, spans=[SPANS[0], dict(SPANS[1], start_s=14.0)])                    # bed-1 starts inside tr-1
+    _, probs = SC.load_take(film, _take_cue())
+    assert any("overlap" in p and "tr-1" in p for p in probs)
+    _files(film, rests=RESTS + [{"id": "r4", "start_s": 26.0, "end_s": 28.0, "why": "a breath"}])
+    _, probs = SC.load_take(film, _take_cue())
+    assert any("r4 overlaps span bed-1" in p for p in probs)
 
 
 def test_the_handover_rest_covers_the_slot_and_eight_seconds_after():
@@ -216,12 +235,29 @@ def test_a_breath_in_a_composed_line_is_not_a_hole_but_the_room_over_4_s_is(gap_
     i = int((16.0 + gap_s) * RATE)
     y[i: i + len(b)] += b
     span = [{"id": "bed-1", "role": "bed", "start_s": 9.0, "end_s": 24.0 + gap_s}]
-    an = SC.take_analysis(y, _take(spans=span, rests=[RESTS[0], dict(RESTS[2], start_s=32.0)]))
+    an = SC.take_analysis(y, _take(spans=span, rests=[RESTS[0], dict(RESTS[2], start_s=24.0 + gap_s)]))
     room = [h for h in SC.take_holes(an, SC.TAKE_HOLE_MAX_S) if h["why"].startswith("the room")]
     assert bool(room) is hole
     assert SC.TAKE_HOLE_MAX_S == 4.0 and STD["music_hole_max_s"] == 1.5
     held = _get(SC.take_checks(an, STD), "music-holes", "music")
     assert held["evidence"]["max_s"] == SC.TAKE_HOLE_MAX_S and held["ok"] is (not hole)
+
+
+def test_a_rest_with_music_in_it_does_not_count_and_a_release_tail_may_open_it():
+    y = _stem()
+    s = _swell(3.0, amp=0.04, rise=0.5, fall=0.5)
+    y[int(19.0 * RATE): int(19.0 * RATE) + len(s)] += s                 # a phrase inside r2
+    an = SC.take_analysis(y, _take())
+    r = _get(SC.take_checks(an, STD), "silence-rests", "score")
+    assert not r["ok"] and [x["id"] for x in r["evidence"]["rests_with_music"]] == ["r2"] and r["evidence"]["count"] == 2
+    # tr-1's release ringing 1.5 s into r2 is a tail, allowed; 3 s of it is music in the rest
+    for ring, counts in ((1.5, True), (3.0, False)):
+        y = _room(40.0)
+        s = _swell(7.5 + ring, amp=0.03, rise=3.5, fall=0.3)
+        y[int(8.5 * RATE): int(8.5 * RATE) + len(s)] += s
+        an = SC.take_analysis(y, _take(spans=[dict(SPANS[0], end_s=16.0)], rests=[dict(RESTS[1], end_s=27.0)]))
+        got = _get(SC.take_checks(an, STD), "silence-rests", "score")["evidence"]
+        assert ([x["id"] for x in got["rests_counted"]] == ["r2"]) is counts
 
 
 def test_eight_four_counts_the_rests_with_no_voice():
@@ -235,31 +271,57 @@ def test_eight_four_counts_the_rests_with_no_voice():
 
 
 def test_the_handover_lint_hears_music_under_the_titles():
-    rest = {"id": "h", "start_s": 0.0, "end_s": 16.0, "why": "A40 handover"}
-    quiet = SC.take_analysis(_stem(), _take(rests=RESTS + [rest]), titles=[(0.0, 8.0)])
+    rest = {"id": "h", "start_s": 0.0, "end_s": 8.5, "why": "A40 handover"}
+    quiet = SC.take_analysis(_stem(), _take(rests=RESTS + [rest]), titles=[(0.0, 0.5)])
     assert _get(SC.take_checks(quiet, STD), "take-handover", "score")["ok"]
     loud = SC.take_analysis(_stem(), _take(rests=RESTS + [dict(rest, start_s=9.0, end_s=26.0)]), titles=[(9.0, 18.0)])
     h = _get(SC.take_checks(loud, STD), "take-handover", "score")
     assert not h["ok"] and h["evidence"]["max_over_room_db"] > 10
     undeclared = SC.take_analysis(_stem(), _take(), titles=[(0.0, 8.0)])
     assert "A40 handover" in _get(SC.take_checks(undeclared, STD), "take-handover", "score")["evidence"]["fix"]
+    # music in the 8 s after the titles fails the handover too
+    early = SC.take_analysis(_stem(), _take(rests=RESTS + [dict(rest, end_s=15.0)]), titles=[(0.0, 4.0)])
+    h = _get(SC.take_checks(early, STD), "take-handover", "score")
+    assert h["evidence"]["max_over_room_db"] <= 3.0 and h["evidence"]["after_max_over_room_db"] > 3.0 and not h["ok"]
+
+
+def _abs(man, folder):
+    return dict(man, room_tone=dict(man["room_tone"], file=str(folder / man["room_tone"]["file"])))
 
 
 def test_the_room_tone_is_a_real_credited_recording(tmp_path):
-    ok = {c["rule"]: c for c in SC.take_provenance(_take())}
+    good = _abs(_manifest(tmp_path), tmp_path)
+    ok = {c["rule"]: c for c in SC.take_provenance(_take(manifest=good))}
     assert ok["room-tone-provenance"]["ok"] and ok["room-ir-licence"]["ok"]
-    bad = dict(MANIFEST, room_tone=dict(MANIFEST["room_tone"], kind="synthesised", licence="CC BY-SA 4.0", sha256="abc"))
+    ev = ok["room-tone-provenance"]["evidence"]
+    assert ev["file_matches_sha256"] is True and "not fetched" in ev["verified"] and "licence_source_stated" in ev
+    bad = dict(good, room_tone=dict(good["room_tone"], kind="synthesised", licence="CC BY-SA 4.0", sha256="abc"))
     rt = SC.take_provenance(_take(manifest=bad))[0]
     assert not rt["ok"] and len(rt["evidence"]["problems"]) == 3
     assert not SC.take_provenance(_take(manifest={"room_ir": MANIFEST["room_ir"]}))[0]["ok"]
-    assert not SC.take_provenance(_take(manifest=dict(MANIFEST, room_ir={"source": "x", "licence": "all rights reserved"})))[1]["ok"]
-    # the sha256 is of the decoded samples, checked against the file when it is here
-    f = _write(tmp_path / "room.wav", _room(2.0))
-    good = dict(MANIFEST, room_tone=dict(MANIFEST["room_tone"], file=str(f), sha256=SC.audio_hashes(f)[0]))
-    rt = SC.take_provenance(_take(manifest=good))[0]
-    assert rt["ok"] and rt["evidence"]["sha256_checked_against_file"] is True
-    wrong = dict(MANIFEST, room_tone=dict(MANIFEST["room_tone"], file=str(f)))
-    assert not SC.take_provenance(_take(manifest=wrong))[0]["ok"]
+    assert not SC.take_provenance(_take(manifest=dict(good, room_ir={"source": "x", "licence": "all rights reserved"})))[1]["ok"]
+    # CC BY is not enough for the room tone (founder ruling: CC0); a founder recording needs no licence line
+    assert not SC.take_provenance(_take(manifest=dict(good, room_tone=dict(good["room_tone"], licence="CC BY 4.0"))))[0]["ok"]
+    mine = dict(good, room_tone=dict(good["room_tone"], licence="", recorded_by="founder"))
+    assert SC.take_provenance(_take(manifest=mine))[0]["ok"]
+    # a pin with no file, a named file that is not here, a pin that does not match: each fails
+    for rt_ in ({k: v for k, v in good["room_tone"].items() if k != "file"},
+                dict(good["room_tone"], file=str(tmp_path / "gone.wav")), dict(good["room_tone"], sha256="0" * 64)):
+        assert not SC.take_provenance(_take(manifest=dict(good, room_tone=rt_)))[0]["ok"]
+
+
+@pytest.mark.parametrize("lic, family", [
+    ("CC0", "CC0"), ("CC0 (the sound page's licence line, read 2026-10-17)", "CC0"), ("CC0X", None), ("MIT", "MIT"),
+    ("CC BY", "CC BY"), ("CC BY 4.0", "CC BY"), ("CC-BY 4.0", "CC BY"), ("cc\u2011by 4.0", "CC BY"), ("CC BY4.0", "CC BY"),
+    ("CC BY v4.0", "CC BY"), ("CC BY 4.0 International", "CC BY"), ("CC BY (see the page)", None),
+    ("CC BY-SA 4.0", "restricted"), ("CC BY\u2011SA", "restricted"), ("CC BY\u2013NC 4.0", "restricted"),
+    ("CC BY\u2014ND", "restricted"), ("CC BY\u2212NC", "restricted"), ("cc by_nc", "restricted"),
+    ("CC BYSA 4.0", "restricted"), ("CCBY-SA", "restricted"), ("CC-BY-NC-ND", "restricted"),
+    ("CC BY NC-SA 4.0", "restricted"), ("CC BY 4.0 NC", "restricted"), ("CC BY Share Alike", "restricted"),
+    ("CC-BY-NoDerivs", "restricted"), ("Creative Commons Attribution-NonCommercial", "restricted"),
+])
+def test_licence_family_reads_every_dash_and_refuses_nc_sa_nd(lic, family):
+    assert SC.licence_family(lic) == family
 
 
 def test_a_featured_span_is_held_to_the_featured_ceiling():
@@ -269,6 +331,18 @@ def test_a_featured_span_is_held_to_the_featured_ceiling():
     an = SC.take_analysis(y, _take(spans=[dict(SPANS[0], role="featured")]))
     f = _get(SC.score_checks([], STD, duration_s=40.0, take=an), "featured-level", "tr-1")
     assert not f["ok"] and f["evidence"]["max_lufs"] == SC.FEATURE_LUFS + SC.TOL_DB and "never gained down" in f["evidence"]["fix"]
+    assert f["evidence"]["window_s"] == 3.0 and f["evidence"]["short_term_max_lufs"] > -26.0
+
+
+def test_a_transition_span_meets_the_absolute_ceiling_as_well_as_the_relative_one():
+    y = _room(40.0)
+    s = _swell(7.5, amp=0.12)                                       # about -23 LUFS short-term: over -29 + 1
+    y[int(8.5 * RATE): int(8.5 * RATE) + len(s)] += s
+    loud = _get(SC.score_checks([], STD, duration_s=40.0, take=SC.take_analysis(y, _take(spans=[SPANS[0]]))),
+                "transition-level", "tr-1")
+    assert not loud["ok"] and loud["evidence"]["ceiling_lufs"] == -29.0
+    quiet = _get(SC.score_checks([], STD, duration_s=40.0, take=SC.take_analysis(_stem(), _take())), "transition-level", "tr-1")
+    assert quiet["ok"] and quiet["canary"]
 
 
 def test_the_canary_is_log_only_until_the_24th():
@@ -301,7 +375,7 @@ def test_build_mix_places_the_take_whole_and_every_check_passes(tmp_path):
     checks = SC.score_checks(stems.get("cues", []), STD, duration_s=40.0, take=stems["take"], phone=stems["phone"],
                              voice100=stems["voice100"], duck100=stems["duck100"], voice_grid=stems["voice_grid"],
                              duck_grid=stems["duck_grid"], spans=stems["spans"])
-    fails = [(c["rule"], c["unit"], c["evidence"].get("fix")) for c in checks if not c["ok"]]
+    fails = [(c["rule"], c["unit"], c["evidence"].get("fix"), c["evidence"].get("problems")) for c in checks if not c["ok"]]
     assert fails == []
     seen = {(c["rule"], c["unit"]) for c in checks}
     assert {("bed-under-voice", "bed-1"), ("bed-breathing", "bed-1"), ("bed-low-end", "bed-1"), ("music-treble", "tr-1"),
@@ -341,6 +415,34 @@ def test_a_digital_zero_gap_and_an_unrested_hole_fail_both_lints(tmp_path, monke
     monkeypatch.setattr(SC, "take_canary", lambda today=None: False)
     out = R.score_lints(J.Journal(film="take-lints-after"), plan, stems, registry=[])
     assert any(o.startswith("music-holes") for o in out) and any(o.startswith("silence-rests") for o in out)
+
+
+def test_a_missing_take_blocks_a_final_render_and_is_silence_in_a_draft(tmp_path):
+    film = tmp_path / "film"
+    _files(film)
+    (film / "score" / "score.whole.wav").unlink()
+    cue = _take_cue()
+    cue["_take"], _ = SC.load_take(film, cue)
+    with pytest.raises(R.Refused, match="the take score is missing"):
+        R.build_mix(_mix_plan(film, cue), film, J.Journal(film="take-missing"))
+    j = J.Journal(film="take-missing-draft")
+    _, placed = R.build_mix(_mix_plan(film, cue), film, j, draft=True)
+    assert placed["missing"] == ["score"]
+    lint = next(e for e in J.read(j.path) if e.get("rule") == "audio-present")
+    assert lint["severity"] == "warn"
+
+
+def test_bed_reuse_hashes_a_takes_head_after_its_room_tone(tmp_path):
+    """Every take opens on the same house room: its head hash starts at its music, so two films' takes with the
+    same room and different music are not a reuse, and the same take is."""
+    a, b = _room(20.0), _room(20.0)
+    a[int(8 * RATE): int(16 * RATE)] += _swell(8.0, amp=0.05, hz=(440.0, 660.0))
+    b[int(8 * RATE): int(16 * RATE)] += _swell(8.0, amp=0.05, hz=(523.25, 784.0))
+    fa, fb = _write(tmp_path / "a.wav", a), _write(tmp_path / "b.wav", b)
+    assert SC.audio_hashes(fa)[1] == SC.audio_hashes(fb)[1]                       # the room alone: the old head
+    assert SC.audio_hashes(fa, room=True)[1] != SC.audio_hashes(fb, room=True)[1]
+    fc = _write(tmp_path / "c.wav", a)
+    assert SC.audio_hashes(fa, room=True)[1] == SC.audio_hashes(fc, room=True)[1]
 
 
 # --------------------------------------------------------------------------
@@ -386,21 +488,14 @@ def test_the_take_may_span_the_titles_only_with_the_handover_rest(tmp_path, mast
         play["music"] = [_take_cue(end_s=end),
                          {"id": "MT", "kind": "music", "role": "main_title", "start_s": COLD_S, "end_s": SHIFT, "wav": "mt.wav"}]
     handover = {"id": "rest-a40", "start_s": COLD_S, "end_s": SHIFT + 8.0, "why": "A40 handover: the titles carry the room"}
+    late = [{"id": "tr-1", "role": "transition", "start_s": 15.0, "end_s": 20.0}]
     film = titled_film(tmp_path / "a", masters, edit=score)
-    _files(film, rests=RESTS + [handover], stem=_room(50.0))
+    _files(film, spans=late, rests=[handover], stem=_room(50.0))
     plan, j = plan_of(film)
     assert not isinstance(plan, Exception), plan
     assert passed(j, "title-audio-slot") and passed(j, "take-cue") and passed(j, "take-only")
     film = titled_film(tmp_path / "b", masters, edit=score)
-    _files(film, rests=RESTS + [dict(handover, end_s=SHIFT + 4.0)], stem=_room(50.0))   # 4 s after the titles, not 8
+    _files(film, spans=late, rests=[dict(handover, end_s=SHIFT + 4.0)], stem=_room(50.0))   # 4 s after the titles, not 8
     plan, j = plan_of(film)
     assert isinstance(plan, R.Refused) and failed(j, "title-audio-slot")
 
-
-def test_overlapping_spans_are_not_a_copy_of_each_other():
-    """Two spans that overlap (a transition into its bed) slice the same audio there: score-repetition compares
-    distinct music, so such a pair is not judged a duplicate (found on Real World: tr-03 into bed-01)."""
-    spans = [dict(SPANS[1], id="tr-x", role="transition", start_s=24.5, end_s=30.0), dict(SPANS[1], start_s=26.0)]
-    an = SC.take_analysis(_stem(), _take(spans=spans))
-    rep = [c for c in SC.score_checks([], STD, duration_s=40.0, take=an) if c["rule"] == "score-repetition"]
-    assert rep and all(c["ok"] for c in rep)

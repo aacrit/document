@@ -2237,7 +2237,12 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             # mix and the lints. What the take is (anchored at 0, to the film's end, gain_db 0, no fades, its files
             # whole) is its definition, not a judgement of its sound, so it blocks; the sound's lints are the canary's.
             tk, probs = SC.load_take(film, c)
-            probs += SC.take_cue_problems(c, total_frames / FPS)
+            wav = film / (c.get("wav") or f"audio/{c['id']}.wav")
+            wav_s = None
+            if wav.exists():
+                import soundfile as sf
+                wav_s = sf.info(str(wav)).duration       # a stem shorter than the film is an old cut's (build_mix: missing)
+            probs += SC.take_cue_problems(c, total_frames / FPS, wav_s)
             lint("take-cue", not probs, unit=c.get("id"), grammar="A29 take",
                  evidence={"problems": probs, "files": (tk or {}).get("paths"),
                            "spans": len((tk or {}).get("spans", [])), "rests": len((tk or {}).get("rests", [])),
@@ -4642,8 +4647,15 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
     for c in plan["cues"]:
         wav = film / (c.get("wav") or f"audio/{c['id']}.wav")
         if not wav.exists():
-            journal.lint("audio-present", False, stage="assembly", phase="preflight", unit=c["id"], severity="warn",
-                         evidence={"wav": str(wav), "kind": c.get("kind"), "result": "silence"})
+            # A29 take: a missing take is the film's whole score missing, so it blocks a final render (a draft: silence)
+            whole = c.get("kind") == "music" and SC.cue_role(c) == "take"
+            journal.lint("audio-present", False, stage="assembly", phase="preflight", unit=c["id"],
+                         severity="block" if whole and not draft else "warn",
+                         evidence={"wav": str(wav), "kind": c.get("kind"), "result": "refused" if whole and not draft
+                                   else "silence", **({"why": "the take is the film's whole score (A29 take)"} if whole else {})})
+            if whole and not draft:
+                raise Refused(f"audio-present (A29 take): the take {c['id']} is missing: {wav} (render it with whole.py, "
+                              "or render with --draft to place silence)")
             placed["missing"].append(c["id"])
             continue
         target = music if c.get("kind") == "music" else amb
@@ -6218,7 +6230,7 @@ def score_lints(journal: Journal, plan: dict, stems: dict, *, draft: bool = Fals
     to refuse."""
     std = plan.get("score_standard") or dict(SC.STANDARD)
     film = Path(plan["film"])
-    mine = [(c["id"], film / (c.get("wav") or f"audio/{c['id']}.wav")) for c in plan["cues"]
+    mine = [(c["id"], film / (c.get("wav") or f"audio/{c['id']}.wav"), SC.cue_role(c) == "take") for c in plan["cues"]
             if c.get("kind") == "music" and SC.cue_role(c) in SC.FILM_LAYER and c.get("silence") != "intended"]
     cards = [(s["f0"] / FPS, s["f1"] / FPS) for s in plan["shots"]
              if s["kind"] == "card" and (s.get("_card") or card_kind(s)) in ("title", "chapter")]

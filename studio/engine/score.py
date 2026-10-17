@@ -858,9 +858,16 @@ HANDOVER_WHY = "A40 handover"       # the rest that carries the room through the
 HANDOVER_AFTER_S = 8.0              # it runs from the slot's first frame to 8 s after its last
 REST_MIN_S = 8.0                    # 8.4 (revised): a rest of 8 s or more with no voice,
 REST_MIN_COUNT = 3                  # at least three of them
-ROOM_TONE_LICENCES = ("CC0", "CC BY")       # the room tone: a real recording, CC0 or CC BY (no SA, NC or ND)
+ROOM_TONE_LICENCES = ("CC0",)               # the room tone: a CC0 recording (founder ruling 2026-10-17), or one the
+                                            # founder made (kind recording, recorded_by founder)
 ROOM_IR_LICENCES = ("MIT", "CC0", "CC BY")  # the room IR: a measured room under an open licence
-TAKE_RULES = ("featured-level", "silence-rests", "take-handover", "room-tone-provenance", "room-ir-licence")
+REST_TAIL_S = 2.0                   # a rest may open on up to 2 s of the last note's release, then the room alone
+REST_SMOOTH_S = 1.0                 # a rest's quiet is judged on a 1 s level, so the room's own flutter is not music
+TAKE_ST_S = 3.0                     # A29 (1) revised: span ceilings are short-term (3 s) loudness maxima
+TRANSITION_ST_MAX_LUFS = -29.0      # A29 (1) revised: a transition span's short-term ceiling (beside A29 (5)'s relative one)
+ROOM_ONLY_OVER_DB = 10.0            # bed-reuse on a take: its head starts where the level first stands 10 dB over its room
+TAKE_RULES = ("featured-level", "transition-level", "silence-rests", "take-handover", "room-tone-provenance",
+              "room-ir-licence")
 _SHA = re.compile(r"[0-9a-f]{64}")
 
 
@@ -870,16 +877,25 @@ def take_canary(today: str | None = None) -> bool:
     return (today or datetime.date.today().isoformat()) < TAKE_CANARY_UNTIL
 
 
+_DASHES = re.compile(r"[\u002d\u005f\u00ad\u2010-\u2015\u2212\u2e3a\u2e3b\ufe58\ufe63\uff0d]")
+_RESTRICTED = re.compile(r"\b(?:NC|SA|ND|NON ?COMMERCIAL|SHARE ?ALIKE|NO ?DERIV(?:ATIVE)?S?)\b")
+
+
 def licence_family(lic) -> str | None:
-    """A licence line's family: "CC0", "MIT", "CC BY", or "CC BY" with its SA, NC or ND terms ("CC BY SA"); None
-    when it is none of these. The words after it (a version, where it was read) do not change it."""
-    t = re.sub(r"[-_]", " ", str(lic or "")).strip().upper()
-    if t.startswith("CC0"):
+    """A licence line's family: "CC0", "MIT", "CC BY", "restricted" (any NC, SA or ND term, in any spelling: dashes
+    of every kind, run together, spelled out), or None. Every Unicode dash and underscore reads as a space. "CC BY"
+    is CC BY only when it ends the line or is followed by a version number ("CC BY 4.0 International" is; "CC BY
+    (see page)" is not); CC0 and MIT may be followed by any words (where the licence was read)."""
+    t = re.sub(r"\s+", " ", _DASHES.sub(" ", str(lic or ""))).strip().upper()
+    if _RESTRICTED.search(t) or re.search(r"CCBY(?:\d+(?:\.\d+)?)?(?:NC|SA|ND)", t.replace(" ", "")):
+        return "restricted"                      # any NC, SA or ND term, spaced, dashed or run together
+    if re.match(r"CC ?0(?![0-9A-Z])", t):
         return "CC0"
     if re.match(r"MIT\b", t):
         return "MIT"
-    m = re.match(r"CC BY((?: (?:SA|NC|ND)\b)*)", t)
-    return None if not m else "CC BY" + m.group(1)
+    if re.fullmatch(r"CC ?BY(?: ?V?\d+(?:\.\d+)?(?:\s.*)?)?", t):
+        return "CC BY"
+    return None
 
 
 def _number(v) -> bool:
@@ -930,6 +946,11 @@ def load_take(film: Path, c: dict) -> tuple[dict | None, list[str]]:
         ids = [sp["id"] for sp in spans]
         if len(set(ids)) != len(ids):
             problems.append("spans: every id is the film's once")
+        ordered = sorted(spans, key=lambda x: x["start_s"])
+        for a, b in zip(ordered, ordered[1:]):
+            if b["start_s"] < a["end_s"] - TAKE_EDGE_TOL_S:
+                problems.append(f"spans {a['id']} and {b['id']} overlap: a span ends where the next begins (a tag "
+                                "holds one role)")
     if "rests" in got:
         raw = got["rests"]
         if not isinstance(raw, list):
@@ -945,6 +966,10 @@ def load_take(film: Path, c: dict) -> tuple[dict | None, list[str]]:
                 problems.append(f"rests {rid}: a rest says why (a rest is composed, never a gap)")
             else:
                 rests.append({"id": rid, "start_s": float(r["start_s"]), "end_s": float(r["end_s"]), "why": r["why"]})
+    for r in rests:
+        for sp in spans:
+            if r["start_s"] < sp["end_s"] - TAKE_EDGE_TOL_S and sp["start_s"] < r["end_s"] - TAKE_EDGE_TOL_S:
+                problems.append(f"rests {r['id']} overlaps span {sp['id']}: the group cannot rest where it plays")
     if "manifest" in got and not isinstance(got["manifest"], dict):
         problems.append("manifest: an object naming room_tone and room_ir")
     if any(k not in got for k in TAKE_FILES):
@@ -954,11 +979,16 @@ def load_take(film: Path, c: dict) -> tuple[dict | None, list[str]]:
             "manifest": got["manifest"] if isinstance(got["manifest"], dict) else {}, "paths": paths}, problems
 
 
-def take_cue_problems(c: dict, duration_s: float) -> list[str]:
+def take_cue_problems(c: dict, duration_s: float, wav_s: float | None = None) -> list[str]:
     """A29 take: what the take cue itself may not carry. It is anchored at 0
-    and spans the film to its end; its ``gain_db`` is 0 (its one global gain
-    is baked into the stem); it has no fades (its entries are composed)."""
+    and spans the film to its end, and so does its WAV (``wav_s``, when it is
+    known: a stem shorter than the film is an old cut's); its ``gain_db`` is 0
+    (its one global gain is baked into the stem); it has no fades (its entries
+    are composed)."""
     out = []
+    if wav_s is not None and wav_s < duration_s - TAKE_EDGE_TOL_S:
+        out.append(f"the take's WAV is {wav_s:.3f} s and the film {duration_s:.3f} s: the cut moved; warp the notes "
+                   "(refit.py) and re-render the whole stem (whole.py)")
     start, end = c.get("start_s"), c.get("end_s")
     if not _number(start) or abs(float(start)) > 1e-9:
         out.append(f"start_s {start!r}: a take is anchored at 0")
@@ -1106,35 +1136,38 @@ def composed_edges(band: np.ndarray, floor_db: float, a_s: float, b_s: float) ->
 def take_holes(take: dict, max_s: float, silences=(), own_sound=(), voice100: np.ndarray | None = None) -> list[dict]:
     """music-holes for a take (8.4 revised): digital zero anywhere in it but
     under the series titles is a hole outright (the floor is the room tone);
-    and, between the first span's start and the last one's end, any stretch
-    over ``max_s`` (TAKE_HOLE_MAX_S in take_checks) where the music band is at the room (at most ROOM_MARGIN_DB
-    over its floor) with no voice, outside the rest map, the declared
-    silences and a source's own sound."""
+    and, anywhere in the take, any stretch over ``max_s`` (TAKE_HOLE_MAX_S
+    in take_checks) where the music band is at the room (at most
+    ROOM_MARGIN_DB over its floor) with no voice, outside the rest map, the
+    series titles, the declared silences and a source's own sound."""
     band, zero = take["band_db"], take["zero"]
     n = len(band)
     tm = _mask(n, take["titles"])
     out = [{"from_s": round(a * HOP_S, 1), "to_s": round(b * HOP_S, 1), "dur_s": round((b - a) * HOP_S, 1),
             "why": "digital zero: the floor is the room tone"} for a, b in _runs(zero & ~tm)]
-    if take["spans"]:
-        keep = _mask(n, [(min(s["start_s"] for s in take["spans"]), max(s["end_s"] for s in take["spans"]))])
-        keep &= ~_mask(n, [(r["start_s"], r["end_s"]) for r in take["rests"]] + list(silences) + list(own_sound))
-        keep &= ~tm & ~zero
-        if voice100 is not None:
-            v = np.asarray(voice100, bool)[:n]
-            keep[: len(v)] &= ~v
-        for a, b in _runs((band <= take["floor_db"] + ROOM_MARGIN_DB) & keep):
-            if (b - a) * HOP_S > max_s + 1e-9:
-                out.append({"from_s": round(a * HOP_S, 1), "to_s": round(b * HOP_S, 1), "dur_s": round((b - a) * HOP_S, 1),
-                            "why": "the room alone, not in the rest map"})
+    keep = ~_mask(n, [(r["start_s"], r["end_s"]) for r in take["rests"]] + list(silences) + list(own_sound))
+    keep &= ~tm & ~zero
+    if voice100 is not None:
+        v = np.asarray(voice100, bool)[:n]
+        keep[: len(v)] &= ~v
+    for a, b in _runs((band <= take["floor_db"] + ROOM_MARGIN_DB) & keep):
+        if (b - a) * HOP_S > max_s + 1e-9:
+            out.append({"from_s": round(a * HOP_S, 1), "to_s": round(b * HOP_S, 1), "dur_s": round((b - a) * HOP_S, 1),
+                        "why": "the room alone, not in the rest map"})
     return sorted(out, key=lambda h: h["from_s"])
 
 
 def take_provenance(take: dict) -> list[dict]:
     """room-tone-provenance and room-ir-licence (S3): the manifest names the
     room tone as a real recording (``kind: recording``, the recording, its
-    source page, CC0 or CC BY, and the sha256 of its decoded samples as
-    audio_hashes reads them, checked against the file when it is here) and the
-    room IR with its source, its url and an open licence (ROOM_IR_LICENCES)."""
+    source page, CC0 (founder ruling 2026-10-17) or ``recorded_by: founder``,
+    the decoded file used (``file``, from the manifest's folder when relative)
+    and the sha256 of its decoded samples as audio_hashes reads them, which
+    must match that file: a named file that is not here fails) and the room IR
+    with its source, its url and an open licence (ROOM_IR_LICENCES). What the
+    lint verifies is the file against its pin and the manifest's statements;
+    the recording at ``licence_source`` is not fetched, so its licence is as
+    the manifest states it."""
     man = take.get("manifest") or {}
     rt = man.get("room_tone")
     problems, verified = [], None
@@ -1148,25 +1181,33 @@ def take_provenance(take: dict) -> list[dict]:
             problems.append("it names the recording (its title and recordist)")
         if not str(rt.get("licence_source") or rt.get("source") or "").startswith("http"):
             problems.append("it names its source page (licence_source)")
-        if licence_family(rt.get("licence")) not in ROOM_TONE_LICENCES:
-            problems.append(f"licence {rt.get('licence')!r}: CC0 or CC BY")
+        founder = rt.get("recorded_by") == "founder"
+        if not founder and licence_family(rt.get("licence")) not in ROOM_TONE_LICENCES:
+            problems.append(f"licence {rt.get('licence')!r}: CC0 (founder ruling 2026-10-17), or recorded_by founder")
         sha = str(rt.get("sha256") or "")
         if not _SHA.fullmatch(sha):
             problems.append("sha256: the sha256 of its decoded samples (64 hex digits)")
-        elif rt.get("file"):
+        if not rt.get("file"):
+            problems.append("file: it names the decoded file the take used, so its sha256 can be checked")
+        else:
             f = Path(str(rt["file"]))
             if not f.is_absolute() and take.get("paths", {}).get("manifest"):
                 f = Path(take["paths"]["manifest"]).parent / f
-            if f.exists():
+            if not f.exists():
+                problems.append(f"file {f} is not here: its sha256 cannot be checked")
+            elif _SHA.fullmatch(sha):
                 verified = audio_hashes(f)[0] == sha
                 if not verified:
                     problems.append(f"sha256 does not match the decoded samples of {f.name}")
     out = [{"rule": "room-tone-provenance", "ok": not problems, "unit": "room_tone", "evidence": {
-        "recording": rt.get("recording"), "kind": rt.get("kind"), "licence": rt.get("licence"),
-        "licence_source": rt.get("licence_source") or rt.get("source"), "sha256": str(rt.get("sha256") or "")[:16] or None,
-        "sha256_checked_against_file": verified, "problems": problems,
+        "recording": rt.get("recording"), "kind": rt.get("kind"), "licence_stated": rt.get("licence"),
+        "recorded_by": rt.get("recorded_by"), "licence_source_stated": rt.get("licence_source") or rt.get("source"),
+        "file": rt.get("file"), "sha256": str(rt.get("sha256") or "")[:16] or None, "file_matches_sha256": verified,
+        "verified": "the named file against its sha256, and the manifest's statements; the recording at "
+                    "licence_source is not fetched here", "problems": problems,
         "fix": None if not problems else "name a real room-tone recording in the take's manifest (whole.py --room-meta): "
-                                         "kind recording, the recording, its source page, CC0 or CC BY, the decoded sha256"}}]
+                                         "kind recording, the recording, its source page, CC0, the decoded file and "
+                                         "its sha256"}}]
     ir = man.get("room_ir")
     problems = []
     if not isinstance(ir, dict):
@@ -1181,6 +1222,25 @@ def take_provenance(take: dict) -> list[dict]:
         "source": ir.get("source"), "licence": ir.get("licence"), "url": ir.get("url"), "problems": problems,
         "fix": None if not problems else "name the room IR in the take's manifest: the measured room, its url, an open licence"}})
     return out
+
+
+def _smooth_db(band: np.ndarray, k: int) -> np.ndarray:
+    """The music band's level over ``k`` windows (centred, power mean), in dB; at the ends of ``band`` the mean is
+    over the windows there are, so a stretch judged alone never borrows its neighbours' sound."""
+    p = 10 ** (np.asarray(band, np.float64) / 10)
+    k = max(1, k)
+    return _db(np.convolve(p, np.ones(k), mode="same") / np.convolve(np.ones(len(p)), np.ones(k), mode="same"))
+
+
+def _short_term_max(an: dict) -> float | None:
+    """A cue's short-term loudness maximum (TAKE_ST_S, K-weighted, from its 100 ms windows); its whole length when
+    it is shorter."""
+    kp = np.asarray(an["kp"], np.float64)
+    if not len(kp):
+        return None
+    w = int(round(TAKE_ST_S / HOP_S))
+    st = np.convolve(kp, np.ones(w) / w, mode="valid") if len(kp) >= w else np.array([kp.mean()])
+    return round(float(-0.691 + _db(st).max()), 2)
 
 
 def take_checks(take: dict, std: dict, *, silences=(), own_sound=(), voice100: np.ndarray | None = None) -> list[dict]:
@@ -1219,16 +1279,32 @@ def take_checks(take: dict, std: dict, *, silences=(), own_sound=(), voice100: n
     if voice100 is not None:
         vv = np.asarray(voice100, bool)[:n]
         v[: len(vv)] = vv
-    counted = []
+    counted, sounding = [], []
+    room = floor_db + ROOM_MARGIN_DB
+    ks = int(round(REST_SMOOTH_S / HOP_S))
     for r in take["rests"]:
         i0, i1 = max(0, int(math.floor(r["start_s"] / HOP_S + 1e-6))), min(n, int(math.ceil(r["end_s"] / HOP_S - 1e-6)))
-        longest = max((b - a for a, b in _runs(~v[i0:i1])), default=0) * HOP_S if i1 > i0 else 0.0
+        if i1 <= i0:
+            continue
+        # a rest is the room alone: after at most REST_TAIL_S of the last note's release, its 1 s level (inside the
+        # rest only, so the next span's first note is not heard in it) stays at the room
+        lv = _smooth_db(band[i0:i1], ks)
+        head = np.flatnonzero(lv[: int(round(REST_TAIL_S / HOP_S)) + 1] <= room)
+        loud = np.flatnonzero(lv[int(head[0]):] > room) if len(head) else np.array([0])
+        if len(loud):
+            at = i0 + (int(head[0]) if len(head) else 0) + int(loud[0])
+            sounding.append({"id": r["id"], "music_at_s": round(at * HOP_S, 1),
+                             "over_room_db": round(float(np.max(lv)) - floor_db, 1)})
+            continue
+        q0 = i0 + int(head[0])
+        longest = max((b - a for a, b in _runs(~v[q0:i1])), default=0) * HOP_S
         if longest >= REST_MIN_S - 1e-9:
             counted.append({"id": r["id"], "voiceless_s": round(longest, 1)})
     zero_s = round(float((take["zero"] & ~tm).sum()) * HOP_S, 1)
     ok = len(counted) >= REST_MIN_COUNT and zero_s == 0.0
     out.append({"rule": "silence-rests", "ok": ok, "unit": take["id"], "evidence": {
         "rests_counted": counted, "count": len(counted), "min_count": REST_MIN_COUNT, "min_s": REST_MIN_S,
+        "rests_with_music": sounding, "release_tail_max_s": REST_TAIL_S, "level_s": REST_SMOOTH_S,
         "digital_zero_s": zero_s, "voice_measured": voice100 is not None,
         "fix": None if ok else ("the floor is the room tone: run it under the whole take (whole.py)" if zero_s else
                                 f"compose at least {REST_MIN_COUNT} rests of {REST_MIN_S:g} s with no voice, each in the "
@@ -1237,9 +1313,10 @@ def take_checks(take: dict, std: dict, *, silences=(), own_sound=(), voice100: n
         i0, i1 = max(0, int(math.floor(t0 / HOP_S + 1e-6))), min(n, int(math.ceil(t1 / HOP_S - 1e-6)))
         over = float(np.max(band[i0:i1])) - floor_db if i1 > i0 else None
         j1 = min(n, int(math.ceil((t1 + HANDOVER_AFTER_S) / HOP_S - 1e-6)))
-        after = float(np.max(band[i1:j1])) - floor_db if j1 > i1 else None
+        after = float(np.max(_smooth_db(band[i1:j1], ks))) - floor_db if j1 > i1 else None   # 1 s: the room's flutter
         r = take_handover(take, t0, t1)
-        ok = r is not None and (over is None or over <= ROOM_MARGIN_DB + 1e-9)
+        ok = (r is not None and (over is None or over <= ROOM_MARGIN_DB + 1e-9)
+              and (after is None or after <= ROOM_MARGIN_DB + 1e-9))
         out.append({"rule": "take-handover", "ok": ok, "unit": take["id"], "evidence": {
             "title": [round(t0, 3), round(t1, 3)], "rest": None if r is None else r["id"],
             "max_over_room_db": None if over is None else round(over, 1),
@@ -1247,7 +1324,8 @@ def take_checks(take: dict, std: dict, *, silences=(), own_sound=(), voice100: n
             "room_floor_db": floor_db,
             "fix": None if ok else ("declare the rest: why \"A40 handover\", from the title's first frame to "
                                     f"{HANDOVER_AFTER_S:g} s after its last" if r is None else
-                                    "the take sounds under the series titles: let it rest there (the title carries the room)")}})
+                                    "the take sounds under the series titles or in the 8 s after them: let it rest "
+                                    "there (the title carries the room; the first note comes 8 s after it)")}})
     out += take_provenance(take)
     return out
 
@@ -1466,12 +1544,11 @@ def repetition_checks(cues: list[dict]) -> list[dict]:
             "within": True, "loop": r["loop"], "max_self_similarity": r["best"], "min_segment_s": REP_SEG_S,
             "thresholds": {"chroma": REP_CHROMA_MIN, "env": REP_ENV_MIN, "onset": REP_ONSET_MIN},
             "fix": None if ok else f"a {r['loop']['period_s']:g} s segment is heard {REP_LOOP_COUNT} times back to back: "
-                                   "write the bed through (vary the voicing, the register, the rhythm), never tile it"}})
+                                   "write the bed through (vary the voicing, the register, the rhythm), never tile it"},
+                    **({"canary": True} if c.get("take_span") else {})})
     dups, best = [], None
     for i, a in enumerate(mus):
         for b in mus[i + 1:]:
-            if a.get("take_span") and b.get("take_span") and _span(a)[0] < _span(b)[1] and _span(b)[0] < _span(a)[1]:
-                continue                     # A29 take: two spans that overlap share the same audio there, not a copy
             r = cross_repetition(a["an"]["feat"], b["an"]["feat"])
             if not r.get("judged"):
                 continue
@@ -1486,7 +1563,8 @@ def repetition_checks(cues: list[dict]) -> list[dict]:
             "within": False, "duplicates": dups[:30], "count": len(dups), "max_cross_similarity": best,
             "exempt": list(BRAND), "thresholds": {"chroma": REP_CHROMA_MIN, "env": REP_ENV_MIN, "onset": REP_ONSET_MIN},
             "fix": None if not dups else "two cues play the same music: write the second one new, or restate the theme "
-                                         "transformed (another key, register, orchestration or rhythm)"}})
+                                         "transformed (another key, register, orchestration or rhythm)"},
+                    **({"canary": True} if any(c.get("take_span") for c in mus) else {})})
     return out
 
 
@@ -1542,22 +1620,33 @@ HEAD_S = 5.0                        # bed-reuse also matches the first 5 s of so
 _HASHES: dict = {}
 
 
-def audio_hashes(path: Path) -> tuple[str, str | None]:
+def audio_hashes(path: Path, *, room: bool = False) -> tuple[str, str | None]:
     """A WAV's content hashes: sha256 of its decoded samples (float32, with
     its rate and channels), so a copy re-wrapped or re-encoded losslessly
     still matches; and of its first HEAD_S of sound (after any leading
     digital silence), so a fold or a cut of it matches too (None when it
-    holds under HEAD_S of sound)."""
+    holds under HEAD_S of sound). ``room`` (a take, A29 take): its head starts
+    after its leading room tone, at the first 100 ms window standing
+    ROOM_ONLY_OVER_DB over the room (the 10th percentile of its windows),
+    since every take opens on the same house room and that is not its music."""
     import hashlib
     import soundfile as sf
     st = path.stat()
-    key = (str(path.resolve()), st.st_mtime_ns, st.st_size)
+    key = (str(path.resolve()), st.st_mtime_ns, st.st_size, room)
     if key not in _HASHES:
         x, rate = sf.read(str(path), dtype="float32", always_2d=True)
         x = np.ascontiguousarray(x)
         tag = f"{rate}:{x.shape[1]}:".encode()
         whole = hashlib.sha256(tag + x.tobytes()).hexdigest()
         on = np.flatnonzero(np.abs(x).max(axis=1) > 1e-6)
+        if room and len(on):
+            hop = max(1, int(round(HOP_S * rate)))
+            m = x.mean(axis=1)
+            w = len(m) // hop
+            lv = _db(np.mean(m[: w * hop].reshape(w, hop).astype(np.float64) ** 2, axis=1))
+            live = lv[lv > -120.0]
+            over = np.flatnonzero(lv > (np.percentile(live, 10) if len(live) else -120.0) + ROOM_ONLY_OVER_DB)
+            on = over * hop if len(over) else on[:0]
         k = int(HEAD_S * rate)
         head = None
         if len(on) and len(x) - on[0] >= k:
@@ -1595,8 +1684,9 @@ def film_registry(root: Path = REPO_ROOT) -> list[dict]:
     return out
 
 
-def _film_layer_wavs(film: Path, play: dict) -> list[tuple[str, Path]]:
-    return [(c["id"], film / (c.get("wav") or f"audio/{c['id']}.wav")) for c in film_cues(play)
+def _film_layer_wavs(film: Path, play: dict) -> list[tuple[str, Path, bool]]:
+    """(cue id, WAV, is a take) for every cue of a film's own score."""
+    return [(c["id"], film / (c.get("wav") or f"audio/{c['id']}.wav"), cue_role(c) == "take") for c in film_cues(play)
             if c.get("kind") == "music" and cue_role(c) in FILM_LAYER and c.get("silence") != "intended"]
 
 
@@ -1631,20 +1721,21 @@ def reuse_check(film: Path, play: dict, registry: list[dict] | None = None,
         if other.get("slug") == slug:
             continue
         checked.append(other.get("slug"))
-        for cid, p in _film_layer_wavs(sp.parent, other):
+        for cid, p, is_take in _film_layer_wavs(sp.parent, other):
             if p.exists():
-                w, h = audio_hashes(p)
+                w, h = audio_hashes(p, room=is_take)
                 theirs.setdefault(w, []).append({"film": other.get("slug"), "cue": cid, "wav": p.name, "match": "whole"})
                 if h:
                     theirs.setdefault("head:" + h, []).append({"film": other.get("slug"), "cue": cid, "wav": p.name,
                                                                "match": "first 5 s"})
     out = []
-    for cid, p in (_film_layer_wavs(film, play) if mine is None else mine):
+    for cid, p, *take in (_film_layer_wavs(film, play) if mine is None else mine):
         if not p.exists():
             continue
-        w, h = audio_hashes(p)
+        is_take = bool(take and take[0])
+        w, h = audio_hashes(p, room=is_take)
         hit = theirs.get(w) or (theirs.get("head:" + h) if h else None)
-        out.append({"rule": "bed-reuse", "ok": not hit, "unit": cid, "evidence": {
+        out.append({"rule": "bed-reuse", "ok": not hit, "unit": cid, **({"canary": True} if is_take else {}), "evidence": {
             "wav": p.name, "sha256": w[:16], "used_by": (hit or [])[:5], "films_checked": checked,
             "fix": None if not hit else "another film's score already plays this: write this film its own (the founder: "
                                         "no bed reused across films)"}})
@@ -1720,6 +1811,7 @@ def score_checks(cues: list[dict], std: dict, *, duration_s: float, silences=(),
     target = bed_lufs(std)
     beds = [c for c in cues if c["role"] == "bed"]
     for c in beds:
+        n0 = len(out)
         lvl, n, on = _gap_level(c, duck100)
         ceiling = target + TOL_DB
         ok = lvl is None or lvl <= ceiling + 1e-9
@@ -1736,7 +1828,9 @@ def score_checks(cues: list[dict], std: dict, *, duration_s: float, silences=(),
             "fix": None if ok else ("let the drone breathe: rests (two beats in eight), one regional pluck a bar, not one a beat"
                                     if judged else f"not judged: under {BREATH_MIN_S:g} s of bed; a cue this short is a "
                                                    "transition or a sting (say so with score_role), or lengthen the bed")}})
+        _canary(out, n0, c)
     for c in cues:
+        n0 = len(out)
         if c["role"] in SHAPED:
             ok = c["an"]["lowmid_share"] <= std["bed_lowmid_max_share"] + 1e-9
             out.append({"rule": "bed-low-end", "ok": ok, "unit": c["id"], "evidence": {
@@ -1754,9 +1848,11 @@ def score_checks(cues: list[dict], std: dict, *, duration_s: float, silences=(),
                 + (", shaped" if c["role"] in SHAPED else ""),
                 "fix": None if ok else f"darken it: less over {TREBLE_HZ:g} Hz (no bright attacks, no air or shimmer layer; "
                                        "the founder: a lot less treble)"}})
+        _canary(out, n0, c)
     loudest_bed = max((b["an"]["mom_max_lufs"] for b in beds if b["an"]["mom_max_lufs"] is not None), default=None)
     fallback = target + ORPHAN_HEADROOM_DB if loudest_bed is None else min(target + ORPHAN_HEADROOM_DB, loudest_bed)
     for c in cues:
+        n0 = len(out)
         if (c["role"] in UNDERSCORE and c["role"] != "bed") or c["role"] == "ambience":
             # every underscore cue and every ambience is under the bed target (beds: bed-under-voice), whatever is near
             # it, measured levelled and before its fades (a fade never lowers what the cue is)
@@ -1776,16 +1872,18 @@ def score_checks(cues: list[dict], std: dict, *, duration_s: float, silences=(),
                                         "under the dialogue)" if amb else
                                         "lower its gain_db: an underscore cue's gain_db is an offset from the bed target, "
                                         "at most 0")}})
-        if c["role"] == "featured":
-            # A29 take: a featured span is heard for itself, so its ceiling is the featured level, not the bed's
-            lvl = c["an"].get("integrated_unfaded_lufs")
-            lvl = c["an"]["integrated_lufs"] if lvl is None else lvl
-            ok = lvl is None or lvl <= FEATURE_LUFS + TOL_DB + 1e-9
-            out.append({"rule": "featured-level", "ok": ok, "unit": c["id"], "evidence": {
-                "role": c["role"], "integrated_lufs": lvl, "max_lufs": FEATURE_LUFS + TOL_DB, "target_lufs": FEATURE_LUFS,
-                "measured_on": "the span with its release tail, as the take plays it",
-                "fix": None if ok else "the span is over the featured ceiling: return it to the composer (refit.py lowers "
-                                       "its velocities); a take is never gained down"}})
+        if c.get("take_span") and c["role"] in ("featured", "transition"):
+            # A29 (1) revised: a span's ceiling is its short-term (3 s) maximum, featured -26 and transition -29 (the
+            # transition also keeps A29 (5)'s ceiling relative to its bed, below)
+            rule, cap = ("featured-level", FEATURE_LUFS) if c["role"] == "featured" else ("transition-level",
+                                                                                         TRANSITION_ST_MAX_LUFS)
+            st = _short_term_max(c["an"])
+            ok = st is None or st <= cap + TOL_DB + 1e-9
+            out.append({"rule": rule, "ok": ok, "unit": c["id"], "evidence": {
+                "role": c["role"], "short_term_max_lufs": st, "ceiling_lufs": cap, "max_lufs": cap + TOL_DB,
+                "window_s": TAKE_ST_S, "measured_on": "the span with its release tail, as the take plays it",
+                "fix": None if ok else "the span is over its ceiling: return it to the composer (refit.py lowers its "
+                                       "velocities); a take is never gained down"}})
         if c["role"] in TRANSITIONS:
             bed, why = _leads_into(c, beds)
             ref = bed["an"]["mom_max_lufs"] if bed else None
@@ -1828,6 +1926,7 @@ def score_checks(cues: list[dict], std: dict, *, duration_s: float, silences=(),
                 "no other cue after it" if amb else "no music after it",
                 "fade_out_s": fo, "min_fade_out_s": std["entry_fade_min_s"],
                 "fix": None if ok else f"fade it out over at least {std['entry_fade_min_s']:g} s"}})
+        _canary(out, n0, c)
     out += regional_checks(cues, duration_s)
     out += pulse_checks(cues, cards, voice100)
     out += repetition_checks(cues)
@@ -1859,13 +1958,14 @@ def score_checks(cues: list[dict], std: dict, *, duration_s: float, silences=(),
         out.append({"rule": "duck-slope", "ok": ok, "unit": "music", "evidence": dict(
             sl, max_attack_db_per_100ms=DUCK_ATTACK_MAX_DB, attack_s=DUCK_ATTACK_S, curve="sine in-out in dB, ending on the onset",
             fix=None if ok else "the music drops too fast before a voice: the duck's pre-roll eases in over about 1 s")})
-    if take is not None:
-        # the canary covers the take's spans (every A29 check on them), its WAV (bed-reuse) and the repetition within it
-        mine = {c["id"] for c in take["cues"]} | {take["id"]}
-        for c in out:
-            if c["unit"] in mine or c["rule"] in TAKE_RULES or c["rule"] == "score-repetition":
-                c["canary"] = True
     return out
+
+
+def _canary(out: list[dict], n0: int, c: dict) -> None:
+    """A29 take: every check made for a span of the take (out[n0:], made for ``c``) is the canary's."""
+    if c.get("take_span"):
+        for x in out[n0:]:
+            x["canary"] = True
 
 
 # --------------------------------------------------------------------------
@@ -1995,10 +2095,11 @@ def offline(film: Path, *, wav_dir: Path | None = None, voices: bool = True, reg
             missing.append(c["id"])
             continue
         if c.get("kind") == "music" and cue_role(c) in FILM_LAYER:
-            mine.append((c["id"], p))
+            mine.append((c["id"], p, cue_role(c) == "take"))
         if c.get("kind") == "music" and cue_role(c) == "take":
             t, why = load_take(film, c)
-            why += take_cue_problems(c, shot_end)
+            import soundfile as sf
+            why += take_cue_problems(c, shot_end, sf.info(str(p)).duration)
             if why or take is not None:
                 kinds.append({"rule": "take-cue", "ok": False, "unit": c.get("id"), "evidence": {
                     "problems": why or ["a film has one take at most"], "fix": "; ".join(why or ["one take per film"])}})
