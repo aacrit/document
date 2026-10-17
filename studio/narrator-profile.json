@@ -156,6 +156,242 @@
     }
    },
    "method": "studio.engine.render.voice_profile on each take levelled to -20 LUFS; median over the takes"
+  },
+  {
+   "_note": "Zoe lowered 2 semitones (founder ruling 2026-10-16, \"Real World\": Orpheus zoe, PSOLA -2 st, the warmer narrator EQ, recorded in passages and cut at breaths): the narrator pilot's chosen takes, D:/document-media/narrator-pilot/lines/ (narrator-pilot-zoe.mp3, the take set the founder heard), each passage take shifted whole by PSOLA (Praat To Manipulation 0.01 s, 90-500 Hz, pitch tier x 2^(-2/12), overlap-add) before its cut, measured pre-EQ. A film whose narrator cast voice is orpheus:zoe with pitch_shift_st -2 is held to this; made by narrator_profile_from_takes with the spoken lines of the pilot's plan.json.",
+   "voice": {
+    "engine": "orpheus",
+    "voice": "zoe",
+    "pitch_shift_st": -2
+   },
+   "baseline": {
+    "f0_hz": 171.47,
+    "centroid_hz": 1204.22
+   },
+   "takes": {
+    "T_O_1.wav": {
+     "f0_hz": 171.39,
+     "f0_p10_hz": 139.6,
+     "f0_p90_hz": 222.37,
+     "f0_range_hz": 82.77,
+     "centroid_hz": 1206.89,
+     "words": 20,
+     "speech_s": 10.52,
+     "wps": 1.9,
+     "voiced_frames": 698,
+     "active_frames": 849,
+     "sha256": "b22772ccdfee4555"
+    },
+    "V_N01.wav": {
+     "f0_hz": 172.11,
+     "f0_p10_hz": 136.97,
+     "f0_p90_hz": 215.24,
+     "f0_range_hz": 78.27,
+     "centroid_hz": 1197.9,
+     "words": 26,
+     "speech_s": 9.66,
+     "wps": 2.69,
+     "voiced_frames": 731,
+     "active_frames": 854,
+     "sha256": "d5489747d68e6d67"
+    },
+    "V_N02.wav": {
+     "f0_hz": 176.81,
+     "f0_p10_hz": 133.45,
+     "f0_p90_hz": 210.49,
+     "f0_range_hz": 77.04,
+     "centroid_hz": 1277.89,
+     "words": 24,
+     "speech_s": 10.03,
+     "wps": 2.39,
+     "voiced_frames": 706,
+     "active_frames": 830,
+     "sha256": "e2c2b6721888a250"
+    },
+    "V_N03.wav": {
+     "f0_hz": 178.71,
+     "f0_p10_hz": 139.16,
+     "f0_p90_hz": 215.77,
+     "f0_range_hz": 76.61,
+     "centroid_hz": 1206.95,
+     "words": 23,
+     "speech_s": 8.47,
+     "wps": 2.72,
+     "voiced_frames": 668,
+     "active_frames": 741,
+     "sha256": "30a2565c3f7a4a61"
+    },
+    "V_N04.wav": {
+     "f0_hz": 182.07,
+     "f0_p10_hz": 141.08,
+     "f0_p90_hz": 241.78,
+     "f0_range_hz": 100.7,
+     "centroid_hz": 1199.77,
+     "words": 26,
+     "speech_s": 8.84,
+     "wps": 2.94,
+     "voiced_frames": 639,
+     "active_frames": 769,
+     "sha256": "b0b5524d5ee1e58d"
+    },
+    "V_N05.wav": {
+     "f0_hz": 171.47,
+     "f0_p10_hz": 146.9,
+     "f0_p90_hz": 213.05,
+     "f0_range_hz": 66.16,
+     "centroid_hz": 1136.66,
+     "words": 34,
+     "speech_s": 12.11,
+     "wps": 2.81,
+     "voiced_frames": 963,
+     "active_frames": 1070,
+     "sha256": "e20a298ffa788466"
+    },
+    "V_N06.wav": {
+     "f0_hz": 178.18,
+     "f0_p10_hz": 141.1,
+     "f0_p90_hz": 232.35,
+     "f0_range_hz": 91.26,
+     "centroid_hz": 944.42,
+     "words": 8,
+     "speech_s": 2.69,
+     "wps": 2.97,
+     "voiced_frames": 241,
+     "active_frames": 257,
+     "sha256": "e203cd3e1186652f"
+    },
+    "T_1_1.wav": {
+     "f0_hz": 171.69,
+     "f0_p10_hz": 140.48,
+     "f0_p90_hz": 201.34,
+     "f0_range_hz": 60.86,
+     "centroid_hz": 1122.01,
+     "words": 21,
+     "speech_s": 11.3,
+     "wps": 1.86,
+     "voiced_frames": 794,
+     "active_frames": 898,
+     "sha256": "49ca03cb9f927c64"
+    },
+    "T_1_2.wav": {
+     "f0_hz": 168.22,
+     "f0_p10_hz": 139.8,
+     "f0_p90_hz": 225.22,
+     "f0_range_hz": 85.42,
+     "centroid_hz": 1287.65,
+     "words": 17,
+     "speech_s": 6.2,
+     "wps": 2.74,
+     "voiced_frames": 450,
+     "active_frames": 536,
+     "sha256": "429ec25b1951b43a"
+    },
+    "T_1_3.wav": {
+     "f0_hz": 173.64,
+     "f0_p10_hz": 146.79,
+     "f0_p90_hz": 203.12,
+     "f0_range_hz": 56.32,
+     "centroid_hz": 1204.22,
+     "words": 34,
+     "speech_s": 10.6,
+     "wps": 3.21,
+     "voiced_frames": 795,
+     "active_frames": 919,
+     "sha256": "a30d8da478e22946"
+    },
+    "T_1_4.wav": {
+     "f0_hz": 169.78,
+     "f0_p10_hz": 145.07,
+     "f0_p90_hz": 211.48,
+     "f0_range_hz": 66.41,
+     "centroid_hz": 1296.3,
+     "words": 34,
+     "speech_s": 12.67,
+     "wps": 2.68,
+     "voiced_frames": 916,
+     "active_frames": 1076,
+     "sha256": "493e66ea0c9bbd7a"
+    },
+    "T_1_5.wav": {
+     "f0_hz": 161.25,
+     "f0_p10_hz": 136.37,
+     "f0_p90_hz": 209.72,
+     "f0_range_hz": 73.35,
+     "centroid_hz": 1090.36,
+     "words": 22,
+     "speech_s": 7.75,
+     "wps": 2.84,
+     "voiced_frames": 636,
+     "active_frames": 741,
+     "sha256": "5b5dc1f77eedf156"
+    },
+    "V_N07.wav": {
+     "f0_hz": 170.92,
+     "f0_p10_hz": 136.6,
+     "f0_p90_hz": 216.68,
+     "f0_range_hz": 80.08,
+     "centroid_hz": 1194.61,
+     "words": 38,
+     "speech_s": 14.26,
+     "wps": 2.66,
+     "voiced_frames": 1087,
+     "active_frames": 1249,
+     "sha256": "a4d8b95a93e64d9b"
+    },
+    "V_N08.wav": {
+     "f0_hz": 175.55,
+     "f0_p10_hz": 140.13,
+     "f0_p90_hz": 248.39,
+     "f0_range_hz": 108.26,
+     "centroid_hz": 1301.7,
+     "words": 14,
+     "speech_s": 4.23,
+     "wps": 3.31,
+     "voiced_frames": 284,
+     "active_frames": 352,
+     "sha256": "8ba10c26de618c49"
+    },
+    "V_N09.wav": {
+     "f0_hz": 168.32,
+     "f0_p10_hz": 145.18,
+     "f0_p90_hz": 216.47,
+     "f0_range_hz": 71.29,
+     "centroid_hz": 1124.18,
+     "words": 25,
+     "speech_s": 8.18,
+     "wps": 3.06,
+     "voiced_frames": 670,
+     "active_frames": 753,
+     "sha256": "2fe993b69ef516aa"
+    },
+    "V_N10.wav": {
+     "f0_hz": 169.54,
+     "f0_p10_hz": 144.15,
+     "f0_p90_hz": 222.27,
+     "f0_range_hz": 78.12,
+     "centroid_hz": 1255.43,
+     "words": 20,
+     "speech_s": 6.83,
+     "wps": 2.93,
+     "voiced_frames": 515,
+     "active_frames": 585,
+     "sha256": "b3608a28b74b346c"
+    },
+    "V_N49.wav": {
+     "f0_hz": 168.21,
+     "f0_p10_hz": 150.17,
+     "f0_p90_hz": 196.49,
+     "f0_range_hz": 46.31,
+     "centroid_hz": 1345.44,
+     "words": 7,
+     "speech_s": 3.16,
+     "wps": 2.22,
+     "voiced_frames": 203,
+     "active_frames": 232,
+     "sha256": "c957e9a298a38c7b"
+    }
+   },
+   "method": "studio.engine.render.voice_profile on each take levelled to -20 LUFS; median over the takes"
   }
  ]
 }
