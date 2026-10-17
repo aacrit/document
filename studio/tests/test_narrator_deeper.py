@@ -53,8 +53,8 @@ def test_the_profile_is_chosen_by_the_films_declared_shift():
     assert none is None and "none has that shift" in why
     bad, why = R.load_narrator_profile(dict(TARA, pitch_shift_st="low"))
     assert bad is None and "not a number" in why
-    other, why = R.load_narrator_profile({"engine": "orpheus", "voice": "zoe", "pitch_shift_st": -2})
-    assert other is None and "the film's narrator is orpheus:zoe" in why
+    other, why = R.load_narrator_profile({"engine": "orpheus", "voice": "leah", "pitch_shift_st": -2})
+    assert other is None and "the film's narrator is orpheus:leah" in why   # zoe has her own entry (test_real_world)
 
 
 def _profile_file(tmp_path, monkeypatch, stock_f0, variant_f0, cen=1100.0):

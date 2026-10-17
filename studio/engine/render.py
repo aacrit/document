@@ -190,6 +190,34 @@ KIND_CLASSES = {
 ALTERATIONS = {"colourised", "upscaled", "stabilised", "interpolated", "re-timed", "inpainted", "motion added", "tinted",
                "audio synthesised", "colour cast removed"}   # the last by GRAMMAR A14
 LICENCE_OK = re.compile(r"^(public domain|cc0( 1\.0)?|cc[- ]?by([- ][1-4]\.0)?)$", re.I)
+# CC BY-SA (founder ruling 2026-10-16, "Real World"): never on the house allowlist; allowed only in a film whose
+# screenplay declares ``share_alike: {decision: "<its docs/DECISIONS.md entry>"}``, so the licence is scoped per film,
+# and the film's sources page carries the ShareAlike attribution. Every such asset is journaled as a decision.
+LICENCE_SHARE_ALIKE = re.compile(r"^cc[- ]?by[- ]?sa([- ][1-4]\.0)?$", re.I)
+
+
+def share_alike_declared(play: dict | None) -> tuple[bool, list[str]]:
+    """Whether the film allows CC BY-SA (``share_alike`` with a ``decision``
+    naming its DECISIONS entry), and what is wrong with the declaration."""
+    d = (play or {}).get("share_alike")
+    if d is None:
+        return False, []
+    if not isinstance(d, dict):
+        return False, ["share_alike must be an object: {decision: \"docs/DECISIONS.md <date>: <title>\"}"]
+    dec = d.get("decision")
+    if not (isinstance(dec, str) and "DECISIONS" in dec and dec.strip()):
+        return False, ["share_alike.decision must name the film's docs/DECISIONS.md entry"]
+    return True, []
+
+
+def licence_allowed(lic: str, play: dict | None = None) -> tuple[bool, bool]:
+    """(allowed, share_alike): the house allowlist, or CC BY-SA in a film that declares it (share_alike_declared)."""
+    lic = str(lic or "").strip()
+    if LICENCE_OK.match(lic):
+        return True, False
+    if LICENCE_SHARE_ALIKE.match(lic):
+        return share_alike_declared(play)[0], True
+    return False, False
 PRESETS = {                         # GRAMMAR 7.2, zoom relative to the largest 16:9 window
     "HOLD": ({"z": 1.0}, {"z": 1.0}),
     "PUSH": ({"z": 1.0}, {"z": 1.12}),
@@ -1397,6 +1425,10 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     if rule["declared"]:
         lint("imagery-rule-declared", not rule_problems, unit="imagery_rule", grammar="A21",
              evidence={"rule": rule, "problems": rule_problems})
+    if play.get("share_alike") is not None:
+        sa_ok, sa_problems = share_alike_declared(play)
+        lint("share-alike-declared", sa_ok, unit="share_alike", grammar="1.2",
+             evidence={"share_alike": play.get("share_alike"), "problems": sa_problems})
     settings, settings_stated, settings_problems = POL.film_settings(play)
     if play.get("settings") is not None:
         lint("film-settings", not settings_problems, unit="settings", grammar="A25",
@@ -1452,7 +1484,15 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             if not ok:
                 continue
             lic = str(item.get("licence") or "")
-            lint("licence-allowlist", bool(LICENCE_OK.match(lic.strip())), unit=s["id"], evidence={"licence": lic}, grammar="1.2")
+            lic_ok, sa = licence_allowed(lic, play)
+            lint("licence-allowlist", lic_ok, unit=s["id"], grammar="1.2",
+                 evidence={"licence": lic, **({"share_alike": (play.get("share_alike") or {}).get("decision") if lic_ok else
+                                               "CC BY-SA needs the film's share_alike declaration (its DECISIONS entry)"}
+                                              if sa else {})})
+            if lic_ok and sa:
+                journal.decision("scout", f"{s['id']}: {s['asset']} is {lic}", "CC BY-SA allowed for this film only: "
+                                 + str(play["share_alike"]["decision"]), unit=s["id"],
+                                 evidence={"asset": s["asset"], "licence": lic, "attribution": "ShareAlike, on the sources page"})
             # A21 (E3): the film's imagery rule on the asset's content flags. Under the default rule this is the
             # Partition lint exactly: no-bodies, shows_bodies (or the older shows_violence_or_bodies) stated false.
             for c in POL.asset_checks(item, rule):
@@ -2056,7 +2096,7 @@ def archival_lints(lint, film: Path, play: dict, shots: list[dict], lines: list[
             why.append(f"clip {ln['clip']!r} is in no ledger")
         else:
             lic = str(item.get("licence") or "")
-            if not LICENCE_OK.match(lic.strip()):
+            if not licence_allowed(lic, play)[0]:
                 why.append(f"licence {lic!r} is not on the allowlist")
             if not path or not Path(path).exists():
                 why.append("the clip's file is missing")
@@ -3902,23 +3942,30 @@ def load_narrator_profile(narrator_voice: dict | None, path: Path | None = None)
     the stored variant of that voice with the same shift (``variants``), made
     from the approved audition takes shifted the same way. A declared shift
     with no stored variant has no reference (a review item), never the
-    unshifted profile; an undeclared voice is held to the unshifted one."""
+    unshifted profile; an undeclared voice is held to the unshifted one.
+    A variant may also be another voice (a film's narrator chosen by the
+    founder: Zoe for "Real World", 2026-10-16): the reference is the stored
+    entry whose engine, voice and shift all match the film's narrator."""
     path = NARRATOR_PROFILE if path is None else path
     if not path or not Path(path).exists():
         return None, f"no stored profile at {path}"
     prof = json.loads(Path(path).read_text(encoding="utf-8"))
-    want = {k: (narrator_voice or {}).get(k) for k in ("engine", "voice")}
-    have = {k: (prof.get("voice") or {}).get(k) for k in ("engine", "voice")}
-    if want != have:
-        return None, f"the stored profile is {have['engine']}:{have['voice']}, the film's narrator is {want['engine']}:{want['voice']}"
+    cands = [prof] + list(prof.get("variants") or [])
+    key = lambda v: {k: (v or {}).get(k) for k in ("engine", "voice")}
+    want = key(narrator_voice)
+    if not any(key(c.get("voice")) == want for c in cands):
+        have = key(prof.get("voice"))
+        stored = sorted({f"{key(c.get('voice'))['engine']}:{key(c.get('voice'))['voice']}" for c in cands})
+        return None, (f"the stored profile is {have['engine']}:{have['voice']}, the film's narrator is "
+                      f"{want['engine']}:{want['voice']} (stored voices: {', '.join(stored)})")
     shift = _voice_shift(narrator_voice)
     if shift != shift:                                       # NaN: not a number
         return None, f"the narrator's pitch_shift_st {(narrator_voice or {}).get('pitch_shift_st')!r} is not a number"
-    for cand in [prof] + list(prof.get("variants") or []):
+    for cand in cands:
         cv = cand.get("voice") or {}
-        if {k: cv.get(k) for k in ("engine", "voice")} == have and _voice_shift(cv) == shift:
+        if key(cv) == want and _voice_shift(cv) == shift:
             return cand, f"drift reference {Path(path).name} ({_voice_name(cv)})"
-    stored = ", ".join(_voice_name(c.get("voice") or {}) for c in [prof] + list(prof.get("variants") or []))
+    stored = ", ".join(_voice_name(c.get("voice") or {}) for c in cands)
     return None, (f"the film's narrator is {_voice_name(dict(want, pitch_shift_st=shift))}; the stored profiles are "
                   f"{stored}: none has that shift")
 
