@@ -1,0 +1,163 @@
+{
+ "ledger": "title-sequence assets: Title B, Chart",
+ "checked": "2026-10-17",
+ "design": "reports/briefs/document-title-and-score-design.md (agentique) 2.1, 2.3, 7",
+ "records": {
+  "S-130": {
+   "film": "Not a Free Agent (Partition)",
+   "as_of": "1950-04-08",
+   "ledger": "C:/Users/aacri/document-work/partition/stills-ledger.json",
+   "file": "C:/Users/aacri/document-work/partition/stills/S-130.png",
+   "cls": "ARCHIVE",
+   "label": "Archive · 1947",
+   "year": "1947",
+   "sha256": "43e78a54d710948c81026ed6bcc41d9d6d62fded06d0cf3f31d9777fd011222d"
+  },
+  "S-16928": {
+   "film": "The Next Village (smallpox)",
+   "as_of": "1980-05-08",
+   "ledger": "C:/Users/aacri/document-work/smallpox/stills-ledger.json",
+   "file": "C:/Users/aacri/document-work/smallpox/stills/S-16928.jpg",
+   "cls": "ARCHIVE",
+   "label": "Archive · 1976",
+   "year": "1976",
+   "sha256": "8c78566b202efe638fc5f71cd0d1526e4f1c5ded06ed34ffa4f6fb40920dba98"
+  },
+  "C20-METAR-0851": {
+   "film": "September 11",
+   "as_of": "2001-09-11",
+   "ledger": "C:/Users/aacri/document-work/sept11/facts-ledger.json (C20)",
+   "file": "C:/Users/aacri/document-work/sept11/scout/period/c-metar-20010911-iem.csv",
+   "rows": [
+    "NYC,2001-09-11 08:51",
+    "LGA,2001-09-11 08:51",
+    "JFK,2001-09-11 08:51",
+    "DCA,2001-09-11 08:51"
+   ],
+   "cls": "DRAWN",
+   "label": "Drawn · 2001",
+   "year": "2001",
+   "note": "A text record (NWS METAR rows, PD 17 USC 105), not a scan. Set as a typeset DRAWN page (GRAMMAR 113: a document the studio typeset is DRAWN with the source id), so beat 11's cut is DRAWN to DRAWN and the safelight does not surface for this film. Founder decision needed: keep it, or a scanned weather record of the morning.",
+   "sha256": "dabd0dface4bf6e1adcc747a626009f57aa6c55e57218eb33d930c2d718aedf3"
+  }
+ },
+ "records_from": "design/title-sequence/assets-ledger.json (same files, same sha256)",
+ "media_root": "D:/document-media/title-sequence/chart",
+ "studio": {
+  "world": "uniform 18% grey, no HDRI (procedural)",
+  "lamp": "one area lamp, 4300 K, above and left (procedural)",
+  "paper_fibre": "bump from the C-01 scan's own paper (high-passed luminance in the shader) plus a procedural fibre noise; no fibre image beyond C-01"
+ },
+ "rule": "no AI pixels; every image datablock in the Chart .blend names an item here or a film's record",
+ "items": [
+  {
+   "id": "C-01",
+   "use": "texture",
+   "beats": [
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11
+   ],
+   "title": "Herman Moll, A New and Correct Map of the Whole World (Mercator projection)",
+   "date": "1719 (engraved date on the cartouche)",
+   "content_date": "1719",
+   "module_date": "1719",
+   "holder": "The New York Public Library, Lionel Pincus and Princess Firyal Map Division (image ID 1630430)",
+   "basis_object": "the object itself: the 1719 sheet as NYPL scanned it, byte for byte; the studio only crops off the scan's ground",
+   "class": "archive",
+   "licence": "CC0",
+   "basis": "NYPL Digital Collections public-domain release; the same NYPL file on Wikimedia Commons carries 'Creative Commons CC0 1.0 Universal Public Domain Dedication' (LicenseShortName CC0)",
+   "credit": "Herman Moll, 1719. The New York Public Library, Lionel Pincus and Princess Firyal Map Division",
+   "source_url": "https://images.nypl.org/index.php?id=1630430&t=g",
+   "source_page": "http://digitalgallery.nypl.org/nypldigital/dgkeysearchdetail.cfm?imageID=1630430",
+   "commons_page": "https://commons.wikimedia.org/wiki/File:A_new_and_correct_map_of_the_whole_world,_shewing_ye_situation_of_its_principal_parts._..._according_to_the_newest_and_most_exact_observations_-_by_Herman_Moll,_geographer,_1719._NYPL1630430.jpg",
+   "ext": ".jpg",
+   "people_on_screen": false,
+   "note": "The design's Arrowsmith 1790 chart is replaced by this map (founder ruling 7.2, 2026-10-17). The cartouche figures are engraved allegories, not photographs of people.",
+   "original": "D:/document-media/title-sequence/chart/originals/C-01.jpg",
+   "bytes": 14693260,
+   "sha256": "f8a3980ce6195fe03972b0e2fa993e9cef5bb0b34ca80bd9dddccc3104d9221c",
+   "width": 8523,
+   "height": 5083,
+   "ai": false,
+   "commons_size": [
+    8525,
+    5069
+   ],
+   "commons_sha1": "7c2a83f0625eed1086f610267be6e3e852ef1f71",
+   "licence_evidence": "https://commons.wikimedia.org/wiki/File:A_new_and_correct_map_of_the_whole_world,_shewing_ye_situation_of_its_principal_parts._..._according_to_the_newest_and_most_exact_observations_-_by_Herman_Moll,_geographer,_1719._NYPL1630430.jpg read 2026-10-17; API response saved as D:\\document-media\\title-sequence\\chart\\evidence\\C-01.commons.json"
+  },
+  {
+   "id": "C-02",
+   "use": "texture",
+   "beats": [
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ],
+   "title": "Poly Haven, Oak Wood Planks (varnished planks, 1.2 m x 1.2 m), by Dimitrios Savva",
+   "date": "scanned surface (modern photograph of a plain planked top)",
+   "content_date": "form",
+   "module_date": "form",
+   "holder": "Poly Haven",
+   "basis_object": "form: a plain planked wooden top with no modern hardware in frame (design 2.1)",
+   "class": "texture",
+   "licence": "CC0",
+   "basis": "Poly Haven licence page: every asset is CC0; api.polyhaven.com/info/oak_wood_planks read 2026-10-17",
+   "credit": "Dimitrios Savva, Poly Haven (CC0)",
+   "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/4k/oak_wood_planks/oak_wood_planks_diff_4k.jpg",
+   "source_page": "https://polyhaven.com/a/oak_wood_planks",
+   "maps": {
+    "diff": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/4k/oak_wood_planks/oak_wood_planks_diff_4k.jpg",
+    "nor_gl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/4k/oak_wood_planks/oak_wood_planks_nor_gl_4k.jpg",
+    "rough": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/4k/oak_wood_planks/oak_wood_planks_rough_4k.jpg"
+   },
+   "md5": {
+    "diff": "afdebae04b31a4f77ca878d9c8292daa",
+    "nor_gl": "6afff3c8f29ac342026db49f12e1c1fe",
+    "rough": "e9a7285184bc6d77d4715756bdb9c542"
+   },
+   "ext": ".jpg",
+   "people_on_screen": false,
+   "size_m": [
+    1.2,
+    1.2
+   ],
+   "original": "D:/document-media/title-sequence/chart/originals/C-02_diff.jpg",
+   "bytes": 10094919,
+   "sha256": "aadbd93033fdfd15d875e85ce7da3558a8375ea282e55d6c3a3dd4ce5272f483",
+   "files": {
+    "diff": {
+     "original": "D:/document-media/title-sequence/chart/originals/C-02_diff.jpg",
+     "bytes": 10094919,
+     "sha256": "aadbd93033fdfd15d875e85ce7da3558a8375ea282e55d6c3a3dd4ce5272f483"
+    },
+    "nor_gl": {
+     "original": "D:/document-media/title-sequence/chart/originals/C-02_nor_gl.jpg",
+     "bytes": 10862907,
+     "sha256": "fa16cba89c558836fa166f12a7e54df856de475e5e76fa157ed2d33cec4658a0"
+    },
+    "rough": {
+     "original": "D:/document-media/title-sequence/chart/originals/C-02_rough.jpg",
+     "bytes": 11941408,
+     "sha256": "4619e7936a4e123e0ce951a308086348d003865154efc47737c7ee2ee2cad086"
+    }
+   },
+   "width": 4096,
+   "height": 4096,
+   "ai": false,
+   "licence_evidence": "D:\\document-media\\title-sequence\\chart\\evidence\\C-02.polyhaven-info.json (api.polyhaven.com/info/oak_wood_planks, read 2026-10-17); https://polyhaven.com/license"
+  }
+ ]
+}
