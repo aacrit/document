@@ -137,3 +137,39 @@ def test_shot_key_names_the_sampling(plan):
         assert R.shot_key(plan, 2, {}) != a
     finally:
         M.RESAMPLE = old
+
+
+def _line_centroid_error(still_size, col, kw):
+    """A one-pixel bright column at image column ``col`` (a 64 field, 192 line):
+    how far its centroid in the frame lies from where the window maps it, in frame pixels."""
+    iw, ih = still_size
+    a = np.full((ih, iw), 64, np.uint8)
+    a[:, col] = 192
+    pic = np.asarray(M.fit_still(Image.fromarray(a).convert("RGB"), L, **kw).convert("L"), np.float64)
+    src, dst = M.still_view(still_size, L, **kw)
+    if dst == (0.0, 0.0, float(W), float(H)):
+        dx0, dw = 0.0, float(W)
+    else:                                                    # fit_still draws src into the rounded dst
+        dx0 = float(round(dst[0]))
+        dw = float(round(dst[2])) - dx0
+    ideal = dx0 + (col + 0.5 - src[0]) * dw / (src[2] - src[0]) - 0.5      # frame pixel index (centre at +0.5)
+    k = int(round(ideal))
+    xs = np.arange(max(0, k - 8), min(W, k + 9))
+    y = int(round((dst[1] + dst[3]) / 2)) if dst[1] > 0 else H // 2
+    w = pic[y, xs] - 64.0
+    return float((w * xs).sum() / w.sum()) - ideal
+
+
+def test_fit_still_geometry_a_thin_line_lands_within_a_quarter_pixel():
+    """The line's centroid against the window's own mapping, at sub-pixel positions:
+    a fill at z 1, a z 1.5 stop off centre, and a pillarboxed whole portrait."""
+    cases = [((1000, 562), dict(z=1.0, clamp="frame")),
+             ((1000, 562), dict(z=1.5, cx=0.37, cy=0.6, clamp="image")),
+             ((600, 800), dict(z=1.0, clamp="native"))]
+    for size, kw in cases:
+        src, _ = M.still_view(size, L, **kw)
+        lo, hi = src[0] + 20, src[2] - 20
+        for k in range(9):                                   # columns at many phases against the frame grid
+            col = int(lo + (hi - lo) * (k + 0.5) / 9) + k % 3
+            err = _line_centroid_error(size, col, kw)
+            assert abs(err) <= 0.25, (size, kw, col, err)
