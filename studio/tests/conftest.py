@@ -36,8 +36,43 @@ def pytest_configure(config):
         import tempfile
         key = hashlib.sha256(str(ROOT).lower().encode()).hexdigest()[:10]
         root = Path(tempfile.gettempdir()) / f"document-studio-tests-{key}"
+        prune_orphan_roots(root.parent, keep=root)
         root.mkdir(parents=True, exist_ok=True)
+        (root / ROOT_MARKER).write_text(str(ROOT), encoding="utf-8")
         os.environ["PYTEST_DEBUG_TEMPROOT"] = str(root)
+
+
+ROOT_MARKER = "worktree.txt"
+UNMARKED_MAX_AGE_S = 24 * 3600
+
+
+def prune_orphan_roots(parent: Path, keep: Path, now: float | None = None) -> list[Path]:
+    """Remove the temp roots of worktrees that no longer exist. Every worktree
+    gets its own root (above) and each holds a rendered fixture film, so roots
+    outlived their removed worktrees and filled C: (backlog 2026-10-17). A root
+    names its worktree in ``worktree.txt``; it goes when that path is gone. A
+    root from before the marker goes once it is a day untouched (any live
+    worktree writes its marker on its next run). Passing sessions inside a live
+    root are removed by pytest itself (``tmp_path_retention_policy = failed``
+    in pytest.ini)."""
+    import time
+    now = time.time() if now is None else now
+    gone = []
+    for r in parent.glob("document-studio-tests-*"):
+        if r == keep or not r.is_dir():
+            continue
+        marker = r / ROOT_MARKER
+        try:
+            if marker.is_file():
+                orphan = not Path(marker.read_text(encoding="utf-8").strip()).exists()
+            else:
+                orphan = now - r.stat().st_mtime > UNMARKED_MAX_AGE_S
+        except OSError:
+            continue
+        if orphan:
+            shutil.rmtree(r, ignore_errors=True)
+            gone.append(r)
+    return gone
 
 
 @pytest.fixture(scope="session", autouse=True)
