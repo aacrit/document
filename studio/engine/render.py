@@ -1169,7 +1169,7 @@ def credits_blocks(plan: dict) -> list:
     if titles:                  # A40: the series titles, drawn from period records; every CC BY input is attributed
         prov, _, _ = TS.provenance(titles[0].get("_item") or {})
         items = TS.provenance_items(prov)
-        series = wrap(f"{TS.SERIES}: drawn by the studio from {len(items)} period records, no AI; every record on the "
+        series = wrap(f"{TS.SERIES}: drawn from {len(items)} period records, no AI; every record on the "
                       "sources page")
         for x in items:
             if (TS.licence_rank(x.get("licence")) or 0) >= 2:
