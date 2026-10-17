@@ -47,11 +47,10 @@ def test_the_glyph_sits_bottom_right_inside_title_safe(W, H):
 
 
 @pytest.mark.parametrize("W, H", SIZES)
-@pytest.mark.parametrize("arriving", [False, True])
-def test_the_label_stays_in_its_zone_clear_of_subtitles_overlays_lower_thirds_and_the_watermark(W, H, arriving):
+@pytest.mark.parametrize("reveal", [1.0, 0.3])
+def test_the_label_stays_in_its_zone_clear_of_subtitles_overlays_lower_thirds_and_the_watermark(W, H, reveal):
     L = M.Layout(W, H)
-    dx = M.LABEL["drift"] * L.px(M.LABEL["size"]) if arriving else 0.0      # at its first frame it is nearest the glyph
-    tile, (x, y) = M._label_tile(L, LONG, 1.0, dx, FONTS)
+    tile, (x, y) = M._label_tile(L, LONG, 1.0, reveal, FONTS)                # A42: whole, or partly grown out of the glyph
     bx0, by0, bx1, by1 = _alpha_box(tile)
     x0, y0, x1, y1 = x + bx0, y + by0, x + bx1, y + by1                         # every pixel the label touches, shadow too
     gx, _ = M.glyph_origin(L)
@@ -145,7 +144,7 @@ def test_the_ai_label_keeps_a16s_size_and_opacity_and_stays_in_the_zone(W, H):
     assert M.label_type("AI-GENERATED") == (1.85, 0.72) and M.label_type("ARCHIVE") == (1.6, 0.6)
     text = M.mark_label("AI-GENERATED", None, "context")
     assert M.label_check(L, text, FONTS, "AI-GENERATED") > M.label_check(L, text, FONTS, "DRAWN")
-    tile, (x, y) = M._label_tile(L, text, 1.0, 0.0, FONTS, "AI-GENERATED")
+    tile, (x, y) = M._label_tile(L, text, 1.0, 1.0, FONTS, "AI-GENERATED")
     bx0, by0, bx1, by1 = _alpha_box(tile)
     gx, _ = M.glyph_origin(L)
     assert x + bx1 < gx and y + by0 >= M.SUB["bottom"] / 100 * H and y + by1 <= 0.965 * H

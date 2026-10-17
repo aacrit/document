@@ -143,6 +143,7 @@ Hooke's law with viscous damping, solved in closed form, so every frame is a fun
 |---|---|---|
 | Lower third | flag and rule at 0 (`stamp`); name +4 fr, role +8, source +12 (`settle`, rise 0.8% of height); settled by frame 23 | last 12 fr, ease-in-quad, all together; rule shrinks to its anchor |
 | Mark plate | hard swap on the cut frame; class change: 4-frame linear crossfade | with the cut |
+| Provenance label (A42, section 12a) | grows leftward out of the glyph on `whisper` (a reveal, the opacity rising with it); holds 2.0 s | folds back into the glyph over 0.75 s on `let_go`; grows again 40 s later within a long shot |
 | Chapter card | dip to black (12 fr or more) first; number and title rise 0.6% of height on `arrive`; the centred rule (6% of width) grows from its middle on `drift` from +0.10 s; the dates on `settle` from +0.25 s | 10 fr (0.4 s) ease-in-quad fade, then a cut |
 | Record-is-silent card | no movement: line 1 fades in over 18 fr (0.75 s, ease-out-sine); the Searched line follows 8 fr later | both fade over 18 fr, ease-in-sine; at least 4 s on screen |
 | Title card | the title on `arrive` (rise 0.6% of height); `void document` on `settle` 0.4 s later | 16 fr (0.67 s) ease-in-quad; 5 s on screen |
@@ -336,6 +337,20 @@ The YouTube branding watermark (section 3, "On YouTube") is withdrawn: YouTube d
 | AI-GENERATED | unchanged (11a, 11b): full from the cut frame and up for the whole shot, whatever came before; counted once per change for the rate |
 | Rate | at most one surfacing per 15 s of film, over the film (n at most the duration over 15 s, rounded up), and at most 4 in any 60 s; a guide, not a rule (GRAMMAR A39 refined): the `label-rate` lint counts them, reports them per minute and the busiest minute, and past either cap journals a warning and a reviewer item; it never refuses |
 | Empty AI label | refused at plan time (`ai-label`) |
+
+### 12a. The dot speaks (2026-10-17, founder; GRAMMAR A42)
+
+The founder: "the dot (class glyph, bottom right) is the only source indicator. Its label grows out of the dot, lingers, then folds back into it. On a long clip it animates again after an interval." What now wins over section 12's In and Out rows and its "A label that has gone does not come back": the label is part of the dot. It grows leftward out of the glyph (a reveal anchored at the glyph, its opacity rising with it), holds, and folds back into the glyph, the mirror of the grow; the glyph never moves. Within a shot that carries a label, the label grows again once 40 s have passed since its class and year last surfaced, wherever that was (the clock runs across cards and shots that showed the glyph alone), but only when its whole grow, hold and fold ends at least 1 s before the shot's cut, and never on a cut that repeats class and year (it grows 1 s into the shot instead). Founder ruling, 2026-10-17, confirming the re-grow as built: it applies to any long shot, stills too, and the 40 s clock runs across cuts that keep class and year. When it first surfaces (section 12's Behaviour rows), the AI-GENERATED label (full and up for the whole shot, never folding), the CARD ring (no label), the glyph's crossfade on a class change, its size, position, shadow and opacity are unchanged. The site's player draws no tag of its own over the film (release/2026.10.17-2): the dot is the only source indicator in the picture. `motion.LABEL` holds the numbers; `motion.label_reveal` and `label_repeats` draw them.
+
+| | Value |
+|---|---|
+| Grow | out of the glyph, leftward, on `whisper` (section 6): 0.357 s; the reveal's soft edge is 0.35 em; never wider than the words |
+| Linger | 2.0 s (`LABEL.hold`) |
+| Fold | back into the glyph over 0.75 s on `let_go` (`LABEL.exit`), the reveal and the opacity together |
+| Whole label | 3.11 s from the start of the grow to the end of the fold |
+| Repeat | 40 s after the last surfacing of the class and year (`LABEL.repeat_s`), inside a labelled shot, if the whole label ends 1 s (`LABEL.repeat_tail`) before the cut; never on a same-class cut frame (1 s in instead); counted by the `label-rate` guide |
+
+Do: let a long clip or a held still remind the viewer where it came from, once every 40 s. Don't: move the glyph; let the label slide in from elsewhere; bring the label up at a cut that repeats class and year; fold the AI-GENERATED label.
 
 ### The key card: "What the marks mean"
 

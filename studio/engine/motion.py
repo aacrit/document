@@ -341,9 +341,13 @@ LT = dict(                 # lower third (A16: quieter than the G2 kit in size, 
 )
 # A16's lower third is on screen for at most its arrival, LT.hold and its departure, whatever the screenplay's end.
 LT_MAX_S = 3 * LT["stagger"] + WHISPER.settle_time() + LT["hold"] + LT["exit"]
-# A16: the provenance label and the class glyph. The label ("Archive · 1947") surfaces on `whisper`, holds and is
-# let go; the glyph (a small mark in the class hue) stays on every frame. A31 (R2, founder 2026-10-11): bottom right,
-# smaller and fainter, and the label surfaces only when the class or the year changes (BRAND-KIT 12).
+# A16: the provenance label and the class glyph. The glyph (a small mark in the class hue) stays on every frame.
+# A31 (R2, founder 2026-10-11): bottom right, smaller and fainter, and the label surfaces only when the class or the
+# year changes (BRAND-KIT 12). A42 (founder, 2026-10-17: "the dot is the only source indicator. Its label grows out
+# of the dot, lingers, then folds back into it. On a long clip it animates again after an interval"): the label grows
+# leftward out of the glyph (a reveal anchored at the glyph, on `whisper`, its opacity rising with it), holds
+# LABEL.hold, folds back into the glyph over LABEL.exit (the mirror, on let_go), and within one shot that keeps its
+# class and year it grows again LABEL.repeat_s after the last surfacing (BRAND-KIT 12a).
 LABEL = dict(
     right=4.0,             # % of W from the frame's right edge to the glyph box's right edge (the watermark's right inset)
     bottom=5.0,            # % of H from the frame's bottom edge to the glyph box's bottom edge (the watermark's top inset)
@@ -352,12 +356,14 @@ LABEL = dict(
     size=1.6,              # % of H, the label's text (17 px at 1080p, 12 at 720p; A16 was 1.85, the G2 plate 3.1)
     gap=0.55,              # em of the label's size between the text and the glyph
     alpha=0.6,             # the label text's opacity (A16 was 0.72; the G2 plate's text was opaque on a 60% scrim)
-    drift=0.25,            # em: the text surfaces this far toward the glyph (to the right of its rest) as it arrives
+    feather=0.35,          # em: the soft edge of the reveal (A42), so the fold reads as a fold, not a wipe's hard line
     shadow=0.42,           # alpha of the soft black shadow under the text and around the glyph (no box)
     blur=0.11,             # % of H, the shadow's blur radius
     halo=0.12,             # % of H, the dark contact ring around the glyph (at least 1 px)
     hold=2.0,              # s the label holds after it has surfaced (A16 was 3.0)
-    exit=0.75,             # s, its departure (let_go)
+    exit=0.75,             # s, its fold back into the glyph (let_go)
+    repeat_s=40.0,         # s (A42): within one shot of one class and year the label grows again this long after it last did
+    repeat_tail=1.0,       # s (A42): a repeat folds at least this long before the shot's cut, or it is not made
     fade=4 / 24,           # s, the glyph's linear crossfade when the class changes (GRAMMAR 4.1, 4 frames)
 )
 LABEL_MAX_S = WHISPER.settle_time() + LABEL["hold"] + LABEL["exit"]
@@ -802,6 +808,23 @@ def _glyph_layer(W: int, H: int, cls: str) -> Image.Image:
 LABEL_STAYS = {"AI-GENERATED"}       # A16 refined (CoS, T1e review): this label never fades; it stays the whole shot
 
 
+def label_reveal(t: float, start: float, cls: str | None = None) -> float:
+    """A42: how much of the label has grown out of the glyph (0..1, the
+    share of its width shown, anchored at the glyph): it grows on `whisper`
+    (clamped, so never wider than the label), holds, and folds back over
+    LABEL.exit on let_go, the mirror of the grow. An AI-GENERATED label is
+    whole from the cut frame and never folds (a truth label)."""
+    if t < start:
+        return 0.0
+    if cls in LABEL_STAYS:
+        return 1.0
+    u = t - start
+    if u >= LABEL_MAX_S:
+        return 0.0
+    grow = 1.0 if u >= WHISPER.settle_time() else clamp01(WHISPER.progress(u))
+    return grow * let_go(u, LABEL_MAX_S, LABEL["exit"])
+
+
 def label_alpha(t: float, start: float, cls: str | None = None) -> float:
     """The label's opacity factor (0..1) at ``t`` for a label that surfaced at
     ``start``: up on `whisper`, held LABEL.hold s, let go over LABEL.exit s;
@@ -833,6 +856,27 @@ def mark_key(shot: dict) -> tuple[str, str | None]:
     return shot["cls"], (str(y) if y not in (None, "") else None)
 
 
+def label_repeats(s: dict, last: float, *, at_cut: bool = False) -> list[float]:
+    """A42: the times within shot ``s`` (with an ``end``) that its label grows
+    again: due LABEL.repeat_s after the last surfacing of its class and year
+    (``last``, maybe shots and cards ago), never on or within
+    LABEL.repeat_tail after a cut that repeats them (``at_cut``: the shot did
+    not surface at its own cut; the label grows that long into the shot
+    instead), then every LABEL.repeat_s; each only when its whole grow, hold
+    and fold ends LABEL.repeat_tail before the shot's cut."""
+    end = s.get("end")
+    if end is None:
+        return []
+    r = last + LABEL["repeat_s"]
+    if at_cut:
+        r = max(r, s["start"] + LABEL["repeat_tail"])
+    out = []
+    while r + LABEL_MAX_S <= float(end) - LABEL["repeat_tail"] + 1e-9:
+        out.append(r)
+        r += LABEL["repeat_s"]
+    return out
+
+
 def label_plan(shots) -> list[dict]:
     """Per shot (``shots`` sorted by start): ``start``, when the label it
     shows surfaced (None: glyph only), and ``surfaces``, whether it surfaces
@@ -843,12 +887,17 @@ def label_plan(shots) -> list[dict]:
     the label already up runs on, its words swapped on the cut frame (within
     a class the swap is hard, BRAND-KIT 5), and lets go on its own time. An
     AI-GENERATED shot is labelled for the whole shot, from its cut frame,
-    whatever came before (A16 refined: the class is never hidden)."""
+    whatever came before (A16 refined: the class is never hidden). A42: a
+    shot that states its ``end`` also has ``repeats``, the times its label
+    grows again (``label_repeats``), counted from the last surfacing of its
+    class and year wherever that was, across cards and shots that showed the
+    glyph alone; ``times`` is ``start`` and the repeats."""
     out: list[dict] = []
     prev_key = None
+    last: dict = {}                              # A42: the last time each class and year's label grew
     for k, s in enumerate(shots):
         if s["cls"] == "CARD" or not s.get("label"):
-            out.append({"start": None, "surfaces": False})
+            out.append({"start": None, "surfaces": False, "repeats": [], "times": []})
             continue
         key = mark_key(s)
         surfaces = prev_key is None or key != prev_key
@@ -856,8 +905,16 @@ def label_plan(shots) -> list[dict]:
         if s["cls"] in LABEL_STAYS or surfaces:
             start = s["start"]
         elif k > 0 and out[k - 1]["start"] is not None and shots[k - 1]["cls"] != "CARD" and shots[k - 1].get("label"):
-            start = out[k - 1]["start"]          # the same class and year across a cut: the label runs on
-        out.append({"start": start, "surfaces": surfaces})
+            start = out[k - 1]["times"][-1]      # the same class and year across a cut: the label runs on
+        reps = []
+        if s["cls"] not in LABEL_STAYS:
+            since = s["start"] if surfaces else last.get(key, start)
+            if since is not None:
+                reps = label_repeats(s, since, at_cut=not surfaces)
+        times = ([start] if start is not None else []) + reps
+        if surfaces or reps:
+            last[key] = times[-1]
+        out.append({"start": start, "surfaces": surfaces, "repeats": reps, "times": times})
         prev_key = key
     return out
 
@@ -869,10 +926,22 @@ def label_starts(shots) -> list[float | None]:
     return [e["start"] for e in label_plan(shots)]
 
 
+def label_times(shots) -> list[list[float]]:
+    """Per shot, every time the label it shows grew (A42: the run-on or
+    surfacing start, then its repeats)."""
+    return [e["times"] for e in label_plan(shots)]
+
+
 def label_surfacings(shots) -> list[float]:
-    """The times a label surfaces in the film (A31), for the label-rate lint."""
+    """The times a label surfaces in the film (A31) and grows again (A42), for
+    the label-rate lint."""
     ss = sorted(shots, key=lambda s: s["start"])
-    return [s["start"] for s, e in zip(ss, label_plan(ss)) if e["surfaces"]]
+    out = []
+    for s, e in zip(ss, label_plan(ss)):
+        if e["surfaces"]:
+            out.append(s["start"])
+        out += e["repeats"]
+    return out
 
 
 def mark_state(t: float, shots) -> dict | None:
@@ -880,7 +949,7 @@ def mark_state(t: float, shots) -> dict | None:
     ``cls`` and ``label``. Returns the class, the outgoing class and the
     glyph's crossfade weight, and the label with its opacity factor."""
     ss = sorted(shots, key=lambda s: s["start"])
-    starts = label_starts(ss)
+    times = label_times(ss)
     cur = prev = None
     for k, s in enumerate(ss):
         if s["start"] <= t:
@@ -891,26 +960,43 @@ def mark_state(t: float, shots) -> dict | None:
     p = ss[prev] if prev is not None else None
     u = (t - s["start"]) / LABEL["fade"]
     mix = clamp01(u) if (p is not None and p["cls"] != s["cls"] and u < 1.0) else 1.0
-    la = label_alpha(t, starts[cur], s["cls"]) if starts[cur] is not None else 0.0
+    began = [u for u in times[cur] if u <= t + 1e-9]
+    start = began[-1] if began else (times[cur][0] if times[cur] else None)
+    la = label_alpha(t, start, s["cls"]) if start is not None else 0.0
+    rv = label_reveal(t, start, s["cls"]) if start is not None else 0.0
     return {"cls": s["cls"], "prev_cls": p["cls"] if p is not None else None, "mix": mix,
-            "label": s.get("label") or "", "label_alpha": la, "label_start": starts[cur]}
+            "label": s.get("label") or "", "label_alpha": la, "label_reveal": rv, "label_start": start}
 
 
 
-def _label_tile(L: Layout, text: str, alpha: float, dx: float, fonts: Fonts,
+def label_reveal_span(L: Layout, text: str, reveal: float, fonts: Fonts, cls: str | None = None) -> tuple[float, float]:
+    """A42: the span (x0, x1, px) of the label's words shown at ``reveal``:
+    anchored at the words' right end, next to the glyph, and ``reveal`` of
+    their width leftward; never wider than the words."""
+    size, _ = label_type(cls)
+    px = L.px(size)
+    w = _measure(text, _font(fonts.structure, px), _font(fonts.data, max(1, round(px * 0.94))))
+    right = label_right(L, cls)
+    return right - clamp01(reveal) * w, right
+
+
+def _label_tile(L: Layout, text: str, alpha: float, reveal: float, fonts: Fonts,
                 cls: str | None = None) -> tuple[Image.Image, tuple[int, int]]:
     """The label's words left of the glyph, set flush right against it (A31),
     near-white at LABEL.alpha over a soft black shadow (no box), numerals in
     the data face, drawn and blurred on a crop around the words only, and the
     frame pixel the crop lands on. The crop stops short of the glyph's tile,
-    so the label never touches a pixel the mark-coverage lint reads."""
+    so the label never touches a pixel the mark-coverage lint reads. A42:
+    only ``reveal`` of the words' width shows, grown out of the glyph leftward
+    (``label_reveal_span``, with a soft LABEL.feather edge to its left); at 1
+    it is the whole label, shadow included."""
     from PIL import ImageFilter
     size, opacity = label_type(cls)
     px = L.px(size)
     f_txt = _font(fonts.structure, px)
     f_num = _font(fonts.data, max(1, round(px * 0.94)))
     gx, _ = glyph_origin(L)
-    x = label_right(L, cls) - _measure(text, f_txt, f_num) + dx
+    x = label_right(L, cls) - _measure(text, f_txt, f_num)
     baseline = label_baseline(L, cls)
     sh_alpha, sh_blur, sh_gain = label_shadow(cls)
     radius = max(1.0, L.h(sh_blur))
@@ -928,6 +1014,14 @@ def _label_tile(L: Layout, text: str, alpha: float, dx: float, fonts: Fonts,
     out = Image.new("RGBA", words.size, (0, 0, 0, 0))
     out.putalpha(Image.fromarray(sh.astype(np.uint8)))
     out.alpha_composite(words)
+    if reveal < 1.0:
+        # the reveal, measured on the words (label_reveal_span): every pixel from its left edge to the glyph shows,
+        # and a soft ramp of LABEL.feather em leftward of the edge carries the words' shadow; nothing further left
+        edge, _ = label_reveal_span(L, text, reveal, fonts, cls)
+        feather = max(1.0, LABEL["feather"] * px)
+        m = np.clip((np.arange(out.width, dtype=np.float32) + x0 + 0.5 - (edge - feather)) / feather, 0.0, 1.0)[None, :]
+        a = np.asarray(out.getchannel("A"), dtype=np.float32) * m
+        out.putalpha(Image.fromarray(np.clip(a, 0, 255).astype(np.uint8)))
     return out, (x0, y0)
 
 
@@ -937,10 +1031,12 @@ def mark_frame(img: Image.Image, t: float, shots, fonts: Fonts) -> Image.Image:
     ``year``. The glyph is on every frame: a hard swap within a class, a
     4-frame linear crossfade when the class changes (both glyphs are opaque
     at the centre, so the pixel there is exactly the mix of the two hues).
-    The label surfaces only when the class or the year changes, drifting a
-    quarter em from the glyph to its rest, and is let go after about 2 s;
-    an AI-GENERATED label is full from the cut frame and stays. Only small
-    tiles are drawn and composited, never full-frame layers."""
+    The label surfaces only when the class or the year changes (A31): it
+    grows out of the glyph leftward, holds about 2 s and folds back into it
+    (A42), and grows again LABEL.repeat_s later within a long shot; an
+    AI-GENERATED label is full from the cut frame and stays. The glyph never
+    moves. Only small tiles are drawn and composited, never full-frame
+    layers."""
     out = _as_rgba(img)
     st = mark_state(t, shots)
     if st is None:
@@ -950,11 +1046,8 @@ def mark_frame(img: Image.Image, t: float, shots, fonts: Fonts) -> Image.Image:
     if st["mix"] < 1.0:
         tile = Image.blend(glyph_tile(L.W, L.H, st["prev_cls"])[0], tile, st["mix"])
     out.alpha_composite(tile, at)
-    if st["label_alpha"] > 0.0 and st["label"]:
-        u = t - st["label_start"]
-        arriving = st["cls"] not in LABEL_STAYS
-        dx = (1.0 - clamp01(WHISPER.progress(u))) * LABEL["drift"] * L.px(LABEL["size"]) if arriving else 0.0
-        words, wat = _label_tile(L, st["label"], st["label_alpha"], dx, fonts, st["cls"])
+    if st["label_alpha"] > 0.0 and st["label_reveal"] > 0.0 and st["label"]:
+        words, wat = _label_tile(L, st["label"], st["label_alpha"], st["label_reveal"], fonts, st["cls"])
         if words.width > 0:
             out.alpha_composite(words, wat)
     return out
