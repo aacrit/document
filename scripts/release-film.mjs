@@ -47,7 +47,9 @@ export const UPLOAD_ORDER = ["film.mp4", "poster.jpg", "trailer.mp4", "captions-
 export const MISSING_KEY = /does not exist|NoSuchKey|not found/i;
 const TYPES = { mp4: "video/mp4", jpg: "image/jpeg", vtt: "text/vtt", json: "application/json" };
 
-// The web encode: 1280x720, 24 fps, H.264 high, AAC 128k, faststart. CRF 22
+// The web encode: 1280x720 at the master's own frame rate (24, or 30000/1001 for a
+// film that masters at video's rate: GRAMMAR A44; never re-timed here), a 2 s GOP,
+// H.264 high, AAC 128k, faststart. CRF 22
 // sets the quality; -maxrate (with a VBV buffer of twice that) caps the rate,
 // derived from the input's duration so the file stays under 85% of the 300 MiB
 // put limit: (0.85 x 300 MiB x 8 / duration - 128 kbit/s audio) x 0.98 for the
@@ -66,18 +68,42 @@ export function videoKbps(durationS) {
   return Math.min(MAX_VIDEO_KBPS, kbps);
 }
 
-/** The encode arguments for an input of `durationS` seconds (null in a dry run before the file exists). */
-export function webEncodeArgs(durationS) {
+/** The master rates a film may have (GRAMMAR A44), as ffprobe writes them. */
+export const MASTER_RATES = { "24/1": "24", "24": "24", "30000/1001": "30000/1001" };
+
+/** Frames in a 2 s GOP at a master rate ("24" -> 48, "30000/1001" -> 60). */
+export function gopFrames(fps) {
+  const [a, b = "1"] = String(fps).split("/");
+  return Math.round((2 * Number(a)) / Number(b));
+}
+
+/**
+ * The encode arguments for an input of `durationS` seconds at the master's rate `fps` (both null in a dry run
+ * before the file exists). The rate is the master's: the web file has the same frames, never re-timed.
+ */
+export function webEncodeArgs(durationS, fps = "24") {
   const rate = durationS === null ? "<derived from duration>" : `${videoKbps(durationS)}k`;
   const buf = durationS === null ? "<twice the rate>" : `${2 * videoKbps(durationS)}k`;
+  const r = fps === null ? "<the master's rate>" : MASTER_RATES[String(fps)];
+  if (r === undefined) throw new Error(`the master's frame rate ${fps} is not 24 or 30000/1001 (GRAMMAR A44)`);
+  const gop = fps === null ? "<2 s of frames>" : String(gopFrames(r));
   return [
     "-map", "0:v:0", "-map", "0:a:0",
     "-vf", "scale=1280:720:flags=lanczos,format=yuv420p",
     "-c:v", "libx264", "-preset", "slow", "-crf", "22", "-maxrate", rate, "-bufsize", buf,
-    "-profile:v", "high", "-level:v", "4.0", "-r", "24", "-g", "48",
+    "-profile:v", "high", "-level:v", "4.0", "-r", r, "-g", gop,
     "-c:a", "aac", "-b:a", `${AUDIO_BPS / 1000}k`, "-ar", "48000",
     "-movflags", "+faststart",
   ];
+}
+
+/** An input's video frame rate as ffprobe writes it ("24/1", "30000/1001"), or null when it cannot be read. */
+export function probeRate(file, ffmpeg = process.env.DOCUMENT_FFMPEG || "ffmpeg") {
+  if (!existsSync(file)) return null;
+  const probe = path.join(path.dirname(ffmpeg), path.basename(ffmpeg).replace(/ffmpeg/i, "ffprobe"));
+  const r = spawnSync(probe, ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate", "-of", "csv=p=0", file], { encoding: "utf8", shell: false });
+  const v = String(r.stdout ?? "").trim();
+  return r.status === 0 && /^\d+\/\d+$/.test(v) ? v : null;
 }
 
 /** An input's duration in seconds by ffprobe (beside DOCUMENT_FFMPEG, else on PATH), or null when it cannot be read. */
@@ -149,7 +175,7 @@ export function posterSource(ledgers, posterId) {
 }
 
 /** Every step of the release, in order, as plain data: { id, label, exe, args, cwd } or { id, label, check }. */
-export function planRelease(o, { python = studioPython(), ffmpeg = process.env.DOCUMENT_FFMPEG || "ffmpeg", wrangler = null, ledgers, poster, durations = {} } = {}) {
+export function planRelease(o, { python = studioPython(), ffmpeg = process.env.DOCUMENT_FFMPEG || "ffmpeg", wrangler = null, ledgers, poster, durations = {}, rates = {} } = {}) {
   const master = path.resolve(o.master);
   const renderDir = path.dirname(master);
   const filmDir = path.resolve(o.filmDir ?? path.join(os.homedir(), "document-work", "episode-v2"));
@@ -163,9 +189,9 @@ export function planRelease(o, { python = studioPython(), ffmpeg = process.env.D
 
   steps.push({ id: "a", label: "sources.json beside the master (--sources-only)", exe: python, cwd: repoRoot,
     args: ["-m", "studio.engine.render", filmDir, "--out", renderDir, "--sources-only"] });
-  const encode = (input, file, d) => ({ exe: ffmpeg, cwd: repoRoot, args: ["-v", "error", "-y", "-i", input, ...webEncodeArgs(d ?? null), "-threads", String(o.threads), at(file)] });
-  steps.push({ id: "b", label: "the 720p web encode of the film", ...encode(master, "film.mp4", durations.film) });
-  if (o.trailer) steps.push({ id: "b", label: "the 720p web encode of the trailer", ...encode(path.resolve(o.trailer), "trailer.mp4", durations.trailer) });
+  const encode = (input, file, d, r) => ({ exe: ffmpeg, cwd: repoRoot, args: ["-v", "error", "-y", "-i", input, ...webEncodeArgs(d ?? null, d == null ? null : (r ?? "24")), "-threads", String(o.threads), at(file)] });
+  steps.push({ id: "b", label: "the 720p web encode of the film", ...encode(master, "film.mp4", durations.film, rates.film) });
+  if (o.trailer) steps.push({ id: "b", label: "the 720p web encode of the trailer", ...encode(path.resolve(o.trailer), "trailer.mp4", durations.trailer, rates.trailer) });
   steps.push({ id: "c", label: `the poster (${o.posterId}, 1920 wide)`, exe: ffmpeg, cwd: repoRoot,
     args: ["-v", "error", "-y", "-i", stillPath, "-vf", "scale=1920:-1:flags=lanczos", "-q:v", "3", at("poster.jpg")] });
   steps.push({ id: "c", label: "the web packet (publish.py: sources.json with web and poster, captions)", exe: python, cwd: repoRoot,
@@ -266,12 +292,14 @@ function main() {
   const ledgers = readLedgers(filmDir);
   const poster = posterSource(ledgers, o.posterId);
   const durations = { film: probeDuration(o.master), trailer: o.trailer ? probeDuration(o.trailer) : null };
-  const plan = planRelease(o, { ledgers, poster, durations });
+  const rates = { film: probeRate(o.master), trailer: o.trailer ? probeRate(o.trailer) : null };
+  const plan = planRelease(o, { ledgers, poster, durations, rates });
 
   if (!o.dryRun) {
     const problems = [];
     if (path.basename(o.master) !== "master.mp4") problems.push(`${o.master} is not named master.mp4 (--sources-only reads <render dir>/master.mp4)`);
     if (!existsSync(o.master)) problems.push(`${o.master} does not exist`);
+    else if (!rates.film) problems.push(`could not read ${o.master}'s frame rate (the web encode keeps the master's, GRAMMAR A44)`);
     if (!ledgers) problems.push(`${filmDir} has no screenplay.json naming its stills ledger`);
     if (!poster || !existsSync(poster)) problems.push(`the poster still ${o.posterId} was not found in the stills ledger`);
     if (o.trailer && !existsSync(o.trailer)) problems.push(`${o.trailer} does not exist`);
