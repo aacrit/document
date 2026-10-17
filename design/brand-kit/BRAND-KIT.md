@@ -483,6 +483,6 @@ A film masters at 24 fps or at 30000/1001 (29.97): stated in `settings.master_fp
 | Watermark fade either side of a CARD | 12 frames (0.5 s) | 15 frames (0.5 s) |
 | Lower third stagger | 4 frames (0.167 s) | 5 frames (0.167 s) |
 | The dot's grow (`whisper`), hold, fold, repeat | 0.357 s, 2.0 s, 0.75 s, 40 s | unchanged |
-| Series titles (section 15) | the master's own 24 frames a second | the same frames, repeated about one in four (declared) |
+| Series titles (section 15) | the 24 master, 1:1 | the 30000/1001 master, 1:1, when the title declares one; else the 24 master's frames repeated about one in four (declared) |
 
 The 720p web encode keeps the master's rate with a 2 s keyframe interval (48 frames at 24, 60 at 29.97).

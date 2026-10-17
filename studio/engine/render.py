@@ -2041,6 +2041,22 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         "majority": "A44: the native rate of the majority of the film's clip runtime (a tie goes to 24)",
         "house": "A44: no clip counts toward a rate, so the house rate"}[cadence["from"]],
         evidence={k: cadence[k] for k in ("name", "from", "tally", "clips")})
+    # A40 and A44: a title item may declare a master per rate; the one at the film's rate plays 1:1
+    cadence["titles"] = []
+    for s in shots:
+        if TS.is_title(s) and s.get("_item"):
+            s["_item"], how = TS.select_master(s["_item"], fps)
+            rate = TS.rate_of(s["_item"])
+            cadence["titles"].append({"shot": s["id"], "asset": s.get("asset"), "file": s["_item"].get("file"),
+                                      "fps": s["_item"].get("fps", TS.FPS), "how": how})
+            journal.decision("scout", f"{s['id']}: the series titles' master {s['_item'].get('file')} "
+                             + ("plays 1:1" if how != "conform" else "is conformed"),
+                             {"own": "A44: the title master's own rate is the film's",
+                              "alternate": "A44: the item declares a master at the film's rate, played 1:1",
+                              "conform": "A44: no master at the film's rate is declared, so the item's own is conformed "
+                                         "(declared in the cadence reviewer item)"}[how], unit=s["id"],
+                             evidence={"film_rate": cadence["name"], "title_fps": rate,
+                                       "masters": sorted((s["_item"].get("masters") or {}).keys())})
 
     # Timeline: start, end, tiling; frame ranges by owner (the latest shot started).
     for i, s in enumerate(shots):
@@ -2298,16 +2314,6 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                  for s in shots if s["kind"] == "archive_video" and s.get("_video")
                  and s["_video"]["conform"].get("pattern")]
     cadence["conformed"] = conformed
-    journal.lint("cadence", True, stage="conform", unit="master_fps", severity="review", grammar="A44, A6", phase="preflight",
-                 evidence={"master_fps": cadence["name"], "from": cadence["from"], "tally_s": cadence["tally"],
-                           "conformed": conformed,
-                           "check": f"The film masters at {cadence['name']} fps ("
-                                    + {"settings": "stated in settings.master_fps",
-                                       "majority": "the native rate of the majority of its clip runtime",
-                                       "house": "the house rate: no clip counts toward a rate"}[cadence["from"]] + "). "
-                                    + (f"{len(conformed)} clip(s) are conformed by frame drop or repeat; look at their "
-                                       "motion (pans, talking heads) for the cadence hitch." if conformed else
-                                       "Every clip plays 1:1, no frame dropped or repeated.")})
 
     # On-screen text: cards, lower thirds, subtitles.
     for s in shots:
@@ -2522,6 +2528,18 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     # A40: the series titles, a pre-rendered master played as it is after the cold open (studio/engine/titles.py)
     titles = TS.plan_lints(lint, journal, play, shots, assets, lines=lines, texts=texts, cues=cues, vl=vl, silences=silences,
                            fps=fps)
+    # A44: the cadence reviewer item names the film's master rate, how it was chosen and every clip or title conformed
+    conformed += [t["conform"] for t in titles.values() if t.get("conform")]
+    journal.lint("cadence", True, stage="conform", unit="master_fps", severity="review", grammar="A44, A6", phase="preflight",
+                 evidence={"master_fps": cadence["name"], "from": cadence["from"], "tally_s": cadence["tally"],
+                           "conformed": conformed, "titles": cadence["titles"],
+                           "check": f"The film masters at {cadence['name']} fps ("
+                                    + {"settings": "stated in settings.master_fps",
+                                       "majority": "the native rate of the majority of its clip runtime",
+                                       "house": "the house rate: no clip counts toward a rate"}[cadence["from"]] + "). "
+                                    + (f"{len(conformed)} clip(s) or title(s) are conformed by frame drop or repeat; look at their "
+                                       "motion (pans, talking heads) for the cadence hitch." if conformed else
+                                       "Every clip and title plays 1:1, no frame dropped or repeated.")})
     if lint_fail:
         raise Refused("lint failed: " + "; ".join(lint_fail))
     card_spans = [(s["f0"] / fps, s["f1"] / fps) for s in shots if s["mark"] == "CARD"]
@@ -2529,14 +2547,14 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         if TS.is_title(s):                      # its lockup is a CARD: the film's watermark is off there and fades back
             s["_title"] = {"burned": titles[s["id"]]["burned"], "marks": TS.sub_marks(s["_item"], s["f0"] / fps),
                            "classes": TS.classes(s["_item"]), "out_class": TS.out_class(s["_item"]),
-                           "holds": TS.dip_hold_frames(s["_item"])}
+                           "holds": TS.dip_hold_frames(s["_item"]), "fps": TS.rate_of(s["_item"]) or TS.FPS}
             card_spans += TS.card_spans(s["_item"], s["f0"] / fps, s["f1"] / fps)
     card_spans.sort()
     imagery = [s for s in shots if s["mark"] != "CARD"]
     plan = {
         "film": str(film), "title": play.get("title", film.name), "slug": play.get("slug", film.name),
         "W": W, "H": H, "fps": fps, "fps_rate": cadence["name"], "frames": total_frames, "duration_s": total_frames / fps,
-        "cadence": {k: cadence[k] for k in ("name", "from", "tally", "conformed")},
+        "cadence": {k: cadence[k] for k in ("name", "from", "tally", "conformed", "titles")},
         "shots": shots, "assets": {k: {kk: vv for kk, vv in v.items()} for k, v in assets.items()},
         "lines": lines, "cues": cues, "speakers": speakers, "narrator_voice": narrator_voice(play), "silences": sorted(silences),
         "narrator_eq": narrator_eq, "narrator_eq_declared": eq_how,
@@ -3052,12 +3070,13 @@ class Pictures:
 
     def title(self, s: dict, t_local: float) -> Image.Image:
         """A40: the master's frame, as it is (scaled only when the delivery is not the master's 1080p)."""
-        k = TS.source_frame(min(int(round(t_local * self.plan["fps"])), s["f1"] - s["f0"] - 1), self.plan["fps"])
+        src = TS.rate_of(s["_item"]) or TS.FPS                   # A44: the title master's own rate
+        k = TS.source_frame(min(int(round(t_local * self.plan["fps"])), s["f1"] - s["f0"] - 1), self.plan["fps"], src)
         r = self.titles.get(s["id"])
         if r is None or k < r.k - 1:
             if r:
                 r.close()
-            r = self.titles[s["id"]] = TS.Reader(ffmpeg(), s["_item"]["_path"], k)
+            r = self.titles[s["id"]] = TS.Reader(ffmpeg(), s["_item"]["_path"], k, fps=src)
         arr = r.frame(k)
         self.title_native = arr
         img = Image.fromarray(arr)
@@ -3166,7 +3185,7 @@ def compose(plan: dict, pics: Pictures, f: int, i: int, probe: dict | None = Non
         arr = np.asarray(img, dtype=np.float32) * level
         img = Image.fromarray(arr.astype(np.uint8))
     title = s.get("_title")
-    if title is not None and (title["burned"] or TS.source_frame(f - s["f0"], fps) in title["holds"]):
+    if title is not None and (title["burned"] or TS.source_frame(f - s["f0"], fps, title["fps"]) in title["holds"]):
         return img.convert("RGB")           # A40: the master carries its own marks, watermark and lockup: nothing over it
                                             # (and its own dip's black hold stays black, A11)
     rgba = img.convert("RGBA")
@@ -3343,7 +3362,7 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
             probe: dict = {}
             arr = np.asarray(compose(plan, pics, f, i, probe))
             if title is not None:               # A40: the master's own marks (on its native frame), or ours from its timeline
-                k = TS.source_frame(f - s["f0"], plan["fps"])
+                k = TS.source_frame(f - s["f0"], plan["fps"], title["fps"])
                 res = TS.check_frame(pics.title_native if title["burned"] else arr, s["_item"], k,
                                      None if title["burned"] else (f - s["f0"]) / plan["fps"])
                 if res == "fail" and picture_level(plan, f, i) < 1.0:
@@ -6838,7 +6857,7 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
     for s, d in zip(plan["shots"], shots):
         if TS.is_title(s):
             pieces += [(a, b, cls, "" if cls == "CARD" else (s["detail"] if cls == s["mark"] else ""), lab)
-                       for a, b, cls, lab in TS.spans(s["_item"], s["f0"], s["f1"])]
+                       for a, b, cls, lab in TS.spans(s["_item"], s["f0"], s["f1"], fps_of(plan))]
         else:
             pieces.append((s["f0"], s["f1"], d["mark"]["class"], d["mark"]["detail"], d["mark"]["label"]))
     track = []

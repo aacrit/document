@@ -36,7 +36,12 @@ SERIES = "void document · As It Was"
 SIZE = (1920, 1080)                 # the master is the 1080p24 delivery (GRAMMAR 7.5); the engine scales it for 720p
 FPS = 24                            # the title master's own rate (its 1080p24 delivery); the film may master at another
                                     # rate (A44), and then the title is conformed to it by frame repeat, declared
-FADE_FRAMES = round(M.LABEL["fade"] * FPS)   # the glyph's 4-frame crossfade at a class change (GRAMMAR 4.1)
+FADE_FRAMES = round(M.LABEL["fade"] * FPS)   # the glyph's 4-frame crossfade at a class change (GRAMMAR 4.1), at 24
+
+
+def fade_frames(item: dict) -> int:
+    """The glyph's crossfade in the title master's own frames (4 at 24, 5 at 30000/1001: A44)."""
+    return round(M.LABEL["fade"] * (rate_of(item) or FPS))
 HUE_TOL = 2                         # a burned glyph pixel is its class hue within this (the master is lossless RGB)
 RECORD_LIMIT = 6.0                  # A7's low-pass mean difference: the record beat is the film's own scan, held whole
 LOCKUP_MIN_PX = 2000                # bright type pixels in the lockup band at 1080p: the words and the logomark are there
@@ -86,20 +91,56 @@ def out_class(item: dict, default: str = "DRAWN") -> str:
     return tl[-1]["cls"] if tl else default
 
 
+def rate_of(item: dict) -> float | None:
+    """The title master's own frame rate from its ledger item's ``fps`` (24 when it states none; A44: 24 or
+    30000/1001), or None when it states another."""
+    try:
+        return float(CAD.parse_rate(item.get("fps", FPS)))
+    except CAD.RateError:
+        return None
+
+
+def _r(item: dict) -> float:
+    return rate_of(item) or float(FPS)
+
+
+def select_master(item: dict, fps: float) -> tuple[dict, str]:
+    """A44: the title master to play in a film mastering at ``fps``. A ledger item may declare masters at other rates
+    beside its own file: ``masters: {"30000/1001": {"file": ..., "frames": ..., "marks": [...], "record_frames": [...],
+    "dip": {...}, "lockup_frame": ...}}``, each stating its own frame counts (they differ by rate) over the item's.
+    The master at the film's rate is played 1:1 ("own" when it is the item's file, "alternate" for one of
+    ``masters``); when none is, the item's own file is conformed ("conform"). Returns (item to play, how)."""
+    alts = item.get("masters") if isinstance(item.get("masters"), dict) else {}
+    if rate_of(item) is not None and abs(_r(item) - fps) < 1e-6:
+        return item, "own"
+    for name, alt in alts.items():
+        try:
+            r = float(CAD.parse_rate(name))
+        except CAD.RateError:
+            continue
+        if abs(r - fps) < 1e-6 and isinstance(alt, dict) and alt.get("file"):
+            out = {k: v for k, v in item.items() if k != "masters"}
+            out.update(alt, fps=CAD.rate_str(CAD.parse_rate(name)), master_of=item.get("file"))
+            if item.get("_path"):
+                out["_path"] = str((Path(item["_path"]).parent / alt["file"]).resolve())
+            return out, "alternate"
+    return item, "conform"
+
+
 def sub_marks(item: dict, start_s: float) -> list[dict]:
     """The timeline as mark_frame's shots (absolute times), for a master the engine marks itself."""
-    return [{"start": start_s + m["frame"] / FPS, "cls": m["cls"], "label": m["label"], "year": m["year"]} for m in timeline(item)]
+    return [{"start": start_s + m["frame"] / _r(item), "cls": m["cls"], "label": m["label"], "year": m["year"]} for m in timeline(item)]
 
 
-def source_frame(k: int, fps: float = FPS) -> int:
-    """The title master's frame on the shot's frame k when the film masters at ``fps`` (A44): k itself at 24, else the
-    frame a repeat conform shows there (cadence.source_index)."""
-    return CAD.source_index(k, FPS, fps)
+def source_frame(k: int, fps: float = FPS, src: float = FPS) -> int:
+    """The title master's frame on the shot's frame k when the film masters at ``fps`` and the title at ``src`` (A44):
+    k itself when they agree, else the frame a repeat or drop conform shows there (cadence.source_index)."""
+    return CAD.source_index(k, src, fps)
 
 
-def film_frame(j: int, fps: float = FPS) -> int:
+def film_frame(j: int, fps: float = FPS, src: float = FPS) -> int:
     """The shot's frame on which the title master's frame j first shows (A44)."""
-    return CAD.output_slot(j, FPS, fps)
+    return CAD.output_slot(j, src, fps)
 
 
 def spans(item: dict, f0: int, f1: int, fps: float = FPS) -> list[tuple[int, int, str, str]]:
@@ -108,8 +149,8 @@ def spans(item: dict, f0: int, f1: int, fps: float = FPS) -> list[tuple[int, int
     tl = timeline(item) or [{"frame": 0, "cls": "DRAWN", "label": ""}]
     out = []
     for k, m in enumerate(tl):
-        a = f0 + film_frame(m["frame"], fps)
-        b = f0 + film_frame(tl[k + 1]["frame"], fps) if k + 1 < len(tl) else f1
+        a = f0 + film_frame(m["frame"], fps, _r(item))
+        b = f0 + film_frame(tl[k + 1]["frame"], fps, _r(item)) if k + 1 < len(tl) else f1
         a, b = max(f0, min(a, f1)), max(f0, min(b, f1))
         if b > a:
             out.append((a, b, m["cls"], m["label"]))
@@ -123,8 +164,8 @@ def card_spans(item: dict, start_s: float, end_s: float) -> list[tuple[float, fl
     for k, m in enumerate(tl):
         if m["cls"] != "CARD":
             continue
-        b = start_s + tl[k + 1]["frame"] / FPS if k + 1 < len(tl) else end_s
-        out.append((start_s + m["frame"] / FPS, b))
+        b = start_s + tl[k + 1]["frame"] / _r(item) if k + 1 < len(tl) else end_s
+        out.append((start_s + m["frame"] / _r(item), b))
     return out
 
 
@@ -133,17 +174,18 @@ def dip_hold_frames(item: dict) -> list[int]:
     d = item.get("dip")
     if not isinstance(d, dict) or d.get("centre_frame") is None:
         return []
-    c, s = int(d["centre_frame"]), float(d.get("s", 0.75))
-    t0 = c / FPS - s / 2
+    c, s, r = int(d["centre_frame"]), float(d.get("s", 0.75)), _r(item)
+    t0 = c / r - s / 2
     n = int(item.get("frames") or 0)
-    return [k for k in range(max(0, int((t0 - 1) * FPS)), min(n, int((t0 + s + 1) * FPS)))
-            if 0 <= k / FPS - t0 <= s and M.dip_level(k / FPS - t0, s, fps=FPS) <= 0.0]
+    return [k for k in range(max(0, int((t0 - 1) * r)), min(n, int((t0 + s + 1) * r)))
+            if 0 <= k / r - t0 <= s and M.dip_level(k / r - t0, s, fps=r) <= 0.0]
 
 
 def expected_class(item: dict, k: int, t: float | None = None) -> tuple[str | None, str | None, float]:
     """(class, outgoing class, crossfade weight) at master frame k (or at ``t`` seconds into the title, when the film
     masters at another rate and the engine draws the marks at its own frame times), as mark_frame draws it."""
-    st = M.mark_state(k / FPS if t is None else t, [{"start": m["frame"] / FPS, "cls": m["cls"], "label": m["label"]} for m in timeline(item)])
+    r = _r(item)
+    st = M.mark_state(k / r if t is None else t, [{"start": m["frame"] / r, "cls": m["cls"], "label": m["label"]} for m in timeline(item)])
     if st is None:
         return None, None, 1.0
     return st["cls"], st["prev_cls"], st["mix"]
@@ -154,10 +196,10 @@ def expected_class(item: dict, k: int, t: float | None = None) -> tuple[str | No
 # --------------------------------------------------------------------------
 
 
-def read_frame(ffmpeg: str, path: str, k: int, size: tuple[int, int] = SIZE) -> np.ndarray:
-    """Master frame k as an HxWx3 uint8 array (RGB, no matrix: the master is RGB)."""
+def read_frame(ffmpeg: str, path: str, k: int, size: tuple[int, int] = SIZE, fps: float = FPS) -> np.ndarray:
+    """Master frame k (the master at ``fps``) as an HxWx3 uint8 array (RGB, no matrix: the master is RGB)."""
     W, H = size
-    r = subprocess.run([ffmpeg, "-v", "error", "-ss", f"{k / FPS:.6f}", "-i", str(path), "-map", "0:v:0", "-frames:v", "1",
+    r = subprocess.run([ffmpeg, "-v", "error", "-ss", f"{k / fps:.6f}", "-i", str(path), "-map", "0:v:0", "-frames:v", "1",
                         "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, timeout=120, stdin=subprocess.DEVNULL)
     if len(r.stdout) != W * H * 3:
         raise ValueError(f"frame {k} of {path}: {len(r.stdout)} bytes, not {W}x{H} RGB ({r.stderr.decode(errors='replace')[-200:]})")
@@ -167,10 +209,10 @@ def read_frame(ffmpeg: str, path: str, k: int, size: tuple[int, int] = SIZE) -> 
 class Reader:
     """The master read in order from frame k0, one RGB frame at a time (a title shot renders its frames in order)."""
 
-    def __init__(self, ffmpeg: str, path: str, k0: int, size: tuple[int, int] = SIZE):
+    def __init__(self, ffmpeg: str, path: str, k0: int, size: tuple[int, int] = SIZE, fps: float = FPS):
         self.W, self.H = size
         self.k = k0
-        self.proc = subprocess.Popen([ffmpeg, "-v", "error", "-ss", f"{k0 / FPS:.6f}", "-i", str(path), "-map", "0:v:0",
+        self.proc = subprocess.Popen([ffmpeg, "-v", "error", "-ss", f"{k0 / fps:.6f}", "-i", str(path), "-map", "0:v:0",
                                       "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
         self.last: np.ndarray | None = None
@@ -504,26 +546,31 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
                 ev.update(width=pr["width"], height=pr["height"], fps=round(pr["fps"], 4), r_frame_rate=pr["r_frame_rate"],
                           frames=frames, duration_s=round(pr["duration_s"], 4), shot_s=round(s["_dur"], 4), size=list(SIZE),
                           declared={k: item.get(k) for k in ("width", "height", "fps", "frames")})
-                fmt_ok = ((pr["width"], pr["height"]) == SIZE and abs(pr["fps"] - FPS) < 1e-6
-                          and (item.get("width"), item.get("height"), item.get("fps")) == (SIZE[0], SIZE[1], FPS)
-                          and n > 0 and frames == n and abs(pr["duration_s"] - n / FPS) <= 0.5 / FPS
-                          and abs(s["_dur"] - n / FPS) <= 0.5 / FPS
-                          and abs((s["f1"] - s["f0"]) - n * fps / FPS) <= (0 if abs(fps - FPS) < 1e-9 else 1))
-                out[sid] = {"probe": pr}
-                if fmt_ok and abs(fps - FPS) >= 1e-9:
-                    # A44 (and A40: the title is played as rendered): at another master rate it is conformed by repeat
-                    pat = CAD.pattern(FPS, fps, s["f1"] - s["f0"])
-                    out[sid]["conform"] = {"method": "repeat" if fps > FPS else "drop", "in_fps": FPS,
+                r = rate_of(item)                # the played master's own rate (A44: 24 or 30000/1001)
+                same = r is not None and abs(r - fps) < 1e-6
+                fmt_ok = (r is not None and (pr["width"], pr["height"]) == SIZE and abs(pr["fps"] - r) < 1e-3
+                          and (item.get("width"), item.get("height")) == SIZE
+                          and n > 0 and frames == n and abs(pr["duration_s"] - n / r) <= 0.5 / r
+                          and abs(s["_dur"] - n / r) <= 0.5 / r
+                          and abs((s["f1"] - s["f0"]) - n * fps / r) <= (1e-6 if same else 1))
+                out[sid] = {"probe": pr, "fps": r,
+                            "rate": CAD.rate_str(CAD.parse_rate(item.get("fps", FPS))) if r else None}
+                if fmt_ok and not same:
+                    # A44 (and A40: the title is played as rendered): no master at the film's rate, so it is conformed
+                    pat = CAD.pattern(r, fps, s["f1"] - s["f0"])
+                    out[sid]["conform"] = {"shot": sid, "asset": s.get("asset"), "method": "repeat" if fps > r else "drop",
+                                           "in_fps": round(r, 3),
                                            "out_rate": CAD.rate_str(CAD.Fraction(fps).limit_denominator(100000)), **pat}
-                    journal.decision("conform", f"{sid}: the series titles ({FPS} fps) conformed to the film's "
+                    journal.decision("conform", f"{sid}: the series titles ({out[sid]['rate']} fps) conformed to the film's "
                                      f"{out[sid]['conform']['out_rate']} by frame {out[sid]['conform']['method']}",
                                      "A40 and A44: the title master is played as rendered, its frames conformed to the "
                                      "film's master rate with no speed change", unit=sid, evidence=out[sid]["conform"])
             except Exception as e:
                 ev["error"] = f"{type(e).__name__}: {e}"
         lint("title-format", fmt_ok, unit=sid, grammar="A40, 7.5",
-             evidence=dict(ev, fix=None if fmt_ok else "the master is 1920x1080 at 24 fps, its frame count the ledger's, "
-                                                       "and the shot's dur_s is frames / 24 (at a 29.97 master its frames are repeated, A44)"))
+             evidence=dict(ev, fix=None if fmt_ok else "the master is 1920x1080 at the rate its "
+                                                       "ledger states (24 or 30000/1001), its frame count the ledger's, and "
+                                                       "the shot's dur_s is frames / that rate (A44)"))
         # The record beat: the film's own record, from this film's ledgers, its pixels the film's scan
         rid = item.get("record")
         rec = assets.get(rid) if rid else None
@@ -554,7 +601,7 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
             diffs: dict = {}
             try:
                 for k in sorted({rframes[0], rframes[-1], (rframes[0] + rframes[-1]) // 2}):
-                    diffs[k] = round(record_difference(read_frame(ff, path, k), rec["_path"]), 3)
+                    diffs[k] = round(record_difference(read_frame(ff, path, k, fps=_r(item)), rec["_path"]), 3)
             except Exception as e:
                 diffs = {"error": f"{type(e).__name__}: {e}"}
             px_ok = bool(diffs) and "error" not in diffs and max(diffs.values()) <= RECORD_LIMIT
@@ -566,14 +613,14 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
         for k, m in enumerate(tl):
             a = m["frame"]
             b = tl[k + 1]["frame"] if k + 1 < len(tl) else n
-            for f in (a + FADE_FRAMES + 1, (a + b) // 2, b - 2):
+            for f in (a + fade_frames(item) + 1, (a + b) // 2, b - 2):
                 if a <= f < b and f < n:
                     sample.add(f)
         holds = dip_hold_frames(item)
         if holds:
-            sample -= set(range(min(holds) - FADE_FRAMES - 2, max(holds) + FADE_FRAMES + 3))
+            sample -= set(range(min(holds) - fade_frames(item) - 2, max(holds) + fade_frames(item) + 3))
         try:
-            frames_ = {k: read_frame(ff, path, k) for k in sorted(sample | set(holds))}
+            frames_ = {k: read_frame(ff, path, k, fps=_r(item)) for k in sorted(sample | set(holds))}
         except Exception as e:
             lint("title-marks", False, unit=sid, grammar="A40, 4, A16, A31", evidence={"error": f"{type(e).__name__}: {e}"})
             continue
@@ -612,7 +659,7 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
             cards = [m for m in tl if m["cls"] == "CARD"]
             lf = (cards[-1]["frame"] + n) // 2 if cards else None
         try:
-            lp = lockup_pixels(read_frame(ff, path, int(lf))) if lf is not None else 0
+            lp = lockup_pixels(read_frame(ff, path, int(lf), fps=_r(item))) if lf is not None else 0
         except Exception:
             lp = 0
         lint("title-lockup", lp >= LOCKUP_MIN_PX, unit=sid, grammar="A40, BRAND-KIT 2",

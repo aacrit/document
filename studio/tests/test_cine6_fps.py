@@ -379,3 +379,122 @@ def test_a44_a_title_master_maps_onto_a_29_97_film():
     item = {"marks": [{"frame": 0, "cls": "DRAWN", "label": "x"}, {"frame": 120, "cls": "CARD"}]}
     assert TS.spans(item, 1000, 1300, 30000 / 1001) == [(1000, 1150, "DRAWN", "x"), (1150, 1300, "CARD", "")]
     assert TS.spans(item, 1000, 1240) == [(1000, 1120, "DRAWN", "x"), (1120, 1240, "CARD", "")]
+
+
+# --------------------------------------------------------------------------
+# The series titles (A40) in a 29.97 film: a master at the film's rate plays 1:1, else the 24 one is conformed
+# --------------------------------------------------------------------------
+
+NTSC_N = 120                                    # the A40 test master's 4 s at 30000/1001 (4.004 s)
+
+
+def _at(frame24: int) -> int:
+    return round(frame24 * (30000 / 1001) / 24)
+
+
+def make_master_at(path, record_png, rate: str, n: int, tl, dip):
+    """A40's synthetic master (the machine, the record held whole, a dip, the lockup; its marks burned in) rendered at
+    ``rate``: the A40 test's make_master with its frame clock at that rate."""
+    import test_a40_title_sequence as A
+    from PIL import Image
+    r = float(Fraction(rate))
+    W, H = TS.SIZE
+    fonts = M.Fonts()
+    machine, rec, lock = A._machine(W, H), TS.hold_fit(Image.open(record_png), W, H), A._lockup(W, H)
+    black = Image.new("RGB", (W, H), (0, 0, 0))
+    item = {"marks": tl, "dip": dip, "frames": n, "fps": rate}
+    holds = TS.dip_hold_frames(item)
+    shots = [{"start": m["frame"] / r, "cls": m["cls"], "label": m.get("label", "")} for m in tl]
+    t0 = dip["centre_frame"] / r - dip["s"] / 2
+    p = subprocess.Popen([R.ffmpeg(), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", rate,
+                          "-i", "-", "-c:v", "ffv1", "-level", "3", "-g", "1", "-pix_fmt", "bgr0", str(path)], stdin=subprocess.PIPE)
+    for k in range(n):
+        t = k / r
+        pic = machine if k < tl[1]["frame"] else rec if k < tl[2]["frame"] else lock
+        if t0 <= t < t0 + dip["s"]:
+            pic = Image.blend(black, pic, M.dip_level(t - t0, dip["s"], fps=r))
+        if k not in holds:
+            pic = M.mark_frame(pic, t, shots, fonts).convert("RGB")
+        p.stdin.write(np.asarray(pic.convert("RGB")).tobytes())
+    p.stdin.close()
+    assert p.wait() == 0
+    return path
+
+
+@pytest.fixture(scope="module")
+def ntsc_titles(tmp_path_factory, film):
+    """The A40 test masters plus the same title rendered at 30000/1001 (its marks, dip and beats at that clock)."""
+    import test_a40_title_sequence as A
+    d = tmp_path_factory.mktemp("masters")
+    rec = film / "stills" / "FX-STILL-B.png"
+    tl = [dict(m, frame=_at(m["frame"])) for m in A.TL]
+    dip = dict(A.DIP, centre_frame=_at(A.DIP["centre_frame"]))
+    alt = {"file": "ntsc.mkv", "frames": NTSC_N, "marks": tl, "dip": dip, "record_frames": [_at(40), _at(50)],
+           "lockup_frame": _at(84)}
+    return {"dir": d, "burned": A.make_master(d / "burned.mkv", rec),
+            "ntsc": make_master_at(d / "ntsc.mkv", rec, "30000/1001", NTSC_N, tl, dip), "alt": alt}
+
+
+def _titled_ntsc(tmp_path, ntsc_titles, item):
+    """A40's titled fixture film, with no stated rate: its only clip is 29.97, so it masters at 30000/1001."""
+    import test_a40_title_sequence as A
+    return A.titled_film(tmp_path, ntsc_titles, item=item, edit=lambda p: p.pop("settings", None))
+
+
+def _title_plan(film):
+    import test_a40_title_sequence as A
+    plan, j = A.plan_of(film)
+    assert not isinstance(plan, R.Refused), plan
+    for rule in A.RULES:
+        if rule not in ("title-audio-slot",):
+            assert A.passed(j, rule) or not A.lints(j, rule), (rule, A.lints(j, rule)[:1])
+    return plan, j, next(s for s in plan["shots"] if s["id"] == "TS1")
+
+
+def test_a44_a_title_declared_at_the_films_rate_plays_1_to_1(tmp_path, ntsc_titles):
+    """The item's own file is 24; it declares a 30000/1001 master beside it: that one is chosen and plays 1:1."""
+    plan, j, s = _title_plan(_titled_ntsc(tmp_path, ntsc_titles, {"masters": {"30000/1001": ntsc_titles["alt"]}}))
+    assert plan["fps_rate"] == "30000/1001"
+    assert s["_item"]["file"] == "ntsc.mkv" and s["_item"]["fps"] == "30000/1001" and s["_title"]["fps"] == 30000 / 1001
+    assert s["f1"] - s["f0"] == NTSC_N
+    cad = lints(j, "cadence")[0]["evidence"]
+    assert cad["titles"] == [{"shot": "TS1", "asset": "TS-test", "file": "ntsc.mkv", "fps": "30000/1001", "how": "alternate"}]
+    assert not [c for c in cad["conformed"] if c.get("shot") == "TS1"]            # 0 repeats: nothing to declare
+    assert [TS.source_frame(k, plan["fps"], s["_title"]["fps"]) for k in range(NTSC_N)] == list(range(NTSC_N))
+    pics = R.Pictures(plan)
+    try:
+        for k in (0, 1, 2, 44, 45, 46, 74, 75, 76, 104, 118, 119):
+            pics.title(s, k / plan["fps"])
+            want = TS.read_frame(R.ffmpeg(), str(ntsc_titles["ntsc"]), k, fps=30000 / 1001)
+            assert np.array_equal(pics.title_native, want), k                  # frame k of the film is master frame k
+    finally:
+        pics.close()
+
+
+def test_a44_a_title_whose_own_rate_is_the_films_plays_1_to_1(tmp_path, ntsc_titles):
+    item = dict(ntsc_titles["alt"], fps="30000/1001")
+    plan, j, s = _title_plan(_titled_ntsc(tmp_path, ntsc_titles, item))
+    cad = lints(j, "cadence")[0]["evidence"]
+    assert cad["titles"][0]["how"] == "own" and not [c for c in cad["conformed"] if c.get("shot") == "TS1"]
+    assert s["f1"] - s["f0"] == NTSC_N
+
+
+def test_a44_a_24_only_title_in_a_29_97_film_is_conformed_and_declared(tmp_path, ntsc_titles):
+    plan, j, s = _title_plan(_titled_ntsc(tmp_path, ntsc_titles, None))
+    assert s["_item"]["file"] == "burned.mkv" and s["_title"]["fps"] == 24
+    cad = lints(j, "cadence")[0]["evidence"]
+    assert cad["titles"][0]["how"] == "conform"
+    conf = [c for c in cad["conformed"] if c.get("shot") == "TS1"]
+    assert len(conf) == 1 and conf[0]["method"] == "repeat" and conf[0]["repeated"] > 0 and conf[0]["dropped"] == 0
+    assert conf[0]["out_frames"] == s["f1"] - s["f0"] and conf[0]["source_frames"] == 96
+    got = [TS.source_frame(k, plan["fps"], 24) for k in range(s["f1"] - s["f0"])]
+    assert len(got) - len(set(got)) == conf[0]["repeated"]
+    assert any(e["what"].startswith("TS1: the series titles (24 fps) conformed") for e in decisions(j))
+
+
+def test_a44_a_24_film_keeps_its_24_title_even_with_a_29_97_one_declared(tmp_path, ntsc_titles):
+    import test_a40_title_sequence as A
+    film = A.titled_film(tmp_path, ntsc_titles, item={"masters": {"30000/1001": ntsc_titles["alt"]}})   # states 24
+    plan, j, s = _title_plan(film)
+    assert plan["fps"] == 24 and s["_item"]["file"] == "burned.mkv" and lints(j, "cadence")[0]["evidence"]["titles"][0]["how"] == "own"
+    assert TS.select_master({"fps": 25, "file": "x"}, 24.0)[1] == "conform" and TS.rate_of({"fps": 25}) is None
