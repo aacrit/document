@@ -3880,10 +3880,29 @@ def narrator_consistency(profiles: dict[str, dict]) -> dict:
             "spread_st": spread_st, "spread_ok": spread_st is None or not enough or spread_st <= NARRATOR_SPREAD_MAX_ST}
 
 
+def _voice_shift(voice: dict | None) -> float:
+    """A cast voice's declared pitch shift in semitones (``pitch_shift_st``; absent is 0)."""
+    v = (voice or {}).get("pitch_shift_st", 0) or 0
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else float("nan")
+
+
+def _voice_name(voice: dict) -> str:
+    s = _voice_shift(voice)
+    return f"{voice.get('engine')}:{voice.get('voice')}" + (f" shifted {s:+g} st" if s else "")
+
+
 def load_narrator_profile(narrator_voice: dict | None, path: Path | None = None) -> tuple[dict | None, str]:
     """The stored narrator profile (the approved audition's median f0 and
     centroid) when it exists and is the film's narrator voice, else None;
-    and why. It is a drift reference only: it never sets the baseline."""
+    and why. It is a drift reference only: it never sets the baseline.
+
+    The file is global, so a voice processed after synthesis is declared per
+    film: the narrator's cast voice names ``pitch_shift_st`` (founder ruling
+    2026-10-16, Tara lowered 2 semitones by PSOLA), and the drift reference is
+    the stored variant of that voice with the same shift (``variants``), made
+    from the approved audition takes shifted the same way. A declared shift
+    with no stored variant has no reference (a review item), never the
+    unshifted profile; an undeclared voice is held to the unshifted one."""
     path = NARRATOR_PROFILE if path is None else path
     if not path or not Path(path).exists():
         return None, f"no stored profile at {path}"
@@ -3892,7 +3911,16 @@ def load_narrator_profile(narrator_voice: dict | None, path: Path | None = None)
     have = {k: (prof.get("voice") or {}).get(k) for k in ("engine", "voice")}
     if want != have:
         return None, f"the stored profile is {have['engine']}:{have['voice']}, the film's narrator is {want['engine']}:{want['voice']}"
-    return prof, f"drift reference {Path(path).name} ({have['engine']}:{have['voice']})"
+    shift = _voice_shift(narrator_voice)
+    if shift != shift:                                       # NaN: not a number
+        return None, f"the narrator's pitch_shift_st {(narrator_voice or {}).get('pitch_shift_st')!r} is not a number"
+    for cand in [prof] + list(prof.get("variants") or []):
+        cv = cand.get("voice") or {}
+        if {k: cv.get(k) for k in ("engine", "voice")} == have and _voice_shift(cv) == shift:
+            return cand, f"drift reference {Path(path).name} ({_voice_name(cv)})"
+    stored = ", ".join(_voice_name(c.get("voice") or {}) for c in [prof] + list(prof.get("variants") or []))
+    return None, (f"the film's narrator is {_voice_name(dict(want, pitch_shift_st=shift))}; the stored profiles are "
+                  f"{stored}: none has that shift")
 
 
 def narrator_profile_from_takes(takes: list[tuple[Path, str]], voice: dict) -> dict:
@@ -5178,6 +5206,10 @@ BLACK_ONLY_INTENTS = ("count-of-the-dead",)    # bare black: never on a card (it
 # at most 12 s of dip per 10 minutes.
 DIP_EVERY_S = 40.0
 DIP_SECONDS_PER_10MIN_MAX = 12.0
+# A30 refined (founder, 2026-10-16, Partition's ambassador's cables: 47 s and 82 s of black under a reading): a reading
+# whose source is a document can show the document. More than this many seconds of black under one reading is an
+# advisory warning (document-over-black) suggesting the typeset page; a count of the dead keeps its bare black.
+DOC_BLACK_ADVISORY_S = 10.0
 
 
 def dark_voice_runs(plan: dict) -> list[dict]:
@@ -5230,6 +5262,47 @@ def dark_voice_runs(plan: dict) -> list[dict]:
     return out
 
 
+def document_over_black(plan: dict) -> list[dict]:
+    """A30 refined: each reading read from a document (a testimony line read
+    by a voice, with a ``source``; never an archival span) that has black
+    under it, with the seconds of black under its take and the shots. Black
+    declared for a count of the dead (BLACK_ONLY_INTENTS) is left out."""
+    film = Path(plan["film"])
+    blacks = [(s["f0"] / FPS, s["f1"] / FPS, s) for s in plan["shots"]
+              if s.get("kind") == "black" and s.get("intent") not in BLACK_ONLY_INTENTS]
+    out = []
+    for ln in plan["lines"]:
+        if ln.get("kind") != "testimony" or archival_span(ln) or not ln.get("read_by") or not ln.get("source"):
+            continue
+        wav = voice_wav(film, ln)
+        if not wav.exists():
+            continue
+        a = float(ln["start_s"])
+        b = a + wav_seconds(wav)
+        under = [(s["id"], max(0.0, min(b, y) - max(a, x))) for x, y, s in blacks if x < b and y > a]
+        under = [(i, d) for i, d in under if d > 0]
+        if under:
+            out.append({"line": ln["id"], "source": ln.get("source"), "locator": ln.get("locator"),
+                        "black_s": round(sum(d for _, d in under), 2), "read_s": round(b - a, 2),
+                        "shots": [{"id": i, "black_s": round(d, 2)} for i, d in under]})
+    return out
+
+
+def document_over_black_lints(journal: Journal, plan: dict) -> None:
+    """A30 refined: document-over-black, advisory (a warning, never a
+    refusal): more than DOC_BLACK_ADVISORY_S of black under one reading from a
+    document suggests the document typeset on screen instead (a quote card:
+    ``quote: true`` with ``source_date``, paged with the reading, or a DRAWN
+    page)."""
+    for r in document_over_black(plan):
+        ok = r["black_s"] <= DOC_BLACK_ADVISORY_S + 1e-9
+        journal.lint("document-over-black", ok, stage="scout", phase="preflight", unit=r["line"], severity="warn",
+                     grammar="A30", evidence=dict(r, max_s=DOC_BLACK_ADVISORY_S, advisory=True,
+                                                  fix=None if ok else "show the document: its words typeset on quote cards "
+                                                  "(quote: true, source_date) paged with the reading, or a DRAWN page; "
+                                                  "black for a breath at most"))
+
+
 def dip_list(plan: dict) -> list[dict]:
     return [{"id": s["id"], "part": s["_part"], "s": float(s["transition_in"].get("s", 0))}
             for s in plan["shots"] if (s.get("transition_in") or {}).get("type") == "dip"]
@@ -5256,6 +5329,7 @@ def black_dip_lints(journal: Journal, plan: dict, *, draft: bool = False) -> lis
     Returns the reasons to refuse."""
     out = []
     sev = "warn" if draft else "block"
+    document_over_black_lints(journal, plan)            # advisory: never refuses
     runs = plan["dark_voice"] if "dark_voice" in plan else dark_voice_runs(plan)
     for r in runs:
         long_ = r["voice_s"] > BLACK_VOICE_MAX_S + 1e-9
