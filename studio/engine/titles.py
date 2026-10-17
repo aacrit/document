@@ -347,12 +347,40 @@ def _masked(a: np.ndarray) -> np.ndarray:
     return a
 
 
-def record_difference(arr: np.ndarray, record_path: str) -> float:
-    """A7's low-pass mean difference between a master frame and the film's record scan held whole at the master's
-    size (marks masked): 0.03 for the masters' own records, about 150 against another film's."""
+POSE_ASPECT_TOL = 0.01              # A7 under A41: the pose window's aspect within 1% of the frame's
+
+
+def pose_fit(img: Image.Image, window, W: int, H: int) -> Image.Image:
+    """A7 under A41 (founder, 2026-10-17: "A7 compares the tour's last full-frame pose against the matching crop of
+    the ledger scan, with nothing but the scan in the frame"): the scan's ``window`` (x0, y0, x1, y1, fractions of
+    the scan) filling the frame."""
+    x0, y0, x1, y1 = (float(v) for v in window)
+    box = (x0 * img.width, y0 * img.height, x1 * img.width, y1 * img.height)
+    return img.convert("RGB").resize((W, H), Image.LANCZOS, box=box)
+
+
+def pose_problem(window, scan_size: tuple[int, int], W: int, H: int) -> str | None:
+    """Why a declared record pose is not a full-frame view of the scan alone, or None: the window lies inside the
+    scan (nothing but the scan in the frame) and has the frame's aspect (filled, not stretched)."""
+    try:
+        x0, y0, x1, y1 = (float(v) for v in window)
+    except (TypeError, ValueError):
+        return "record_pose.window is not four numbers (x0, y0, x1, y1, fractions of the scan)"
+    if not (0.0 <= x0 < x1 <= 1.0 and 0.0 <= y0 < y1 <= 1.0):
+        return f"record_pose.window {window} leaves the scan: only the scan may be in the frame"
+    aspect = (x1 - x0) * scan_size[0] / ((y1 - y0) * scan_size[1])
+    if abs(aspect / (W / H) - 1.0) > POSE_ASPECT_TOL:
+        return f"record_pose.window's aspect {aspect:.4f} is not the frame's {W / H:.4f}: the frame is filled, never stretched"
+    return None
+
+
+def record_difference(arr: np.ndarray, record_path: str, window=None) -> float:
+    """A7's low-pass mean difference between a master frame and the film's record scan (marks masked): held whole at
+    the master's size (0.03 for the masters' own records, about 150 against another film's), or, under A41, its
+    declared ``window`` filling the frame."""
     H, W = arr.shape[:2]
     with Image.open(record_path) as im:
-        ref = np.asarray(hold_fit(im, W, H))
+        ref = np.asarray(pose_fit(im, window, W, H) if window is not None else hold_fit(im, W, H))
 
     def lp(x):
         return np.asarray(Image.fromarray(np.clip(x, 0, 255).astype(np.uint8)).resize((96, 54), Image.BOX), dtype=np.float32)
@@ -598,16 +626,34 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
         n = int(item.get("frames") or 0)
         # The record's pixels: frames of the record beat are the film's scan, held whole (marks masked)
         if rec_ok and rec.get("_path") and rframes:
+            # A7 under A41: a master whose record beat tours the scan declares the tour's resting pose; the frames from
+            # where it rests to the record beat's end are its window of the scan filling the frame, and nothing else
+            pose = item.get("record_pose")
+            window, k_from, why = None, rframes[0], None
+            if pose is not None:
+                with Image.open(rec["_path"]) as im:
+                    why = pose_problem((pose or {}).get("window"), im.size, *SIZE)
+                window = (pose or {}).get("window")
+                k_from = int((pose or {}).get("from_frame", rframes[0]))
+                if not rframes[0] <= k_from <= rframes[-1]:
+                    why = why or f"record_pose.from_frame {k_from} is outside the record beat {rframes[0]}..{rframes[-1]}"
+                lint("title-record-pose", why is None, unit=sid, grammar="A40, A7, A41",
+                     evidence={"record": rid, "window": window, "from_frame": k_from, "record_frames": rframes,
+                               "problem": why, "fix": None if why is None else
+                               "declare the tour's resting pose as a 16:9 window inside the scan, and the frame it rests from"})
             diffs: dict = {}
-            try:
-                for k in sorted({rframes[0], rframes[-1], (rframes[0] + rframes[-1]) // 2}):
-                    diffs[k] = round(record_difference(read_frame(ff, path, k, fps=_r(item)), rec["_path"]), 3)
-            except Exception as e:
-                diffs = {"error": f"{type(e).__name__}: {e}"}
+            if why is None:
+                try:
+                    for k in sorted({k_from, rframes[-1], (k_from + rframes[-1]) // 2}):
+                        diffs[k] = round(record_difference(read_frame(ff, path, k, fps=_r(item)), rec["_path"], window), 3)
+                except Exception as e:
+                    diffs = {"error": f"{type(e).__name__}: {e}"}
             px_ok = bool(diffs) and "error" not in diffs and max(diffs.values()) <= RECORD_LIMIT
-            lint("title-record-pixels", px_ok, unit=sid, grammar="A40, A7",
+            lint("title-record-pixels", px_ok, unit=sid, grammar="A40, A7" + (", A41" if window is not None else ""),
                  evidence={"record": rid, "file": rec["_path"], "difference": diffs, "limit": RECORD_LIMIT,
-                           "measure": "low-pass mean difference against the scan held whole, marks masked"})
+                           "measure": ("low-pass mean difference against the scan's declared window filling the frame "
+                                       "(the tour's resting pose), marks masked") if window is not None else
+                                      "low-pass mean difference against the scan held whole, marks masked"})
         # The marks: burned in and right, or absent and drawn by the engine (never both)
         sample = set()
         for k, m in enumerate(tl):

@@ -468,3 +468,46 @@ def test_a40_marks_alone_on_the_dip_hold_warn_and_a_picture_there_does_not_pass(
     pic = black.copy()
     pic[500:520, 900:960] = 200                                                             # picture on the hold
     assert TS.check_frame(pic, item, k) == "fail"
+
+
+# --------------------------------------------------------------------------
+# A7 under A41 (founder, 2026-10-17): the record beat may tour the scan; its resting pose is the scan's declared 16:9
+# window filling the frame, and A7 compares those frames with that crop, nothing but the scan in the frame
+# --------------------------------------------------------------------------
+
+def _scan(tmp_path, w=1600, h=1200):
+    y, x = np.mgrid[0:h, 0:w]
+    a = np.stack([(x * 255 // w), (y * 255 // h), ((x // 40 + y // 40) % 2) * 200], axis=2).astype(np.uint8)
+    p = tmp_path / "scan.png"
+    Image.fromarray(a).save(p)
+    return p
+
+
+def test_a7_under_a41_the_resting_pose_matches_its_window(tmp_path):
+    p = _scan(tmp_path)
+    W, H = TS.SIZE
+    win = (0.1, 0.2, 0.9, 0.2 + 0.8 * 1600 / 1200 * 9 / 16)            # 16:9 in the scan's pixels
+    assert TS.pose_problem(win, (1600, 1200), W, H) is None
+    with Image.open(p) as im:
+        frame = np.asarray(TS.pose_fit(im, win, W, H))
+        whole = np.asarray(TS.hold_fit(im, W, H))
+    assert TS.record_difference(frame, str(p), win) < 1.0                # the toured pose is the scan's crop
+    assert TS.record_difference(whole, str(p), win) > TS.RECORD_LIMIT    # a pillarboxed hold is not that pose
+    assert TS.record_difference(whole, str(p)) < 1.0                     # without a pose, A7 as written still holds
+
+
+def test_a7_under_a41_the_pose_is_the_scan_alone_and_unstretched():
+    W, H = TS.SIZE
+    assert "leaves the scan" in TS.pose_problem((-0.05, 0.0, 0.9, 0.6), (1600, 1200), W, H)
+    assert "aspect" in TS.pose_problem((0.0, 0.0, 1.0, 1.0), (1600, 1200), W, H)
+    assert "four numbers" in TS.pose_problem(None, (1600, 1200), W, H)
+
+
+def test_a7_under_a41_a_declared_pose_is_checked_in_the_plan(tmp_path, masters):
+    # the fixture's record is not 16:9, so its whole sheet as a window would be stretched to fill the frame
+    plan, j = plan_of(titled_film(tmp_path / "a", masters, item={"record_pose": {"window": [0.0, 0.0, 1.0, 1.0],
+                                                                                "from_frame": 40}}))
+    assert isinstance(plan, R.Refused) and failed(j, "title-record-pose")
+    plan, j = plan_of(titled_film(tmp_path / "b", masters, item={"record_pose": {"window": [0.0, 0.0, 1.0, 1.0],
+                                                                                "from_frame": 5}}))
+    assert isinstance(plan, R.Refused) and failed(j, "title-record-pose")      # rests before the record beat starts
