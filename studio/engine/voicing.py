@@ -143,10 +143,24 @@ def warmth(ex: dict[int, float]) -> float:
     return sum(ex[c] for c in LOW_BANDS) / len(LOW_BANDS)
 
 
-def targets() -> dict:
-    """Where the narrator sits after the house narrator EQ: the readers' targets."""
-    t = after_eq(NARRATOR_EXCESS, SC.NARRATOR_EQ_HOUSE)
+# The readers' target is pinned (founder ruling 2026-10-16, deeper Tara): it is Tara as synthesised, unshifted
+# (NARRATOR_EXCESS, her measured spectrum over the pilot's 81 takes), after the house narrator EQ as R13 derived it
+# from. A film's own narrator_eq, a narrator lowered by PSOLA (pitch_shift_st) or a later change to
+# SC.NARRATOR_EQ_HOUSE never moves a reader: `voicing measure --write` re-derives every reader against this pin.
+READER_TARGET_NARRATOR_EQ = {"low": {"type": "bell", "hz": 200.0, "gain_db": 2.5, "q": 1.2},
+                             "high": {"type": "high_shelf", "hz": 6000.0, "gain_db": -2.5, "slope": 1.0}}
+READER_TARGET = {"warmth_db": 8.08, "treble_db": {5000: 0.44, 6300: 2.63, 8000: 8.84}}   # a test re-derives it
+
+
+def derived_targets() -> dict:
+    """The pin re-derived: NARRATOR_EXCESS after READER_TARGET_NARRATOR_EQ (a test holds it equal to READER_TARGET)."""
+    t = after_eq(NARRATOR_EXCESS, READER_TARGET_NARRATOR_EQ)
     return {"warmth_db": round(warmth(t), 2), "treble_db": {c: round(t[c], 2) for c in TREBLE_BANDS}}
+
+
+def targets() -> dict:
+    """Where the old Tara reference sits after its EQ: the readers' targets (pinned, READER_TARGET)."""
+    return {"warmth_db": READER_TARGET["warmth_db"], "treble_db": dict(READER_TARGET["treble_db"])}
 
 
 def _bell(hz: float, g: float) -> dict:
