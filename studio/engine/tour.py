@@ -254,12 +254,15 @@ def tour_stops(roi: list[dict], words: list[dict], t0: float, dur: float, size, 
 def long_axis(size, aspect: float) -> str | None:
     """Which way the fill window can travel: ``y`` for a picture narrower than
     the frame (a portrait tilts), ``x`` for a wider one (a wide map pans), None
-    for one of the frame's own shape."""
+    only when the fill shows the whole picture (to a pixel): a picture 1%
+    off 16:9 still has a strip the fill never shows, and the pass shows it."""
     iw, ih = float(size[0]), float(size[1])
-    a = iw / ih
-    if abs(a - aspect) <= 0.01 * aspect:
-        return None
-    return "y" if a < aspect else "x"
+    fw, fh = fill_window(size, aspect)
+    if iw - fw > 1.0:
+        return "x"
+    if ih - fh > 1.0:
+        return "y"
+    return None
 
 
 def default_stops(size, aspect: float, dur: float, direction: str = "") -> list[dict]:

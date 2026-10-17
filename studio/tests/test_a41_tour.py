@@ -144,7 +144,9 @@ def test_the_default_tour_tilts_a_portrait_and_pans_a_wide_picture():
 
 
 def test_the_default_tour_shows_the_whole_picture():
-    for size in (PORTRAIT, WIDE, LANDSCAPE43):
+    # (2089, 1186) is 0.9% narrower than 16:9: the fill alone hides a 11 px strip, so the pass still tilts (Partition S-029)
+    assert T.long_axis((2089, 1186), A) == "y" and T.long_axis((1920, 1080), A) is None
+    for size in (PORTRAIT, WIDE, LANDSCAPE43, (2089, 1186), (3388, 1905)):
         tl = T.build(T.default_stops(size, A, 8.0), 8.0, size, A, 2.0)
         assert T.covered(T.windows_of(tl), (0, 0, 1, 1), size)
 
