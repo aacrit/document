@@ -1442,6 +1442,11 @@ def credits_blocks(plan: dict) -> list:
     for c in plan["cues"]:
         bits = [c.get("source", ""), c.get("tradition", ""), c.get("performer", ""), c.get("licence", "")]
         sound += wrap(", ".join(b for b in bits if b))
+        for k in ("room_tone", "room_ir"):  # A29 take: the room tone (8.3, a real recording) and the room it plays in
+            m = ((c.get("_take") or {}).get("manifest") or {}).get(k)
+            if isinstance(m, dict) and (m.get("credit_line") or m.get("recording") or m.get("source")):
+                sound += wrap(str(m.get("credit_line") or ", ".join(str(b) for b in (m.get("recording") or m.get("source"),
+                                                                                  m.get("licence")) if b)))
     blocks = [("Shots", shots)]
     titles = [s for s in plan["shots"] if TS.is_title(s)]
     if titles:                  # A40: the series titles, drawn from period records; every CC BY input is attributed
@@ -2227,6 +2232,26 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                  evidence={"role": SC.cue_role(c), "gain_db": g,
                            "fix": None if ok else "an underscore, brand pulse or ambience cue's gain_db may only lower it: "
                                                   "0 or less"})
+        if why is None and kind_ok and c["kind"] == "music" and SC.cue_role(c) == "take":
+            # A29 take (S4): the film's whole score in one take, its spans, rests and manifest read here, once, for the
+            # mix and the lints. What the take is (anchored at 0, to the film's end, gain_db 0, no fades, its files
+            # whole) is its definition, not a judgement of its sound, so it blocks; the sound's lints are the canary's.
+            tk, probs = SC.load_take(film, c)
+            probs += SC.take_cue_problems(c, total_frames / FPS)
+            lint("take-cue", not probs, unit=c.get("id"), grammar="A29 take",
+                 evidence={"problems": probs, "files": (tk or {}).get("paths"),
+                           "spans": len((tk or {}).get("spans", [])), "rests": len((tk or {}).get("rests", [])),
+                           "fix": "; ".join(probs) if probs else None})
+            c["_take"] = tk
+    takes = [c for c in cues if c.get("kind") == "music" and SC.cue_role(c) == "take"]
+    if takes:
+        # A29 take: one take at most, and beside it only the A40 main-title theme; the motif and the pulse are inside it
+        others = [c.get("id") for c in cues if c.get("kind") == "music" and SC.cue_role(c) not in ("take", "main_title")]
+        ok = len(takes) == 1 and not others
+        lint("take-only", ok, unit=takes[0].get("id"), grammar="A29 take",
+             evidence={"takes": [c.get("id") for c in takes], "other_music": others,
+                       "fix": None if ok else "a film with a take has one take and, beside it, only the main-title theme: "
+                                              "the motif and the brand pulse are moments inside the take"})
     vl = voice_lines(play, film)
     collisions = voice_collisions(vl)
     lint("voice-overlap", not collisions, stage="scout", grammar="founder ruling 2026-10-10",
@@ -4514,7 +4539,11 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
     when given, receives what score_lints reads: each music cue's analysis
     as placed, the voice activity and duck gain on score.py's grids, and the
     phone-check of the mix (the voice against the ducked music and the
-    ambience, through the small-speaker simulation)."""
+    ambience, through the small-speaker simulation).
+
+    A29 take (S4): a take cue is the film's whole score in one stem, placed
+    whole at 0 with no shaping, levelling or fades (the duck still applies);
+    ``stems`` then receives its reading by span (score.take_analysis)."""
     std = plan.get("score_standard") or dict(SC.STANDARD)
     n = int(round(plan["frames"] / FPS * AUDIO_RATE))
     voice, music, amb, clips = (np.zeros(n, np.float32) for _ in range(4))
@@ -4622,6 +4651,29 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
         level = None
         role = SC.cue_role(c)
         shaping = None
+        if role == "take":
+            # A29 take (S4): the whole score, placed whole at 0. No band-shaping (the stem is shaped per span at render),
+            # no levelling (its one global gain is baked in), no fades (its entries are composed); only the A37 duck,
+            # below, as for any music. build_plan refuses a take with a gain_db; a hand-made plan is refused here too.
+            if float(c.get("gain_db", 0.0) or 0.0) != 0.0 or float(c.get("start_s", 0.0)) != 0.0:
+                raise Refused(f"take-cue (A29 take): {c['id']} is placed at 0 with gain_db 0; its gain is in the stem")
+            tk = c.get("_take") or SC.load_take(film, c)[0]     # build_plan reads it; a hand-made plan is read here
+            if tk is None:
+                raise Refused(f"take-cue (A29 take): {c['id']}: its spans, rests or manifest cannot be read")
+            k = _place(target, x, 0.0, 0.0, float(c["end_s"]))
+            placed["cues"].append({"id": c["id"], "kind": "music", "at_s": 0.0, "dur_s": round(k / AUDIO_RATE, 3),
+                                   "level_db": None, "part": c.get("_part"), "fade_in_s": 0.0, "fade_out_s": 0.0,
+                                   "role": role, "shaping": None, "spans": len(tk.get("spans", [])),
+                                   "rests": len(tk.get("rests", []))})
+            journal.decision("assembly", f"{c['id']}: the take placed whole at 0 ({k / AUDIO_RATE:.2f} s)",
+                             "A29 take: one stem from the first frame to the last; no shaping, levelling or fades, "
+                             "only the duck", unit=c["id"],
+                             evidence={"spans": len(tk.get("spans", [])), "rests": len(tk.get("rests", [])),
+                                       "wav": str(wav)})
+            if stems is not None:
+                titles = [(s["f0"] / FPS, s["f1"] / FPS) for s in plan["shots"] if TS.is_title(s)]
+                stems["take"] = SC.take_analysis(x[:k], tk, titles=titles)
+            continue
         if c.get("kind") == "music":            # levelled over the part that plays
             span = x[: max(0, int(round((float(c["end_s"]) - float(c["start_s"])) * AUDIO_RATE)))]
             if role in SC.SHAPED:               # A29 refined: the sub-bass kept, the voice's low-mids and the treble cut
@@ -5071,7 +5123,10 @@ def plan_edges(segs: list[dict], plan: dict, film: Path) -> None:
     ``inside`` lies within the segment) and why, or ``joined`` to the
     neighbouring segment of the same reel."""
     voices = _voice_intervals(plan, film)
-    music = [(float(c["start_s"]), float(c["end_s"])) for c in plan.get("cues", [])]
+    music = []
+    for c in plan.get("cues", []):
+        tk = c.get("_take")              # A29 take: the take plays music only in its spans; its rests are the room
+        music += [(s["start_s"], s["end_s"]) for s in tk["spans"]] if tk else [(float(c["start_s"]), float(c["end_s"]))]
 
     def others(g: dict) -> list[tuple[float, float]]:
         return [(v[0], v[1]) for v in voices] + [(h["t_in"], h["t_out"]) for h in segs if h is not g]
@@ -6157,7 +6212,10 @@ def score_lints(journal: Journal, plan: dict, stems: dict, *, draft: bool = Fals
     no music between the first cue and the last) and duck-pumping (the duck
     holds through every pause in a line and every gap under the hold).
     Blocking on a final render; warnings under --draft, --audio-only and
-    --until (``draft``). Returns the reasons to refuse."""
+    --until (``draft``). A film's take (A29 take) is judged by its spans and
+    its rest map (score.take_checks), each of those checks a canary: a
+    warning until score.TAKE_CANARY_UNTIL, then blocking. Returns the reasons
+    to refuse."""
     std = plan.get("score_standard") or dict(SC.STANDARD)
     film = Path(plan["film"])
     mine = [(c["id"], film / (c.get("wav") or f"audio/{c['id']}.wav")) for c in plan["cues"]
@@ -6168,13 +6226,19 @@ def score_lints(journal: Journal, plan: dict, stems: dict, *, draft: bool = Fals
                              own_sound=stems.get("own_sound", []), duck100=stems.get("duck100"),
                              voice_grid=stems.get("voice_grid"), duck_grid=stems.get("duck_grid"), spans=stems.get("spans"),
                              voice100=stems.get("voice100"), cards=cards, phone=stems.get("phone"),
-                             reuse=SC.reuse_check(film, {"slug": plan["slug"]}, registry, mine=mine))
+                             reuse=SC.reuse_check(film, {"slug": plan["slug"]}, registry, mine=mine), take=stems.get("take"))
     out = []
+    canary = SC.take_canary()
     for c in checks:
+        # A29 take: a take's checks are a canary, log-only until SC.TAKE_CANARY_UNTIL, then blocking as the rest
+        log_only = bool(c.get("canary")) and canary
+        extra = {"canary": f"A29 take: log-only until {SC.TAKE_CANARY_UNTIL}" if log_only else
+                 f"A29 take: blocking since {SC.TAKE_CANARY_UNTIL}"} if c.get("canary") else {}
         journal.lint(c["rule"], c["ok"], stage="assembly", phase="preflight", unit=c["unit"],
-                     severity="warn" if draft else "block", grammar="8.5, A29, A29 refined",
-                     evidence=dict(c["evidence"], standard_stated=plan.get("score_standard_stated") or {}))
-        if not c["ok"] and not draft:
+                     severity="warn" if draft or log_only else "block",
+                     grammar="8.4 (revised), A29 take" if c.get("canary") else "8.5, A29, A29 refined",
+                     evidence=dict(c["evidence"], standard_stated=plan.get("score_standard_stated") or {}, **extra))
+        if not c["ok"] and not draft and not log_only:
             ev = {k: v for k, v in c["evidence"].items() if k not in ("fix", "declared", "pumps", "holes", "worst", "duplicates")}
             out.append(f"{c['rule']} ({c['unit']}: {ev}; {c['evidence'].get('fix')})")
     return out

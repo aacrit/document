@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -83,19 +84,22 @@ DUCK_GRID_S = 0.01                  # duck-pumping is judged on a 10 ms grid
 DUCK_ATTACK_S = 1.0
 DUCK_ATTACK_MAX_DB = 2.0            # per 100 ms: a 0.7 s sine pre-roll (2.0 dB) is the steepest that passes
 
-ROLES = ("bed", "transition", "sting", "outro", "regional", "motif", "brand_pulse", "palette", "main_title")
+ROLES = ("bed", "transition", "sting", "outro", "regional", "motif", "brand_pulse", "palette", "main_title", "take",
+         "featured")                                      # A29 take: the whole score in one take; a featured span of it
 UNDERSCORE = ("bed", "transition", "sting", "outro", "regional")   # levelled to the bed target; under the score standard
 TRANSITIONS = ("transition", "sting", "outro")            # linted against the bed they lead into (or follow)
 SHAPED = ("bed", "regional")                              # band-shaped (bed_shape) before they are levelled
-FILM_LAYER = ("bed", "transition", "sting", "outro")      # the film's own score: never another film's (bed-reuse)
+FILM_LAYER = ("bed", "transition", "sting", "outro", "take")   # the film's own score: never another film's (bed-reuse)
 BRAND = ("motif", "brand_pulse", "main_title")            # the house's signature: recurs by design (score-repetition);
                                                           # A40: the main-title theme plays in every film's series titles
-TREBLE_LIMITED = UNDERSCORE + BRAND                       # music-treble: every scored cue (a palette recording is a source)
+TREBLE_LIMITED = UNDERSCORE + BRAND + ("featured",)       # music-treble: every scored cue (a palette recording is a source)
+                                                          # and every span of a take (A29 take)
 FEATURED = ("motif", "brand_pulse", "palette", "main_title")   # heard for itself, levelled to FEATURE_LUFS
 MUSIC_ROLES = ("underscore", "house_motif", "brand_pulse", "palette", "main_title")   # a music cue's `role`; absent is underscore
 RULES = ("bed-under-voice", "bed-low-end", "music-treble", "bed-breathing", "underscore-level", "ambience-level",
          "ambience-low-end", "transition-ceiling", "regional-density", "brand-pulse-place", "bed-reuse",
-         "score-repetition", "phone-check", "music-entry", "music-exit", "music-holes", "duck-pumping", "duck-slope")
+         "score-repetition", "phone-check", "music-entry", "music-exit", "music-holes", "duck-pumping", "duck-slope",
+         "featured-level", "silence-rests", "take-handover", "room-tone-provenance", "room-ir-licence")
 CUE_KINDS = ("music", "ambience")                          # a cue's `kind`, stated on every cue; nothing else is placed
 # Ambience under the voice (A29(1)): at most this share of its energy may be tonal and under LOW_END_HZ (spectral
 # lines standing 10x over their neighbourhood on a 1 Hz Welch spectrum, 20 to 230 Hz). Calibrated (R1 review): two real
@@ -181,8 +185,10 @@ def cue_role(c: dict) -> str:
     and rupture cues are transitions, stings stings, the outro the outro, and
     any other is a bed (the strictest reading). `role: brand_pulse` is the
     brand pulse (A29 refined); a regional cue is only ever stated
-    (``score_role: regional``), never read from a name. Ambience is not
-    music. role_problem says what build_plan refuses."""
+    (``score_role: regional``), never read from a name. A cue with ``take:
+    true`` is the film's take (A29 take: the whole score in one continuous
+    take, judged by its spans). Ambience is not music. role_problem says what
+    build_plan refuses."""
     if c.get("kind", "music") != "music":
         return "ambience"
     if c.get("role") == "house_motif":
@@ -193,6 +199,8 @@ def cue_role(c: dict) -> str:
         return "brand_pulse"
     if c.get("role") == "main_title":          # A40: the series titles' theme, developed from the house motif
         return "main_title"
+    if c.get("take") is True:                  # A29 take: the film's whole score, one continuous take
+        return "take"
     sr = c.get("score_role")
     if isinstance(sr, str) and sr in UNDERSCORE:
         return sr
@@ -210,13 +218,20 @@ def role_problem(c: dict) -> str | None:
     or a ``score_role`` that is not a string or contradicts it (an underscore
     cue may state bed, transition, sting, outro or regional; motif only with
     `role: house_motif`, palette only with `role: palette`, brand_pulse only
-    with `role: brand_pulse`); a regional cue without its ``marks_moment``
-    (a non-empty string), and a ``marks_moment`` on any other cue."""
+    with `role: brand_pulse`); a take that does not state ``take: true``,
+    role underscore and ``score_role: take`` together (A29 take); a regional
+    cue without its ``marks_moment`` (a non-empty string), and a
+    ``marks_moment`` on any other cue."""
     if c.get("kind", "music") != "music":
         return "marks_moment is for a regional music cue only" if "marks_moment" in c else None
     role = c.get("role")
     if role is not None and (not isinstance(role, str) or role not in MUSIC_ROLES):
         return f"role {role!r} is not one of {', '.join(MUSIC_ROLES)}"
+    if "take" in c or c.get("score_role") == "take":
+        # A29 take: all three or none, so a take is never read from a name and never mistaken for a bed
+        if not (c.get("take") is True and role in (None, "underscore") and c.get("score_role") == "take"):
+            return "a take states take: true, role underscore and score_role take, all three (A29 take)"
+        return "marks_moment is for a regional cue only (score_role: regional)" if "marks_moment" in c else None
     if "score_role" in c:
         sr = c["score_role"]
         allowed = {"house_motif": ("motif",), "palette": ("palette",), "brand_pulse": ("brand_pulse",),
@@ -814,6 +829,427 @@ def cross_repetition(fa: dict, fb: dict) -> dict:
 
 
 # --------------------------------------------------------------------------
+# The continuous take (A29 take; founder, 2026-10-17, after the A/B on Real
+# World: "Whole, with room tone.")
+# --------------------------------------------------------------------------
+# A film's score may be one take: the house group's whole performance in one real room, rendered once by score-tools
+# whole.py (the dry take convolved once with the room's IR, the credited room tone under it, one global gain). The
+# engine places it whole at 0, untouched but for the A37 duck, and judges it by its two maps: the spans
+# (score.spans.json, the composer's roles: tags for the lints, cut nowhere in the audio) and the rests
+# (score.rests.json, the group not playing and the room heard, each with its why). Its manifest (score.take.json)
+# names the room tone and the room. Design: reports/briefs/document-title-and-score-design.md, sections 3 and 4.
+# Canary: every take lint is log-only until TAKE_CANARY_UNTIL, then blocks like the rest of A29.
+
+TAKE_CANARY_UNTIL = "2026-10-24"    # log-only before this day (ISO date), blocking from it
+TAKE_FILES = ("spans", "rests", "manifest")      # a take cue's maps and manifest, each a path from the film folder
+TAKE_SPAN_ROLES = ("bed", "transition", "featured", "outro")
+TAKE_EDGE_TOL_S = 0.05              # a take ends with the film within this (the renderer's sample grid, not a frame)
+TAKE_TAIL_MAX_S = 6.0               # a span is judged with its release tail, until the room is heard, at most 6 s
+ROOM_MARGIN_DB = 3.0                # the music band within 3 dB over the room tone is the room alone: no music
+TAKE_NEAR_P90_DB = 6.0              # a composed entry has arrived when the music band is within 6 dB of the span's p90
+TAKE_EDGE_LOOKBACK_S = 10.0         # an edge enters from the room (or leaves into it) when the room is heard within 10 s
+TAKE_LEAD_S = 0.5                   # a humanised first note may sound a little before its span starts
+MUSIC_BAND_HZ = (SUB_BASS_HZ, TREBLE_HZ)    # the music band: over the sub-bass no phone plays, under A29's treble
+DIGITAL_ZERO = 1e-6                 # a 100 ms window with every sample at or under -120 dBFS is digital zero
+HANDOVER_WHY = "A40 handover"       # the rest that carries the room through the series titles (S7)
+HANDOVER_AFTER_S = 8.0              # it runs from the slot's first frame to 8 s after its last
+REST_MIN_S = 8.0                    # 8.4 (revised): a rest of 8 s or more with no voice,
+REST_MIN_COUNT = 3                  # at least three of them
+ROOM_TONE_LICENCES = ("CC0", "CC BY")       # the room tone: a real recording, CC0 or CC BY (no SA, NC or ND)
+ROOM_IR_LICENCES = ("MIT", "CC0", "CC BY")  # the room IR: a measured room under an open licence
+TAKE_RULES = ("featured-level", "silence-rests", "take-handover", "room-tone-provenance", "room-ir-licence")
+_SHA = re.compile(r"[0-9a-f]{64}")
+
+
+def take_canary(today: str | None = None) -> bool:
+    """A29 take's canary: True (log-only) before TAKE_CANARY_UNTIL. ``today`` is an ISO date, today's when None."""
+    import datetime
+    return (today or datetime.date.today().isoformat()) < TAKE_CANARY_UNTIL
+
+
+def licence_family(lic) -> str | None:
+    """A licence line's family: "CC0", "MIT", "CC BY", or "CC BY" with its SA, NC or ND terms ("CC BY SA"); None
+    when it is none of these. The words after it (a version, where it was read) do not change it."""
+    t = re.sub(r"[-_]", " ", str(lic or "")).strip().upper()
+    if t.startswith("CC0"):
+        return "CC0"
+    if re.match(r"MIT\b", t):
+        return "MIT"
+    m = re.match(r"CC BY((?: (?:SA|NC|ND)\b)*)", t)
+    return None if not m else "CC BY" + m.group(1)
+
+
+def _number(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(float(v))
+
+
+def load_take(film: Path, c: dict) -> tuple[dict | None, list[str]]:
+    """A29 take: a take cue's three files, read and checked for shape. ``spans``
+    (score.spans.json: a list of {id, role, start_s, end_s}, role one of
+    TAKE_SPAN_ROLES), ``rests`` (score.rests.json: a list of {id, start_s,
+    end_s, why}) and ``manifest`` (score.take.json: an object naming the room
+    tone and the room IR, judged by take_provenance), each a path from the film
+    folder. Returns the take ({id, wav, spans, rests, manifest, paths}, None
+    when a file is missing or unreadable) and what is wrong with it."""
+    problems: list[str] = []
+    got: dict = {}
+    paths: dict = {}
+    for k in TAKE_FILES:
+        rel = c.get(k)
+        if not isinstance(rel, str) or not rel.strip():
+            problems.append(f"{k}: a take names its {k} file, a path from the film folder")
+            continue
+        p = film / rel
+        paths[k] = str(p)
+        try:
+            got[k] = json.loads(p.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            problems.append(f"{k}: {p} is not there")
+        except (OSError, ValueError) as e:
+            problems.append(f"{k}: {p} does not read as JSON ({e})")
+    spans, rests = [], []
+    if "spans" in got:
+        raw = got["spans"]
+        if not isinstance(raw, list) or not raw:
+            problems.append("spans: a non-empty list of {id, role, start_s, end_s}")
+            raw = []
+        for i, sp in enumerate(raw):
+            if not isinstance(sp, dict) or not isinstance(sp.get("id"), str) or not sp["id"].strip():
+                problems.append(f"spans[{i}]: an object with an id")
+                continue
+            if sp.get("role") not in TAKE_SPAN_ROLES:
+                problems.append(f"spans {sp['id']}: role {sp.get('role')!r} is not one of {', '.join(TAKE_SPAN_ROLES)}")
+            elif not (_number(sp.get("start_s")) and _number(sp.get("end_s")) and 0 <= float(sp["start_s"]) < float(sp["end_s"])):
+                problems.append(f"spans {sp['id']}: start_s and end_s are numbers, 0 <= start_s < end_s")
+            else:
+                spans.append({"id": sp["id"], "role": sp["role"], "start_s": float(sp["start_s"]), "end_s": float(sp["end_s"]),
+                              "marks_moment": sp.get("marks_moment")})
+        ids = [sp["id"] for sp in spans]
+        if len(set(ids)) != len(ids):
+            problems.append("spans: every id is the film's once")
+    if "rests" in got:
+        raw = got["rests"]
+        if not isinstance(raw, list):
+            problems.append("rests: a list of {id, start_s, end_s, why}")
+            raw = []
+        for i, r in enumerate(raw):
+            rid = r.get("id") if isinstance(r, dict) else None
+            if not isinstance(rid, str) or not rid.strip():
+                problems.append(f"rests[{i}]: an object with an id")
+            elif not (_number(r.get("start_s")) and _number(r.get("end_s")) and float(r["start_s"]) < float(r["end_s"])):
+                problems.append(f"rests {rid}: start_s and end_s are numbers, start_s < end_s")
+            elif not isinstance(r.get("why"), str) or not r["why"].strip():
+                problems.append(f"rests {rid}: a rest says why (a rest is composed, never a gap)")
+            else:
+                rests.append({"id": rid, "start_s": float(r["start_s"]), "end_s": float(r["end_s"]), "why": r["why"]})
+    if "manifest" in got and not isinstance(got["manifest"], dict):
+        problems.append("manifest: an object naming room_tone and room_ir")
+    if any(k not in got for k in TAKE_FILES):
+        return None, problems
+    return {"id": c.get("id"), "wav": c.get("wav"), "spans": sorted(spans, key=lambda s: s["start_s"]),
+            "rests": sorted(rests, key=lambda r: r["start_s"]),
+            "manifest": got["manifest"] if isinstance(got["manifest"], dict) else {}, "paths": paths}, problems
+
+
+def take_cue_problems(c: dict, duration_s: float) -> list[str]:
+    """A29 take: what the take cue itself may not carry. It is anchored at 0
+    and spans the film to its end; its ``gain_db`` is 0 (its one global gain
+    is baked into the stem); it has no fades (its entries are composed)."""
+    out = []
+    start, end = c.get("start_s"), c.get("end_s")
+    if not _number(start) or abs(float(start)) > 1e-9:
+        out.append(f"start_s {start!r}: a take is anchored at 0")
+    if not _number(end) or float(end) < duration_s - TAKE_EDGE_TOL_S:
+        out.append(f"end_s {end!r}: a take spans the film to its end ({duration_s:.3f} s)")
+    g = c.get("gain_db", 0.0)
+    if not _number(g) or float(g) != 0.0:
+        out.append(f"gain_db {g!r}: a take's gain_db is 0; its one global gain is in the stem (whole.py)")
+    for k in ("fade_in_s", "fade_out_s"):
+        if c.get(k) not in (None, 0, 0.0):
+            out.append(f"{k} {c[k]!r}: a take has no fades; compose the entry softer (niente), never fade it")
+    return out
+
+
+def take_handover(take: dict | None, t0: float, t1: float) -> dict | None:
+    """S7, the A40 handover: the rest in the take's map that says why ``A40
+    handover`` and covers the series titles from their first frame (``t0``) to
+    HANDOVER_AFTER_S after their last (``t1``); None when there is none."""
+    for r in (take or {}).get("rests", []):
+        if (str(r.get("why", "")).startswith(HANDOVER_WHY) and r["start_s"] <= t0 + TAKE_EDGE_TOL_S
+                and r["end_s"] >= t1 + HANDOVER_AFTER_S - TAKE_EDGE_TOL_S):
+            return r
+    return None
+
+
+def take_grids(y: np.ndarray, block_s: float = 87.0) -> tuple[np.ndarray, np.ndarray]:
+    """The take on the 100 ms grid: its music band (MUSIC_BAND_HZ, 24 dB an
+    octave either side, zero phase) as RMS in dBFS, and which windows are
+    digital zero (every sample at or under DIGITAL_ZERO). Filtered in blocks of
+    ``block_s`` with 0.5 s of context either side, so a whole film never makes
+    one FFT of its own length."""
+    hop = int(HOP_S * RATE)
+    y = np.asarray(y, np.float32)
+    nwin = int(math.ceil(len(y) / hop))
+    band = np.full(nwin, -200.0)
+    zero = np.zeros(nwin, bool)
+    blk = int(round(block_s / HOP_S)) * hop
+    ctx = RATE // 2
+
+    def mag(f):
+        return butter_mag(f, MUSIC_BAND_HZ[0], 4, "high") * butter_mag(f, MUSIC_BAND_HZ[1], 4, "low")
+
+    for a in range(0, len(y), blk):
+        lo, hi = max(0, a - ctx), min(len(y), a + blk + ctx)
+        z = _filtered(y[lo:hi], mag)[a - lo: a - lo + blk]
+        i = a // hop
+        w = _windows(z, hop)
+        m = min(len(w), nwin - i)
+        band[i: i + m] = _db(np.mean(w * w, axis=1))[:m]
+        zero[i: i + m] = (_windows(np.abs(y[a: a + blk]), hop).max(axis=1) <= DIGITAL_ZERO)[:m]
+    return band, zero
+
+
+def _mask(n: int, spans) -> np.ndarray:
+    """The 100 ms windows (of n) that any of ``spans`` (start, end in s) touches."""
+    m = np.zeros(n, bool)
+    for a, b in spans:
+        m[max(0, int(math.floor(a / HOP_S + 1e-6))): max(0, min(n, int(math.ceil(b / HOP_S - 1e-6))))] = True
+    return m
+
+
+def room_floor(band: np.ndarray, zero: np.ndarray, rests, titles) -> tuple[float, str]:
+    """The take's room tone in the music band: the median over its rests (the
+    group not playing, the room heard; a release tail at a rest's head moves a
+    median little), the series titles and digital zero left out. With under
+    1 s of rest, the 10th percentile of the whole take instead."""
+    free = ~zero & ~_mask(len(band), titles)
+    m = _mask(len(band), [(r["start_s"], r["end_s"]) for r in rests]) & free
+    if m.sum() >= 10:
+        return round(float(np.median(band[m])), 2), "the median of the music band over the rests"
+    live = band[free]
+    if not len(live):
+        return -200.0, "no window of the take is anything but digital zero"
+    return round(float(np.percentile(live, 10)), 2), "the 10th percentile of the music band over the take (under 1 s of rest)"
+
+
+def take_analysis(y: np.ndarray, take: dict, *, titles=()) -> dict:
+    """A29 take, S5: the take as placed (``y``, from 0) read as the lints need
+    it: its music band and digital zero on the 100 ms grid (take_grids), its
+    room floor (room_floor), and one virtual cue per span (id and role the
+    span's; ``an`` analyse_cue of the take from the span's start to its end plus
+    its release tail: until the music band is back at the room, at most
+    TAKE_TAIL_MAX_S and never into the next span), which the A29 checks judge
+    unchanged. ``titles`` are the series titles' (start, end): the take rests
+    there and the title carries the room (S7)."""
+    y = np.asarray(y, np.float32)
+    band, zero = take_grids(y)
+    floor_db, floor_from = room_floor(band, zero, take["rests"], titles)
+    room = floor_db + ROOM_MARGIN_DB
+    end_s = len(y) / RATE
+    spans = sorted(take["spans"], key=lambda s: s["start_s"])
+    cues = []
+    for sp in spans:
+        a, b = max(0.0, sp["start_s"]), min(end_s, sp["end_s"])
+        if b - a < HOP_S:
+            continue                                     # past the end of a check render (--until)
+        nxt = min([o["start_s"] for o in spans if o is not sp and o["start_s"] >= sp["end_s"] - 1e-9] + [end_s])
+        lim = max(b, min(b + TAKE_TAIL_MAX_S, nxt, end_s))
+        tail_end = lim
+        for i in range(int(math.ceil(b / HOP_S - 1e-6)), min(len(band), int(lim / HOP_S + 1e-6))):
+            if band[i] <= room:
+                tail_end = max(b, i * HOP_S)
+                break
+        seg = y[int(round(a * RATE)): int(round(tail_end * RATE))]
+        cues.append({"id": sp["id"], "role": sp["role"], "start_s": a, "end_s": b, "tail_s": round(tail_end - b, 2),
+                     "fade_in_s": 0.0, "fade_out_s": 0.0, "gain_db": 0.0, "shaping": None,
+                     "marks_moment": sp.get("marks_moment"), "take_span": True, "take": take["id"],
+                     "an": analyse_cue(seg, sp["role"])})
+    return {"id": take["id"], "n": len(y), "band_db": band.astype(np.float32), "zero": zero, "floor_db": floor_db,
+            "floor_from": floor_from, "titles": [(float(a), float(b)) for a, b in titles], "spans": spans,
+            "rests": take["rests"], "manifest": take.get("manifest") or {}, "paths": take.get("paths") or {}, "cues": cues}
+
+
+def composed_edges(band: np.ndarray, floor_db: float, a_s: float, b_s: float) -> dict:
+    """music-entry and music-exit for a span of a take, which has no fades:
+    the entry is composed, so it is measured. ``rise_s``: from the last 100 ms
+    window at the room (the music band at most ROOM_MARGIN_DB over the room
+    floor) to the first within TAKE_NEAR_P90_DB of the span's p90 (looked for
+    from TAKE_LEAD_S before the span); ``decay_s``: from the last such window
+    to the first at the room after it. An edge with no room within
+    TAKE_EDGE_LOOKBACK_S enters from (or leaves into) music and is not judged
+    (None), as a cue that crossfades is not."""
+    n = len(band)
+    i0, i1 = max(0, int(math.floor(a_s / HOP_S + 1e-6))), min(n, int(math.ceil(b_s / HOP_S - 1e-6)))
+    if i1 <= i0:
+        return {"p90_db": None, "near_db": None, "room_db": None, "entry": None, "exit": None}
+    seg = np.asarray(band[i0:i1], np.float64)
+    p90 = float(np.percentile(seg, 90))
+    near, room = p90 - TAKE_NEAR_P90_DB, floor_db + ROOM_MARGIN_DB
+    k = int(round(TAKE_EDGE_LOOKBACK_S / HOP_S))
+    lo = max(0, i0 - int(round(TAKE_LEAD_S / HOP_S)))
+    first = lo + int(np.flatnonzero(band[lo:i1] >= near)[0])
+    last = i0 + int(np.flatnonzero(seg >= near)[-1])
+    q = np.flatnonzero(band[max(0, first - k): first] <= room)
+    q0 = None if not len(q) else max(0, first - k) + int(q[-1])
+    q = np.flatnonzero(band[last + 1: min(n, last + 1 + k)] <= room)
+    q1 = None if not len(q) else last + 1 + int(q[0])
+    return {"p90_db": round(p90, 1), "near_db": round(near, 1), "room_db": round(room, 1),
+            "entry": None if q0 is None else {"room_at_s": round(q0 * HOP_S, 2), "arrives_s": round(first * HOP_S, 2),
+                                               "rise_s": round((first - q0 - 1) * HOP_S, 2)},
+            "exit": None if q1 is None else {"leaves_s": round(last * HOP_S, 2), "room_at_s": round(q1 * HOP_S, 2),
+                                              "decay_s": round((q1 - last - 1) * HOP_S, 2)}}
+
+
+def take_holes(take: dict, max_s: float, silences=(), own_sound=(), voice100: np.ndarray | None = None) -> list[dict]:
+    """music-holes for a take (8.4 revised): digital zero anywhere in it but
+    under the series titles is a hole outright (the floor is the room tone);
+    and, between the first span's start and the last one's end, any stretch
+    over ``max_s`` where the music band is at the room (at most ROOM_MARGIN_DB
+    over its floor) with no voice, outside the rest map, the declared
+    silences and a source's own sound."""
+    band, zero = take["band_db"], take["zero"]
+    n = len(band)
+    tm = _mask(n, take["titles"])
+    out = [{"from_s": round(a * HOP_S, 1), "to_s": round(b * HOP_S, 1), "dur_s": round((b - a) * HOP_S, 1),
+            "why": "digital zero: the floor is the room tone"} for a, b in _runs(zero & ~tm)]
+    if take["spans"]:
+        keep = _mask(n, [(min(s["start_s"] for s in take["spans"]), max(s["end_s"] for s in take["spans"]))])
+        keep &= ~_mask(n, [(r["start_s"], r["end_s"]) for r in take["rests"]] + list(silences) + list(own_sound))
+        keep &= ~tm & ~zero
+        if voice100 is not None:
+            v = np.asarray(voice100, bool)[:n]
+            keep[: len(v)] &= ~v
+        for a, b in _runs((band <= take["floor_db"] + ROOM_MARGIN_DB) & keep):
+            if (b - a) * HOP_S > max_s + 1e-9:
+                out.append({"from_s": round(a * HOP_S, 1), "to_s": round(b * HOP_S, 1), "dur_s": round((b - a) * HOP_S, 1),
+                            "why": "the room alone, not in the rest map"})
+    return sorted(out, key=lambda h: h["from_s"])
+
+
+def take_provenance(take: dict) -> list[dict]:
+    """room-tone-provenance and room-ir-licence (S3): the manifest names the
+    room tone as a real recording (``kind: recording``, the recording, its
+    source page, CC0 or CC BY, and the sha256 of its decoded samples as
+    audio_hashes reads them, checked against the file when it is here) and the
+    room IR with its source, its url and an open licence (ROOM_IR_LICENCES)."""
+    man = take.get("manifest") or {}
+    rt = man.get("room_tone")
+    problems, verified = [], None
+    if not isinstance(rt, dict):
+        problems.append("the manifest names no room_tone")
+        rt = {}
+    else:
+        if rt.get("kind") != "recording":
+            problems.append(f"kind {rt.get('kind')!r}: the room tone is a real recording (kind: recording), never synthesised")
+        if not str(rt.get("recording") or "").strip():
+            problems.append("it names the recording (its title and recordist)")
+        if not str(rt.get("licence_source") or rt.get("source") or "").startswith("http"):
+            problems.append("it names its source page (licence_source)")
+        if licence_family(rt.get("licence")) not in ROOM_TONE_LICENCES:
+            problems.append(f"licence {rt.get('licence')!r}: CC0 or CC BY")
+        sha = str(rt.get("sha256") or "")
+        if not _SHA.fullmatch(sha):
+            problems.append("sha256: the sha256 of its decoded samples (64 hex digits)")
+        elif rt.get("file"):
+            f = Path(str(rt["file"]))
+            if not f.is_absolute() and take.get("paths", {}).get("manifest"):
+                f = Path(take["paths"]["manifest"]).parent / f
+            if f.exists():
+                verified = audio_hashes(f)[0] == sha
+                if not verified:
+                    problems.append(f"sha256 does not match the decoded samples of {f.name}")
+    out = [{"rule": "room-tone-provenance", "ok": not problems, "unit": "room_tone", "evidence": {
+        "recording": rt.get("recording"), "kind": rt.get("kind"), "licence": rt.get("licence"),
+        "licence_source": rt.get("licence_source") or rt.get("source"), "sha256": str(rt.get("sha256") or "")[:16] or None,
+        "sha256_checked_against_file": verified, "problems": problems,
+        "fix": None if not problems else "name a real room-tone recording in the take's manifest (whole.py --room-meta): "
+                                         "kind recording, the recording, its source page, CC0 or CC BY, the decoded sha256"}}]
+    ir = man.get("room_ir")
+    problems = []
+    if not isinstance(ir, dict):
+        problems.append("the manifest names no room_ir")
+        ir = {}
+    else:
+        if licence_family(ir.get("licence")) not in ROOM_IR_LICENCES:
+            problems.append(f"licence {ir.get('licence')!r}: one of {', '.join(ROOM_IR_LICENCES)}")
+        if not str(ir.get("source") or "").strip() or not str(ir.get("url") or "").startswith("http"):
+            problems.append("it names the measured room (source) and where it was downloaded (url)")
+    out.append({"rule": "room-ir-licence", "ok": not problems, "unit": "room_ir", "evidence": {
+        "source": ir.get("source"), "licence": ir.get("licence"), "url": ir.get("url"), "problems": problems,
+        "fix": None if not problems else "name the room IR in the take's manifest: the measured room, its url, an open licence"}})
+    return out
+
+
+def take_checks(take: dict, std: dict, *, silences=(), own_sound=(), voice100: np.ndarray | None = None) -> list[dict]:
+    """The take's own lints (A29 take, 8.4 revised, S7), beside the A29 checks
+    its virtual cues get in score_checks: music-entry and music-exit per span
+    (composed_edges), music-holes (take_holes), silence-rests (8.4: at least
+    REST_MIN_COUNT rests in the rest map holding REST_MIN_S with no voice, and
+    no digital zero), take-handover (the series titles in a declared A40
+    handover rest, the music band at the room under them) and the manifest's
+    provenance (take_provenance)."""
+    out = []
+    band, floor_db = take["band_db"], take["floor_db"]
+    for c in take["cues"]:
+        e = composed_edges(band, floor_db, c["start_s"], c["end_s"])
+        for side, key, rule in (("entry", "rise_s", "music-entry"), ("exit", "decay_s", "music-exit")):
+            m = e[side]
+            if m is None:
+                continue                                 # from or into music: a crossfade inside the take
+            ok = m[key] >= std["entry_fade_min_s"] - 1e-9
+            out.append({"rule": rule, "ok": ok, "unit": c["id"], "evidence": {
+                "role": c["role"], "take": take["id"], **m, "min_s": std["entry_fade_min_s"],
+                "measure": f"composed: the music band from the room to within {TAKE_NEAR_P90_DB:g} dB of the span's p90 "
+                           "(100 ms RMS)", "p90_db": e["p90_db"], "near_db": e["near_db"], "room_db": e["room_db"],
+                "fix": None if ok else ("compose the entry softer (niente), never fade it" if side == "entry" else
+                                        "compose the release longer (let it die away into the room), never fade it")}})
+    holes = take_holes(take, std["music_hole_max_s"], silences, own_sound, voice100)
+    out.append({"rule": "music-holes", "ok": not holes, "unit": "music", "evidence": {
+        "holes": holes[:30], "count": len(holes), "max_s": std["music_hole_max_s"], "take": take["id"],
+        "room_floor_db": floor_db, "room_floor_from": take["floor_from"], "margin_db": ROOM_MARGIN_DB,
+        "rests": len(take["rests"]), "voice_measured": voice100 is not None,
+        "fix": None if not holes else "a hole is the room alone where the score has not said so: declare the rest in "
+                                      "score.rests.json with its why, or write the music through it; never digital zero"}})
+    n = len(band)
+    tm = _mask(n, take["titles"])
+    v = np.zeros(n, bool)
+    if voice100 is not None:
+        vv = np.asarray(voice100, bool)[:n]
+        v[: len(vv)] = vv
+    counted = []
+    for r in take["rests"]:
+        i0, i1 = max(0, int(math.floor(r["start_s"] / HOP_S + 1e-6))), min(n, int(math.ceil(r["end_s"] / HOP_S - 1e-6)))
+        longest = max((b - a for a, b in _runs(~v[i0:i1])), default=0) * HOP_S if i1 > i0 else 0.0
+        if longest >= REST_MIN_S - 1e-9:
+            counted.append({"id": r["id"], "voiceless_s": round(longest, 1)})
+    zero_s = round(float((take["zero"] & ~tm).sum()) * HOP_S, 1)
+    ok = len(counted) >= REST_MIN_COUNT and zero_s == 0.0
+    out.append({"rule": "silence-rests", "ok": ok, "unit": take["id"], "evidence": {
+        "rests_counted": counted, "count": len(counted), "min_count": REST_MIN_COUNT, "min_s": REST_MIN_S,
+        "digital_zero_s": zero_s, "voice_measured": voice100 is not None,
+        "fix": None if ok else ("the floor is the room tone: run it under the whole take (whole.py)" if zero_s else
+                                f"compose at least {REST_MIN_COUNT} rests of {REST_MIN_S:g} s with no voice, each in the "
+                                "rest map")}})
+    for t0, t1 in take["titles"]:
+        i0, i1 = max(0, int(math.floor(t0 / HOP_S + 1e-6))), min(n, int(math.ceil(t1 / HOP_S - 1e-6)))
+        over = float(np.max(band[i0:i1])) - floor_db if i1 > i0 else None
+        j1 = min(n, int(math.ceil((t1 + HANDOVER_AFTER_S) / HOP_S - 1e-6)))
+        after = float(np.max(band[i1:j1])) - floor_db if j1 > i1 else None
+        r = take_handover(take, t0, t1)
+        ok = r is not None and (over is None or over <= ROOM_MARGIN_DB + 1e-9)
+        out.append({"rule": "take-handover", "ok": ok, "unit": take["id"], "evidence": {
+            "title": [round(t0, 3), round(t1, 3)], "rest": None if r is None else r["id"],
+            "max_over_room_db": None if over is None else round(over, 1),
+            "after_max_over_room_db": None if after is None else round(after, 1), "max_db": ROOM_MARGIN_DB,
+            "room_floor_db": floor_db,
+            "fix": None if ok else ("declare the rest: why \"A40 handover\", from the title's first frame to "
+                                    f"{HANDOVER_AFTER_S:g} s after its last" if r is None else
+                                    "the take sounds under the series titles: let it rest there (the title carries the room)")}})
+    out += take_provenance(take)
+    return out
+
+
+# --------------------------------------------------------------------------
 # The checks
 # --------------------------------------------------------------------------
 
@@ -1031,6 +1467,8 @@ def repetition_checks(cues: list[dict]) -> list[dict]:
     dups, best = [], None
     for i, a in enumerate(mus):
         for b in mus[i + 1:]:
+            if a.get("take_span") and b.get("take_span") and _span(a)[0] < _span(b)[1] and _span(b)[0] < _span(a)[1]:
+                continue                     # A29 take: two spans that overlap share the same audio there, not a copy
             r = cross_repetition(a["an"]["feat"], b["an"]["feat"])
             if not r.get("judged"):
                 continue
@@ -1254,7 +1692,7 @@ def score_checks(cues: list[dict], std: dict, *, duration_s: float, silences=(),
                  duck100: np.ndarray | None = None, voice_grid: np.ndarray | None = None,
                  duck_grid: np.ndarray | None = None, spans: list[tuple[float, float]] | None = None,
                  grid_s: float = DUCK_GRID_S, voice100: np.ndarray | None = None, cards=(),
-                 phone: dict | None = None, reuse: dict | None = None) -> list[dict]:
+                 phone: dict | None = None, reuse: dict | None = None, take: dict | None = None) -> list[dict]:
     """Every A29 check on the placed cues, as lint results: {rule, ok, unit,
     evidence}. ``cues`` are {id, role, start_s, fade_in_s, fade_out_s,
     gain_db, an (analyse_cue)}. ``duck100`` is the duck gain on the 100 ms
@@ -1265,8 +1703,17 @@ def score_checks(cues: list[dict], std: dict, *, duration_s: float, silences=(),
     stretch with voice as no hole, and brand-pulse-place find a voiceless
     stretch. ``cards`` are the title and chapter cards' (start, end);
     ``phone`` is phone_check's result (phone-check is skipped without it)
-    and ``reuse`` is reuse_check's (bed-reuse is skipped without it)."""
+    and ``reuse`` is reuse_check's (bed-reuse is skipped without it).
+
+    ``take`` is take_analysis's reading of a film's take (A29 take): its
+    virtual cues, one per span, join ``cues`` (the take's own record leaves
+    them) and get every check above unchanged; a featured span is held to
+    FEATURE_LUFS (featured-level); its entries, exits and holes are measured
+    as composed (take_checks) instead of by fades; and every check of the take
+    carries ``canary`` (score_lints keeps it log-only until TAKE_CANARY_UNTIL)."""
     out = []
+    if take is not None:
+        cues = [c for c in cues if c["role"] != "take"] + list(take["cues"])
     target = bed_lufs(std)
     beds = [c for c in cues if c["role"] == "bed"]
     for c in beds:
@@ -1326,6 +1773,16 @@ def score_checks(cues: list[dict], std: dict, *, duration_s: float, silences=(),
                                         "under the dialogue)" if amb else
                                         "lower its gain_db: an underscore cue's gain_db is an offset from the bed target, "
                                         "at most 0")}})
+        if c["role"] == "featured":
+            # A29 take: a featured span is heard for itself, so its ceiling is the featured level, not the bed's
+            lvl = c["an"].get("integrated_unfaded_lufs")
+            lvl = c["an"]["integrated_lufs"] if lvl is None else lvl
+            ok = lvl is None or lvl <= FEATURE_LUFS + TOL_DB + 1e-9
+            out.append({"rule": "featured-level", "ok": ok, "unit": c["id"], "evidence": {
+                "role": c["role"], "integrated_lufs": lvl, "max_lufs": FEATURE_LUFS + TOL_DB, "target_lufs": FEATURE_LUFS,
+                "measured_on": "the span with its release tail, as the take plays it",
+                "fix": None if ok else "the span is over the featured ceiling: return it to the composer (refit.py lowers "
+                                       "its velocities); a take is never gained down"}})
         if c["role"] in TRANSITIONS:
             bed, why = _leads_into(c, beds)
             ref = bed["an"]["mom_max_lufs"] if bed else None
@@ -1353,14 +1810,14 @@ def score_checks(cues: list[dict], std: dict, *, duration_s: float, silences=(),
                 "tonal_low_share": ts, "max_share": AMB_TONAL_LOW_MAX_SHARE, "under_hz": LOW_END_HZ,
                 "under_voice": voice100 is not None,
                 "fix": None if ok else "this is music, not room tone: take its low lines out, or file it as a bed (A29)"}})
-        if (c["role"] in UNDERSCORE or amb) and not _sounds_before(c, cues):
+        if (c["role"] in UNDERSCORE or amb) and not c.get("take_span") and not _sounds_before(c, cues):
             fi = float(c.get("fade_in_s") or 0.0)
             ok = fi >= std["entry_fade_min_s"] - 1e-9
             out.append({"rule": "music-entry", "ok": ok, "unit": c["id"], "evidence": {
                 "role": c["role"], "enters_from": "no other cue" if amb else "no music", "fade_in_s": fi,
                 "min_fade_in_s": std["entry_fade_min_s"],
                 "fix": None if ok else f"fade it in over at least {std['entry_fade_min_s']:g} s, or carry the bed before it into it"}})
-        if (c["role"] in UNDERSCORE or amb) and (c["role"] == "bed" or not _sounds_after(c, cues)):
+        if (c["role"] in UNDERSCORE or amb) and not c.get("take_span") and (c["role"] == "bed" or not _sounds_after(c, cues)):
             fo = float(c.get("fade_out_s") or 0.0)
             ok = fo >= std["entry_fade_min_s"] - 1e-9
             out.append({"rule": "music-exit", "ok": ok, "unit": c["id"], "evidence": {
@@ -1375,12 +1832,19 @@ def score_checks(cues: list[dict], std: dict, *, duration_s: float, silences=(),
         out += phone["checks"]
     if reuse is not None:
         out += reuse["checks"]
-    holes = music_holes(cues, duration_s, silences, own_sound, std["music_hole_max_s"], voice100)
-    out.append({"rule": "music-holes", "ok": not holes, "unit": "music", "evidence": {
-        "holes": holes, "count": len(holes), "max_s": std["music_hole_max_s"], "present_dbfs": PRESENT_DBFS,
-        "declared": [list(map(lambda v: round(v, 2), s)) for s in silences],
-        "voice_measured": voice100 is not None,
-        "fix": None if not holes else "carry a bed through it, or declare it: a moment with silence: intended and its why"}})
+    if take is not None:
+        # A29 take: entries, exits and holes as composed (take_checks), the rest map, the handover and the provenance
+        mine = take_checks(take, std, silences=silences, own_sound=own_sound, voice100=voice100)
+        for c in mine:
+            c["canary"] = True
+        out += mine
+    else:
+        holes = music_holes(cues, duration_s, silences, own_sound, std["music_hole_max_s"], voice100)
+        out.append({"rule": "music-holes", "ok": not holes, "unit": "music", "evidence": {
+            "holes": holes, "count": len(holes), "max_s": std["music_hole_max_s"], "present_dbfs": PRESENT_DBFS,
+            "declared": [list(map(lambda v: round(v, 2), s)) for s in silences],
+            "voice_measured": voice100 is not None,
+            "fix": None if not holes else "carry a bed through it, or declare it: a moment with silence: intended and its why"}})
     if voice_grid is not None and duck_grid is not None:
         pumps = duck_pumps(voice_grid, duck_grid, spans or [], std["duck_hold_s"], grid_s)
         out.append({"rule": "duck-pumping", "ok": not pumps, "unit": "music", "evidence": {
@@ -1392,6 +1856,12 @@ def score_checks(cues: list[dict], std: dict, *, duration_s: float, silences=(),
         out.append({"rule": "duck-slope", "ok": ok, "unit": "music", "evidence": dict(
             sl, max_attack_db_per_100ms=DUCK_ATTACK_MAX_DB, attack_s=DUCK_ATTACK_S, curve="sine in-out in dB, ending on the onset",
             fix=None if ok else "the music drops too fast before a voice: the duck's pre-roll eases in over about 1 s")})
+    if take is not None:
+        # the canary covers the take's spans (every A29 check on them), its WAV (bed-reuse) and the repetition within it
+        mine = {c["id"] for c in take["cues"]} | {take["id"]}
+        for c in out:
+            if c["unit"] in mine or c["rule"] in TAKE_RULES or c["rule"] == "score-repetition":
+                c["canary"] = True
     return out
 
 
@@ -1487,10 +1957,16 @@ def offline(film: Path, *, wav_dir: Path | None = None, voices: bool = True, reg
     builds and on the duck it built before A29, and each levelled to the
     dialogue target (BS.1770 here; no mood offset) for phone-check, against
     the music as ducked plus the ambience. bed-reuse reads the other films
-    from ``registry`` (film_registry when None)."""
+    from ``registry`` (film_registry when None). A take (A29 take) is placed
+    whole at 0, as build_mix places it, and read by take_analysis."""
     play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
     std, stated, problems = standard(play)
     placed, swapped, missing, kinds, mine = [], [], [], [], []
+    shots = [s for part in play["parts"] for s in part.get("shots", [])]
+    shot_end = max([float(s["start_s"]) + float(s.get("dur_s") or 0) for s in shots] + [0.0])
+    titles = [(float(s["start_s"]), float(s["start_s"]) + float(s["dur_s"])) for s in shots
+              if s.get("kind") == "title_sequence" and s.get("dur_s") is not None]
+    take = take_y = None
     for c in film_cues(play):
         if c.get("kind") not in CUE_KINDS:
             kinds.append({"rule": "cue-kind", "ok": False, "unit": c.get("id"), "evidence": {
@@ -1517,9 +1993,18 @@ def offline(film: Path, *, wav_dir: Path | None = None, voices: bool = True, reg
             continue
         if c.get("kind") == "music" and cue_role(c) in FILM_LAYER:
             mine.append((c["id"], p))
+        if c.get("kind") == "music" and cue_role(c) == "take":
+            t, why = load_take(film, c)
+            why += take_cue_problems(c, shot_end)
+            if why or take is not None:
+                kinds.append({"rule": "take-cue", "ok": False, "unit": c.get("id"), "evidence": {
+                    "problems": why or ["a film has one take at most"], "fix": "; ".join(why or ["one take per film"])}})
+                continue
+            take, take_y = t, _read(p)[: max(0, int(round(float(c["end_s"]) * RATE)))]   # whole, at 0: no level, no fade
+            continue
         placed.append(place_cue(c, _read(p), std))
-    end = max([float(s["start_s"]) + float(s.get("dur_s") or 0) for part in play["parts"] for s in part.get("shots", [])]
-              + [c["start_s"] + c["an"]["n"] / RATE for c in placed] + [0.0])
+    end = max([shot_end] + [c["start_s"] + c["an"]["n"] / RATE for c in placed]
+              + ([len(take_y) / RATE] if take_y is not None else []) + [0.0])
     sil = declared_silences(play)
     duck100 = voice_grid = duck_grid = voice100 = None
     spans: list[tuple[float, float]] = []
@@ -1548,15 +2033,24 @@ def offline(film: Path, *, wav_dir: Path | None = None, voices: bool = True, reg
             i0 = int(round(c["start_s"] * RATE))
             y = c["y"][: max(0, n - i0)]
             bg[i0: i0 + len(y)] += y if c["role"] == "ambience" else y * duck[i0: i0 + len(y)]     # ambience is not ducked
+        if take_y is not None:
+            y = take_y[:n]
+            bg[: len(y)] += y * duck[: len(y)]
         del duck, dg
         phone = phone_check(levelled_voice(film, play, n), bg, spans)
         del bg
     for c in placed:
         c.pop("y", None)
     reuse = reuse_check(film, play, registry, mine=mine)
+    tk = None if take is None else take_analysis(take_y, take, titles=titles)
+    del take_y
     checks = kinds + score_checks(placed, std, duration_s=end, silences=sil, own_sound=own, duck100=duck100,
                                   voice_grid=voice_grid, duck_grid=duck_grid, spans=spans, voice100=voice100,
-                                  cards=card_spans_from_play(play), phone=phone, reuse=reuse)
+                                  cards=card_spans_from_play(play), phone=phone, reuse=reuse, take=tk)
+    if tk is not None:
+        report["take"] = {"id": tk["id"], "room_floor_db": tk["floor_db"], "room_floor_from": tk["floor_from"],
+                          "spans": [{"id": c["id"], "role": c["role"], "tail_s": c["tail_s"]} for c in tk["cues"]],
+                          "rests": len(tk["rests"]), "canary_until": TAKE_CANARY_UNTIL}
     return dict(report, film=str(film), standard=std, stated=stated, problems=problems, swapped=swapped, missing=missing,
                 cues=[{k: v for k, v in c.items() if k != "an"} | {kk: c["an"][kk] for kk in
                       ("mom_max_lufs", "integrated_lufs", "breath_db", "lowmid_share", "treble_share", "sub_share",
