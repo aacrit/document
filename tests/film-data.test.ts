@@ -216,7 +216,7 @@ describe("words: sources, flags, the transcript, the record's silences", () => {
   it("names the series titles (GRAMMAR A40) in plain words", () => {
     const clip = film.shots.find((s) => s.id === "S05")!;
     const titles = { ...clip, kind: "title_sequence", start_s: 20, end_s: 77, mark: { class: "DRAWN", detail: "from period records" }, alterations: [] };
-    expect(shotWhat(titles)).toBe("The series titles, drawn by the studio from period records, 57 s");
+    expect(shotWhat(titles)).toBe("The series titles, drawn from period records, 57 s");
     expect(shotTreatment(titles)).toMatch(/^A model made by the studio from scans of period records/);
   });
 });
