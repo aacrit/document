@@ -411,11 +411,19 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
         # The audio slot: the main-title theme; until it exists, the house motif or silence
         sounding = [c for c in cues if _overlaps(float(c.get("start_s", 0)), float(c.get("end_s", 0)), t0, t1)]
         roles = {c.get("id"): (SC.cue_role(c) if c.get("kind", "music") == "music" else "ambience") for c in sounding}
-        wrong = [cid for cid, r in roles.items() if r not in (THEME_ROLE,) + STAND_IN]
-        lint("title-audio-slot", not wrong, unit=sid, grammar="A40, A29",
-             evidence={"cues": roles, "allowed": [THEME_ROLE, *STAND_IN],
+        # A29 take (S7): the film's take runs from its first frame to its last, so it spans the slot; it may, only when
+        # its rest map declares the A40 handover over the slot (the take rests there and the title carries the room;
+        # the mix's take-handover lint measures that it does)
+        handover = {c.get("id"): r["id"] for c in sounding if roles[c.get("id")] == "take"
+                    for r in [SC.take_handover(c.get("_take"), t0, t1)] if r is not None}
+        wrong = [cid for cid, r in roles.items() if r not in (THEME_ROLE,) + STAND_IN and cid not in handover]
+        lint("title-audio-slot", not wrong, unit=sid, grammar="A40, A29, A29 take",
+             evidence={"cues": roles, "allowed": [THEME_ROLE, *STAND_IN], "take_handover": handover,
                        "fix": None if not wrong else "only the main-title theme (or, until it exists, the house motif) "
-                                                     "sounds under the series titles: end the other cues at the cut"})
+                                                     "sounds under the series titles: end the other cues at the cut (a "
+                                                     "take declares its rest there: why \"A40 handover\", from the "
+                                                     "title's first frame to 8 s after its last)"})
+        sounding = [c for c in sounding if c.get("id") not in handover]   # a resting take is not heard in the slot
         theme = [c for c in sounding if roles[c.get("id")] == THEME_ROLE]
         for c in theme:
             a, b = float(c["start_s"]), float(c["end_s"])
