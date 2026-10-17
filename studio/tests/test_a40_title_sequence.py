@@ -456,3 +456,15 @@ def test_a40_the_titles_record_is_a_showing_for_a35():
     assert aps["TS1"]["n_film"] == 1 and not aps["A"]["needs_reason"]          # the film's own showing is its second
     assert aps["C"]["n_film"] == 3 and aps["C"]["needs_reason"]                # a third needs its repeat_reason
     assert not any(ap["needs_reason"] for ap in R.image_appearances([s for s in shots if s["id"] != "TS1"]))
+
+
+def test_a40_marks_alone_on_the_dip_hold_warn_and_a_picture_there_does_not_pass():
+    item = {"marks": TL, "dip": DIP, "frames": N}
+    k = TS.dip_hold_frames(item)[0]
+    black = np.zeros((1080, 1920, 3), np.uint8)
+    assert TS.check_frame(black, item, k) == "dip"
+    wm = np.asarray(M.watermark(Image.fromarray(black), 10.0, start=0.0).convert("RGB"))     # the watermark's last frames
+    assert wm.any() and TS.check_frame(wm, item, k) == "dip_glyph"
+    pic = black.copy()
+    pic[500:520, 900:960] = 200                                                             # picture on the hold
+    assert TS.check_frame(pic, item, k) == "fail"

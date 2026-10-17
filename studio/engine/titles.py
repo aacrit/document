@@ -223,24 +223,37 @@ def any_glyph(arr: np.ndarray) -> str | None:
     return None
 
 
+def _mark_boxes(W: int, H: int) -> list[tuple[float, float, float, float]]:
+    """Where marks are drawn, in pixels: the label's zone and the glyph's box (A31, with the label's shadow), and the
+    watermark's box top right (BRAND-KIT 3, with its halo)."""
+    pad = 8
+    mark = (min(M.MARK_ZONE[0], M.MARK_GLYPH_ZONE[0]) * W - pad, min(M.MARK_ZONE[1], M.MARK_GLYPH_ZONE[1]) * H - pad,
+            max(M.MARK_ZONE[2], M.MARK_GLYPH_ZONE[2]) * W + pad, max(M.MARK_ZONE[3], M.MARK_GLYPH_ZONE[3]) * H + pad)
+    L = M.Layout(W, H)
+    box = L.px(M.WM["box"])
+    x1 = W - L.w(M.WM["right"])
+    y0 = L.h(M.WM["top"])
+    wm = (x1 - box - pad, y0 - pad, x1 + pad, y0 + box + pad)
+    return [mark, wm]
+
+
 def _marks_only(arr: np.ndarray) -> bool:
-    """Every lit pixel lies where the mark is drawn (the label's zone and the glyph's box, A31, with the label's
-    shadow): marks alone on black, no picture."""
+    """Every lit pixel lies where a mark is drawn (the provenance mark or the watermark): marks alone on black,
+    no picture."""
     H, W = arr.shape[:2]
     ys, xs = np.nonzero(arr.max(axis=2))
     if not len(ys):
         return True
-    x0 = min(M.MARK_ZONE[0], M.MARK_GLYPH_ZONE[0]) * W - 8
-    y0 = min(M.MARK_ZONE[1], M.MARK_GLYPH_ZONE[1]) * H - 8
-    x1 = max(M.MARK_ZONE[2], M.MARK_GLYPH_ZONE[2]) * W + 8
-    y1 = max(M.MARK_ZONE[3], M.MARK_GLYPH_ZONE[3]) * H + 8
-    return bool(xs.min() >= x0 and xs.max() <= x1 and ys.min() >= y0 and ys.max() <= y1)
+    inside = np.zeros(len(xs), dtype=bool)
+    for x0, y0, x1, y1 in _mark_boxes(W, H):
+        inside |= (xs >= x0) & (xs <= x1) & (ys >= y0) & (ys <= y1)
+    return bool(inside.all())
 
 
 def check_frame(arr: np.ndarray, item: dict, k: int) -> str:
     """One title frame's mark against the master's timeline: 'burned' (the class glyph is there), 'fade' (inside a
     class change's 4-frame crossfade, the centre between the two), 'dip' (the dip's black hold, every pixel off),
-    'dip_glyph' (the black hold with the mark alone on it, glyph or label: a warning), else 'fail'."""
+    'dip_glyph' (the black hold with marks alone on it, the glyph, a label or the watermark: a warning), else 'fail'."""
     H, W = arr.shape[:2]
     if k in dip_hold_frames(item):
         if not arr.any():
