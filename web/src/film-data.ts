@@ -770,7 +770,7 @@ export function shotWhat(shot: Shot): string {
   if (shot.kind === "black") return `Black, under a voice or in silence, ${secs} s`;
   if (shot.kind === "card") return `Text on black, ${secs} s`;
   if (shot.kind === "drawn") return `Drawn, ${secs} s`;
-  if (shot.kind === "title_sequence") return `The series titles, drawn by the studio from period records, ${secs} s`;
+  if (shot.kind === "title_sequence") return `The series titles, drawn from period records, ${secs} s`;
   return `${secs} s`;
 }
 
@@ -780,7 +780,7 @@ export function shotTreatment(shot: Shot): string | null {
   if (shot.alterations.length) return `Changed: ${shot.alterations.join(", ")}.`;
   if (shot.kind === "archive_still") return shot.preset ? "Shown whole, then the camera moves slowly across it. Nothing in the picture is changed." : "Shown whole. Nothing in the picture is changed.";
   if (shot.kind === "archive_video") return "Trimmed, shown at its own speed. Nothing in the picture is changed.";
-  if (shot.kind === "title_sequence") return "A model made by the studio from scans of period records, then this film's own record, shown whole. No AI.";
+  if (shot.kind === "title_sequence") return "A model built from scans of period records, then this film's own record, shown whole. No AI.";
   return null;
 }
 
