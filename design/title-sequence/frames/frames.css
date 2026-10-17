@@ -1,0 +1,156 @@
+/*
+ * Style frames for the title sequence (design/title-sequence/STORYBOARD.md).
+ * A frame is a 1920 x 1080 stage; everything inside is sized in container
+ * units (1cqw = 1% of the frame's width = 19.2 px at 1080p; 1% of the
+ * frame's height = 0.5625cqw), so a frame reads the same at any width.
+ * No color literals: every lookdev role below is derived from the
+ * primaries in design/tokens.css with OKLch relative color.
+ * These are lookdev intents for the Blender build, not the render.
+ */
+@import "../../tokens.css";
+
+:root {
+  /* The one lamp: bone, neutral. Never amber (amber means real), never blue (blue marks AI and DRAWN). */
+  --ts-void: var(--doc-black);
+  --ts-lamp: oklch(from var(--doc-bone) calc(l + 0.04) calc(c * 0.6) h);
+  --ts-lamp-40: oklch(from var(--doc-bone) l calc(c * 0.6) h / 0.4);
+  --ts-lamp-25: oklch(from var(--doc-bone) l calc(c * 0.6) h / 0.25);
+  --ts-lamp-12: oklch(from var(--doc-bone) l calc(c * 0.6) h / 0.12);
+  --ts-lamp-06: oklch(from var(--doc-bone) l calc(c * 0.6) h / 0.06);
+  --ts-lamp-0: oklch(from var(--doc-bone) l calc(c * 0.6) h / 0);
+  --ts-dark-95: oklch(from var(--doc-black) l c h / 0.95);
+  --ts-dark-85: oklch(from var(--doc-black) l c h / 0.85);
+  --ts-dark-70: oklch(from var(--doc-black) l c h / 0.7);
+  --ts-dark-50: oklch(from var(--doc-black) l c h / 0.5);
+  --ts-dark-30: oklch(from var(--doc-black) l c h / 0.3);
+  --ts-dark-0: oklch(from var(--doc-black) l c h / 0);
+
+  /* Materials (procedural in the build), all offsets from bone. */
+  --ts-clay: oklch(from var(--doc-bone) calc(l - 0.42) calc(c + 0.025) calc(h - 22));
+  --ts-clay-lit: oklch(from var(--doc-bone) calc(l - 0.26) calc(c + 0.03) calc(h - 20));
+  --ts-clay-deep: oklch(from var(--doc-bone) calc(l - 0.62) calc(c + 0.01) calc(h - 24));
+  --ts-wood: oklch(from var(--doc-bone) calc(l - 0.6) calc(c + 0.015) calc(h - 25));
+  --ts-wood-lit: oklch(from var(--doc-bone) calc(l - 0.42) calc(c + 0.03) calc(h - 22));
+  --ts-iron: oklch(from var(--doc-black) calc(l + 0.08) c h);
+  --ts-iron-lit: oklch(from var(--doc-bone) calc(l - 0.5) calc(c * 0.3) h);
+  --ts-brass: oklch(from var(--doc-bone) calc(l - 0.36) calc(c + 0.045) calc(h + 8));
+  --ts-brass-lit: oklch(from var(--doc-bone) calc(l - 0.16) calc(c + 0.05) calc(h + 8));
+  --ts-manila: oklch(from var(--doc-bone) calc(l - 0.1) calc(c + 0.03) calc(h + 4));
+  --ts-paper: oklch(from var(--doc-bone) calc(l - 0.04) c h);
+  --ts-rubber: oklch(from var(--doc-black) calc(l + 0.03) 0 h);
+  /* Procedural surface noise for clay, wood and card (the build uses shader noise, never an image) */
+  --ts-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--ts-void); color: var(--color-cream); font-family: var(--font-structure); }
+
+/* The frame */
+.stage {
+  position: relative;
+  width: 100%;
+  max-width: 1920px;
+  margin: 0 auto;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  container-type: inline-size;
+  background: var(--ts-void);
+  isolation: isolate;
+}
+.layer { position: absolute; inset: 0; }
+.fill-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.scene { position: absolute; inset: 0; perspective: 90cqw; perspective-origin: 50% 40%; }
+.rig { position: absolute; transform-style: preserve-3d; }
+.plane { position: absolute; background-size: cover; background-repeat: no-repeat; }
+
+/* The burned-in marks, as the engine draws them (BRAND-KIT 3, 12) */
+.wm {
+  position: absolute; z-index: 30;
+  top: 2.8125cqw; right: 4cqw;           /* 5% of height, 4% of width */
+  width: 3.375cqw; height: 3.375cqw;      /* 6% of height */
+  opacity: 0.36;
+}
+.lm-halo { fill: none; stroke: var(--doc-black); stroke-opacity: 0.22; stroke-width: 2.34; stroke-linecap: round; stroke-linejoin: round; }
+.lm-stroke { fill: none; stroke: var(--doc-bone); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.lm-ember { fill: var(--doc-safelight); }
+
+.mark {
+  position: absolute; z-index: 30;
+  right: 4cqw; bottom: 2.8125cqw;         /* glyph box: 4% from the right, 5% of height up */
+  display: flex; flex-direction: row-reverse; align-items: center; gap: 0.55em;
+  font-size: 0.9cqw;                       /* 1.6% of height: 17 px at 1080p */
+  line-height: 1;
+}
+.glyph { position: relative; width: 0.478cqw; height: 0.478cqw; flex: none; } /* 0.85% of height */
+.glyph::before {                          /* the round contact disc */
+  content: ""; position: absolute; inset: -0.0675cqw; border-radius: 50%;
+  background: oklch(from var(--doc-black) 0 0 0 / 0.42);
+}
+.glyph::after { content: ""; position: absolute; inset: 0; }
+.glyph.drawn::after { background: var(--mark-generated); }                  /* a full square */
+.glyph.archive::after { background: var(--mark-archive); border-radius: 50%; } /* a dot */
+.glyph.card::after { border: 0.12cqw solid var(--mark-reconstructed); border-radius: 50%; } /* a ring */
+.label {
+  color: var(--mark-text); opacity: 0.6; font-family: var(--font-structure); font-weight: 400;
+  text-shadow: 0 0 0.062cqw oklch(from var(--doc-black) 0 0 0 / 0.42), 0 0 0.12cqw oklch(from var(--doc-black) 0 0 0 / 0.42);
+  white-space: nowrap;
+}
+.label .num, .num { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-feature-settings: "calt" 0, "liga" 0; font-size: 0.94em; }
+
+/* Review pins: hidden in the clean frame; "Show texture notes" turns them on */
+.pin {
+  position: absolute; z-index: 40; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out);
+  transform: translate(-50%, -50%);
+  font: 500 0.78cqw/1.25 var(--font-data); letter-spacing: 0.02em; color: var(--mark-text);
+  background: var(--scrim-strong); border: 0.06cqw solid var(--color-cream-faint);
+  border-radius: 0.3cqw; padding: 0.25cqw 0.5cqw; white-space: nowrap;
+}
+.pin b { font-weight: 600; }
+.pin .src { color: var(--color-safelight); }      /* a real scan: "here is where it came from" */
+.pin .made { color: var(--color-cream-muted); }   /* modelled or procedural */
+.pin .ai { color: var(--color-generated-text); }  /* an AI texture: none planned */
+#pins:checked ~ .stage .pin { opacity: 1; }
+#pins { position: absolute; opacity: 0; pointer-events: none; }
+
+/* Notes under the frame */
+.notes { max-width: 1920px; margin: 0 auto; padding: 28px 16px 56px; display: grid; gap: 22px; }
+@media (min-width: 900px) { .notes { padding: 36px 4% 72px; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.6fr); column-gap: 56px; } }
+.eyebrow { margin: 0 0 10px; font: 500 12px/1.4 var(--font-data); letter-spacing: var(--track-eyebrow); text-transform: uppercase; color: var(--color-cream-muted); }
+.notes h1 { margin: 0 0 10px; font: 300 clamp(30px, 3.4vw, 46px)/1.08 var(--font-display); }
+.notes h1 em { font-style: italic; }
+.when { margin: 0; font: 400 14px/1.6 var(--font-data); font-variant-numeric: tabular-nums; color: var(--color-cream-muted); }
+.notes dl { margin: 0; display: grid; grid-template-columns: 1fr; gap: 14px; }
+@media (min-width: 640px) { .notes dl { grid-template-columns: 9.5em 1fr; gap: 12px 20px; } }
+.notes dt { font: 500 12px/1.5 var(--font-data); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-cream-muted); padding-top: 3px; }
+.notes dd { margin: 0; font-size: 16px; line-height: 1.55; max-width: 68ch; }
+.notes dd .num { font-size: 0.92em; }
+.tags { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.tags li { font-size: 14px; line-height: 1.4; padding: 6px 10px; border: 1px solid var(--color-border); border-radius: var(--radius-control); }
+.tags .k { font: 500 11px/1 var(--font-data); letter-spacing: 0.08em; text-transform: uppercase; margin-right: 6px; }
+.tags .k.src { color: var(--color-safelight); }
+.tags .k.made { color: var(--color-cream-muted); }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.toggle { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 16px; border: 1px solid var(--color-border); border-radius: var(--radius-control); cursor: pointer; font-size: 15px; }
+.toggle:hover { border-color: var(--color-cream-faint); }
+.toggle:focus-within { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.pager { display: flex; gap: 10px; flex-wrap: wrap; }
+.pager a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; color: var(--color-cream); text-decoration: none; border: 1px solid var(--color-border); border-radius: var(--radius-control); font-size: 15px; }
+.pager a:hover { border-color: var(--color-cream-faint); }
+.pager a:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+
+/* An iframe of the index asks for the frame alone */
+.bare .notes { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pin { transition: none; }
+}
+
+/* Gradient stops for the drawn machinery (SVG stop-color from tokens) */
+.s-wood { stop-color: var(--ts-wood); }
+.s-woodlit { stop-color: var(--ts-wood-lit); }
+.s-deep { stop-color: var(--ts-clay-deep); }
+.s-brass { stop-color: var(--ts-brass); }
+.s-brasslit { stop-color: var(--ts-brass-lit); }
+.s-iron { stop-color: var(--ts-iron); }
+.s-ironlit { stop-color: var(--ts-iron-lit); }
+.s-void { stop-color: var(--ts-void); }

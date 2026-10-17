@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clay · title frame 01</title>
+<meta name="description" content="Style frame 1 of 12 for the void document title sequence: composition, palette, type and lighting intent.">
+<link rel="stylesheet" href="frames.css">
+<style>
+
+.clay-rig { left: 49%; top: 55%; width: 0; height: 0; transform: rotateX(34deg) rotateY(-22deg) rotateZ(-8deg); }
+.wheel { position: absolute; border-radius: 50%; transform-style: preserve-3d; }
+.w1 { width: 40cqw; height: 40cqw; left: -24cqw; top: -20cqw; }
+.w2 { width: 26cqw; height: 26cqw; left: 11.5cqw; top: -26.3cqw; }
+.teeth { position: absolute; inset: 0; border-radius: 50%; background: repeating-conic-gradient(from 3deg, var(--ts-clay) 0deg 8deg, transparent 8deg 15deg);
+  -webkit-mask: radial-gradient(closest-side, transparent 0 86%, black 86.6%); mask: radial-gradient(closest-side, transparent 0 86%, black 86.6%); }
+.w2 .teeth { background: repeating-conic-gradient(from 9deg, var(--ts-clay) 0deg 12deg, transparent 12deg 22.5deg); }
+.disc { position: absolute; inset: 4%; border-radius: 50%;
+  background: var(--ts-noise), radial-gradient(circle at 26% 34%, var(--ts-clay-lit), var(--ts-clay) 42%, var(--ts-clay-deep) 100%);
+  background-blend-mode: soft-light, normal;
+  box-shadow: inset 0 0 0 0.5cqw var(--ts-clay-deep), inset 0 0 2.4cqw var(--ts-dark-50); }
+.disc::after { content: ""; position: absolute; inset: 21%; border-radius: 50%; box-shadow: 0 0 0 0.18cqw var(--ts-clay-deep), inset 0 0 1.2cqw var(--ts-dark-70); }
+.tablet { position: absolute; left: 50%; top: 50%; width: 16cqw; height: 16.4cqw; transform: translate(-50%, -50%) translateZ(0.6cqw);
+  overflow: hidden; border-radius: 0.9cqw; box-shadow: 0 0 0 0.22cqw var(--ts-clay-deep), 0.8cqw 1cqw 1.8cqw var(--ts-dark-85); }
+.tablet img { position: absolute; width: 25cqw; left: -4cqw; top: -4cqw; filter: contrast(1.18) brightness(1.08); }
+.rake { background: linear-gradient(99deg, var(--ts-lamp-12) 0%, var(--ts-dark-0) 20%, var(--ts-dark-70) 50%, var(--ts-dark-95) 74%); }
+.tablet::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, var(--ts-lamp-25), var(--ts-dark-0) 40%, var(--ts-dark-70)); mix-blend-mode: soft-light; }
+.beam { position: absolute; left: -18cqw; top: 4cqw; width: 92cqw; height: 18cqw; transform: rotate(15deg);
+  background: radial-gradient(ellipse 60% 50% at 25% 50%, var(--ts-lamp-12), var(--ts-lamp-0) 72%); filter: blur(1.4cqw); mix-blend-mode: screen; }
+.dust circle { fill: var(--ts-lamp); }
+.vignette { background: radial-gradient(ellipse 70% 75% at 42% 52%, var(--ts-dark-0) 45%, var(--ts-dark-85) 100%); }
+
+</style>
+</head>
+<body>
+<input type="checkbox" id="pins">
+<main class="stage" aria-label="Style frame 1: Clay">
+<div class="scene" style="perspective-origin:42% 40%">
+  <div class="rig clay-rig">
+    <div class="wheel w2"><div class="teeth"></div><div class="disc"></div></div>
+    <div class="wheel w1"><div class="teeth"></div><div class="disc"></div>
+      <div class="tablet"><img src="../_media/tablet.jpg" alt="The obverse of the record of temple workers, Umma, its columns of cuneiform in raking light"></div>
+    </div>
+  </div>
+</div>
+<div class="layer rake"></div>
+<div class="beam"></div>
+<svg class="fill-svg dust" viewBox="0 0 1920 1080" aria-hidden="true"><circle cx="202" cy="429" r="2.2" opacity="0.23"/><circle cx="743" cy="455" r="2.0" opacity="0.46"/><circle cx="141" cy="167" r="2.3" opacity="0.31"/><circle cx="1143" cy="429" r="1.7" opacity="0.43"/><circle cx="343" cy="496" r="2.4" opacity="0.13"/><circle cx="38" cy="293" r="2.5" opacity="0.28"/><circle cx="325" cy="334" r="1.0" opacity="0.22"/><circle cx="657" cy="446" r="1.4" opacity="0.22"/><circle cx="328" cy="346" r="1.5" opacity="0.13"/><circle cx="1256" cy="626" r="2.0" opacity="0.20"/><circle cx="1489" cy="780" r="1.2" opacity="0.26"/><circle cx="1082" cy="626" r="2.5" opacity="0.30"/><circle cx="1245" cy="657" r="1.5" opacity="0.37"/><circle cx="1324" cy="731" r="1.8" opacity="0.37"/><circle cx="52" cy="207" r="2.3" opacity="0.30"/><circle cx="260" cy="355" r="2.1" opacity="0.41"/><circle cx="562" cy="403" r="1.8" opacity="0.45"/><circle cx="781" cy="449" r="1.8" opacity="0.13"/><circle cx="65" cy="349" r="2.6" opacity="0.38"/><circle cx="590" cy="331" r="1.8" opacity="0.54"/><circle cx="1156" cy="594" r="2.4" opacity="0.22"/><circle cx="771" cy="614" r="1.9" opacity="0.32"/><circle cx="404" cy="393" r="2.5" opacity="0.12"/><circle cx="1175" cy="684" r="2.4" opacity="0.44"/><circle cx="1214" cy="603" r="1.9" opacity="0.30"/><circle cx="84" cy="404" r="1.9" opacity="0.21"/><circle cx="757" cy="470" r="1.6" opacity="0.27"/><circle cx="808" cy="525" r="2.0" opacity="0.32"/><circle cx="42" cy="200" r="1.3" opacity="0.37"/><circle cx="1292" cy="708" r="2.3" opacity="0.47"/><circle cx="383" cy="476" r="2.1" opacity="0.16"/><circle cx="25" cy="131" r="2.2" opacity="0.23"/><circle cx="164" cy="352" r="1.6" opacity="0.15"/><circle cx="239" cy="343" r="1.3" opacity="0.24"/><circle cx="1067" cy="545" r="1.5" opacity="0.32"/><circle cx="35" cy="246" r="1.7" opacity="0.20"/><circle cx="163" cy="434" r="1.8" opacity="0.21"/><circle cx="908" cy="610" r="1.0" opacity="0.13"/><circle cx="220" cy="395" r="1.3" opacity="0.42"/><circle cx="1017" cy="558" r="1.4" opacity="0.54"/><circle cx="1197" cy="598" r="1.4" opacity="0.40"/><circle cx="592" cy="453" r="1.5" opacity="0.39"/><circle cx="88" cy="233" r="2.5" opacity="0.50"/><circle cx="460" cy="502" r="1.5" opacity="0.52"/><circle cx="1116" cy="546" r="1.4" opacity="0.12"/><circle cx="1318" cy="487" r="2.3" opacity="0.53"/><circle cx="855" cy="402" r="2.4" opacity="0.54"/><circle cx="1056" cy="558" r="1.6" opacity="0.27"/><circle cx="309" cy="406" r="1.7" opacity="0.20"/><circle cx="157" cy="362" r="1.5" opacity="0.33"/><circle cx="488" cy="513" r="2.4" opacity="0.13"/><circle cx="301" cy="300" r="2.6" opacity="0.46"/><circle cx="509" cy="321" r="2.1" opacity="0.48"/><circle cx="1398" cy="601" r="2.4" opacity="0.42"/><circle cx="727" cy="612" r="1.4" opacity="0.43"/><circle cx="127" cy="205" r="2.5" opacity="0.21"/><circle cx="1139" cy="608" r="2.3" opacity="0.28"/><circle cx="510" cy="345" r="2.4" opacity="0.38"/><circle cx="1431" cy="773" r="1.2" opacity="0.36"/><circle cx="156" cy="174" r="1.1" opacity="0.49"/><circle cx="1182" cy="688" r="1.5" opacity="0.38"/><circle cx="1173" cy="550" r="1.9" opacity="0.22"/><circle cx="123" cy="233" r="2.4" opacity="0.36"/><circle cx="1388" cy="632" r="1.4" opacity="0.46"/><circle cx="1242" cy="459" r="2.1" opacity="0.16"/><circle cx="173" cy="432" r="1.1" opacity="0.22"/><circle cx="1482" cy="647" r="1.2" opacity="0.19"/><circle cx="362" cy="441" r="1.2" opacity="0.51"/><circle cx="567" cy="564" r="2.5" opacity="0.25"/><circle cx="380" cy="366" r="1.2" opacity="0.40"/><circle cx="59" cy="139" r="2.6" opacity="0.25"/><circle cx="895" cy="497" r="1.5" opacity="0.15"/><circle cx="1370" cy="781" r="2.6" opacity="0.17"/><circle cx="323" cy="392" r="2.6" opacity="0.35"/><circle cx="1032" cy="597" r="1.4" opacity="0.35"/><circle cx="461" cy="318" r="1.1" opacity="0.24"/><circle cx="1475" cy="653" r="2.0" opacity="0.40"/><circle cx="1411" cy="618" r="1.5" opacity="0.26"/><circle cx="475" cy="502" r="2.4" opacity="0.25"/><circle cx="502" cy="419" r="1.9" opacity="0.38"/><circle cx="368" cy="225" r="1.4" opacity="0.15"/><circle cx="827" cy="365" r="1.1" opacity="0.39"/><circle cx="436" cy="475" r="1.8" opacity="0.49"/><circle cx="231" cy="333" r="2.3" opacity="0.15"/><circle cx="1424" cy="556" r="2.2" opacity="0.54"/><circle cx="1232" cy="549" r="1.2" opacity="0.34"/><circle cx="1379" cy="580" r="2.4" opacity="0.18"/><circle cx="1366" cy="498" r="1.5" opacity="0.51"/><circle cx="1206" cy="718" r="2.3" opacity="0.44"/><circle cx="1034" cy="453" r="1.7" opacity="0.19"/></svg>
+<div class="layer vignette"></div>
+<div class="mark" aria-label="provenance mark"><span class="glyph drawn"></span><span class="label">Drawn · from period records</span></div>
+<span class="pin" style="left:36cqw;top:27cqw"><b class="src">T-01 scan</b> Walters 48.1767, obverse</span>
+<span class="pin" style="left:14cqw;top:44cqw"><b class="made">Modelled</b> fired-clay wheel, 24 teeth, one per column</span>
+<span class="pin" style="left:64cqw;top:10cqw"><b class="made">Procedural</b> dust in the lamp's beam, a bounded volume</span>
+<span class="pin" style="left:73cqw;top:22cqw"><b class="made">Modelled</b> second wheel, 16 teeth</span>
+<svg class="wm" viewBox="0 0 24 24" aria-hidden="true"><g class="lm-halo"><path d="M3.5 8V4.5H7"/><path d="M17 4.5h3.5V8"/><path d="M20.5 16v3.5H17"/><path d="M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/></g><g class="lm-stroke"><path d="M3.5 8V4.5H7"/><path d="M17 4.5h3.5V8"/><path d="M20.5 16v3.5H17"/><path d="M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/></g><circle class="lm-ember" cx="18.6" cy="17.6" r="1.25"/></svg>
+</main>
+<section class="notes">
+<header>
+<p class="eyebrow">Beat <span class="num">1</span> of <span class="num">12</span></p>
+<h1>Clay</h1>
+<p class="when"><span class="num">0:00.00</span> to <span class="num">0:05.00</span> · frames <span class="num">0</span> to <span class="num">119</span></p>
+<p class="when">This frame: <span class="num">0:01.50,</span> the lamp's sweep half done</p>
+</header>
+<div>
+<dl>
+<dt>Artifact</dt><dd>The record of temple workers, Umma, from Shulgi's 37th year (Ur III Sumer, c. 2094 to 2047 BCE). Its 24 columns name nearly 20,000 workers: a register of people in clay, the first ledger in the machine. Walters Art Museum 48.1767.</dd>
+<dt>Picture</dt><dd>The tablet is the hub of the first wheel; the wheel has 24 teeth, one per column. A second wheel meshes at the right, not yet turning.</dd>
+<dt>Camera</dt><dd>Still for <span class="num">1.0</span> s, then a <code>rostrum</code> crane up and back over <span class="num">4.0</span> s.</dd>
+<dt>Light</dt><dd>One hard key from frame left, <span class="num">8</span> degrees grazing, no fill. The wedges catch it one by one as the lamp sweeps on <code>drift</code>.</dd>
+<dt>Transition</dt><dd>The crane rises into the first station pose, straight down over the Turin papyrus, onto which the wheel's rim rolls.</dd>
+<dt>Sound</dt><dd>Silence for <span class="num">12</span> frames, then the bowed drone alone; one struck-string note as the wheel engages (frame <span class="num">50</span>).</dd>
+<dt>Mark</dt><dd>The DRAWN glyph (cold-blue square) and its label surface at frame 0, hold 2.0 s and let go. The glyph stays through the machine. Watermark top right.</dd>
+<dt>Textures</dt><dd><ul class="tags"><li><span class="k src">Scan</span>T-01 tablet faces</li><li><span class="k made">Modelled</span>tablet body, two wheels</li><li><span class="k made">Procedural</span>clay shader, dust volume</li><li><span class="k made">AI</span>None planned: no AI-generated pixels in this frame's plan</li></ul></dd>
+</dl>
+</div>
+<div class="controls">
+<label class="toggle" for="pins">Show texture notes</label>
+<nav class="pager" aria-label="Beats"><a href="../index.html">All beats</a><a href="02-atlas.html">Next beat</a></nav>
+</div>
+</section>
+</body>
+</html>

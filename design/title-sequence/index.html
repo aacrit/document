@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>As It Was storyboard</title>
+<meta name="description" content="The void document title sequence: twelve beats, 57 seconds, one style frame per beat, for the founder's storyboard approval.">
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--color-bg); color: var(--color-cream); font-family: var(--font-structure); }
+  .wrap { max-width: 1600px; margin: 0 auto; padding: 40px 16px 72px; }
+  @media (min-width: 768px) { .wrap { padding: 56px 32px 96px; } }
+  .eyebrow { margin: 0 0 12px; font: 500 12px/1.4 var(--font-data); letter-spacing: var(--track-eyebrow); text-transform: uppercase; color: var(--color-cream-muted); }
+  h1 { margin: 0 0 16px; font: 300 clamp(34px, 5vw, 64px)/1.05 var(--font-display); }
+  h1 .void { font-family: var(--font-data); font-weight: 500; font-size: 0.86em; font-feature-settings: "calt" 0, "liga" 0; }
+  h1 em { font-style: italic; }
+  .lede { max-width: 70ch; font-size: 17px; line-height: 1.6; margin: 0 0 12px; }
+  .lede.muted { color: var(--color-cream-muted); font-size: 15px; }
+  .num { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-feature-settings: "calt" 0, "liga" 0; font-size: 0.94em; }
+  .docs { display: flex; flex-wrap: wrap; gap: 10px; margin: 24px 0 40px; padding: 0; list-style: none; }
+  .docs a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; color: var(--color-cream); text-decoration: none; border: 1px solid var(--color-border); border-radius: var(--radius-control); font-size: 15px; }
+  .docs a:hover { border-color: var(--color-cream-faint); }
+  .docs a:focus-visible, .beat a:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 3px; }
+  .grid { display: grid; grid-template-columns: 1fr; gap: 32px 24px; list-style: none; margin: 0; padding: 0; }
+  @media (min-width: 768px) { .grid { grid-template-columns: 1fr 1fr; } }
+  @media (min-width: 1280px) { .grid { grid-template-columns: 1fr 1fr 1fr; } }
+  .beat a { display: block; color: inherit; text-decoration: none; }
+  .shot { position: relative; aspect-ratio: 16 / 9; border-radius: var(--radius-frame); overflow: hidden; background: var(--color-letterbox); box-shadow: var(--shadow-card); }
+  .shot iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; pointer-events: none; }
+  .meta { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 12px; align-items: baseline; margin-top: 12px; }
+  .meta .n { color: var(--color-cream-muted); }
+  .meta h2 { margin: 0; font: 300 24px/1.2 var(--font-display); }
+  .meta .t { color: var(--color-cream-muted); font-size: 13px; }
+  .meta p { grid-column: 1 / -1; margin: 0; font-size: 15px; line-height: 1.5; color: var(--color-cream-muted); }
+  .beat a:hover h2 { text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 1px; }
+  .hero { color: var(--color-cream); }
+  footer { margin-top: 56px; font-size: 14px; color: var(--color-cream-muted); }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <p class="eyebrow">Title sequence · storyboard for approval</p>
+  <h1><span class="void">void</span> document · <em>As It Was</em></h1>
+  <p class="lede">The archive machine: the world, made only of its records, turning. One camera through a clockwork of the instruments people recorded their world with, from a Sumerian labour register to the Lumière cinématographe, lit by one lamp. Then the machine settles on this film's own record, and the model gives way to the real scan.</p>
+  <p class="lede muted"><span class="num">12</span> beats · <span class="num">57.0</span> s · <span class="num">1,368</span> frames at <span class="num">24</span> fps · no AI-generated pixels · each frame shows composition, palette, type and light, not the render. Open a frame for its notes, and turn on its texture notes to see what is scanned, modelled or procedural.</p>
+  <ul class="docs">
+    <li><a href="CONCEPT.md">Concept</a></li>
+    <li><a href="STORYBOARD.md">Storyboard</a></li>
+    <li><a href="ASSETS.md">Assets and provenance</a></li>
+    <li><a href="BLENDER-PLAN.md">Blender build plan</a></li>
+  </ul>
+  <ol class="grid">
+    <li class="beat"><a href="frames/01-clay.html"><div class="shot"><iframe src="frames/01-clay.html" title="Frame 1, Clay" tabindex="-1"></iframe></div><div class="meta"><span class="num n">01</span><h2>Clay</h2><span class="num t">0:00 to 0:05</span><p>Record of temple workers, Umma, Ur III Sumer, c. <span class="num">2094</span> to <span class="num">2047</span> BCE: the hub of the first wheel</p></div></a></li>
+    <li class="beat"><a href="frames/02-atlas.html"><div class="shot"><iframe src="frames/02-atlas.html" title="Frame 2, Atlas" tabindex="-1"></iframe></div><div class="meta"><span class="num n">02</span><h2>Atlas</h2><span class="num t">0:05 to 0:11</span><p>The Turin papyrus map, Egypt, into the Catalan Atlas, Majorca, <span class="num">1375</span>, unfolding on its boards</p></div></a></li>
+    <li class="beat"><a href="frames/03-khipu.html"><div class="shot"><iframe src="frames/03-khipu.html" title="Frame 3, Khipu" tabindex="-1"></iframe></div><div class="meta"><span class="num n">03</span><h2>Khipu</h2><span class="num t">0:11 to 0:16</span><p>Off the Atlas's edge onto the Piri Reis map, <span class="num">1513</span>; an Inka khipu on a turning drum</p></div></a></li>
+    <li class="beat"><a href="frames/04-press.html"><div class="shot"><iframe src="frames/04-press.html" title="Frame 4, Press" tabindex="-1"></iframe></div><div class="meta"><span class="num n">04</span><h2>Press</h2><span class="num t">0:16 to 0:20</span><p>Genesis in the Gutenberg Bible, Mainz, c. <span class="num">1455</span>, under the platen</p></div></a></li>
+    <li class="beat"><a href="frames/05-survey.html"><div class="shot"><iframe src="frames/05-survey.html" title="Frame 5, Survey" tabindex="-1"></iframe></div><div class="meta"><span class="num n">05</span><h2>Survey</h2><span class="num t">0:20 to 0:25</span><p>Ino Tadataka's survey of Japan; the lamp's glint walks his red traverse line</p></div></a></li>
+    <li class="beat"><a href="frames/06-wire.html"><div class="shot"><iframe src="frames/06-wire.html" title="Frame 6, Wire" tabindex="-1"></iframe></div><div class="meta"><span class="num n">06</span><h2>Wire</h2><span class="num t">0:25 to 0:29</span><p>The survey line becomes a wire; Morse's own tape of <span class="num">24</span> May <span class="num">1844</span> runs out of a register</p></div></a></li>
+    <li class="beat"><a href="frames/07-count.html"><div class="shot"><iframe src="frames/07-count.html" title="Frame 7, Count" tabindex="-1"></iframe></div><div class="meta"><span class="num n">07</span><h2>Count</h2><span class="num t">0:29 to 0:33</span><p>Hollerith's <span class="num">1890</span> census tabulator: the press lands, the machine counts one</p></div></a></li>
+    <li class="beat"><a href="frames/08-reel.html"><div class="shot"><iframe src="frames/08-reel.html" title="Frame 8, Reel" tabindex="-1"></iframe></div><div class="meta"><span class="num n">08</span><h2>Reel</h2><span class="num t">0:33 to 0:37</span><p>The Lumière cinématographe running Promio's Grand Canal, <span class="num">1896</span>; the lamp becomes the beam</p></div></a></li>
+    <li class="beat"><a href="frames/09-type.html"><div class="shot"><iframe src="frames/09-type.html" title="Frame 9, Type" tabindex="-1"></iframe></div><div class="meta"><span class="num n">09</span><h2>Type</h2><span class="num t">0:37 to 0:41</span><p>An Underwood No. <span class="num">5</span>, from <span class="num">1900</span>: one typebar rises and strikes a real typed page</p></div></a></li>
+    <li class="beat"><a href="frames/10-swell.html"><div class="shot"><iframe src="frames/10-swell.html" title="Frame 10, Swell" tabindex="-1"></iframe></div><div class="meta"><span class="num n">10</span><h2>Swell</h2><span class="num t">0:41 to 0:46</span><p>A Marshallese rebbelib casts its shadow on Admiralty chart <span class="num">983</span> of the same atolls</p></div></a></li>
+    <li class="beat"><a href="frames/11-record.html"><div class="shot"><iframe src="frames/11-record.html" title="Frame 11, Record" tabindex="-1"></iframe></div><div class="meta"><span class="num n">11</span><h2 class="hero">Record</h2><span class="num t">0:46 to 0:52</span><p>The hero: the machine settles, and at <span class="num">0:48</span> the model gives way to the film's own record. The safelight surfaces for the first time.</p></div></a></li>
+    <li class="beat"><a href="frames/12-lockup.html"><div class="shot"><iframe src="frames/12-lockup.html" title="Frame 12, Lockup" tabindex="-1"></iframe></div><div class="meta"><span class="num n">12</span><h2>Lockup</h2><span class="num t">0:52 to 0:57</span><p>void document · <em>As It Was</em>, the logomark's corners closing on <code>drift</code></p></div></a></li>
+  </ol>
+  <footer>void document is part of void, with void news and void history.</footer>
+</main>
+</body>
+</html>

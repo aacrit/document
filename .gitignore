@@ -48,3 +48,7 @@ studio/tests/fixture/out/
 # Generated from films.json and web/templates/ by scripts/lib/films.mjs (build and dev)
 web/index.html
 web/f/
+
+# Title-sequence style-frame media: copies of PD/CC0 scans for the mocks, never committed (R-08)
+design/title-sequence/_media/
+design/title-sequence/frames/shots/

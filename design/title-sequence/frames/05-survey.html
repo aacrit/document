@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Survey · title frame 05</title>
+<meta name="description" content="Style frame 5 of 12 for the void document title sequence: composition, palette, type and lighting intent.">
+<link rel="stylesheet" href="frames.css">
+<style>
+
+.ino-rig { left: 50%; top: 36cqw; width: 0; height: 0; transform: rotateX(70deg) rotateZ(-26deg); }
+.ino { left: -78cqw; top: -62cqw; width: 156cqw; height: 90.3cqw; background-image: url(../_media/ino.jpg); filter: brightness(0.92) contrast(1.08); }
+.glint { position: absolute; left: 48.2cqw; top: 33.6cqw; width: 2.6cqw; height: 7cqw; transform: translate(-50%, -50%) rotate(14deg);
+  background: radial-gradient(ellipse closest-side, var(--ts-lamp-40), var(--ts-lamp-0)); mix-blend-mode: screen; filter: blur(0.25cqw); }
+.backlit { background: linear-gradient(180deg, var(--ts-dark-85) 0%, var(--ts-dark-30) 22%, var(--ts-dark-0) 34%, var(--ts-dark-30) 70%, var(--ts-dark-85) 100%); }
+.sky { background: radial-gradient(ellipse 60% 22% at 55% 14%, var(--ts-lamp-12), var(--ts-lamp-0)); mix-blend-mode: screen; }
+.wire { fill: none; stroke: var(--ts-iron-lit); stroke-width: 2.4; }
+.vignette { background: radial-gradient(ellipse 80% 80% at 50% 45%, var(--ts-dark-0) 55%, var(--ts-dark-85) 100%); }
+
+</style>
+</head>
+<body>
+<input type="checkbox" id="pins">
+<main class="stage" aria-label="Style frame 5: Survey">
+<div class="scene" style="perspective-origin:50% 10%">
+  <div class="rig ino-rig"><div class="plane ino" role="img" aria-label="A sheet of Ino Tadataka's survey of Japan: coastline, roads, red survey lines"></div></div>
+</div>
+<div class="layer backlit"></div>
+<div class="layer sky"></div>
+<div class="glint"></div>
+<svg class="fill-svg" viewBox="0 0 1920 1080" aria-hidden="true"><path class="wire" d="M1500 150 C1560 120 1640 60 1720 0"/></svg>
+<div class="layer vignette"></div>
+<div class="mark" aria-label="provenance mark"><span class="glyph drawn"></span></div>
+<span class="pin" style="left:46cqw;top:34cqw"><b class="src">T-08 scan</b> Ino, LoC 2001620020, sheet 6, [1821]</span>
+<span class="pin" style="left:60cqw;top:20cqw"><b class="made">Light</b> the lamp's glint, on trace along the red line</span>
+<span class="pin" style="left:82cqw;top:6cqw"><b class="made">Modelled</b> the wire continuing the survey line</span>
+<span class="pin" style="left:30cqw;top:46cqw"><b class="made">Relief</b> pictorial mountains, traced</span>
+<svg class="wm" viewBox="0 0 24 24" aria-hidden="true"><g class="lm-halo"><path d="M3.5 8V4.5H7"/><path d="M17 4.5h3.5V8"/><path d="M20.5 16v3.5H17"/><path d="M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/></g><g class="lm-stroke"><path d="M3.5 8V4.5H7"/><path d="M17 4.5h3.5V8"/><path d="M20.5 16v3.5H17"/><path d="M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/></g><circle class="lm-ember" cx="18.6" cy="17.6" r="1.25"/></svg>
+</main>
+<section class="notes">
+<header>
+<p class="eyebrow">Beat <span class="num">5</span> of <span class="num">12</span></p>
+<h1>Survey</h1>
+<p class="when"><span class="num">0:20.50</span> to <span class="num">0:25.50</span> · frames <span class="num">492</span> to <span class="num">611</span></p>
+<p class="when">This frame: <span class="num">0:23.00,</span> the glint halfway along the line</p>
+</header>
+<div>
+<dl>
+<dt>Artifact</dt><dd>A sheet of Ino Tadataka's large map of Japan, from his surveys of 1800 to 1816 (Library of Congress 2001620020, catalogued [1821]): watercolour and ink on rice paper, relief drawn pictorially, survey traverse lines in red.</dd>
+<dt>Picture</dt><dd>Low over the sheet as it recedes to its edge; the pictorial mountains rise from the paper; a glint of the lamp runs along the red line as the surveyor walked it, never off it.</dd>
+<dt>Camera</dt><dd>A <code>rostrum</code> glide, low and fast: the camera's highest cruise speed of the sequence, following the glint.</dd>
+<dt>Light</dt><dd>Low and raking from beyond the sheet, through the rice paper's fibres. The near edge falls into dark.</dd>
+<dt>Transition</dt><dd>At the sheet's edge the line ends and a wire continues it; the camera follows the wire through the dark to a key.</dd>
+<dt>Sound</dt><dd>A long legato line in the upper strings rising with the glint: the motif's figure, augmented.</dd>
+<dt>Mark</dt><dd>The DRAWN glyph only.</dd>
+<dt>Textures</dt><dd><ul class="tags"><li><span class="k src">Scan</span>T-08 Ino sheet</li><li><span class="k made">Relief</span>H map from the sheet's pictorial mountains</li><li><span class="k made">Modelled</span>wire</li><li><span class="k made">AI</span>None planned: no AI-generated pixels in this frame's plan</li></ul></dd>
+</dl>
+</div>
+<div class="controls">
+<label class="toggle" for="pins">Show texture notes</label>
+<nav class="pager" aria-label="Beats"><a href="04-press.html">Previous beat</a><a href="../index.html">All beats</a><a href="06-wire.html">Next beat</a></nav>
+</div>
+</section>
+</body>
+</html>
