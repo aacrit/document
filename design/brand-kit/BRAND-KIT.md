@@ -447,12 +447,13 @@ Do: keep the record the film's own (an item of its ledgers, held whole); state i
 
 ## 16. Legible on a phone (2026-10-17, founder; cinematography pass, ticket 8)
 
-The house's small screen is a landscape phone, the 16:9 frame about 693 px wide. A portrait phone shows a thumbnail. Every text a viewer must read renders at 7 px or more there. The glyphs are marks, not text, and stay as section 12 sets them.
+The house's small screen is a landscape phone, the 16:9 frame about 693 px wide. A portrait phone shows a thumbnail. Every text a viewer must read renders at 7 px or more there. The glyphs are marks, not text, and stay as section 12 sets them. The rows below supersede section 4's source size and section 12's label sizes. Exception, for now: the map renderer's note, legend and source text (1.5% to 1.75%, 5.8 to 6.8 px) is reported under the floor and follows in a maps ticket.
 
 | | Value | 1080p | 693 px phone |
 |---|---|---|---|
 | Label type (12) | Inter 400 at **2.0%** of height (was 1.6%); opacity, shadow, whisper, hold, fold and repeat unchanged (12a) | 22 px | 7.8 px |
 | Lower third source (4) | Inter 400 at **2.2%** of height (was 1.8%), at 0.62 | 24 px | 8.6 px |
+| AI-GENERATED label (12) | Inter 400 at **2.3%** of height (was 1.85%), at 0.72, its heavier shadow unchanged: a truth label stays the larger (founder, 2026-10-17) | 25 px | 9.0 px |
 | `phone-legibility` | every must-read size the engine draws (`motion.must_read_text`, plus the map renderer's label and sizes) measured at 693 px: guidance, a warning and a reviewer item, never a refusal | | |
 
 Do: size any new text from this floor up. Don't: shrink text under it to make room; move a line or wrap it instead.

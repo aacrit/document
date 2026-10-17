@@ -419,7 +419,6 @@ CREDITS = dict(size=2.4, lh=1.5, heading=1.85, speed=5.2, fade_in=1.0, col_w=70.
 PHONE = dict(width_px=693, min_px=7.0)
 
 
-
 # --------------------------------------------------------------------------
 # Drawing helpers (private). All return or mutate RGBA layers; composition is
 # always alpha_composite onto a copy of the input frame.
