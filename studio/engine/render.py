@@ -2461,7 +2461,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             if wav.exists():
                 import soundfile as sf
                 wav_s = sf.info(str(wav)).duration       # a stem shorter than the film is an old cut's (build_mix: missing)
-            probs += SC.take_cue_problems(c, total_frames / FPS, wav_s)
+            probs += SC.take_cue_problems(c, total_frames / fps, wav_s)
             lint("take-cue", not probs, unit=c.get("id"), grammar="A29 take",
                  evidence={"problems": probs, "files": (tk or {}).get("paths"),
                            "spans": len((tk or {}).get("spans", [])), "rests": len((tk or {}).get("rests", [])),
@@ -4938,7 +4938,7 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
                              evidence={"spans": len(tk.get("spans", [])), "rests": len(tk.get("rests", [])),
                                        "wav": str(wav)})
             if stems is not None:
-                titles = [(s["f0"] / FPS, s["f1"] / FPS) for s in plan["shots"] if TS.is_title(s)]
+                titles = [(s["f0"] / fps_of(plan), s["f1"] / fps_of(plan)) for s in plan["shots"] if TS.is_title(s)]
                 stems["take"] = SC.take_analysis(x[:k], tk, titles=titles)
             continue
         if c.get("kind") == "music":            # levelled over the part that plays
