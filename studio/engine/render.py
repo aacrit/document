@@ -822,13 +822,14 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
             stops = T.tour_stops(roi, words or [], t0, dur, img_size, aspect, zmax, only=only)
             macro = "TOUR"
             if stops is None:
-                stops, macro = T.default_stops(img_size, aspect, dur, str(shot.get("direction", "")).lower()), "DEFAULT"
+                stops, macro = T.default_stops(img_size, aspect, dur, str(shot.get("direction", "")).lower(),
+                                               zmax=zmax), "DEFAULT"
         else:
             stops, probs = T.parse_path(camera, dur, words or [], t0, roi_by_name, img_size, aspect, zmax)
             problems += probs
             macro = "PATH"
             if not stops:
-                stops = T.default_stops(img_size, aspect, dur)
+                stops = T.default_stops(img_size, aspect, dur, zmax=zmax)
     elif preset in T.MACROS:
         macro = preset
         stops = T.macro_stops(preset, shot, dur)
@@ -837,7 +838,7 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
             st["z"], st["capped"] = zmax, True
     elif preset == TOUR:
         macro = "DEFAULT"
-        stops = T.default_stops(img_size, aspect, dur, str(shot.get("direction", "")).lower())
+        stops = T.default_stops(img_size, aspect, dur, str(shot.get("direction", "")).lower(), zmax=zmax)
     else:
         raise Refused(f"shot {shot['id']}: unknown preset {preset!r} (GRAMMAR 7.2, A41)")
     asked = stops                             # still-zoom-limit judges the preset as written, before any cover
@@ -845,7 +846,7 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
         region = shot.get("region") or {}
         focus = (shot.get("focus") if macro == "FILL" else
                  [float(region.get("x", 0.5)), float(region.get("y", 0.5))] if macro == "DETAIL" else None)
-        stops = T.covering_stops(img_size, aspect, dur, focus)
+        stops = T.covering_stops(img_size, aspect, dur, focus, zmax=zmax)
         covering = True
     tl = T.build(stops, dur, img_size, aspect, zmax, no_zoom=shot.get("no_zoom") is True)
     frame_path = [T.to_frame(st, img_size, W, H) for st in tl["stops"]]

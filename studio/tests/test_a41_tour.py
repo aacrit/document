@@ -148,7 +148,7 @@ def test_the_default_tour_shows_the_whole_picture():
     assert T.long_axis((2089, 1186), A) == "y" and T.long_axis((1920, 1080), A) is None
     for size in (PORTRAIT, WIDE, LANDSCAPE43, (2089, 1186), (3388, 1905)):
         tl = T.build(T.default_stops(size, A, 8.0), 8.0, size, A, 2.0)
-        assert T.covered(T.windows_of(tl), (0, 0, 1, 1), size)
+        assert T.covered(T.windows_of(tl), T.whole_box(size, A), size)      # (3388, 1905): 1.3 px hidden, counted shown
 
 
 # --------------------------------------------------------------------------
@@ -573,3 +573,30 @@ def test_a_covering_pass_starts_far_from_the_focus_and_keeps_one_speed():
     assert T.covered(T.windows_of(tl), (0, 0, 1, 1), size)
     end = T.covering_stops(size, A, 9.0, focus=[0.5, 1.0])                  # the focus is the near end: two stops
     assert len(end) == 2 and end[-1]["t"] == 9.0
+
+
+def test_a_picture_a_few_pixels_off_16_9_creeps_and_a_slow_pass_creeps_too():
+    size = (1920, 1078)                                       # the fill hides 3.4 px: under 0.5% of the side
+    assert T.long_axis(size, A) is None
+    cam = cam_for({"_dur": 8.0}, size)
+    assert [g["kind"] for g in cam["tour"]["segments"]] == ["creep"]
+    wins = [w for _, w in R.still_windows(cam, {"_dur": 8.0}, size, W, H)]
+    assert T.people_check(wins, T.people_of({}), size)["whole_shown"]     # the hidden strip counts as shown
+    big = (2089, 1186)                                        # 11 px hidden, over 0.5%: the pass, with creep layered
+    assert T.long_axis(big, A) == "y"
+    st = T.default_stops(big, A, 8.0, zmax=3.0)                # in to the middle and out again: ends at the fill
+    assert len(st) == 3 and st[1]["z"] == pytest.approx(1 + M.TOUR["creep_scale_per_s"] * 4.0)
+    assert st[0]["z"] == st[-1]["z"] == 1.0
+    tl = T.build(st, 8.0, big, A, 3.0)
+    assert T.covered(T.windows_of(tl), (0, 0, 1, 1), big)
+    fs = [T.at(tl, k / 24) for k in range(8 * 24 + 1)]
+    assert all(a != b for a, b in zip(fs[1:-1], fs[2:-1]))      # moving on every frame
+    assert len(T.default_stops(PORTRAIT, A, 8.0, zmax=3.0)) == 2   # a pass faster than the creep needs none
+
+
+def test_a_non_finite_stop_is_refused_not_a_crash():
+    for bad in ({"t": 0, "x": float("inf")}, {"t": 0, "z": float("nan")}, {"t": float("inf")},
+                {"t": 0, "hold": float("nan")}):
+        cam = cam_for({"camera": [bad, {"t": 4, "z": 1.1}]}, LANDSCAPE43)
+        assert any("finite" in p or "hold" in p for p in cam["problems"]), bad
+        assert all(fills(LANDSCAPE43, f) for f in frames(cam, 8.0))

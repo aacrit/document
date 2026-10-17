@@ -44,6 +44,11 @@ MACRO_ENDS = {
     "DETAIL": ({"z": 1.3}, {"z": 1.3}),
 }
 EPS = 1e-9
+# A strip of the picture the fill hides that is under this share of its side (a scan a few pixels off 16:9) counts as
+# shown: a pass over it would barely move, and it would replace the creep (1920x1078 travels 3.6 px in 8 s)
+SHOWN_STRIP = 0.005
+WHOLE = (0.0, 0.0, 1.0, 1.0)
+FRAME_ASPECT = 16 / 9                      # every delivery is 16:9 (render.RESOLUTIONS)
 
 
 class TourError(ValueError):
@@ -254,18 +259,30 @@ def tour_stops(roi: list[dict], words: list[dict], t0: float, dur: float, size, 
 def long_axis(size, aspect: float) -> str | None:
     """Which way the fill window can travel: ``y`` for a picture narrower than
     the frame (a portrait tilts), ``x`` for a wider one (a wide map pans), None
-    only when the fill shows the whole picture (to a pixel): a picture 1%
-    off 16:9 still has a strip the fill never shows, and the pass shows it."""
+    when the fill shows the whole picture but for a strip under
+    ``SHOWN_STRIP`` of its side (counted as shown; the shot creeps)."""
     iw, ih = float(size[0]), float(size[1])
     fw, fh = fill_window(size, aspect)
-    if iw - fw > 1.0:
+    if iw - fw > SHOWN_STRIP * iw:
         return "x"
-    if ih - fh > 1.0:
+    if ih - fh > SHOWN_STRIP * ih:
         return "y"
     return None
 
 
-def default_stops(size, aspect: float, dur: float, direction: str = "") -> list[dict]:
+def whole_box(size, aspect: float) -> tuple[float, float, float, float]:
+    """The part of the picture that must be shown for it to count as shown
+    whole: all of it, less a centred strip under ``SHOWN_STRIP`` the fill
+    hides on a picture of the frame's own shape (``long_axis`` None)."""
+    if long_axis(size, aspect) is not None:
+        return WHOLE
+    iw, ih = float(size[0]), float(size[1])
+    fw, fh = fill_window(size, aspect)
+    mx, my = (iw - fw) / 2.0 / iw, (ih - fh) / 2.0 / ih
+    return (mx, my, 1.0 - mx, 1.0 - my)
+
+
+def default_stops(size, aspect: float, dur: float, direction: str = "", zmax: float | None = None) -> list[dict]:
     """The default tour (A41): open at the fill on one end of the long axis
     and make one slow pass to the other over the shot (top to bottom, left to
     right; ``direction`` up or rl reverses it). A picture of the frame's own
@@ -279,10 +296,33 @@ def default_stops(size, aspect: float, dur: float, direction: str = "") -> list[
     first = {"t": 0.0, "z": 1.0, "x": 0.5, "y": 0.5, "from": "default tour: open"}
     last = {"t": dur, "z": 1.0, "x": 0.5, "y": 0.5, "from": "default tour: pass"}
     first[ax], last[ax] = a, b
-    return [first, last]
+    mid = _layer_creep(first, last, size, aspect, dur, ax, zmax)
+    return [first, mid, last] if mid else [first, last]
 
 
-def covering_stops(size, aspect: float, dur: float, focus=None) -> list[dict]:
+def _layer_creep(first: dict, last: dict, size, aspect: float, dur: float, ax: str, zmax: float | None):
+    """A pass slower than the creep (a short travel over a long shot) also
+    breathes at the creep's rate, so it never reads as frozen: it pushes in to
+    the middle of the shot and back out to the fill at the far end, so both
+    ends (and their corners) are still shown at the fill. Never past ``zmax``.
+    Returns the middle stop, or None when the pass is fast enough."""
+    iw, ih = float(size[0]), float(size[1])
+    fw, fh = fill_window(size, aspect)
+    travel = (iw - fw) / fw if ax == "x" else (ih - fh) / fh       # in windows
+    c = TOUR["creep_scale_per_s"]
+    if dur <= EPS or travel / dur >= c:
+        return None
+    z = 1.0 + c * dur / 2.0
+    if zmax is not None:
+        z = min(z, zmax)
+    if z <= 1.0 + 1e-6:
+        return None
+    mid = {"t": dur / 2.0, "z": z, "x": 0.5, "y": 0.5, "from": "default tour: pass, creeping"}
+    mid[ax] = (first[ax] + last[ax]) / 2.0
+    return mid
+
+
+def covering_stops(size, aspect: float, dur: float, focus=None, zmax: float | None = None) -> list[dict]:
     """A pass that shows the whole picture: the default tour, and with a
     ``focus`` it starts at the end farther from the focus, passes to the other
     end and comes back to settle on the focus. The shot's time is shared by
@@ -290,7 +330,7 @@ def covering_stops(size, aspect: float, dur: float, focus=None) -> list[dict]:
     cruise) instead of rushing the settle."""
     ax = long_axis(size, aspect)
     if ax is None or focus is None:
-        return default_stops(size, aspect, dur)
+        return default_stops(size, aspect, dur, zmax=zmax)
     fx, fy = float(focus[0]), float(focus[1])
     f = fx if ax == "x" else fy
     a, b = (0.0, 1.0) if f >= 0.5 else (1.0, 0.0)          # from the far end, through the near one
@@ -365,8 +405,8 @@ def parse_path(path, dur: float, words: list[dict], t0: float, roi_by_name: dict
         for key in ("x", "y", "z"):
             if key in raw:
                 v = raw[key]
-                if not isinstance(v, (int, float)) or isinstance(v, bool):
-                    probs.append(f"stop {k}: {key} must be a number")
+                if not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v):
+                    probs.append(f"stop {k}: {key} must be a finite number")
                     continue
                 st[key] = float(v)
         st.setdefault("x", 0.5)
@@ -389,8 +429,8 @@ def parse_path(path, dur: float, words: list[dict], t0: float, roi_by_name: dict
                 probs.append(f"anchor: stop {k}: at {raw['at']!r} is spoken at {st['t']:.2f} s, outside the shot")
                 continue
         elif "t" in raw:
-            if not isinstance(raw["t"], (int, float)) or isinstance(raw["t"], bool):
-                probs.append(f"stop {k}: t must be a number")
+            if not isinstance(raw["t"], (int, float)) or isinstance(raw["t"], bool) or not math.isfinite(raw["t"]):
+                probs.append(f"stop {k}: t must be a finite number")
                 continue
             st["t"] = float(raw["t"])
         elif k == 0:
@@ -401,7 +441,7 @@ def parse_path(path, dur: float, words: list[dict], t0: float, roi_by_name: dict
         if not (-EPS <= st["t"] <= dur + EPS):
             probs.append(f"stop {k}: t {st['t']:g} is outside the shot (0 to {dur:g} s)")
         h = raw.get("hold", 0.0)
-        if not isinstance(h, (int, float)) or isinstance(h, bool) or h < 0:
+        if not isinstance(h, (int, float)) or isinstance(h, bool) or not math.isfinite(h) or h < 0:
             probs.append(f"stop {k}: hold is seconds, 0 or more")
             h = 0.0
         st["hold"] = float(h)
@@ -642,7 +682,7 @@ def people_check(windows, people: dict, size) -> dict:
     some point; an unlocated person (or unknown people) needs the whole
     picture shown at some point. Returns {ok, missed, whole_shown}."""
     missed = [p["name"] or f"person {k}" for k, p in enumerate(people["boxes"]) if not seen(windows, p["box"], size)]
-    whole = covered(windows, (0.0, 0.0, 1.0, 1.0), size)
+    whole = covered(windows, whole_box(size, FRAME_ASPECT), size)
     need_whole = people["unlocated"] > 0
     ok = not missed and (whole or not need_whole)
     return {"ok": ok, "missed": missed, "whole_shown": whole, "unlocated": people["unlocated"],
