@@ -1848,9 +1848,10 @@ TOUR = dict(hold_creep_after_s=1.5, creep_scale_per_s=0.015, creep_drift_per_s=0
 #   anchor_late_s           ... and no later than this after the name's onset
 #   anchor_estimated_lead_s on estimated (character-share) timings it arrives at least this early and holds
 #                           through the name
+#   anchor_lead_s           how early the engine's own person stop arrives on measured timings (the schema's default)
 #   nest_share              a person box this much inside another (a face inside its figure) is the same person
 CINE = dict(face_zmax=1.3, framed_share=0.5, auto_confidence_floor=0.5, anchor_early_s=0.8, anchor_late_s=0.25,
-            anchor_estimated_lead_s=1.0, nest_share=0.8)
+            anchor_estimated_lead_s=1.0, anchor_lead_s=0.5, nest_share=0.8)
 
 
 def still_view(size, L: Layout, *, z: float = 1.0, cx: float = 0.5, cy: float = 0.5, clamp: str = "frame"):

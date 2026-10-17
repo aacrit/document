@@ -856,17 +856,26 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
         stops = T.covering_stops(img_size, aspect, dur, focus, zmax=zmax)
         covering = True
     # A43 face-cap-live: a stop that frames a face or a person never goes past z 1.3, creep included
+    no_zoom = shot.get("no_zoom") is True
     stops = T.cap_faces(stops, persons, img_size, aspect)
+    # A43 (founder ruling 2): the engine's own output is never refused. A stop it placed on a person that may not
+    # bind the name it is timed to is re-framed to the group or the whole; a move it made across a face past the
+    # cap is pulled back to it. A path a person wrote is left as written, for the lints.
+    stops, reframed = T.degrade_bindings(stops, dur, item, roi_by_name, persons, img_size, aspect, zmax,
+                                         no_zoom=no_zoom)
+    stops = T.cap_faces(stops, persons, img_size, aspect)
+    stops, pulled = T.enforce_face_cap(stops, persons, dur, img_size, aspect, zmax, no_zoom=no_zoom)
     if shot.get("match") == "prev" and stops:
         stops[0] = dict(stops[0], match="prev")   # the schema: a shot's match is its first stop's (#9 draws it)
-    tl = T.build(stops, dur, img_size, aspect, zmax, no_zoom=shot.get("no_zoom") is True)
+    tl = T.build(stops, dur, img_size, aspect, zmax, no_zoom=no_zoom)
     frame_path = [T.to_frame(st, img_size, W, H) for st in tl["stops"]]
     zf = max(W / fw, H / fh)
     return {"path": frame_path, "clamp": "image", "fill_ok": True, "preset": TOUR, "macro": macro, "open_s": 0.0,
             "z_max": zf * tl["z_max"], "fit_scale": s, "z_rel_max": max(max(1.0, float(st["z"])) for st in asked),
             "tour": tl, "W": W, "H": H, "opens_whole": False, "problems": problems, "zcap": zcap, "cap": cap,
             "covering": covering, "capped": any(st.get("capped") for st in stops),
-            "cine": {"persons": persons, "regions": roi_by_name, "ignored": eff["ignored"], "words": words or []}}
+            "cine": {"persons": persons, "regions": roi_by_name, "ignored": eff["ignored"], "reframed": reframed,
+                     "pulled": pulled}}
 
 
 def narrower_than_frame(aspect: float, W: int = 1920, H: int = 1080) -> bool:
@@ -1122,7 +1131,9 @@ def cine_lints(lint, journal: Journal, s: dict, cam: dict) -> None:
     person and is anchored to a name arrives within [-0.8, +0.25] s of the
     name on measured word timings, or at least 1.0 s early and holding
     through it on estimated ones; and binds only when the item's own caption
-    names that one person and exactly one person is located). Never blocking:
+    names that one person and exactly one person is located). Both refuse
+    only what a person wrote: the engine's own stops were re-framed or pulled
+    back already in ``still_camera`` and are journaled here. Never blocking:
     a machine box ignored for framing (``source: auto`` under the confidence
     floor, or overridden by a human entry of the same name) is journaled."""
     cine, tl = cam["cine"], cam["tour"]
@@ -1132,12 +1143,21 @@ def cine_lints(lint, journal: Journal, s: dict, cam: dict) -> None:
                    "over": bad[:5], "fix": None if not bad else
                    "a face or a person is never pushed past z 1.3: pull the stop back (leave z out and the engine "
                    "caps it), or frame what is beside them"})
-    ident = T.anchor_identity_check(tl, s.get("_item") or {}, cine["regions"], cine["persons"], cine["words"])
+    ident = T.anchor_identity_check(tl, s.get("_item") or {}, cine["regions"], cine["persons"])
     lint("anchor-identity", not ident, unit=s["id"], stage="motion", grammar="A41, A43",
          evidence={"stops": ident, "fix": None if not ident else (
              "on estimated timings arrive at least 1.0 s before the name (lead_s) and hold through it, or measure "
              "the words (words: [{w, t}] on the line); a name binds to one face only when the item's own caption "
              "names that person and exactly one person is located: otherwise frame the group or the whole")})
+    if cine["reframed"]:
+        journal.decision("motion", f"{s['id']}: {len(cine['reframed'])} person stop(s) re-framed to the group or the "
+                         "whole", "A43 (founder ruling 2): identity is never inferred from a face; a stop the engine "
+                         "placed that may not bind the name it is timed to frames the group or the whole picture, "
+                         "never a single face", unit=s["id"], evidence={"reframed": cine["reframed"]})
+    if cine["pulled"]:
+        journal.decision("motion", f"{s['id']}: {len(cine['pulled'])} stop(s) pulled back to the face cap",
+                         "A43: a face is never pushed past z 1.3, a move across one included", unit=s["id"],
+                         evidence={"pulled": cine["pulled"], "face_zmax": M.CINE["face_zmax"]})
     if cine["ignored"]:
         journal.decision("motion", f"{s['id']}: {len(cine['ignored'])} machine box(es) not used for framing",
                          "A43 (founder ruling 2): a human entry wins over auto; under the confidence floor the "

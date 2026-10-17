@@ -99,7 +99,7 @@ def measured():
 def ident(path, words, item=ITEM, dur=8.0):
     cam = cam_for({"camera": path, "_dur": dur, "start_s": 9.0}, item=item, words=words)
     assert not cam["problems"], cam["problems"]
-    return T.anchor_identity_check(cam["tour"], item, cam["cine"]["regions"], cam["cine"]["persons"], words)
+    return T.anchor_identity_check(cam["tour"], item, cam["cine"]["regions"], cam["cine"]["persons"])
 
 
 def test_on_estimated_timings_a_name_needs_a_one_second_lead_and_a_hold_through_it():
@@ -130,7 +130,7 @@ def test_on_measured_timings_a_name_lands_inside_its_window():
               name_end=on["e"] - 9.0, measured=True, spoken=["Booker"], spoken_line="N1", spoken_i=[on["i"]])
     tl = T.build([{"t": 0.0, "z": 1.0, "x": 0.5, "y": 0.5}, st], 8.0, size, A, 1.3)
     persons = T.person_regions(ITEM)
-    bad = T.anchor_identity_check(tl, ITEM, {"Booker": dict(BOOKER, kind="person")}, persons, ws)
+    bad = T.anchor_identity_check(tl, ITEM, {"Booker": dict(BOOKER, kind="person")}, persons)
     assert bad and "+0.40" in bad[0]["why"][0]
 
 
@@ -149,22 +149,119 @@ def test_the_binding_rule_refuses_a_name_on_a_face_the_caption_does_not_settle()
     assert not ident(path, ws, item=nested)
 
 
-def test_a_word_that_is_not_a_name_binds_no_one_and_the_rulebook_names_are_not_names():
+def test_a_capital_alone_is_never_a_name():
     ws = measured()
     item = {"title": "the children, test fixture", "people": [dict(BOOKER, name="subject")]}
     assert not ident([{"t": 0}, {"roi": "subject", "at": "children"}], ws, item=item)
-    assert T.names_a_person({"spoken": ["Booker"], "spoken_line": "N1",
-                             "spoken_i": [next(w["i"] for w in ws if w["n"] == "booker")]}, None, ws)
-    assert not T.names_a_person({"spoken": ["At"], "spoken_line": "N1", "spoken_i": [0]}, None, ws)
+    persons = T.person_regions(ITEM)
+    assert T.names_a_person(["Booker"], ITEM, persons)                         # the person's own recorded name
+    for place in (["New", "York"], ["Pentagon"], ["At"]):
+        assert not T.names_a_person(place, ITEM, persons)
+    sub = {"people": [dict(BOOKER, name="subject")]}
+    assert not T.names_a_person(["Booker"], sub, T.person_regions(sub))
+    assert T.names_a_person(["Bush"], {"caption_names": ["President Bush"]}, [])
 
 
-def test_the_tour_resolver_binding_a_person_is_checked_too():
+CROWD = [{"name": f"person-{k}", "x": 0.1 + 0.16 * k, "y": 0.4, "w": 0.1, "h": 0.3, "source": "auto",
+          "confidence": 0.9} for k in range(5)]
+PLACES = {"id": "N2", "kind": "narration", "start": 10.0, "dur": 4.0,
+          "text": "They walked north out of New York toward the Pentagon road."}
+
+
+def test_new_york_and_pentagon_over_a_crowd_bind_no_one():
+    ws = T.shot_words([PLACES], 9.0, 17.0)
+    item = {"title": "People walking north out of New York", "people": CROWD}
+    # a centre in one crowd member's box frames the group; a rulebook name is not a person's name
+    assert not ident([{"t": 0}, {"at": "New York", "x": 0.15, "y": 0.5, "z": 1.2}], ws, item=item)
+    assert not ident([{"t": 0}, {"at": "Pentagon", "roi": "person-2"}], ws, item=item)
+    assert T.stop_person({"x": 0.15, "y": 0.5}, {}, T.person_regions(item)) is None
+
+
+BUSH = {"id": "N3", "kind": "narration", "start": 10.0, "dur": 4.0,
+        "text": "At the barrier that morning the motorcade brought Bush past the school."}
+
+
+def test_ruling_2_probe_a_machine_subject_named_in_the_caption_binds_with_a_lead():
+    # the probe: an auto person region (the rulebook's subject, cue Bush, confidence 0.9), caption
+    # "President Bush at the school", camera: tour, estimated timings: it must not be refused
+    ws = T.shot_words([BUSH], 9.0, 17.0)
+    item = {"title": "President Bush at the school", "people": [],
+            "roi": [{"name": "subject", "kind": "person", "cue": "Bush", "x": 0.4, "y": 0.2, "w": 0.15, "h": 0.4,
+                     "source": "auto", "confidence": 0.9}]}
+    cam = cam_for({"camera": "tour", "_dur": 8.0, "start_s": 9.0}, item=item, words=ws)
+    st = cam["tour"]["stops"][1]
+    assert st["roi"] == "subject" and st["t"] == pytest.approx(st["onset"] - M.CINE["anchor_estimated_lead_s"])
+    assert T.leave_time(cam["tour"], 1) >= st["name_end"] - 1e-9 and not cam["cine"]["reframed"]
+    assert not T.anchor_identity_check(cam["tour"], item, cam["cine"]["regions"], cam["cine"]["persons"])
+    # on measured words it arrives half a second early
+    toks = BUSH["text"].split()
+    wm = T.shot_words([dict(BUSH, words=[{"w": w, "t": 10.0 + 0.3 * i} for i, w in enumerate(toks)])], 9.0, 17.0)
+    st = cam_for({"camera": "tour", "_dur": 8.0, "start_s": 9.0}, item=item, words=wm)["tour"]["stops"][1]
+    assert st["t"] == pytest.approx(st["onset"] - M.CINE["anchor_lead_s"])
+
+
+def test_an_engine_stop_that_may_not_bind_is_reframed_never_refused():
+    ws = T.shot_words([BUSH], 9.0, 17.0)
+    region = {"name": "person-1", "kind": "person", "cue": "Bush", "x": 0.4, "y": 0.2, "w": 0.15, "h": 0.4,
+              "source": "auto", "confidence": 0.9}
+    # the schema owner's ruling: a machine box binds only as the rulebook's primary subject
+    item = {"title": "The motorcade of President Bush passes a policeman", "caption_names": ["President Bush"],
+            "people": [], "roi": [region]}
+    assert any("primary subject" in w for w in T.binding_check(item, ["Bush"], region, T.person_regions(item)))
+    cam = cam_for({"camera": "tour", "_dur": 8.0, "start_s": 9.0}, item=item, words=ws)
+    st = cam["tour"]["stops"][1]
+    assert cam["cine"]["reframed"] and st.get("reframed") == "person-1" and "roi" not in st and st["z"] == 1.0
+    assert not T.anchor_identity_check(cam["tour"], item, cam["cine"]["regions"], cam["cine"]["persons"])
+    # a person writing the same binding is refused
+    bad = ident([{"t": 0}, {"roi": "person-1", "at": "Bush", "lead_s": 1.2, "hold": 2.0}], ws, item=item)
+    assert bad and bad[0]["authored"]
+
+
+def test_the_caption_must_name_exactly_one_person():
+    ws = T.shot_words([BUSH], 9.0, 17.0)
+    one = {"name": "Bush", "x": 0.4, "y": 0.2, "w": 0.15, "h": 0.4}
+    item = {"title": "Bush and Card pass a policeman at the barrier", "people": [one]}
+    persons = T.person_regions(item)
+    assert any("Card" in w for w in T.binding_check(item, ["Bush"], one, persons))
+    # the tour resolver degrades; the same binding written by hand is refused
+    cam = cam_for({"camera": "tour", "_dur": 8.0, "start_s": 9.0},
+                  item=dict(item, people=[], roi=[dict(one, kind="person")]), words=ws)
+    assert cam["cine"]["reframed"]
+    assert ident([{"t": 0}, {"roi": "Bush", "at": "Bush", "lead_s": 1.2, "hold": 2.0}], ws, item=item)
+    # caption_names settles it: exactly one name, the spoken one
+    assert not T.binding_check(dict(item, caption_names=["Bush"]), ["Bush"], one, persons)
+    assert T.binding_check(dict(item, caption_names=["Bush", "Card"]), ["Bush"], one, persons)
+    assert T.binding_check(dict(item, caption_names=["Card"]), ["Bush"], one, persons)
+    assert not T.binding_check({"title": "President Bush at the school", "people": [one]}, ["Bush"], one, persons)
+
+
+def test_face_cap_samples_moves_a_pan_across_a_face_is_capped_or_refused():
+    persons = T.person_regions({"roi": [dict(FACE, x=0.45, y=0.45, w=0.1, h=0.1)]})
+    a = {"t": 0.0, "z": 2.5, "x": 0.1, "y": 0.5}
+    b = {"t": 6.0, "z": 2.5, "x": 0.9, "y": 0.5}
+    tl = T.build([a, b], 6.0, LANDSCAPE43, A, 3.0)
+    bad = T.face_cap_check(tl, persons)
+    assert bad and all(0.0 < v["t"] < 6.0 for v in bad)                       # only the move crosses it
+    stops, pulled = T.enforce_face_cap([a, b], persons, 6.0, LANDSCAPE43, A, 3.0)
+    assert pulled and not T.face_cap_check(T.build(stops, 6.0, LANDSCAPE43, A, 3.0), persons)
+    written = [dict(a, z_authored=True, placed="author"), dict(b, z_authored=True, placed="author")]
+    stops, pulled = T.enforce_face_cap(written, persons, 6.0, LANDSCAPE43, A, 3.0)
+    assert not pulled and T.face_cap_check(T.build(stops, 6.0, LANDSCAPE43, A, 3.0), persons)
+    # a face less than half in frame is not capped (framed_share 0.5, deliberate)
+    win = T.window(LANDSCAPE43, A, 2.5, 0.3, 0.5)
+    edge_x = (win[2] / LANDSCAPE43[0]) - 0.04                                  # 40% of the 0.1-wide face inside
+    edge = {"t": 0.0, "z": 2.5, "x": 0.3, "y": 0.5}
+    near = T.person_regions({"roi": [dict(FACE, x=edge_x, y=0.45, w=0.1, h=0.1)]})
+    assert not T.face_cap_check(T.build([edge], 1.0, LANDSCAPE43, A, 2.5), near)
+
+
+def test_the_tour_resolver_leads_a_person_and_holds_through_the_name():
     ws = estimated()
     item = dict(ITEM, roi=[dict(BOOKER, kind="person")], people=[])
     cam = cam_for({"camera": "tour", "_dur": 8.0, "start_s": 9.0}, item=item, words=ws)
     st = cam["tour"]["stops"][1]
-    assert st["at"] == "Booker" and st["onset"] == pytest.approx(st["t"])
-    assert T.anchor_identity_check(cam["tour"], item, cam["cine"]["regions"], cam["cine"]["persons"], ws)
+    assert st["at"] == "Booker" and st["t"] == pytest.approx(st["onset"] - 1.0)
+    assert not T.anchor_identity_check(cam["tour"], item, cam["cine"]["regions"], cam["cine"]["persons"])
 
 
 def test_digits_alone_are_a_word_index_and_a_phrase_with_digits_is_a_cue():
@@ -381,3 +478,24 @@ def test_plan_subject_at_is_checked_against_the_narration_as_a_warning(film):
     plan, j = _plan(film, "cine5-subject-unspoken")                            # a warning: the plan is made
     ev = [e for e in lints(J.read(j.path), "cine-subject-at") if e["unit"] == "S3"]
     assert ev[0]["status"] == "fail" and ev[0]["severity"] == "warn"
+
+
+def test_plan_ruling_2_probe_a_fully_automatic_tour_is_never_refused(film):
+    # the reviewer's probe on the fixture film: an auto person region, cue Bush, conf 0.9, camera "tour", estimated
+    _edit(film, lambda p: _line(p, "L1").update(text="A test tone stands in for Bush."))
+    region = {"name": "subject", "kind": "person", "cue": "Bush", "x": 0.4, "y": 0.2, "w": 0.15, "h": 0.4,
+              "source": "auto", "confidence": 0.9}
+    _item(film, "FX-STILL-A", lambda i: i.update(title="President Bush at the school", roi=[region]))
+    _edit(film, lambda p: _shot(p, "S3").update(preset=None, camera="tour"))
+    plan, j = _plan(film, "cine5-probe")
+    evs = J.read(j.path)
+    assert [e["status"] for e in lints(evs, "anchor-identity") if e["unit"] == "S3"] == ["pass"]
+    cam = next(s for s in plan["shots"] if s["id"] == "S3")["_cam"]
+    assert cam["tour"]["stops"][1]["roi"] == "subject" and not cam["cine"]["reframed"]
+    # not the primary subject, or a caption naming two people: re-framed and journaled, still never refused
+    _item(film, "FX-STILL-A", lambda i: i.update(title="Bush and Card pass a policeman at the barrier",
+                                                 roi=[dict(region, name="person-1")]))
+    plan, j = _plan(film, "cine5-probe-degrade")
+    evs = J.read(j.path)
+    assert [e["status"] for e in lints(evs, "anchor-identity") if e["unit"] == "S3"] == ["pass"]
+    assert any(e["kind"] == "decision" and e.get("unit") == "S3" and "re-framed" in e.get("what", "") for e in evs)
