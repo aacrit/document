@@ -348,6 +348,55 @@ def test_a30_an_intent_off_the_list_or_off_black_is_refused(tmp_path):
         _plan(film, "intent-still")
 
 
+# A30 refined (founder, 2026-10-17): a free-text black_reason beside the closed intent list, on a black shot only.
+
+def test_a30_a_black_reason_passes_and_is_a_reviewer_item(tmp_path):
+    reason = "the record falls silent here, deliberately"
+    film = _black_film(tmp_path, black_reason=reason)
+    _edit_play(film, lambda p: _shot(p, "S9").update(intent="the-film-speaks"))
+    plan, _ = _plan(film, "reason")
+    j = J.Journal(film="reason-final")
+    out = R.black_dip_lints(j, plan)
+    assert any("no lower third for L2" in o for o in out)           # a reading over black still carries its lower third
+    _edit_play(film, lambda p: p["parts"][1]["text"].append(
+        {"id": "T9", "kind": "lower_third", "start_s": 20.3, "end_s": 25.3,
+         "lines": ["Fixture speaker", "Test stand-in, 1947", "Fixture source, studio test folder  ·  read by a computer voice"]}))
+    plan, _ = _plan(film, "reason-lt")
+    j = J.Journal(film="reason-ok")
+    assert not [o for o in R.black_dip_lints(j, plan) if o.startswith("black")]
+    rv = [e for e in J.read(j.path) if e["kind"] == "lint" and e["rule"] == "black-reason" and e["severity"] == "review"]
+    assert {e["unit"] for e in rv} == {"S8"} and rv[0]["evidence"]["black_reason"] == reason
+    dec = [e for e in J.read(j.path) if e["kind"] == "decision"]
+    assert not any(d.get("unit") == "S8" for d in dec)       # a reason is a reviewer item, never a closed-list decision
+    doc = R.sources_doc(plan, j, {})
+    assert {b["shot"] for b in doc["black_under_voice"]} == {"S9"}  # reason-based shots stay off the closed-intent list
+
+
+def test_a30_a_black_reason_too_short_or_a_filler_token_is_refused(tmp_path):
+    film = _black_film(tmp_path / "short", black_reason="mourning")
+    with pytest.raises(R.Refused, match=r"black-reason \(S8\)"):
+        _plan(film, "reason-short")
+    film2 = _black_film(tmp_path / "filler", black_reason="silence silence silence silence")
+    with pytest.raises(R.Refused, match=r"black-reason \(S8\)"):
+        _plan(film2, "reason-filler")
+
+
+def test_a30_a_black_reason_on_a_card_is_refused(tmp_path):
+    film = _black_film(tmp_path)
+    _edit_play(film, lambda p: _shot(p, "S9").update(black_reason="the record falls silent here, deliberately"))
+    with pytest.raises(R.Refused, match=r"black-reason \(S9\).*for a black shot only"):
+        _plan(film, "reason-card")
+
+
+def test_a30_neither_intent_nor_reason_still_blocks(tmp_path):
+    """Black under voice with no intent and no reason refuses exactly as A30 did before this change."""
+    film = _black_film(tmp_path)
+    plan, _ = _plan(film, "neither")
+    j = J.Journal(film="neither-final")
+    out = R.black_dip_lints(j, plan)
+    assert any(o.startswith("black-under-voice (S8") and "no intent on S8, S9" in o for o in out)
+
+
 def test_a30_under_4_s_of_voice_over_black_passes(plan):
     j = J.Journal(film="fixture-black")
     assert not [o for o in R.black_dip_lints(j, plan) if o.startswith("black")]
