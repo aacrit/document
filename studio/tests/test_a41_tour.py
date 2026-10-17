@@ -1,0 +1,408 @@
+"""A41 TOUR (founder, 2026-10-17): every still fills 16:9 on every frame and
+the camera tours it along a path of stops timed to the narration. Pure
+geometry on tiny synthetic sizes first, then the plan-time lints on the
+fixture film (no frame is rendered)."""
+
+import json
+import math
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from studio.engine import journal as J
+from studio.engine import motion as M
+from studio.engine import overlays as OV
+from studio.engine import render as R
+from studio.engine import tour as T
+from conftest import make_film
+
+W, H = 640, 360
+A = W / H
+PORTRAIT, WIDE, LANDSCAPE43 = (1200, 1600), (3200, 1000), (1600, 1200)
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def lints(evs, rule):
+    return [e for e in evs if e["kind"] == "lint" and e.get("rule") == rule]
+
+
+def cam_for(shot, size, **kw):
+    shot = dict({"id": "X", "kind": "archive_still", "_dur": 8.0, "_item": {"people": False}}, **shot)
+    return R.still_camera(shot, size, W, H, **kw)
+
+
+def frames(cam, dur, hz=24.0):
+    n = int(math.floor(dur * hz))
+    return [OV.framing_at(cam, k / hz, dur) for k in range(n + 1)]
+
+
+def fills(size, f, clamp="image"):
+    src, dst = M.still_view(size, M.Layout(W, H), z=f["z"], cx=f["x"], cy=f["y"], clamp=clamp)
+    inside = src[0] >= -0.5 and src[1] >= -0.5 and src[2] <= size[0] + 0.5 and src[3] <= size[1] + 0.5
+    return dst == (0.0, 0.0, float(W), float(H)) and inside
+
+
+# --------------------------------------------------------------------------
+# The path: stops at their times, never below the fill, creep on holds
+# --------------------------------------------------------------------------
+
+def test_stops_are_hit_at_their_times():
+    path = [{"t": 0.0, "x": 0.5, "y": 0.2, "z": 1.0}, {"t": 3.0, "x": 0.3, "y": 0.6, "z": 1.4},
+            {"t": 6.0, "x": 0.7, "y": 0.5, "z": 1.1}]
+    cam = cam_for({"camera": path, "_dur": 6.0}, LANDSCAPE43)
+    assert cam["preset"] == "TOUR" and cam["macro"] == "PATH" and not cam["problems"]
+    for st in path:
+        want = T.to_frame(T.settle(st, LANDSCAPE43, A), LANDSCAPE43, W, H)
+        got = OV.framing_at(cam, st["t"], 6.0)
+        assert got == pytest.approx(want, abs=1e-9), st
+
+
+def test_a_still_never_goes_below_the_fill_on_any_frame():
+    for size in (PORTRAIT, WIDE, LANDSCAPE43, (1920, 1080)):
+        for shot in ({}, {"preset": "HOLD"}, {"preset": "PULL"}, {"preset": "DRIFT", "direction": "rl"},
+                     {"preset": "TILT"}, {"preset": "FILL", "focus": [0.2, 0.9]}, {"preset": "DETAIL", "region": {"x": 0.9, "y": 0.1}},
+                     {"camera": [{"t": 0, "x": 0, "y": 0, "z": 1}, {"t": 4, "x": 1, "y": 1, "z": 1.5}]}):
+            cam = cam_for(dict(shot, _dur=8.0), size)
+            assert cam["clamp"] == "image" and cam["opens_whole"] is False
+            for f in frames(cam, 8.0):
+                assert fills(size, f), (size, shot, f)
+            assert cam["tour"]["z_min"] >= 1.0 - 1e-12
+
+
+def test_a_stop_below_the_fill_is_refused_as_written():
+    cam = cam_for({"camera": [{"t": 0, "z": 0.8}]}, LANDSCAPE43)
+    assert any("below the fill" in p for p in cam["problems"])
+    assert all(fills(LANDSCAPE43, f) for f in frames(cam, 8.0))     # and it is still drawn at the fill
+
+
+def test_a_long_hold_keeps_creeping_and_a_short_one_may_rest():
+    cam = cam_for({"preset": "HOLD", "_dur": 6.0}, (1920, 1080))
+    fs = frames(cam, 6.0)
+    assert all(a != b for a, b in zip(fs[1:-1], fs[2:-1]))           # no frozen frame
+    assert fs[-1]["z"] / fs[0]["z"] == pytest.approx(1 + M.TOUR["creep_scale_per_s"] * 6.0, rel=1e-6)
+    tl = T.build([{"t": 0.0, "z": 1.0, "x": 0.5, "y": 0.5}], 1.2, (1920, 1080), A, 2.0)
+    assert [g["kind"] for g in tl["segments"]] == ["hold"]               # 1.2 s, under hold_creep_after_s
+    # a stop held in the middle of a path creeps too, then the next move starts from where it crept to
+    tl = T.build([{"t": 0.0, "z": 1.0, "x": 0.5, "y": 0.5, "hold": 3.0}, {"t": 5.0, "z": 1.3, "x": 0.3, "y": 0.5}],
+                 5.0, LANDSCAPE43, A, 2.0)
+    assert [g["kind"] for g in tl["segments"]] == ["creep", "move"]
+    assert tl["segments"][1]["a"] == tl["segments"][0]["b"]
+
+
+def test_creep_at_the_cap_drifts_instead_and_no_zoom_never_scales():
+    size = (1200, 900)                                              # 4:3: room to drift vertically at the fill
+    p = T.settle({"z": 1.0, "x": 0.5, "y": 0.5}, size, A)
+    q, how = T.creep(p, 4.0, size, A, zmax=1.0)
+    assert how == "drift" and q["z"] == 1.0 and q["y"] != p["y"]
+    q, how = T.creep(p, 4.0, size, A, zmax=2.0, no_zoom=True)
+    assert how == "drift" and q["z"] == 1.0
+
+
+# --------------------------------------------------------------------------
+# Macros and the default tour
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("preset", ["HOLD", "PUSH", "PULL", "DRIFT", "TILT", "DETAIL"])
+def test_each_macro_reproduces_its_old_preset_endpoints(preset):
+    frm, to = R.PRESETS[preset]
+    st = T.macro_stops(preset, {}, 6.0)
+    for got, want in zip((st[0], st[-1]), (frm, to)):
+        assert got["z"] == pytest.approx(want["z"])
+        assert got["x"] == pytest.approx(want.get("x", 0.5)) and got["y"] == pytest.approx(want.get("y", 0.5))
+    assert st[0]["t"] == 0.0 and st[-1]["t"] == 6.0
+
+
+def test_macros_keep_direction_region_from_to_and_focus():
+    d = T.macro_stops("DRIFT", {"direction": "rl"}, 5.0)
+    assert d[0]["x"] == pytest.approx(2 / 3) and d[-1]["x"] == pytest.approx(1 / 3)
+    t = T.macro_stops("TILT", {"direction": "up"}, 5.0)
+    assert t[0]["y"] == 1.0 and t[-1]["y"] == 0.0
+    det = T.macro_stops("DETAIL", {"region": {"x": 0.2, "y": 0.7}}, 4.0)
+    assert det[0]["x"] == det[-1]["x"] == 0.2 and det[0]["z"] == 1.3
+    p = T.macro_stops("PUSH", {"to": {"z": 1.2, "x": 0.4}}, 4.0)
+    assert p[-1]["z"] == 1.2 and p[-1]["x"] == 0.4
+    f = T.macro_stops("FILL", {"focus": [0.3, 0.2]}, 4.0)
+    assert f[0] == pytest.approx(dict(f[0], z=1.0, x=0.3, y=0.2))
+
+
+def test_the_default_tour_tilts_a_portrait_and_pans_a_wide_picture():
+    cam = cam_for({"_dur": 8.0}, PORTRAIT)
+    assert cam["macro"] == "DEFAULT"
+    a, b = OV.framing_at(cam, 0.0, 8.0), OV.framing_at(cam, 8.0, 8.0)
+    assert a["x"] == pytest.approx(b["x"]) and a["y"] < b["y"]       # top to bottom
+    src0, _ = M.still_view(PORTRAIT, M.Layout(W, H), z=a["z"], cx=a["x"], cy=a["y"], clamp="image")
+    src1, _ = M.still_view(PORTRAIT, M.Layout(W, H), z=b["z"], cx=b["x"], cy=b["y"], clamp="image")
+    assert src0[1] == pytest.approx(0, abs=0.5) and src1[3] == pytest.approx(PORTRAIT[1], abs=0.5)
+    assert src0[2] - src0[0] == pytest.approx(PORTRAIT[0], abs=0.5)   # opens at the fill: the full width
+    cam = cam_for({"_dur": 8.0}, WIDE)
+    a, b = OV.framing_at(cam, 0.0, 8.0), OV.framing_at(cam, 8.0, 8.0)
+    assert a["y"] == pytest.approx(b["y"]) and a["x"] < b["x"]       # left to right
+    cam = cam_for({"_dur": 8.0}, (1920, 1080))                       # the frame's own shape: the fill, creeping
+    assert [g["kind"] for g in cam["tour"]["segments"]] == ["creep"]
+
+
+def test_the_default_tour_shows_the_whole_picture():
+    for size in (PORTRAIT, WIDE, LANDSCAPE43):
+        tl = T.build(T.default_stops(size, A, 8.0), 8.0, size, A, 2.0)
+        assert T.covered(T.windows_of(tl), (0, 0, 1, 1), size)
+
+
+# --------------------------------------------------------------------------
+# Anchors: at a narration word
+# --------------------------------------------------------------------------
+
+LINE = {"id": "N1", "kind": "narration", "start": 10.0, "dur": 4.0, "text": "The road to Bengal ran past the mill."}
+
+
+def test_at_anchors_a_stop_to_a_word_index_or_a_cue():
+    words = T.shot_words([LINE], 9.0, 17.0)
+    t_bengal = next(w["t"] for w in words if w["n"] == "bengal")
+    assert T.anchor_time(3, words) == pytest.approx(t_bengal)
+    assert T.anchor_time("Bengal", words) == pytest.approx(t_bengal)
+    assert T.anchor_time("the mill", words) == pytest.approx(next(w["t"] for w in words[6:] if w["n"] == "the"))
+    assert T.anchor_time("Calcutta", words) is None and T.anchor_time(40, words) is None
+    path = [{"t": 0, "z": 1}, {"at": "Bengal", "x": 0.3, "y": 0.6, "z": 1.3}]
+    cam = cam_for({"camera": path, "_dur": 8.0, "start_s": 9.0}, LANDSCAPE43, words=words)
+    st = cam["tour"]["stops"][1]
+    assert st["t"] == pytest.approx(t_bengal - 9.0)
+    assert OV.framing_at(cam, st["t"], 8.0) == pytest.approx(T.to_frame(st, LANDSCAPE43, W, H))
+    bad = cam_for({"camera": [{"t": 0}, {"at": "Calcutta"}], "_dur": 8.0, "start_s": 9.0}, LANDSCAPE43, words=words)
+    assert any(p.startswith("anchor:") for p in bad["problems"])
+
+
+def test_the_tour_resolver_visits_each_region_when_it_is_named():
+    roi = [{"name": "the mill", "x": 0.6, "y": 0.5, "w": 0.2, "h": 0.2},
+           {"name": "road", "cue": "Bengal", "x": 0.1, "y": 0.1, "w": 0.3, "h": 0.3},
+           {"name": "sky", "x": 0.0, "y": 0.0, "w": 1.0, "h": 0.2}]
+    words = T.shot_words([LINE], 9.0, 17.0)
+    st = T.tour_stops(roi, words, 9.0, 8.0, LANDSCAPE43, A, 2.0)
+    assert [s.get("roi") for s in st] == [None, "road", "the mill"]          # sky is never named
+    t_bengal = next(w["t"] for w in words if w["n"] == "bengal") - 9.0
+    assert st[0]["t"] == 0.0 and st[1]["t"] == pytest.approx(t_bengal)
+    w = T.window(LANDSCAPE43, A, st[2]["z"], st[2]["x"], st[2]["y"])
+    assert w[0] <= 0.6 * 1600 and w[2] >= 0.8 * 1600                       # the region is whole in frame
+    assert T.tour_stops(roi, [], 9.0, 8.0, LANDSCAPE43, A, 2.0) is None      # nothing named: the default tour
+
+
+def test_the_js_tour_helper_agrees_with_the_engine():
+    node = shutil.which("node")
+    if node is None:
+        pytest.fail("node is needed for the tour helper (the builders run on it)")
+    item = {"roi": [{"name": "the mill", "x": 0.6, "y": 0.5, "w": 0.2, "h": 0.2},
+                    {"name": "road", "cue": "Bengal", "x": 0.1, "y": 0.1, "w": 0.3, "h": 0.3}]}
+    words = T.shot_words([LINE], 9.0, 17.0)
+    js = ("import { tour } from " + json.dumps((ROOT / "studio" / "tour.mjs").as_uri()) + ";"
+          f"const item = {json.dumps(item)};"
+          f"const words = {json.dumps([{'w': w['w'], 't': w['t']} for w in words])};"
+          f"console.log(JSON.stringify([tour(item, {{narration: {json.dumps(LINE['text'])}}}),"
+          " tour(item, {words, start_s: 9}), tour(item), tour(item, {narration: 'nothing here'})]));")
+    out = subprocess.run([node, "--input-type=module", "-e", js], capture_output=True, text=True, check=True).stdout
+    by_cue, timed, bare, none = json.loads(out)
+    assert by_cue == [{"t": 0, "z": 1, "x": 0.5, "y": 0.5}, {"at": "Bengal", "roi": "road"}, {"at": "the mill", "roi": "the mill"}]
+    assert bare == "tour" and none is None
+    py = T.tour_stops(item["roi"], words, 9.0, 8.0, LANDSCAPE43, A, 2.0)
+    roi = {r["name"]: r for r in item["roi"]}
+    for path in (by_cue, timed):
+        stops, probs = T.parse_path(path, 8.0, words, 9.0, roi, LANDSCAPE43, A, 2.0)
+        assert not probs
+        assert [(round(s["t"], 2), round(s["x"], 4), round(s["y"], 4), round(s["z"], 4)) for s in stops] == \
+               [(round(s["t"], 2), round(s["x"], 4), round(s["y"], 4), round(s["z"], 4)) for s in py]
+
+
+# --------------------------------------------------------------------------
+# Guards, pure
+# --------------------------------------------------------------------------
+
+def test_people_check_over_the_path():
+    size = LANDSCAPE43
+    top = {"boxes": [{"name": "a", "box": (0.45, 0.02, 0.55, 0.10)}], "unlocated": 0, "known": True}
+    push = T.build(T.macro_stops("PUSH", {}, 6.0), 6.0, size, A, 2.0)
+    assert not T.people_check(T.windows_of(push), top, size)["ok"]          # 4:3 at the fill: the top 12.5% is never shown
+    tilt = T.build(T.macro_stops("TILT", {"direction": "up"}, 6.0), 6.0, size, A, 2.0)
+    assert T.people_check(T.windows_of(tilt), top, size)["ok"]               # a tilt that ends on her shows her
+    tall = {"boxes": [{"name": "standing", "box": (0.4, 0.0, 0.6, 1.0)}], "unlocated": 0, "known": True}
+    assert T.people_check(T.windows_of(tilt), tall, size)["ok"]              # too tall for any frame: every part shown
+    assert not T.people_check(T.windows_of(push), tall, size)["ok"]
+    unknown = T.people_of({}, kind="archive_still")
+    assert unknown["unlocated"] == 1 and not unknown["known"]
+    hold = T.build(T.macro_stops("HOLD", {}, 6.0), 6.0, size, A, 2.0)
+    assert not T.people_check(T.windows_of(hold), unknown, size)["ok"]        # the top and bottom are never shown
+    cover = T.build(T.covering_stops(size, A, 6.0), 6.0, size, A, 2.0)
+    assert T.people_check(T.windows_of(cover), unknown, size)["ok"]
+    assert T.people_of({"people": "none visible"})["unlocated"] == 0
+    assert T.people_of({"people": [{"name": "X"}]})["unlocated"] == 1
+    assert T.people_of({}, kind="drawn")["unlocated"] == 0
+
+
+def test_speed_guides_warn_on_a_fast_pan_or_zoom():
+    size = WIDE
+    slow = T.build(T.default_stops(size, A, 20.0), 20.0, size, A, 2.0)
+    fast = T.build(T.default_stops(size, A, 2.0), 2.0, size, A, 2.0)
+    zoom = T.build([{"t": 0, "z": 1.0}, {"t": 1.0, "z": 1.5}], 1.0, LANDSCAPE43, A, 2.0)
+
+    def sampled(tl):
+        return [(t, T.window(tl["size"], A, f["z"], f["x"], f["y"])) for t, f in T.samples(tl, 24.0)]
+    assert T.speed_report(sampled(slow))["ok"]
+    r = T.speed_report(sampled(fast))
+    assert not r["ok"] and r["pan_per_s"] > M.TOUR["pan_guide_per_s"]
+    z = T.speed_report(sampled(zoom))
+    assert not z["ok"] and z["zoom_per_s"] > M.TOUR["zoom_guide_per_s"]
+
+
+def test_a_reversal_across_a_cut_is_named_and_a_landed_stop_is_not():
+    assert T.reversal((0.2, 0.0, 0.0), (-0.2, 0.0, 0.0)) == ["pan x"]
+    assert T.reversal((0.2, 0.0, 0.1), (0.2, 0.0, -0.1)) == ["zoom"]
+    assert T.reversal((0.2, 0.0, 0.0), (0.0, 0.0, -0.01)) == []             # the cut lands on a stop (a creep)
+
+
+def test_must_show_lists_a_region_the_path_never_shows():
+    item = {"roi": [{"name": "caption", "x": 0.0, "y": 0.9, "w": 1.0, "h": 0.1, "must_show": True},
+                    {"name": "sign", "x": 0.4, "y": 0.4, "w": 0.1, "h": 0.1}], "must_show": ["sign"]}
+    hold = T.build(T.macro_stops("HOLD", {}, 6.0), 6.0, LANDSCAPE43, A, 2.0)
+    assert T.must_show(T.windows_of(hold), item, LANDSCAPE43) == ["caption"]
+
+
+# --------------------------------------------------------------------------
+# The plan: lints on the fixture film (no frame rendered)
+# --------------------------------------------------------------------------
+
+def _edit(film, fn, name="screenplay.json"):
+    data = json.loads((film / name).read_text(encoding="utf-8"))
+    fn(data)
+    (film / name).write_text(json.dumps(data), encoding="utf-8")
+
+
+def _shot(play, sid):
+    return next(s for p in play["parts"] for s in p["shots"] if s["id"] == sid)
+
+
+def _item(film, aid, fn):
+    _edit(film, lambda d: fn(next(i for i in d["items"] if i["id"] == aid)), name="stills-ledger.json")
+
+
+def _plan(film, name="a41"):
+    j = J.Journal(film=name)
+    return R.build_plan(film, W=W, H=H, burn_subtitles=False, journal=j), j
+
+
+@pytest.fixture(scope="module")
+def base(tmp_path_factory):
+    return make_film(tmp_path_factory.mktemp("a41") / "fixture")
+
+
+@pytest.fixture
+def film(base, tmp_path):
+    dest = tmp_path / "fixture"
+    shutil.copytree(base, dest, ignore=shutil.ignore_patterns("cache", "out"))
+    return dest
+
+
+def test_the_fixture_tours_its_landscape_still_and_holds_the_small_ones_whole(film):
+    plan, j = _plan(film, "a41-base")
+    by = {s["id"]: s for s in plan["shots"]}
+    assert by["S3"]["_cam"]["preset"] == "TOUR" and by["S3"]["_cam"]["macro"] == "PUSH"
+    assert by["S5"]["_cam"]["fill_exception"] and by["S5"]["_cam"]["opens_whole"]
+    evs = J.read(j.path)
+    for rule in ("tour-path", "tour-anchor", "tour-fills", "tour-softness", "tour-people"):
+        assert [e["status"] for e in lints(evs, rule) if e["unit"] == "S3"] == ["pass"], rule
+    assert [e["status"] for e in lints(evs, "still-first-frame-whole") if e["unit"] == "S5"] == ["pass"]
+    assert not [e for e in lints(evs, "still-first-frame-whole") if e["unit"] == "S3"]
+    assert any(e["kind"] == "decision" and e.get("unit") == "S5" and "fill_exception" in e.get("what", "")
+               for e in evs)
+
+
+def test_a_person_never_in_frame_over_the_path_refuses(film):
+    _item(film, "FX-STILL-A", lambda i: i.update(people=[{"name": "edge", "x": 0.0, "y": 0.0, "w": 0.08, "h": 0.08}]))
+    with pytest.raises(R.Refused, match=r"tour-people \(S3\)"):
+        _plan(film, "a41-people")
+    # a path that passes over her clears it
+    _edit(film, lambda p: _shot(p, "S3").update(preset=None, camera=[{"t": 0, "x": 0.0, "y": 0.0, "z": 1.1},
+                                                                      {"t": 4.0, "x": 0.5, "y": 0.5, "z": 1.0}]))
+    plan, j = _plan(film, "a41-people-ok")
+    assert [e["status"] for e in lints(J.read(j.path), "tour-people") if e["unit"] == "S3"] == ["pass"]
+
+
+def test_an_unlocated_person_tours_a_hold_rather_than_crop_them_out(film):
+    _item(film, "FX-STILL-A", lambda i: i.update(people=True))
+    _edit(film, lambda p: _shot(p, "S3").update(preset="HOLD"))
+    plan, j = _plan(film, "a41-cover")
+    cam = next(s for s in plan["shots"] if s["id"] == "S3")["_cam"]
+    assert cam["covering"] and cam["macro"] == "HOLD"
+    evs = J.read(j.path)
+    assert [e["status"] for e in lints(evs, "tour-people") if e["unit"] == "S3"] == ["pass"]
+    assert any(e["kind"] == "decision" and e.get("unit") == "S3" and "covering" in e.get("what", "") for e in evs)
+
+
+def test_the_softness_cap_refuses_without_a_stated_exception(film):
+    _edit(film, lambda p: _shot(p, "S5").pop("fill_exception"))             # 300x420: the fill alone is 2.13x
+    with pytest.raises(R.Refused, match=r"tour-softness \(S5\)"):
+        _plan(film, "a41-soft")
+    _edit(film, lambda p: _shot(p, "S5").update(fill_exception="a small scan; the founder's 1.6x would be passed"))
+    _plan(film, "a41-soft-ok")
+    # an exception on a picture that can fill is refused: every still fills
+    _edit(film, lambda p: _shot(p, "S3").update(fill_exception="no reason"))
+    with pytest.raises(R.Refused, match=r"tour-fill-exception \(S3\)"):
+        _plan(film, "a41-exc-needless")
+    # an authored stop past the cap is refused, never softened quietly
+    _edit(film, lambda p: _shot(p, "S3").update(fill_exception=None, preset=None, camera=[{"t": 0, "z": 1.0}, {"t": 4, "z": 1.5}]))
+    with pytest.raises(R.Refused, match=r"tour-softness \(S3\)"):
+        _plan(film, "a41-deep")
+
+
+def test_a_macro_past_the_cap_stops_at_it(film):
+    _edit(film, lambda p: _shot(p, "S3").update(preset="DETAIL"))           # 1.3 x 1.28 = 1.66x: past 1.6
+    _edit(film, lambda p: _shot(p, "S3").update(dur_s=4.0))
+    plan, j = _plan(film, "a41-macro-cap")
+    cam = next(s for s in plan["shots"] if s["id"] == "S3")["_cam"]
+    assert T.upscale((500, 350), W, H, cam["tour"]["z_max"]) <= 1.6 + 1e-6
+
+
+def test_speed_and_reversal_are_warnings_never_refusals(film):
+    _edit(film, lambda p: _shot(p, "S3").update(preset=None, camera=[{"t": 0, "x": 0.0, "z": 1.2}, {"t": 0.8, "x": 1.0, "z": 1.2},
+                                                                      {"t": 4.0, "x": 1.0, "z": 1.2}]))
+    plan, j = _plan(film, "a41-speed")
+    evs = J.read(j.path)
+    sp = [e for e in lints(evs, "tour-speed") if e["unit"] == "S3"]
+    assert sp and sp[0]["status"] == "fail" and sp[0]["severity"] == "warn"
+
+
+def test_a_reversal_across_a_cut_warns(film):
+    def two(p):
+        s3 = _shot(p, "S3")
+        s3.update(preset="DRIFT", dur_s=3.25, fill_ok=None)
+        s4 = _shot(p, "S4")
+        s4.update(asset="FX-STILL-A", preset="DRIFT", direction="rl", transition_in={"type": "cut"}, start_s=7.75,
+                  dur_s=4.0, fill_ok=None, repeat_reason="the same landscape, a second look the fixture intends")
+        s4.pop("fill_exception")
+    _edit(film, two)
+    plan, j = _plan(film, "a41-reverse")
+    rv = [e for e in lints(J.read(j.path), "tour-continuity") if e["unit"] == "S4"]
+    assert rv and rv[0]["status"] == "fail" and rv[0]["severity"] == "warn" and "pan x" in rv[0]["evidence"]["reversed"]
+
+
+def test_tour_on_a_clip_with_burned_captions_is_refused(film):
+    def burn(d):
+        d["items"][0]["speakers_on_screen"] = [{"name": "A", "in_s": 0.0, "out_s": 9.0}]
+    _edit(film, burn, name="footage-ledger.json")
+    _edit(film, lambda p: _shot(p, "S6").update(camera="tour"))
+    with pytest.raises(R.Refused, match=r"tour-burned-captions \(S6\)"):
+        _plan(film, "a41-clip")
+
+
+def test_ml_upscaling_still_forces_reconstructed(film):
+    _item(film, "FX-STILL-A", lambda i: i.update(ml_upscaled=True))
+    with pytest.raises(R.Refused, match=r"tour-ml-upscale \(S3\)"):
+        _plan(film, "a41-ml")
+
+
+def test_an_unspoken_anchor_refuses(film):
+    _edit(film, lambda p: _shot(p, "S3").update(preset=None, camera=[{"t": 0}, {"at": "Calcutta", "z": 1.2}]))
+    with pytest.raises(R.Refused, match=r"tour-anchor \(S3\)"):
+        _plan(film, "a41-anchor")
+    # L1 ("A test tone stands in for the narrator.") starts at 5.0, inside S3 (4.5 to 8.5): "narrator" anchors
+    _edit(film, lambda p: _shot(p, "S3").update(camera=[{"t": 0}, {"at": "narrator", "z": 1.2}]))
+    plan, _ = _plan(film, "a41-anchor-ok")
+    st = next(s for s in plan["shots"] if s["id"] == "S3")["_cam"]["tour"]["stops"][1]
+    assert 0.5 < st["t"] < 4.0 and st["at"] == "narrator"

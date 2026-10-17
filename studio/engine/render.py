@@ -19,10 +19,12 @@ A9; design/brand-kit/BRAND-KIT.md; every graphic comes from motion.py):
   a clip flagged ``neutralise_cast`` (ledger item or shot) loses its colour
   cast to neutral grey with its luma kept, and must be marked RECONSTRUCTED
   ``colour cast removed`` (A14);
-- stills that open whole at native aspect for about 1.5 s (A7), then make
-  their named move on the rostrum curve; a still fills 16:9 only when the shot
-  says ``fill_ok: true``, otherwise the camera moves inside the photograph's
-  own shape;
+- stills that fill 16:9 on every frame (A41, TOUR): the camera tours the
+  picture along a path of stops (``camera``), a preset's path (HOLD, PUSH,
+  PULL, DRIFT, TILT, DETAIL, FILL) or the default tour, on the rostrum curve,
+  never below the fill and never past the film's ``fill_max_upscale``; a
+  still too small to fill under it states ``fill_exception`` and is held whole
+  (A7);
 - FILL (A34): an archive still or clip narrower than 16:9 opens whole for
   2.5 s, then moves over up to 6 s to the largest 16:9 window inside it about
   its ``focus`` and holds there (the default for such a picture over 6 s that
@@ -72,6 +74,7 @@ from studio.engine import overlays as OV
 from studio.engine import policy as POL
 from studio.engine import score as SC
 from studio.engine import titles as TS
+from studio.engine import tour as T
 from studio.engine import voicing as VO
 from studio.engine.journal import Journal, sha256_file
 
@@ -234,6 +237,7 @@ PRESET_ZMAX = {"HOLD": 1.0, "PUSH": 1.12, "PULL": 1.12, "DRIFT": 1.15, "TILT": 1
 # source pixel (the founder's figure; a film may set fill_max_upscale, 1.0 to 3.0): at 1.6 a 4:3 source of 1200 px
 # or more across fills 1080p; a 640x480 reel, already 2.25x in its plain fit (A5), stays whole and is journaled.
 FILL = "FILL"
+TOUR = "TOUR"                       # A41: a still's camera is a path of stops (studio/engine/tour.py)
 FILL_MAX_UPSCALE = 1.6
 FILL_ASPECT_TOL = 0.01              # narrower than 16:9 by more than 1% (a 1.77 transfer is 16:9)
 FILL_SAFE = (0.04, 0.05, 0.96, 0.75)   # the focus at the end framing: inside the marks' insets, above the lower thirds
@@ -249,7 +253,7 @@ LT_SUFFIXES = ("  ·  read by a computer voice", "  ·  original recording")
 EM_DASH = "—"
 
 _HERE = Path(__file__).resolve().parent
-ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py", "score.py", "overlays.py", "georef.py", "clips.py", "voicing.py", "titles.py"))).hexdigest()[:12]
+ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py", "score.py", "overlays.py", "georef.py", "clips.py", "voicing.py", "titles.py", "tour.py"))).hexdigest()[:12]
 ENGINE_MODEL = {"name": "studio.engine.render", "version": f"{ENGINE_VERSION}+{ENGINE_HASH}"}
 
 
@@ -740,49 +744,99 @@ def card_lints(lint, shots: list[dict], W: int, H: int, *, rule_fits: str = "car
                                                             "only what its form allows (GRAMMAR 9)"})
 
 
-def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int) -> dict:
-    """The still's camera: a path of framings in frame space (z = 1 is the
-    whole photograph at native aspect) and the clamp mode. The path always
-    starts whole (A7); a fill needs ``fill_ok: true``."""
+def whole_camera(shot: dict, img_size, W: int, H: int, *, preset: str = "HOLD") -> dict:
+    """A7's camera: the whole photograph at native aspect on the field, held
+    (a still under ``fill_exception``, A41)."""
+    iw, ih = img_size
+    s = min(W / iw, H / ih)
+    return {"path": [{"z": 1.0, "x": 0.5, "y": 0.5}], "clamp": "native", "fill_ok": False, "preset": preset,
+            "open_s": min(OPEN_S, 0.4 * float(shot["_dur"])), "z_max": 1.0, "fit_scale": s, "z_rel_max": 1.0,
+            "opens_whole": True}
+
+
+def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words=None, cover: bool = False,
+                 cap: float | None = None) -> dict:
+    """The still's camera (A41, TOUR): a path of stops in picture coordinates
+    (studio/engine/tour.py) that fills 16:9 on every frame, drawn by
+    ``overlays.framing_at``. The path is the shot's ``camera`` (a list of
+    stops, ``"tour"`` or ``{"tour": [names]}``: the ledger's regions visited
+    as the narration names them), else its preset as a macro, else the
+    default tour. ``cover`` swaps a HOLD, FILL or default for a pass that
+    shows the whole picture (the people guard asked for it). A still the
+    softness cap cannot fill states ``fill_exception`` and is held whole (A7).
+    FIND (A32) keeps its own camera, held at the fill. ``words`` are the
+    narration's words over the shot (tour.shot_words), for ``at`` anchors."""
     iw, ih = img_size
     s = min(W / iw, H / ih)
     fw, fh = iw * s, ih * s
-    ox, oy = (W - fw) / 2.0, (H - fh) / 2.0
-    fill = shot.get("fill_ok") is True
-    base = max(W / fw, H / fh) if fill else 1.0
+    cap = float(cap if cap is not None else shot.get("_fill_max_upscale") or FILL_MAX_UPSCALE)
+    aspect = W / H
+    zcap = T.z_cap(img_size, W, H, cap)
+    item = shot.get("_item") or {}
+    exc = shot.get("fill_exception")
     preset = shot_preset(shot, iw / ih, still=True)
-    if preset == OV.FIND:                     # A32: between geographic extents on a georeferenced sheet
-        return OV.find_camera(shot, img_size, W, H, open_s=OPEN_S)
-    if preset == FILL:                        # A34: the whole original, then a slow move that fills 16:9
-        return fill_camera(shot, img_size, W, H)
-    if preset not in PRESETS:
-        raise Refused(f"shot {shot['id']}: unknown preset {preset!r} (GRAMMAR 7.2)")
-    frm, to = (dict(k) for k in PRESETS[preset])
-    if preset == "DETAIL":
-        region = shot.get("region") or {}
-        for k in (frm, to):
-            k["x"], k["y"] = float(region.get("x", 0.5)), float(region.get("y", 0.5))
-    direction = str(shot.get("direction", "")).lower()
-    if preset == "DRIFT" and direction in ("rl", "right-to-left", "left"):
-        frm["x"], to["x"] = to["x"], frm["x"]
-    if preset == "TILT" and direction in ("up", "bottom-to-top"):
-        frm["y"], to["y"] = to["y"], frm["y"]
-    frm.update(shot.get("from") or {})
-    to.update(shot.get("to") or {})
-
-    def F(k):
-        return {"z": base * float(k["z"]), "x": (ox + float(k.get("x", 0.5)) * fw) / W, "y": (oy + float(k.get("y", 0.5)) * fh) / H}
-
-    whole = {"z": 1.0, "x": 0.5, "y": 0.5}
-    pts = [whole] + ([F(to)] if preset == "PULL" else [F(frm), F(to)])
-    path = [pts[0]]
-    for p in pts[1:]:
-        if any(abs(p[k] - path[-1][k]) > 1e-9 for k in ("z", "x", "y")):
-            path.append(p)
+    if exc is not None:
+        if preset == OV.FIND:
+            return dict(OV.find_camera(shot, img_size, W, H, open_s=OPEN_S), opens_whole=True, fill_exception=exc)
+        return dict(whole_camera(shot, img_size, W, H, preset=preset), fill_exception=exc)
+    if preset == OV.FIND:                     # A32 under A41: the sheet's own moves, at the fill on every frame
+        cam = OV.find_camera(dict(shot, fill_ok=True), img_size, W, H, open_s=OPEN_S)
+        zf = max(W / fw, H / fh)
+        pts = [dict(p, z=max(p["z"], zf)) for p in cam["path"]]
+        pts[0] = {"z": max(pts[0]["z"], zf), "x": 0.5, "y": 0.5}
+        path = [pts[0]]
+        for p in pts[1:]:
+            if any(abs(p[k] - path[-1][k]) > 1e-9 for k in ("z", "x", "y")):
+                path.append(p)
+        return dict(cam, path=path, clamp="image", fill_ok=True, z_max=max(p["z"] for p in path), opens_whole=False,
+                    a41="FIND held at the fill: its whole-sheet opening is the fill (A41)")
     dur = float(shot["_dur"])
-    return {"path": path, "clamp": "image" if fill else "native", "fill_ok": fill, "preset": preset,
-            "open_s": min(OPEN_S, 0.4 * dur), "z_max": max(p["z"] for p in path), "fit_scale": s,
-            "z_rel_max": max(float(frm["z"]), float(to["z"]))}
+    t0 = float(shot.get("start_s") or 0.0)
+    roi = [r for r in (item.get("roi") or []) if isinstance(r, dict)]
+    roi_by_name = {r.get("name"): r for r in roi}
+    zmax = max(1.0, zcap)
+    if shot.get("face"):
+        zmax = min(zmax, 1.3)                 # 7.2: a face is never pushed past z 1.3, creep included
+    problems: list[str] = []
+    camera = shot.get("camera")
+    macro = None
+    covering = False
+    if camera is not None and shot.get("preset") is not None:
+        problems.append("a shot takes a camera path or a preset, not both")
+    if camera is not None:
+        if camera == "tour" or (isinstance(camera, dict) and "tour" in camera):
+            only = camera.get("tour") if isinstance(camera, dict) else None
+            stops = T.tour_stops(roi, words or [], t0, dur, img_size, aspect, zmax, only=only)
+            macro = "TOUR"
+            if stops is None:
+                stops, macro = T.default_stops(img_size, aspect, dur, str(shot.get("direction", "")).lower()), "DEFAULT"
+        else:
+            stops, probs = T.parse_path(camera, dur, words or [], t0, roi_by_name, img_size, aspect, zmax)
+            problems += probs
+            macro = "PATH"
+            if not stops:
+                stops = T.default_stops(img_size, aspect, dur)
+    elif preset in T.MACROS:
+        macro = preset
+        stops = T.macro_stops(preset, shot, dur)
+        clamped = [st for st in stops if st["z"] > zmax + 1e-9]
+        for st in clamped:                    # a preset stops at the softness cap, as FILL did (A34): never softer
+            st["z"], st["capped"] = zmax, True
+    elif preset == TOUR:
+        macro = "DEFAULT"
+        stops = T.default_stops(img_size, aspect, dur, str(shot.get("direction", "")).lower())
+    else:
+        raise Refused(f"shot {shot['id']}: unknown preset {preset!r} (GRAMMAR 7.2, A41)")
+    if cover and macro in ("HOLD", "FILL", "DEFAULT"):
+        stops = T.covering_stops(img_size, aspect, dur, shot.get("focus") if macro == "FILL" else None)
+        covering = True
+    tl = T.build(stops, dur, img_size, aspect, zmax, no_zoom=shot.get("no_zoom") is True)
+    frame_path = [T.to_frame(st, img_size, W, H) for st in tl["stops"]]
+    zf = max(W / fw, H / fh)
+    return {"path": frame_path, "clamp": "image", "fill_ok": True, "preset": TOUR, "macro": macro, "open_s": 0.0,
+            "z_max": zf * tl["z_max"], "fit_scale": s, "z_rel_max": max(st["z"] for st in tl["stops"]),
+            "tour": tl, "W": W, "H": H, "opens_whole": False, "problems": problems, "zcap": zcap, "cap": cap,
+            "covering": covering, "capped": any(st.get("capped") for st in stops)}
 
 
 def narrower_than_frame(aspect: float, W: int = 1920, H: int = 1080) -> bool:
@@ -807,11 +861,18 @@ def shot_preset(shot: dict, aspect: float, *, still: bool) -> str:
     with none declared, an archive picture narrower than 16:9 that runs longer
     than FILL's default_min_s FILLs (unless it says ``fill_ok: false``, or its
     source burns names into the frame); else a still HOLDs and a clip plays
-    as it is (``None``). The choice is recorded on the shot (``_preset_from``)."""
+    as it is (``None``). A41: a still with no preset tours (TOUR), and so does
+    any shot with a ``camera`` path. The choice is recorded on the shot
+    (``_preset_from``)."""
     declared = shot.get("preset")
     if declared is not None:
         shot["_preset_from"] = "declared"
         return str(declared).upper()
+    if still or shot.get("camera") is not None:
+        # A41: a still with no preset tours (its ``camera`` path, or the default tour); on a clip a path is a TOUR
+        # the clip lints refuse (a path on video is a later ticket)
+        shot["_preset_from"] = "camera path" if shot.get("camera") is not None else "default tour (A41)"
+        return TOUR
     dur = float(shot.get("_dur") or 0.0)
     why = None
     if not shot.get("kind", "").startswith("archive_"):
@@ -880,6 +941,200 @@ def fill_camera(shot: dict, size: tuple[float, float], W: int, H: int, *, max_up
             "move_s": round(move_s, 3), "from": shot.get("_preset_from", "declared")}
     return {"path": path, "clamp": "image", "fill_ok": True, "preset": FILL, "open_s": open_s, "move_s": move_s,
             "z_max": max(p["z"] for p in path), "fit_scale": s, "z_rel_max": z_end / z_fill, "fill": fill}
+
+
+TOUR_WPS = 2.6                      # words a second, to place a line with no take yet (the pilot narrator's pace)
+ML_UPSCALERS_OFF = (None, False, "", "none", "lanczos", "bicubic", "bilinear", "plain")
+
+
+def tour_lines(play: dict, film: Path) -> list[dict]:
+    """Every voiced line with its time on the film, for A41's ``at`` anchors:
+    a take's measured length (voice_lines), else ``dur_s``, else its subtitle
+    cue, else its words at TOUR_WPS."""
+    have = {v["id"]: v for v in voice_lines(play, film)}
+    subs = {c.get("ref"): c for c in play.get("subtitle_source") or [] if isinstance(c, dict)}
+    out = []
+    for part in play["parts"]:
+        for ln in part.get("lines", []):
+            if ln.get("kind") not in VOICE_KINDS or not ln.get("text"):
+                continue
+            if ln["id"] in have:
+                dur = have[ln["id"]]["dur"]
+            elif ln.get("dur_s"):
+                dur = float(ln["dur_s"])
+            elif ln["id"] in subs and subs[ln["id"]].get("end_s") is not None:
+                dur = float(subs[ln["id"]]["end_s"]) - float(subs[ln["id"]]["start_s"])
+            else:
+                dur = len(str(ln["text"]).split()) / TOUR_WPS
+            out.append({"id": ln["id"], "kind": ln["kind"], "start": float(ln["start_s"]), "dur": max(dur, 0.1),
+                        "text": ln["text"], "words": ln.get("words")})
+    return out
+
+
+def still_windows(cam: dict, s: dict, size, W: int, H: int, hz: float = FPS) -> list[tuple[float, tuple]]:
+    """The picture window the renderer shows at each frame of a still (from
+    ``overlays.framing_at`` and ``motion.still_view``, what Pictures draws),
+    [(t, (x0, y0, x1, y1))]."""
+    dur = float(s["_dur"])
+    out = []
+    L = M.Layout(W, H)
+    for k in range(int(math.floor(dur * hz)) + 1):
+        t = min(k / hz, dur)
+        f = OV.framing_at(cam, t, dur)
+        src, dst = M.still_view(size, L, z=f["z"], cx=f["x"], cy=f["y"], clamp=cam["clamp"])
+        out.append((t, src))
+    return out
+
+
+def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int, showing: dict) -> None:
+    """A41 at plan time, for a still that tours (or a FIND held at the fill).
+    Blocking: the path as written (tour-path), its narration anchors
+    (tour-anchor), every frame filled inside the picture (tour-fills), the
+    softness cap at the deepest framing (tour-softness), 7.2's zoom limits
+    (still-zoom-limit: a preset's own depth, a face at 1.3), an ML upscale
+    marked RECONSTRUCTED (tour-ml-upscale). Warnings (pacing is guidance,
+    A39): a pan or zoom past the speed guides (tour-speed), a hold that cannot
+    creep (tour-held). The people guard and must_show run on the whole
+    showing (showing_lints)."""
+    dur = float(s["_dur"])
+    probs = cam.get("problems") or []
+    anchor = [p for p in probs if p.startswith("anchor:")]
+    other = [p for p in probs if not p.startswith("anchor:")]
+    lint("tour-path", not other, unit=s["id"], stage="motion", grammar="A41",
+         evidence={"problems": other, "camera": s.get("camera"), "macro": cam.get("macro"),
+                   "fix": None if not other else "stops are {t | at, x, y, z} with x, y 0 to 1 in the picture and z >= 1"})
+    lint("tour-anchor", not anchor, unit=s["id"], stage="motion", grammar="A41",
+         evidence={"problems": anchor, "fix": None if not anchor else
+                   "anchor to a word the narration over this shot speaks (a word index or a cue), or give t"})
+    L = M.Layout(W, H)
+    wins, bad, z_min = [], [], math.inf
+    for k in range(int(math.floor(dur * FPS)) + 1):
+        t = min(k / FPS, dur)
+        f = OV.framing_at(cam, t, dur)
+        src, dst = M.still_view(size, L, z=f["z"], cx=f["x"], cy=f["y"], clamp=cam["clamp"])
+        inside = src[0] >= -0.5 and src[1] >= -0.5 and src[2] <= size[0] + 0.5 and src[3] <= size[1] + 0.5
+        full = dst == (0.0, 0.0, float(W), float(H))
+        z_rel = (src[2] - src[0]) and T.fill_window(size, W / H)[0] / (src[2] - src[0])
+        z_min = min(z_min, z_rel)
+        if not (inside and full) and len(bad) < 5:
+            bad.append({"t": round(t, 3), "src": [round(v, 2) for v in src], "dst": [round(v, 2) for v in dst]})
+        wins.append((t, src))
+    lint("tour-fills", not bad, unit=s["id"], stage="motion", grammar="A41",
+         evidence={"frames": len(wins), "z_min": round(z_min, 4), "not_filled": bad})
+    up = cam["fit_scale"] * cam["z_max"]
+    cap = float(s.get("_fill_max_upscale") or FILL_MAX_UPSCALE)
+    fill_up = T.upscale(size, W, H, 1.0)
+    ok = up <= cap + 1e-6
+    lint("tour-softness", ok, unit=s["id"], stage="motion", grammar="A5, A34, A41",
+         evidence={"deepest_upscale": round(up, 4), "fill_upscale": round(fill_up, 4), "max_upscale": cap,
+                   "capped": cam.get("capped", False), "fix": None if ok else (
+                       f"the fill alone magnifies this picture {fill_up:.2f}x, over {cap:g}x: state fill_exception: "
+                       "\"<reason>\" (it is then held whole) or raise the film's fill_max_upscale"
+                       if fill_up > cap + 1e-6 else
+                       f"pull the deepest stop back to z <= {cam.get('zcap', 1.0):.3f} (or raise fill_max_upscale)")})
+    if cam["preset"] == TOUR:
+        macro = cam.get("macro")
+        z_stops = cam["z_rel_max"]
+        limit = PRESET_ZMAX.get(macro) if macro in PRESET_ZMAX and macro != FILL else None
+        face_ok = not s.get("face") or cam["tour"]["z_max"] <= 1.3 + 1e-9
+        zok = (limit is None or z_stops <= limit + 1e-9) and face_ok
+        lint("still-zoom-limit", zok, unit=s["id"], stage="motion", grammar="7.2, A41",
+             evidence={"preset": TOUR, "macro": macro, "z_max": round(z_stops, 4), "limit": limit,
+                       "face": bool(s.get("face")), "deepest_with_creep": round(cam["tour"]["z_max"], 4)})
+        sp = T.speed_report(wins)
+        journal.lint("tour-speed", sp["ok"], stage="motion", unit=s["id"], severity="warn", grammar="A39, A41",
+                     phase="preflight", evidence=dict(sp, fix=None if sp["ok"] else
+                                                      "give the move more time, or fewer stops (a guide, never a block)"))
+        held = cam["tour"]["held"]
+        journal.lint("tour-held", not held, stage="motion", unit=s["id"], severity="warn", grammar="A41",
+                     phase="preflight", evidence={"held": held, "fix": None if not held else
+                                                  "nothing can creep here (a 16:9 picture at the cap): add a move"})
+        journal.decision("motion", f"{s['id']}: TOUR ({macro}{', covering pass' if cam.get('covering') else ''}), "
+                         f"{len(cam['tour']['stops'])} stops, z {cam['tour']['z_min']:.3f} to {cam['tour']['z_max']:.3f}",
+                         "A41: the still fills 16:9 on every frame and the camera tours it on the rostrum curve",
+                         unit=s["id"], evidence={"stops": [{k: (round(v, 4) if isinstance(v, float) else v)
+                                                           for k, v in st.items()} for st in cam["tour"]["stops"]],
+                                                 "segments": [g["kind"] for g in cam["tour"]["segments"]],
+                                                 "speed": sp})
+    item = s.get("_item") or {}
+    ml = item.get("ml_upscaled") is True or item.get("upscaler") not in ML_UPSCALERS_OFF or "upscaled" in (
+        item.get("alterations") or [])
+    if ml:
+        okm = s.get("mark") == "RECONSTRUCTED" and "upscaled" in (s.get("alterations") or [])
+        lint("tour-ml-upscale", okm, unit=s["id"], stage="motion", grammar="A5, A41",
+             evidence={"upscaler": item.get("upscaler"), "ml_upscaled": item.get("ml_upscaled"), "mark": s.get("mark"),
+                       "fix": None if okm else "a learned upscale is RECONSTRUCTED 'upscaled', on a tour as anywhere"})
+    showing["windows"] += [w for _, w in wins]
+    showing.setdefault("cams", []).append((s, wins))
+
+
+def fill_exception_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int) -> None:
+    """A41: ``fill_exception`` holds a still whole only where the fill would
+    pass the softness cap, and it states why. Journaled and a reviewer item."""
+    exc = s.get("fill_exception")
+    cap = float(s.get("_fill_max_upscale") or FILL_MAX_UPSCALE)
+    fill_up = T.upscale(size, W, H, 1.0)
+    needed = fill_up > cap + 1e-6
+    stated = isinstance(exc, str) and len(exc.split()) >= 2
+    lint("tour-fill-exception", needed and stated, unit=s["id"], stage="motion", grammar="A41",
+         evidence={"fill_exception": exc, "fill_upscale": round(fill_up, 4), "max_upscale": cap,
+                   "fix": None if needed and stated else (
+                       "state the reason, a sentence" if needed else
+                       f"this picture fills at {fill_up:.2f}x, within {cap:g}x: every still fills (A41); drop fill_exception")})
+    journal.decision("motion", f"{s['id']}: fill_exception, held whole ({exc})",
+                     f"A41: the fill would magnify the source {fill_up:.2f}x, over {cap:g}x; held whole (A7)",
+                     unit=s["id"], evidence={"fill_upscale": round(fill_up, 4), "max_upscale": cap})
+    journal.lint("tour-exception-review", True, stage="motion", unit=s["id"], severity="review", grammar="A41",
+                 phase="preflight", evidence={"check": "the still is held whole, pillarboxed, under its stated exception",
+                                              "fill_exception": exc})
+
+
+def showing_lints(lint, journal: Journal, showings: list[dict]) -> None:
+    """A41's people guard (blocking, A7 over the path): over each showing of a
+    still (A35's: its shots in a row joined by a cut or a dissolve), every
+    person in the picture is in frame at some point; a person the ledger does
+    not locate needs the whole picture shown at some point. And a reviewer
+    item for each ``must_show`` region the showing never shows."""
+    for sh in showings:
+        cams = sh.get("cams") or []
+        if not cams:
+            continue
+        size, item = sh["size"], sh["item"]
+        people = T.people_of(item, kind=sh["kind"])
+        r = T.people_check(sh["windows"], people, size)
+        first = cams[0][0]
+        ids = [c[0]["id"] for c in cams]
+        for s, _ in cams:
+            lint("tour-people", r["ok"], unit=s["id"], stage="motion", grammar="A7, A41",
+                 evidence=dict(r, showing=ids, fix=None if r["ok"] else (
+                     "a path that passes over every person (locate them in the ledger: people [{name, x, y, w, h}]), "
+                     "or a pass that shows the whole picture")))
+        missed = T.must_show(sh["windows"], item, size)
+        if missed:
+            journal.lint("tour-must-show", True, stage="motion", unit=first["id"], severity="review", grammar="A41",
+                         phase="preflight", evidence={"showing": ids, "never_shown": missed,
+                                                      "check": "a crop never removes what changes the reading"})
+
+
+def continuity_lints(journal: Journal, shots: list[dict], W: int, H: int) -> None:
+    """A41 (a warning): at a cut or a dissolve between two touring stills, the
+    next shot's first move does not run against the last one's, unless one
+    side lands on a stop."""
+    for a, b in zip(shots, shots[1:]):
+        ca, cb = a.get("_cam") or {}, b.get("_cam") or {}
+        if ca.get("preset") != TOUR or cb.get("preset") != TOUR:
+            continue
+        if (b.get("transition_in") or {}).get("type", "cut") not in ("cut", "dissolve"):
+            continue
+        va = T.edge_motion(ca["tour"], end=True)
+        vb = T.edge_motion(cb["tour"], end=False)
+        rev = T.reversal(va, vb)
+        journal.lint("tour-continuity", not rev, stage="motion", unit=b["id"], severity="warn", grammar="A41",
+                     phase="preflight", evidence={"from": a["id"], "reversed": rev,
+                                                  "out_velocity": [round(v, 4) for v in va],
+                                                  "in_velocity": [round(v, 4) for v in vb],
+                                                  "fix": None if not rev else "continue the last move's direction, or "
+                                                  "land the cut on a stop"})
 
 
 def fill_safe(fill: dict) -> bool:
@@ -1622,44 +1877,86 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
              evidence={"generated_frames": gen, "frames": total_frames, "share": round(gen / total_frames, 4), "max": gen_max})
 
     image_repeat_lints(lint, journal, shots)     # A35 (R12): an image is shown at most twice, once per part
+    showings: list[dict] = []                    # A41: a still's showings (A35's), for the people guard
 
-    # Stills: the camera, the whole first frame (A7), the resampler (A5), fill_ok for the reviewer.
+    # Stills: the camera (A41: a tour that fills, or whole under a fill exception), the people guard over each
+    # showing, the resampler (A5), fill_ok for the reviewer.
+    words_src = None
+    showing = None
+    prev = None
     for s in shots:
         if s["kind"] in ("archive_still", "drawn") and s.get("_item", {}).get("_path"):
-            if s["kind"] == "drawn":
+            if s["kind"] == "drawn" and s.get("camera") is None:
                 s.setdefault("preset", "HOLD")
             with Image.open(s["_item"]["_path"]) as im:
                 size = im.size
             s["_fill_max_upscale"] = settings["fill_max_upscale"]
-            cam = still_camera(s, size, W, H)
+            if words_src is None and any(x.get("camera") is not None for x in shots):
+                words_src = tour_lines(play, film)
+            words = T.shot_words(words_src or [], s["start_s"], s["end_s"])
+            tr = (s.get("transition_in") or {}).get("type", "cut")
+            if not (prev is not None and showing is not None and prev.get("asset") == s.get("asset")
+                    and tr in ("cut", "dissolve")):
+                showing = {"shots": [], "windows": [], "size": size, "item": s["_item"], "kind": s["kind"]}
+                showings.append(showing)
+            cam = still_camera(s, size, W, H, words=words)
+            if cam["preset"] == TOUR:
+                people = T.people_of(s["_item"], kind=s["kind"])
+                wins = [w for _, w in still_windows(cam, s, size, W, H)]
+                need = not T.people_check(showing["windows"] + wins, people, size)["ok"]
+                if not need and s["kind"] == "drawn":
+                    # a studio-made picture is read: a HOLD that never shows its edges tours it instead
+                    need = not T.covered(showing["windows"] + wins, (0.0, 0.0, 1.0, 1.0), size)
+                if need and cam["macro"] in ("HOLD", "FILL", "DEFAULT"):
+                    cam = still_camera(s, size, W, H, words=words, cover=True)
+                    journal.decision("motion", f"{s['id']}: {cam['macro']} made a covering pass of the whole picture",
+                                     "A41 and A7: a fill held on part of the picture would leave a person (or, on a "
+                                     "drawn picture, what is read) unseen; the pass shows every part", unit=s["id"],
+                                     evidence={"people": people, "kind": s["kind"]})
             s["_cam"] = cam
+            showing["shots"].append(s)
             fill_lints(lint, journal, s, cam)
-            if cam["preset"] == OV.FIND:
-                # A32 refined (CoS 2026-10-11): an archive sheet's camera may push as deep as its own
-                # scan resolution, not the 1.3 still cap; find_camera already clamps to it, and
-                # OV.lints' overlay-zoom refuses a request that asked for more than the scan supports.
-                limit = cam["scan_zmax"]
-                ok = cam["z_rel_max"] <= limit + 1e-9
+            if cam["preset"] == TOUR or cam.get("a41"):
+                tour_lints(lint, journal, s, cam, size, W, H, showing)
+                if cam["preset"] == OV.FIND:
+                    lint("still-zoom-limit", cam["z_rel_max"] <= cam["scan_zmax"] + 1e-9, unit=s["id"], stage="motion",
+                         grammar="7.2, A32", evidence={"preset": OV.FIND, "z_max": round(cam["z_rel_max"], 4),
+                                                       "limit": round(cam["scan_zmax"], 4), "face": bool(s.get("face"))})
             else:
-                limit = PRESET_ZMAX[cam["preset"]]
-                ok = cam["z_rel_max"] <= limit + 1e-9 and cam["z_rel_max"] <= 1.3 + 1e-9
-            lint("still-zoom-limit", ok, unit=s["id"], stage="motion", grammar="7.2",
-                 evidence={"preset": cam["preset"], "z_max": round(cam["z_rel_max"], 4),
-                           "limit": round(limit, 4), "face": bool(s.get("face"))})
-            src, dst = M.still_view(size, M.Layout(W, H), z=cam["path"][0]["z"], cx=cam["path"][0]["x"],
-                                    cy=cam["path"][0]["y"], clamp=cam["clamp"])
-            whole = still_is_whole(size, src, dst, W, H)
-            lint("still-first-frame-whole", whole, unit=s["id"], stage="motion",
-                 evidence={"src": [round(v, 2) for v in src], "dst": [round(v, 2) for v in dst], "image": list(size)}, grammar="A7")
+                if cam.get("fill_exception") is not None:
+                    fill_exception_lints(lint, journal, s, cam, size, W, H)
+                if cam["preset"] == OV.FIND:
+                    limit = cam["scan_zmax"]
+                    ok = cam["z_rel_max"] <= limit + 1e-9
+                else:
+                    limit = PRESET_ZMAX.get(cam["preset"], 1.0)
+                    ok = cam["z_rel_max"] <= limit + 1e-9 and cam["z_rel_max"] <= 1.3 + 1e-9
+                lint("still-zoom-limit", ok, unit=s["id"], stage="motion", grammar="7.2",
+                     evidence={"preset": cam["preset"], "z_max": round(cam["z_rel_max"], 4),
+                               "limit": round(limit, 4), "face": bool(s.get("face"))})
+                src, dst = M.still_view(size, M.Layout(W, H), z=cam["path"][0]["z"], cx=cam["path"][0]["x"],
+                                        cy=cam["path"][0]["y"], clamp=cam["clamp"])
+                whole = still_is_whole(size, src, dst, W, H)
+                lint("still-first-frame-whole", whole, unit=s["id"], stage="motion",
+                     evidence={"src": [round(v, 2) for v in src], "dst": [round(v, 2) for v in dst], "image": list(size)}, grammar="A7")
             scale_max = cam["fit_scale"] * cam["z_max"]
             s["_resampler"] = {"method": "lanczos prescale + bicubic affine (PIL)", "ml_upscaler": False,
                                "scale_max": round(scale_max, 4), "image": list(size)}
             lint("resampler-plain", True, unit=s["id"], stage="motion", evidence=s["_resampler"], grammar="A5")
             if s["kind"] == "archive_still":
-                journal.lint("fill-ok", True, stage="motion", unit=s["id"], severity="review", grammar="A7", phase="preflight",
-                             evidence={"fill_ok": cam["fill_ok"], "preset": cam["preset"],
+                journal.lint("fill-ok", True, stage="motion", unit=s["id"], severity="review", grammar="A7, A41", phase="preflight",
+                             evidence={"fill_ok": cam["fill_ok"], "preset": cam["preset"], "macro": cam.get("macro"),
                                        "check": ("Every person in the photograph is inside the frame at some point in this shot."
-                                                 if cam["fill_ok"] else "No fill: the move stays inside the photograph's own shape.")})
+                                                 if cam["fill_ok"] else "Held whole under a fill exception (A41).")})
+            if s.get("fill_ok") is False and cam["preset"] == TOUR:
+                journal.decision("motion", f"{s['id']}: fill_ok: false no longer holds a still whole",
+                                 "A41: every still fills 16:9; a still kept whole states fill_exception (only when the "
+                                 "softness cap cannot be met)", unit=s["id"])
+            prev = s
+        else:
+            prev = None
+    showing_lints(lint, journal, showings)
+    continuity_lints(journal, shots, W, H)
     OV.lints(lint, shots, W, H, play)                # A32: marks drawn over a georeferenced archive sheet
     if lint_fail:
         raise Refused("lint failed: " + "; ".join(lint_fail))
@@ -1715,7 +2012,17 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             # for its end framing, so the crop samples the source once (Lanczos), never an upsampled fit
             preset = shot_preset(s, dar, still=False)
             cam = None
-            if preset is not None and preset not in VIDEO_PRESETS:
+            if preset == TOUR:
+                # A41: a crop could cut a burned caption off (A26 refined), and a path on video is a later ticket
+                burned = burned_names_in_shot(s, item) or ([{"burned_captions": True}] if item.get("burned_captions") else [])
+                lint("tour-burned-captions", not burned, unit=s["id"], stage="motion", grammar="A26 refined, A41",
+                     evidence={"speakers_on_screen": burned, "fix": None if not burned else
+                               "the source burns captions into the frame; a path could cut them off: play it whole"})
+                if not burned:
+                    lint("tour-video", False, unit=s["id"], stage="motion", grammar="A41",
+                         evidence={"camera": s.get("camera"), "fix": "a path on a clip is a later ticket: play it as it "
+                                   "is (HOLD) or FILL (A34)"})
+            elif preset is not None and preset not in VIDEO_PRESETS:
                 lint("video-preset", False, unit=s["id"], stage="motion", grammar="7.1, A34",
                      evidence={"preset": preset, "allowed": list(VIDEO_PRESETS),
                                "fix": "a clip plays as it is (HOLD) or FILLs; Ken Burns presets are for stills"})
@@ -2761,7 +3068,7 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
                 stats["label" if st and st["label_alpha"] > 0 else "glyph_only"] += 1
             if res in ("fail", "shape") and len(stats["fail_frames"]) < 10:
                 stats["fail_frames"].append(f)
-            if f == s["f0"] and s["kind"] == "archive_still":
+            if f == s["f0"] and s["kind"] == "archive_still" and opens_whole(s):
                 first_detail = {}
                 first_whole = still_first_frame_whole(plan, pics, i, first_detail)
             try:
@@ -2901,6 +3208,12 @@ def content_box(img: Image.Image) -> tuple[int, int, int, int]:
     return run(a.T), run(a), run(a.T[::-1]), run(a[::-1])
 
 
+def opens_whole(s: dict) -> bool:
+    """A7's first frame is the whole photograph: a still held whole under a
+    fill exception (A41). A TOUR still fills from its first frame."""
+    return bool((s.get("_cam") or {}).get("opens_whole", True))
+
+
 def preflight_stills(plan: dict, journal: Journal) -> list[str]:
     """A7's pixel check for every still, run before any frame is rendered: one
     frame per still, its own layer. Returns the shots that are not whole."""
@@ -2908,7 +3221,7 @@ def preflight_stills(plan: dict, journal: Journal) -> list[str]:
     bad = []
     try:
         for i, s in enumerate(plan["shots"]):
-            if s["kind"] == "archive_still" and s.get("_cam"):
+            if s["kind"] == "archive_still" and s.get("_cam") and opens_whole(s):
                 ev: dict = {}
                 ok = still_first_frame_whole(plan, pics, i, ev)
                 journal.lint("still-first-frame-whole-pixels", ok, stage="scout", unit=s["id"], grammar="A7",
@@ -6379,7 +6692,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
             journal.human("scout", f"--until {until_s:g}: only the shots that start before {until_s:g} s are rendered",
                           override="--until")
             plan = trim_plan(plan, until_s)
-        stills = [s["id"] for s in plan["shots"] if s["kind"] == "archive_still" and s.get("_cam")]
+        stills = [s["id"] for s in plan["shots"] if s["kind"] == "archive_still" and s.get("_cam") and opens_whole(s)]
         with journal.unit("scout", "preflight-stills", size={"driver": "items", "value": len(stills)}):
             not_whole = preflight_stills(plan, journal)
             if not_whole:

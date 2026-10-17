@@ -45,6 +45,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from . import georef as GR
 from . import motion as M
+from . import tour as T
 
 GRAMMAR = "A32"
 MARKS_DRAWN = "marks drawn"
@@ -215,6 +216,9 @@ def find_camera(shot: dict, size, W: int, H: int, *, open_s: float) -> dict:
 def framing_at(cam: dict, t: float, dur: float) -> dict:
     """The still's framing at local time t: the opening framing, then the
     rostrum move through the path (the renderer's own rule for every still)."""
+    if cam.get("tour") is not None:          # A41: a still's tour, in picture space, drawn in frame space
+        tl = cam["tour"]
+        return T.to_frame(T.at(tl, t), tl["size"], cam["W"], cam["H"])
     p = cam["path"]
     if len(p) == 1 or t < cam["open_s"]:
         return dict(p[0])
