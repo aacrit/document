@@ -3,7 +3,8 @@
     python studio/tests/fixture/make_media.py <fixture dir>
 
 - ``stills(dir)``: three test images drawn with PIL at the sizes of the
-  ledger stills they stand in for (500x350, 395x316, 300x420), so the
+  ledger stills they stand in for (A at three times 500x350, so it fills the 1080p master
+  under A41's 1.6x; 395x316, 300x420), so the
   geometry tests keep landscape, near-4:3 and portrait shapes. They are
   marked DRAWN, never ARCHIVE.
 - ``testsrc(path)``: 4 s of ffmpeg's testsrc at 640x480 and 29.97 fps (true
@@ -116,7 +117,7 @@ def magenta(dest: Path, seconds: float = 4.0) -> Path:
     return dest
 
 
-STILLS = {"FX-STILL-A": (500, 350), "FX-STILL-B": (395, 316), "FX-STILL-C": (300, 420)}
+STILLS = {"FX-STILL-A": (1500, 1050), "FX-STILL-B": (395, 316), "FX-STILL-C": (300, 420)}
 
 
 def stills(dest: Path) -> list[Path]:
@@ -127,11 +128,10 @@ def stills(dest: Path) -> list[Path]:
     dest.mkdir(parents=True, exist_ok=True)
     out = []
     for k, (sid, (w, h)) in enumerate(STILLS.items()):
-        img = Image.new("RGB", (w, h))
-        px = img.load()
-        for y in range(h):
-            for x in range(w):
-                px[x, y] = (70 + (140 * x) // w, 60 + (120 * y) // h, 90 + 40 * k)
+        import numpy as np
+        yy, xx = np.mgrid[0:h, 0:w]
+        img = Image.fromarray(np.stack([70 + (140 * xx) // w, 60 + (120 * yy) // h, np.full_like(xx, 90 + 40 * k)],
+                                       axis=2).astype(np.uint8))
         d = ImageDraw.Draw(img)
         d.ellipse([w * 0.2, h * 0.2, w * 0.55, h * 0.75], outline=(240, 230, 210), width=4)
         d.rectangle([w * 0.6, h * 0.3, w * 0.85, h * 0.8], fill=(180, 120 + 30 * k, 80))

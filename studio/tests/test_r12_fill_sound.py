@@ -97,11 +97,13 @@ def test_a34_focus_frames_the_end_and_is_checked_against_the_safe_area():
 def test_a34_fill_is_the_default_only_for_a_long_narrow_archive_picture():
     def pre(aspect, still=False, **shot):
         return R.shot_preset(dict({"kind": "archive_still" if still else "archive_video", "_dur": 8.0}, **shot), aspect, still=still)
-    assert pre(4 / 3) == R.FILL and pre(1.0, still=True) == R.FILL and pre(0.7, still=True) == R.FILL
-    assert pre(16 / 9) is None and pre(16 / 9, still=True) == "HOLD"          # nothing to fill
+    assert pre(4 / 3) == R.FILL
+    # A41: a still with no preset tours (the default tour), whatever its shape; A34's default stays for clips
+    assert pre(1.0, still=True) == R.TOUR and pre(0.7, still=True) == R.TOUR and pre(16 / 9, still=True) == R.TOUR
+    assert pre(16 / 9) is None                                                   # nothing to fill
     assert pre(4 / 3, _dur=6.0) is None                                        # 6 s or less: plays as it is
     assert pre(4 / 3, fill_ok=False) is None and pre(4 / 3, preset="HOLD") == "HOLD" and pre(1.0, still=True, preset="push") == "PUSH"
-    assert R.shot_preset({"kind": "drawn", "_dur": 9.0}, 1.0, still=True) == "HOLD"   # a drawn map is not archive
+    assert R.shot_preset({"kind": "drawn", "_dur": 9.0}, 1.0, still=True) == R.TOUR   # A41 (build_plan gives a drawn still HOLD)
     named = {"in_s": 0.0, "out_s": 10.0, "_item": {"speakers_on_screen": [{"name": "A", "in_s": 2.0, "out_s": 6.0}]}}
     shot = dict({"kind": "archive_video", "_dur": 10.0}, **named)
     assert R.shot_preset(shot, 4 / 3, still=False) is None and "burns speakers' names" in shot["_preset_from"]
@@ -143,18 +145,18 @@ def test_a34_a_clip_takes_fill_or_hold_and_a_fill_never_says_fill_ok_false(film)
 
 
 def test_a34_a_still_fills_stops_short_at_the_limit_and_the_film_may_raise_it(film):
+    """A41 supersedes A34 for stills: a still never stops short of the fill. Too small to fill the 1080p master
+    under the cap, it states fill_exception and is held whole, at every delivery."""
     _edit(film, lambda p: _shot(p, "S5").update(preset="FILL"))                  # FX-STILL-C, a 300x420 portrait
     plan, j = _plan(film, "fill-still")
     cam = next(s for s in plan["shots"] if s["id"] == "S5")["_cam"]
-    assert not cam["fill"]["full"] and cam["fill"]["end_upscale"] == pytest.approx(1.6, abs=1e-3)
+    assert cam["fill_exception"] and cam["opens_whole"] and cam["declared_preset"] == R.FILL
     evs = J.read(j.path)
-    up = next(e for e in lints(evs, "fill-upscale") if e["unit"] == "S5")
-    assert up["status"] == "fail" and up["severity"] == "warn" and "stops at" in up["evidence"]["why"]
-    assert [e["severity"] for e in lints(evs, "fill-review") if e["unit"] == "S5"] == ["review"]
     assert [e["status"] for e in lints(evs, "still-first-frame-whole") if e["unit"] == "S5"] == ["pass"]
+    assert [e["severity"] for e in lints(evs, "tour-exception-review") if e["unit"] == "S5"] == ["review"]
     _edit(film, lambda p: p.update(settings={"fill_max_upscale": 3.0}))
-    plan, _ = _plan(film, "fill-still-3")
-    assert next(s for s in plan["shots"] if s["id"] == "S5")["_cam"]["fill"]["full"]
+    plan, _ = _plan(film, "fill-still-3")                                       # 6.4x on the 1080p master: still whole
+    assert next(s for s in plan["shots"] if s["id"] == "S5")["_cam"]["opens_whole"]
     _edit(film, lambda p: p.update(settings={"fill_max_upscale": 4.0}))
     with pytest.raises(R.Refused, match="film-settings"):
         _plan(film, "fill-still-4")
@@ -192,6 +194,7 @@ def test_a35_a_third_showing_in_the_film_needs_a_reason_even_in_a_new_part():
 
 def test_a35_a_repeat_in_a_part_is_refused_unless_the_story_says_why(film):
     _edit(film, lambda p: _shot(p, "S5").update(asset="FX-STILL-A"))            # S3 already shows it in ch-1
+    _edit(film, lambda p: _shot(p, "S5").pop("fill_exception"))                  # A41: FX-STILL-A fills
     with pytest.raises(R.Refused, match=r"image-repeat \(S5\)"):
         _plan(film, "repeat")
     _edit(film, lambda p: _shot(p, "S5").update(repeat_reason="ok"))           # a word is not a reason

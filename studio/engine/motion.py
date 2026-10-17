@@ -1691,6 +1691,27 @@ def credits_frame(img: Image.Image, t: float, *, start: float, blocks, fonts: Fo
 # than open_s + move_min_s opens for 40% of itself and moves over the rest.
 FILL = dict(open_s=2.5, move_s=6.0, move_min_s=3.0, curve="rostrum", default_min_s=6.0)
 
+# A41 (TOUR; founder, 2026-10-17: "take the user through the artifact as needed, but use the full resolution of the
+# screen"): every still fills 16:9 on every frame (z = 1 is the largest 16:9 window inside the picture, and the camera
+# never goes below it), and the shot is a path of stops the camera tours on the rostrum curve. These are its numbers
+# (studio/engine/tour.py draws them):
+#   hold_creep_after_s  a stop held longer than this keeps creeping, so no frame is frozen
+#   creep_scale_per_s   the creep: the picture's scale grows 1.5% a second (the brief's 1 to 2%), or shrinks where the
+#                       softness cap is reached, or ...
+#   creep_drift_per_s   ... a slow drift of 1% of the frame a second where scale cannot change (at the fill and the cap)
+#   pan_guide_per_s     a pan faster than a third of the frame per second is a warning (pacing is guidance, A39)
+#   zoom_guide_per_s    a zoom changing scale faster than 15% a second is a warning
+#   still_eps_per_s     slower than this (frame or log-scale per second) the camera is landed on a stop, for the
+#                       continuity check across a cut (a creep is under it)
+#   sample_hz           how often the guards sample the path (the people and fill checks)
+#   still_max_upscale   the softness cap for a still on the 1080p master unless the film states fill_max_upscale
+#                       (founder, 2026-10-17: "fill the frame, soft is acceptable up to 3x"); a clip keeps A34's 1.6
+#   whole_creep_max     a still held whole under a fill_exception creeps inside its own shape (pillarboxed, never
+#                       frozen) at creep_scale_per_s, to at most this zoom of the whole (founder, 2026-10-17)
+TOUR = dict(hold_creep_after_s=1.5, creep_scale_per_s=0.015, creep_drift_per_s=0.01, pan_guide_per_s=1 / 3,
+            zoom_guide_per_s=0.15, still_eps_per_s=0.03, sample_hz=8.0, curve="rostrum",
+            still_max_upscale=3.0, whole_creep_max=1.06)
+
 
 def still_view(size, L: Layout, *, z: float = 1.0, cx: float = 0.5, cy: float = 0.5, clamp: str = "frame"):
     """Where a still lands for a camera at zoom z about the frame-space centre

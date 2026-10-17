@@ -79,7 +79,8 @@ def test_every_lint_t1_enforces_ran_and_passed(rendered):
                  "silent-card-form", "lower-third-format", "no-em-dash", "licence-allowlist", "no-bodies",
                  "still-zoom-limit", "cross-class-dip", "overlay-format", "clip-hold-rendered", "telecine-declared",
                  "loudnorm-linear", "mark-class-valid", "clip-in-out", "still-hold",
-                 "card-fits", "card-drawn", "dip-black-hold", "lower-third-time"):
+                 "card-fits", "card-drawn", "dip-black-hold", "lower-third-time",
+                 "tour-path", "tour-fills", "tour-softness", "tour-people", "tour-fill-exception"):
         found = lints(evs, rule)
         assert found, rule
         if rule == "still-first-frame-whole-pixels":
@@ -287,7 +288,19 @@ def _clip_columns(plan):
     return _image_columns(R.render_frame(plan, int(round(15.2 * 24))), (int(0.88 * H), int(0.93 * H)))
 
 
-@pytest.mark.parametrize("sid", ["S3", "S4", "S5"])
+def test_a_touring_still_fills_its_first_frame(plan):
+    """A41: S3 tours (a PUSH from the fill): picture to the frame's edge from its first frame."""
+    i = [s["id"] for s in plan["shots"]].index("S3")
+    pics = R.Pictures(plan)
+    try:
+        raw = np.asarray(pics.shot(i, 0.0))
+    finally:
+        pics.close()
+    assert len(_image_columns(raw, (plan["H"] // 3, 2 * plan["H"] // 3))) == plan["W"]
+    assert plan["shots"][i]["_cam"]["opens_whole"] is False
+
+
+@pytest.mark.parametrize("sid", ["S4", "S5"])                     # A41: held whole under their fill exceptions
 def test_still_first_frame_is_the_whole_photograph(plan, sid):
     i = [s["id"] for s in plan["shots"]].index(sid)
     s = plan["shots"][i]
@@ -724,7 +737,7 @@ def test_a_cross_class_dip_under_12_frames_is_refused(tmp_path):
 
 
 @pytest.mark.parametrize("sid,change", [("S3", {"to": {"z": 1.2}}),                     # PUSH ends at 1.12
-                                        ("S5", {"preset": "DETAIL", "to": {"z": 1.4}, "from": {"z": 1.4}})])
+                                        ("S3", {"preset": "DRIFT", "to": {"z": 1.2}, "from": {"z": 1.2}})])   # DRIFT's 1.15
 def test_a_still_zoom_past_its_preset_is_refused(tmp_path, sid, change):
     film = make_film(tmp_path / "film")
     _edit_play(film, lambda p: _shot(p, sid).update(**change))
@@ -1338,8 +1351,27 @@ def _dense_still(path, w=3551, h=2037):
     Image.fromarray(img).save(path)
 
 
+def _a7_fixture(film):
+    """The A7 pixel check's own tests plan the fixture at 1080p with a large S4. A41: S4 can then fill, so it
+    tours unless a test holds it whole (``_hold_whole``), which is what the check is for."""
+    def edit(p):
+        _shot(p, "S4").pop("fill_exception", None)
+    _edit_play(film, edit)
+    return film
+
+
+def _hold_whole(plan, sid):
+    """S4 held whole (A7), as a fill exception holds a still, so the pixel check reads a whole first frame."""
+    from PIL import Image
+    s = next(x for x in plan["shots"] if x["id"] == sid)
+    with Image.open(s["_item"]["_path"]) as im:
+        size = im.size
+    s["_cam"] = R.whole_camera(s, size, plan["W"], plan["H"])
+    return plan
+
+
 def _dense_film(tmp_path):
-    film = make_film(tmp_path / "film")
+    film = _a7_fixture(make_film(tmp_path / "film"))
     _dense_still(film / "stills" / "FX-STILL-B.png")             # S4, which enters by a dissolve from S3
     led = json.loads((film / "stills-ledger.json").read_text(encoding="utf-8"))
     led["items"][1].update(width=3551, height=2037)
@@ -1350,7 +1382,7 @@ def _dense_film(tmp_path):
 def test_a_dense_still_entering_by_dissolve_passes_a7_on_its_own_layer(tmp_path):
     film = _dense_film(tmp_path)
     j = J.Journal(film="dense")
-    plan = R.build_plan(film, W=1920, H=1080, burn_subtitles=False, journal=j)
+    plan = _hold_whole(R.build_plan(film, W=1920, H=1080, burn_subtitles=False, journal=j), "S4")
     i = [s["id"] for s in plan["shots"]].index("S4")
     s4 = plan["shots"][i]
     assert s4["transition_in"]["type"] == "dissolve" and plan["shots"][i - 1]["mark"] == s4["mark"]
@@ -1398,12 +1430,12 @@ def _photo_still(path, w=1500, h=2000, contrast=40.0, seed=11):
 
 
 def test_a_one_percent_crop_of_a_detailed_still_fails_a7(tmp_path):
-    film = make_film(tmp_path / "film")
+    film = _a7_fixture(make_film(tmp_path / "film"))
     _photo_still(film / "stills" / "FX-STILL-B.png")                 # S4, portrait, pillarboxed
     led = json.loads((film / "stills-ledger.json").read_text(encoding="utf-8"))
     led["items"][1].update(width=1500, height=2000)
     (film / "stills-ledger.json").write_text(json.dumps(led), encoding="utf-8")
-    plan = R.build_plan(film, W=1920, H=1080, burn_subtitles=False, journal=J.Journal(film="crop"))
+    plan = _hold_whole(R.build_plan(film, W=1920, H=1080, burn_subtitles=False, journal=J.Journal(film="crop")), "S4")
     i = [s["id"] for s in plan["shots"]].index("S4")
     scores = {}
     for z in (1.0, 1.01):
@@ -1436,7 +1468,7 @@ def _mounted_still(path, pad=0.15, tone=225):
 
 
 def _a7_at(film, sid, z, H=1080):
-    plan = R.build_plan(film, W=H * 16 // 9, H=H, burn_subtitles=False, journal=J.Journal(film="a7"))
+    plan = _hold_whole(R.build_plan(film, W=H * 16 // 9, H=H, burn_subtitles=False, journal=J.Journal(film="a7")), sid)
     i = [s["id"] for s in plan["shots"]].index(sid)
     pl = json.loads(json.dumps(plan))
     pl["shots"][i]["_cam"]["path"][0] = {"z": z, "x": 0.5, "y": 0.5}
@@ -1456,7 +1488,7 @@ def _use_still(film, maker):
 
 
 def test_a_mounted_still_is_measured_on_the_photograph_not_the_mount(tmp_path, monkeypatch):
-    film = make_film(tmp_path / "film")
+    film = _a7_fixture(make_film(tmp_path / "film"))
     _use_still(film, _mounted_still)
     ok, ev = _a7_at(film, "S4", 1.0)
     assert ok and ev["verdict"] == "whole"
@@ -1472,7 +1504,7 @@ def test_a_mounted_still_is_measured_on_the_photograph_not_the_mount(tmp_path, m
 
 def test_a_still_without_detail_at_its_edges_is_inconclusive(tmp_path):
     from PIL import Image
-    film = make_film(tmp_path / "film")
+    film = _a7_fixture(make_film(tmp_path / "film"))
 
     def soft(path):
         yy, xx = np.mgrid[0:1600, 0:1200]
@@ -1483,7 +1515,7 @@ def test_a_still_without_detail_at_its_edges_is_inconclusive(tmp_path):
     _use_still(film, soft)
     ok, ev = _a7_at(film, "S4", 1.0)
     assert ok and ev["verdict"] == "inconclusive" and ev["band_detail"] < R.A7_DETAIL_FLOOR
-    plan = R.build_plan(film, W=640, H=360, burn_subtitles=False, journal=J.Journal(film="soft"))
+    plan = _hold_whole(R.build_plan(film, W=640, H=360, burn_subtitles=False, journal=J.Journal(film="soft")), "S4")
     j = J.Journal(film="soft-preflight")
     assert R.preflight_stills(plan, j) == []                          # inconclusive never blocks; the geometric lint decides
     s4 = [e for e in lints(J.read(j.path), "still-first-frame-whole-pixels") if e["unit"] == "S4"][0]
@@ -1499,9 +1531,9 @@ def _no_frames_rendered(evs, out):
 
 def test_a_plan_violation_refuses_before_any_frame(tmp_path):
     film = make_film(tmp_path / "film")
-    _edit_play(film, lambda p: _shot(p, "S5").update(preset="PUSH", to={"z": 1.3}))      # z past PUSH's 1.12
+    _edit_play(film, lambda p: _shot(p, "S3").update(preset="PUSH", to={"z": 1.2}))      # z past PUSH's 1.12
     j = J.Journal(film="early")
-    with pytest.raises(R.Refused, match=r"still-zoom-limit \(S5\)"):
+    with pytest.raises(R.Refused, match=r"still-zoom-limit \(S3\)"):
         R.render(film, tmp_path / "out", height=HEIGHT, workers=1, min_free_gb=1, journal=j)
     evs = J.read(j.path)
     _no_frames_rendered(evs, tmp_path / "out")
@@ -1523,7 +1555,7 @@ def test_both_phases_are_journaled(rendered):
     evs = events(rendered)
     a7 = lints(evs, "still-first-frame-whole-pixels")
     assert {e["phase"] for e in a7} == {"preflight", "post-render"}
-    assert {e["unit"] for e in a7 if e["phase"] == "preflight"} == {"S3", "S4", "S5"}
+    assert {e["unit"] for e in a7 if e["phase"] == "preflight"} == {"S4", "S5"}          # A41: S3 tours, it fills
     stages = [(e["status"], e.get("phase")) for e in evs if e["kind"] == "stage" and e["stage"] == "scout"]
     assert stages[0] == ("start", "preflight") and ("done", "preflight") in stages
     done = next(e for e in evs if e["kind"] == "stage" and e["stage"] == "scout" and e["status"] == "done")
@@ -1722,7 +1754,7 @@ def test_a15_the_programme_is_minus_18_lufs_and_the_voice_ceiling_follows():
 
 def test_the_post_render_a7_check_journals_each_still_with_its_verdict(rendered):
     post = [e for e in lints(events(rendered), "still-first-frame-whole-pixels") if e["phase"] == "post-render"]
-    assert {e["unit"] for e in post} == {"S3", "S4", "S5"}
+    assert {e["unit"] for e in post} == {"S4", "S5"}                                     # A41: S3 tours, it fills
     for e in post:
         assert e["evidence"]["verdict"] in ("whole", "inconclusive") and "band_detail" in e["evidence"]
         assert e["status"] == ("inconclusive" if e["evidence"]["verdict"] == "inconclusive" else "pass")
