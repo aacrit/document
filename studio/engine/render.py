@@ -778,7 +778,7 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
     if exc is not None:
         if preset == OV.FIND:
             return dict(OV.find_camera(shot, img_size, W, H, open_s=OPEN_S), opens_whole=True, fill_exception=exc)
-        return dict(whole_camera(shot, img_size, W, H, preset=preset), fill_exception=exc)
+        return dict(whole_camera(shot, img_size, W, H), fill_exception=exc, declared_preset=preset)
     if preset == OV.FIND:                     # A32 under A41: the sheet's own moves, at the fill on every frame
         cam = OV.find_camera(dict(shot, fill_ok=True), img_size, W, H, open_s=OPEN_S)
         zf = max(W / fw, H / fh)
@@ -834,7 +834,7 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
     frame_path = [T.to_frame(st, img_size, W, H) for st in tl["stops"]]
     zf = max(W / fw, H / fh)
     return {"path": frame_path, "clamp": "image", "fill_ok": True, "preset": TOUR, "macro": macro, "open_s": 0.0,
-            "z_max": zf * tl["z_max"], "fit_scale": s, "z_rel_max": max(st["z"] for st in tl["stops"]),
+            "z_max": zf * tl["z_max"], "fit_scale": s, "z_rel_max": max(max(1.0, float(st["z"])) for st in stops),
             "tour": tl, "W": W, "H": H, "opens_whole": False, "problems": problems, "zcap": zcap, "cap": cap,
             "covering": covering, "capped": any(st.get("capped") for st in stops)}
 
