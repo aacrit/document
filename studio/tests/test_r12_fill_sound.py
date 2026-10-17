@@ -145,8 +145,8 @@ def test_a34_a_clip_takes_fill_or_hold_and_a_fill_never_says_fill_ok_false(film)
 
 
 def test_a34_a_still_fills_stops_short_at_the_limit_and_the_film_may_raise_it(film):
-    """A41 supersedes A34 for stills: a still never stops short of the fill. Too small to fill under the cap, it
-    states fill_exception and is held whole; the film may raise the cap, and then it tours and fills."""
+    """A41 supersedes A34 for stills: a still never stops short of the fill. Too small to fill the 1080p master
+    under the cap, it states fill_exception and is held whole, at every delivery."""
     _edit(film, lambda p: _shot(p, "S5").update(preset="FILL"))                  # FX-STILL-C, a 300x420 portrait
     plan, j = _plan(film, "fill-still")
     cam = next(s for s in plan["shots"] if s["id"] == "S5")["_cam"]
@@ -155,12 +155,8 @@ def test_a34_a_still_fills_stops_short_at_the_limit_and_the_film_may_raise_it(fi
     assert [e["status"] for e in lints(evs, "still-first-frame-whole") if e["unit"] == "S5"] == ["pass"]
     assert [e["severity"] for e in lints(evs, "tour-exception-review") if e["unit"] == "S5"] == ["review"]
     _edit(film, lambda p: p.update(settings={"fill_max_upscale": 3.0}))
-    with pytest.raises(R.Refused, match=r"tour-fill-exception \(S5\)"):            # 2.13x now fits: it must fill
-        _plan(film, "fill-still-3")
-    _edit(film, lambda p: [_shot(p, sid).pop("fill_exception") for sid in ("S4", "S5")])   # S4 (1.62x) fits too
-    plan, _ = _plan(film, "fill-still-3b")
-    cam = next(s for s in plan["shots"] if s["id"] == "S5")["_cam"]
-    assert cam["preset"] == R.TOUR and cam["macro"] == R.FILL and not cam["opens_whole"]
+    plan, _ = _plan(film, "fill-still-3")                                       # 6.4x on the 1080p master: still whole
+    assert next(s for s in plan["shots"] if s["id"] == "S5")["_cam"]["opens_whole"]
     _edit(film, lambda p: p.update(settings={"fill_max_upscale": 4.0}))
     with pytest.raises(R.Refused, match="film-settings"):
         _plan(film, "fill-still-4")

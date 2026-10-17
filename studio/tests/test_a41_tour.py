@@ -341,12 +341,20 @@ def test_the_softness_cap_refuses_without_a_stated_exception(film):
         _plan(film, "a41-soft")
     _edit(film, lambda p: _shot(p, "S5").update(fill_exception="a small scan; the founder's 1.6x would be passed"))
     _plan(film, "a41-soft-ok")
-    # an exception on a picture that can fill is refused: every still fills
-    _edit(film, lambda p: _shot(p, "S3").update(fill_exception="no reason"))
+    # an exception on a picture that can fill the 1080p master is refused: every still fills
+    from PIL import Image
+    Image.new("RGB", (2000, 1400), (90, 80, 70)).save(film / "stills" / "FX-STILL-A.png")
+    _item(film, "FX-STILL-A", lambda i: i.update(width=2000, height=1400))
+    _edit(film, lambda p: _shot(p, "S3").update(fill_exception="a reason in words"))
     with pytest.raises(R.Refused, match=r"tour-fill-exception \(S3\)"):
         _plan(film, "a41-exc-needless")
-    # an authored stop past the cap is refused, never softened quietly
-    _edit(film, lambda p: _shot(p, "S3").update(fill_exception=None, preset=None, camera=[{"t": 0, "z": 1.0}, {"t": 4, "z": 1.5}]))
+    _edit(film, lambda p: _shot(p, "S5").update(fill_exception="no"))           # one word is not a reason
+    with pytest.raises(R.Refused, match=r"tour-fill-exception \(S5\)"):
+        _plan(film, "a41-exc-word")
+    _edit(film, lambda p: _shot(p, "S5").update(fill_exception="a small scan"))
+    _edit(film, lambda p: _shot(p, "S3").update(fill_exception=None))
+    # an authored stop past the cap is refused, never softened quietly (2000 px wide: 1.6x is z 5 at 360p)
+    _edit(film, lambda p: _shot(p, "S3").update(fill_exception=None, preset=None, camera=[{"t": 0, "z": 1.0}, {"t": 4, "z": 6.0}]))
     with pytest.raises(R.Refused, match=r"tour-softness \(S3\)"):
         _plan(film, "a41-deep")
 

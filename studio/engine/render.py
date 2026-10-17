@@ -1070,20 +1070,25 @@ def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int,
 
 def fill_exception_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int) -> None:
     """A41: ``fill_exception`` holds a still whole only where the fill would
-    pass the softness cap, and it states why. Journaled and a reviewer item."""
+    pass the softness cap on the 1080p master (the house master decides, so a
+    film renders the same way at every delivery), and it states why.
+    Journaled and a reviewer item."""
     exc = s.get("fill_exception")
     cap = float(s.get("_fill_max_upscale") or FILL_MAX_UPSCALE)
-    fill_up = T.upscale(size, W, H, 1.0)
+    mw, mh = RESOLUTIONS[1080]
+    fill_up = T.upscale(size, mw, mh, 1.0)
     needed = fill_up > cap + 1e-6
     stated = isinstance(exc, str) and len(exc.split()) >= 2
     lint("tour-fill-exception", needed and stated, unit=s["id"], stage="motion", grammar="A41",
-         evidence={"fill_exception": exc, "fill_upscale": round(fill_up, 4), "max_upscale": cap,
+         evidence={"fill_exception": exc, "master_fill_upscale": round(fill_up, 4), "max_upscale": cap,
+                   "delivery_fill_upscale": round(T.upscale(size, W, H, 1.0), 4),
                    "fix": None if needed and stated else (
                        "state the reason, a sentence" if needed else
-                       f"this picture fills at {fill_up:.2f}x, within {cap:g}x: every still fills (A41); drop fill_exception")})
+                       f"this picture fills the 1080p master at {fill_up:.2f}x, within {cap:g}x: every still fills "
+                       "(A41); drop fill_exception")})
     journal.decision("motion", f"{s['id']}: fill_exception, held whole ({exc})",
-                     f"A41: the fill would magnify the source {fill_up:.2f}x, over {cap:g}x; held whole (A7)",
-                     unit=s["id"], evidence={"fill_upscale": round(fill_up, 4), "max_upscale": cap})
+                     f"A41: the fill would magnify the source {fill_up:.2f}x on the 1080p master, over {cap:g}x; "
+                     "held whole (A7)", unit=s["id"], evidence={"master_fill_upscale": round(fill_up, 4), "max_upscale": cap})
     journal.lint("tour-exception-review", True, stage="motion", unit=s["id"], severity="review", grammar="A41",
                  phase="preflight", evidence={"check": "the still is held whole, pillarboxed, under its stated exception",
                                               "fill_exception": exc})
