@@ -2231,8 +2231,9 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             if conf["method"] in ("drop", "repeat") or (conf["method"] == "ivtc" and master != CAD.HOUSE):
                 # A44: a clip off the master's rate is conformed and declared, with what the conform does to its frames
                 # (a telecined clip's film frames, 23.976 after inverse telecine, repeated up to a 29.97 master)
-                conf["pattern"] = CAD.pattern(pr["fps"] if conf["method"] != "ivtc" else CAD.FILM,
-                                              master, s["f1"] - s["f0"])
+                src_rate = pr["fps"] if conf["method"] != "ivtc" else CAD.FILM
+                left = int(math.floor(max(0.0, pr["duration_s"] - s["in_s"]) * float(src_rate) + 1e-6))
+                conf["pattern"] = CAD.pattern(src_rate, master, s["f1"] - s["f0"], left or None)
                 journal.decision("conform", f"{pr['fps']:.3f} fps conformed to {conf['out_rate']} by frame {conf['method']}",
                                  "A6, A44 and GRAMMAR 7.5: no speed change; the clip is off the film's master rate, so "
                                  + ("source frames are dropped" if conf["method"] == "drop" else
@@ -2501,10 +2502,10 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     # A21 (E3): the shot-level half of the film's imagery rule (patient shots only; inert for a film that shows none)
     speakers = {sp["id"]: sp for sp in (play.get("cast") or {}).get("speakers", [])}
     cast_names = [str(sp.get("name")) for sp in speakers.values() if sp.get("name")]
-    for c in POL.patient_shot_checks(shots, assets, rule, lower_thirds, cast_names):
+    for c in POL.patient_shot_checks(shots, assets, rule, lower_thirds, cast_names, fps=fps):
         lint(c["rule"], c["ok"], unit=c["unit"], severity=c["severity"], evidence=c["evidence"], grammar="A21", stage="motion")
     # A26 (E11): archival lines that play a span of a source's own soundtrack
-    named_on_screen = archival_lints(lint, film, play, shots, lines, assets, lower_thirds, vl, speakers)
+    named_on_screen = archival_lints(lint, film, play, shots, lines, assets, lower_thirds, vl, speakers, fps=fps)
     # A33 (R11): clip integrity. The sound stays on its picture, quotes are cut on speech edges, shots end on natural
     # boundaries, no flash, no replay, no mouth moving unheard; clip-cut-mid-action is a warning for the report
     clip_integrity = CL.plan_lints(lint, journal, film, shots, lines, assets)
@@ -2547,7 +2548,8 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         if TS.is_title(s):                      # its lockup is a CARD: the film's watermark is off there and fades back
             s["_title"] = {"burned": titles[s["id"]]["burned"], "marks": TS.sub_marks(s["_item"], s["f0"] / fps),
                            "classes": TS.classes(s["_item"]), "out_class": TS.out_class(s["_item"]),
-                           "holds": TS.dip_hold_frames(s["_item"]), "fps": TS.rate_of(s["_item"]) or TS.FPS}
+                           "holds": TS.dip_hold_frames(s["_item"]), "fps": TS.rate_of(s["_item"]) or TS.FPS,
+                           "frames": int(s["_item"].get("frames") or 0) or None}
             card_spans += TS.card_spans(s["_item"], s["f0"] / fps, s["f1"] / fps)
     card_spans.sort()
     imagery = [s for s in shots if s["mark"] != "CARD"]
@@ -2697,7 +2699,7 @@ LT_SOURCE_FORM = re.compile(r"^.+\S, \S.+$")   # line 3 before its suffix: "<sou
 
 
 def archival_lints(lint, film: Path, play: dict, shots: list[dict], lines: list[dict], assets: dict,
-                   lower_thirds: list[dict], vl: list[dict], speakers: dict | None = None) -> None:
+                   lower_thirds: list[dict], vl: list[dict], speakers: dict | None = None, fps: float = FPS) -> None:
     """A26 (E11) on every archival span line: its clip resolves to a ledger
     item with a file and an allowed licence, the span lies inside the clip
     (video or audio alone); it carries ``transcript_source`` and a timed
@@ -2748,7 +2750,7 @@ def archival_lints(lint, film: Path, play: dict, shots: list[dict], lines: list[
             dur = clip_dur = media_duration(Path(path))                      # the header, not the reel
             if dur is None:
                 why.append("the clip's length cannot be read")
-            elif out_s > dur + 1.0 / FPS:
+            elif out_s > dur + 1.0 / fps:
                 why.append(f"out_s {out_s:g} is past the clip's end ({dur:.3f} s)")
         if str(ln.get("mark", "ARCHIVE")) != "ARCHIVE":
             why.append(f"an original recording is marked ARCHIVE, not {ln.get('mark')!r}")
@@ -2806,7 +2808,7 @@ def archival_lints(lint, film: Path, play: dict, shots: list[dict], lines: list[
                 spans = [(float(e["in_s"]), float(e["out_s"])) for e in mine
                          if isinstance(e.get("in_s"), (int, float)) and isinstance(e.get("out_s"), (int, float))
                          and not isinstance(e.get("in_s"), bool) and not isinstance(e.get("out_s"), bool)
-                         and 0 <= e["in_s"] < e["out_s"] and clip_dur is not None and e["out_s"] <= clip_dur + 1.0 / FPS]
+                         and 0 <= e["in_s"] < e["out_s"] and clip_dur is not None and e["out_s"] <= clip_dur + 1.0 / fps]
                 line_span = 0 <= in_s < out_s
                 over = [sp for sp in spans if line_span and sp[0] < out_s and sp[1] > in_s]
                 on_screen = bool(over)
@@ -3071,7 +3073,8 @@ class Pictures:
     def title(self, s: dict, t_local: float) -> Image.Image:
         """A40: the master's frame, as it is (scaled only when the delivery is not the master's 1080p)."""
         src = TS.rate_of(s["_item"]) or TS.FPS                   # A44: the title master's own rate
-        k = TS.source_frame(min(int(round(t_local * self.plan["fps"])), s["f1"] - s["f0"] - 1), self.plan["fps"], src)
+        k = TS.source_frame(min(int(round(t_local * self.plan["fps"])), s["f1"] - s["f0"] - 1), self.plan["fps"], src,
+                            int(s["_item"].get("frames") or 0) or None)
         r = self.titles.get(s["id"])
         if r is None or k < r.k - 1:
             if r:
@@ -3185,7 +3188,7 @@ def compose(plan: dict, pics: Pictures, f: int, i: int, probe: dict | None = Non
         arr = np.asarray(img, dtype=np.float32) * level
         img = Image.fromarray(arr.astype(np.uint8))
     title = s.get("_title")
-    if title is not None and (title["burned"] or TS.source_frame(f - s["f0"], fps, title["fps"]) in title["holds"]):
+    if title is not None and (title["burned"] or TS.source_frame(f - s["f0"], fps, title["fps"], title.get("frames")) in title["holds"]):
         return img.convert("RGB")           # A40: the master carries its own marks, watermark and lockup: nothing over it
                                             # (and its own dip's black hold stays black, A11)
     rgba = img.convert("RGBA")
@@ -3362,7 +3365,7 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
             probe: dict = {}
             arr = np.asarray(compose(plan, pics, f, i, probe))
             if title is not None:               # A40: the master's own marks (on its native frame), or ours from its timeline
-                k = TS.source_frame(f - s["f0"], plan["fps"], title["fps"])
+                k = TS.source_frame(f - s["f0"], plan["fps"], title["fps"], title.get("frames"))
                 res = TS.check_frame(pics.title_native if title["burned"] else arr, s["_item"], k,
                                      None if title["burned"] else (f - s["f0"]) / plan["fps"])
                 if res == "fail" and picture_level(plan, f, i) < 1.0:

@@ -71,6 +71,23 @@ export function videoKbps(durationS) {
 /** The master rates a film may have (GRAMMAR A44), as ffprobe writes them. */
 export const MASTER_RATES = { "24/1": "24", "24": "24", "30000/1001": "30000/1001" };
 
+/**
+ * What is wrong with the rates the web encodes would keep (GRAMMAR A44): the film's and, when there is one, the
+ * trailer's must each be read from its file and be 24 or 30000/1001. A rate that cannot be read is refused, never
+ * taken as 24 (that would re-time a 29.97 master).
+ */
+export function rateProblems(o, rates, exists = existsSync) {
+  const out = [];
+  const check = (file, rate, what) => {
+    if (!file || !exists(file)) return;
+    if (!rate) out.push(`could not read ${file}'s frame rate (the ${what}'s web encode keeps its rate, GRAMMAR A44)`);
+    else if (MASTER_RATES[String(rate)] === undefined) out.push(`${file} is at ${rate} fps, not 24 or 30000/1001 (GRAMMAR A44)`);
+  };
+  check(o.master, rates.film, "film");
+  if (o.trailer) check(o.trailer, rates.trailer, "trailer");
+  return out;
+}
+
 /** Frames in a 2 s GOP at a master rate ("24" -> 48, "30000/1001" -> 60). */
 export function gopFrames(fps) {
   const [a, b = "1"] = String(fps).split("/");
@@ -293,13 +310,17 @@ function main() {
   const poster = posterSource(ledgers, o.posterId);
   const durations = { film: probeDuration(o.master), trailer: o.trailer ? probeDuration(o.trailer) : null };
   const rates = { film: probeRate(o.master), trailer: o.trailer ? probeRate(o.trailer) : null };
-  const plan = planRelease(o, { ledgers, poster, durations, rates });
+  const badRates = rateProblems(o, rates);
+  if (!o.dryRun && badRates.length) {
+    for (const p of badRates) console.error(`release-film: ${p}`);
+    process.exit(2);
+  }
+  const plan = planRelease(o, { ledgers, poster, durations, rates: badRates.length ? {} : rates });
 
   if (!o.dryRun) {
     const problems = [];
     if (path.basename(o.master) !== "master.mp4") problems.push(`${o.master} is not named master.mp4 (--sources-only reads <render dir>/master.mp4)`);
     if (!existsSync(o.master)) problems.push(`${o.master} does not exist`);
-    else if (!rates.film) problems.push(`could not read ${o.master}'s frame rate (the web encode keeps the master's, GRAMMAR A44)`);
     if (!ledgers) problems.push(`${filmDir} has no screenplay.json naming its stills ledger`);
     if (!poster || !existsSync(poster)) problems.push(`the poster still ${o.posterId} was not found in the stills ledger`);
     if (o.trailer && !existsSync(o.trailer)) problems.push(`${o.trailer} does not exist`);

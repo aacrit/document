@@ -2,7 +2,7 @@
 // uploads to the film's folder in R2 with --remote and sources.json last, and
 // a dry run is plain data that never runs a command.
 import { describe, expect, it } from "vitest";
-import { BUCKET, MAX_PUT_BYTES, PACKET_ROOT, UPLOAD_ORDER, commandLine, gopFrames, videoKbps, webEncodeArgs, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease, readLedgers, posterSource } from "../scripts/release-film.mjs";
+import { BUCKET, MAX_PUT_BYTES, PACKET_ROOT, UPLOAD_ORDER, commandLine, gopFrames, rateProblems, videoKbps, webEncodeArgs, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease, readLedgers, posterSource } from "../scripts/release-film.mjs";
 import { mkdtempSync, writeFileSync as wfs, mkdirSync as mkd } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as pjoin } from "node:path";
@@ -126,6 +126,17 @@ describe("release-film", () => {
     const steps = planRelease(parseArgs(["r/master.mp4"]), { ...tools, durations: { film: 1205, trailer: null }, rates: { film: "30000/1001" } }).steps as Step[];
     expect(steps[1].args).toEqual(expect.arrayContaining(["-r", "30000/1001", "-g", "60"]));
     expect(webEncodeArgs(null, null).join(" ")).toContain("<the master's rate>");
+  });
+
+  it("refuses a film or trailer whose rate cannot be read or is not a master rate, never taking it as 24", () => {
+    const all = () => true;
+    const o = parseArgs(["r/master.mp4", "--trailer", "t/master.mp4"]);
+    expect(rateProblems(o, { film: "30000/1001", trailer: "24/1" }, all)).toEqual([]);
+    expect(rateProblems(o, { film: "30000/1001", trailer: null }, all)).toEqual([expect.stringMatching(/t\/master\.mp4's frame rate.*trailer/)]);
+    expect(rateProblems(o, { film: null, trailer: "24/1" }, all)).toEqual([expect.stringMatching(/r\/master\.mp4's frame rate.*film/)]);
+    expect(rateProblems(o, { film: "25/1", trailer: "24/1" }, all)).toEqual([expect.stringMatching(/25\/1 fps, not 24 or 30000\/1001/)]);
+    expect(rateProblems(parseArgs(["r/master.mp4"]), { film: "24/1", trailer: null }, all)).toEqual([]);
+    expect(rateProblems(o, { film: null, trailer: null }, () => false)).toEqual([]);   // a missing file is refused elsewhere
   });
 
   it("prints a command line a person can paste", () => {

@@ -498,3 +498,69 @@ def test_a44_a_24_film_keeps_its_24_title_even_with_a_29_97_one_declared(tmp_pat
     plan, j, s = _title_plan(film)
     assert plan["fps"] == 24 and s["_item"]["file"] == "burned.mkv" and lints(j, "cadence")[0]["evidence"]["titles"][0]["how"] == "own"
     assert TS.select_master({"fps": 25, "file": "x"}, 24.0)[1] == "conform" and TS.rate_of({"fps": 25}) is None
+
+
+# --------------------------------------------------------------------------
+# Review fixes: A33's frame tolerances at the clip's own rate, the slacks at the master's, the clamp, the trailer
+# --------------------------------------------------------------------------
+
+
+def _clip_checks(bounds, in_s, out_s=17.5, line=None, items=None):
+    from studio.engine import clips as C
+    shots = [{"id": "V", "kind": "archive_video", "asset": "CLIP", "start_s": 100.0, "in_s": in_s, "out_s": out_s,
+              "sound": {"mode": "mute"}, "talking_head": False},
+             {"id": "K", "kind": "card", "start_s": 100.0 + out_s - in_s, "dur_s": 3}]
+    lines = [line] if line else []
+    return C.check_clips(C.norm_shots(shots, items or {}), lines, {"CLIP": bounds}, items or {})
+
+
+def _res(res, rule, unit):
+    return next(r for r in res if r["rule"] == rule and r["unit"] == unit)
+
+
+def test_a44_a_29_97_in_point_18_ms_before_a_source_cut_is_a_flash():
+    """Half a 29.97 frame is 16.7 ms: an in point 18 ms before the cut shows a frame of the other source shot. At 24
+    (half a frame 20.8 ms) the same in point counted as on the cut."""
+    from studio.engine import clips as C
+    ntsc = C.StaticBounds(cuts=[10.0, 20.0], speech=[], duration=60.0, fps=30000 / 1001)
+    r = _res(_clip_checks(ntsc, 10.0 - 0.018), "clip-flash", "V")
+    assert not r["ok"] and r["evidence"]["flashes"][0]["edge"] == "in" and r["evidence"]["flashes"][0]["cut_s"] == 10.0
+    assert _res(_clip_checks(ntsc, 10.0 - 0.010), "clip-flash", "V")["ok"]                 # within half a frame: on it
+    film = C.StaticBounds(cuts=[10.0, 20.0], speech=[], duration=60.0, fps=24.0)
+    assert _res(_clip_checks(film, 10.0 - 0.018), "clip-flash", "V")["ok"]                 # 24: still on the cut
+    # no measured rate: the ledger's stated fps ("29.97 progressive", as Real World's ledger writes it)
+    bare = C.StaticBounds(cuts=[10.0, 20.0], speech=[], duration=60.0)
+    assert not _res(_clip_checks(bare, 10.0 - 0.018, items={"CLIP": {"fps": "29.97 progressive"}}), "clip-flash", "V")["ok"]
+    assert C.source_frame_s(None, {"fps": "30000/1001"}) == pytest.approx(1001 / 30000) and C.source_frame_s() == 1 / 24
+
+
+def test_a44_archival_sync_allows_one_frame_of_the_clips_own_rate():
+    from studio.engine import clips as C
+    ntsc = C.StaticBounds(cuts=[10.0, 20.0], speech=[(12.0, 14.0)], duration=60.0, fps=30000 / 1001)
+    film = C.StaticBounds(cuts=[10.0, 20.0], speech=[(12.0, 14.0)], duration=60.0, fps=24.0)
+    late = {"id": "A", "clip": "CLIP", "start_s": 101.85 + 0.038, "in_s": 11.85, "out_s": 14.25}   # 38 ms late
+    r = _res(_clip_checks(ntsc, 10.0, line=late), "archival-sync", "A")
+    assert not r["ok"] and r["evidence"]["tolerance_ms"] == 33.4
+    assert _res(_clip_checks(film, 10.0, line=late), "archival-sync", "A")["ok"]              # inside 41.7 ms at 24
+
+
+def test_a44_the_slacks_in_seconds_are_frames_of_the_master():
+    rule = {"min_hold_s": 3.0}
+    shots = [{"id": "P", "kind": "archive_still", "asset": "X", "_dur": 3.0 - 0.019, "start_s": 0.0}]
+    # 19 ms short: within half a 24 frame (20.8 ms), not within half a 29.97 frame (16.7 ms)
+    holds = lambda fps: [c for c in POL.patient_shot_checks(shots, {"X": {"named_patient": True}},
+                                                            dict(POL.DEFAULT_IMAGERY_RULE, **rule), [], fps=fps)
+                         if c["rule"] == "patient-hold"]
+    got24, got30 = holds(24.0), holds(30000 / 1001)
+    assert len(got24) == len(got30) == 1 and got24[0]["ok"] and not got30[0]["ok"]
+    import inspect
+    assert "fps" in inspect.signature(R.archival_lints).parameters
+
+
+def test_a44_a_conform_never_asks_past_the_masters_last_frame():
+    # Real World's title: 1368 frames at 24 played over 1709 frames at 29.97; the last output frame would ask for 1368
+    assert CAD.pattern(24, CAD.NTSC, 1709)["source_frames"] == 1369
+    pat = CAD.pattern(24, CAD.NTSC, 1709, 1368)
+    assert pat["source_frames"] == 1368 and pat["dropped"] == 0 and pat["repeated"] == 1709 - 1368
+    assert CAD.source_index(1708, 24, CAD.NTSC, 1368) == 1367 and TS.source_frame(1708, 30000 / 1001, 24, 1368) == 1367
+    assert max(CAD.source_indices(24, CAD.NTSC, 1709, 1368)) == 1367

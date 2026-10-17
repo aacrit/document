@@ -218,7 +218,7 @@ def poster_problem(item: dict, rule: dict) -> str | None:
 
 
 def patient_shot_checks(shots: list[dict], assets: dict, rule: dict, lower_thirds: list[dict],
-                        cast_names: list[str] | tuple = ()) -> list[dict]:
+                        cast_names: list[str] | tuple = (), fps: float = 24.0) -> list[dict]:
     """The shot-level half of the rule, for patient shots only: the hold of a
     patient still (shots of one asset joined by a cut or a dissolve are one
     hold), no DETAIL on a patient still unless the shot says ``face: false``,
@@ -278,7 +278,7 @@ def patient_shot_checks(shots: list[dict], assets: dict, rule: dict, lower_third
         for h in holds:
             dur = round(sum(float(s["_dur"]) for s in h) - sum(float((s.get("transition_in") or {}).get("s", 0))
                                                                 for s in h[1:] if (s.get("transition_in") or {}).get("type") == "dissolve"), 3)
-            ok = dur + 0.5 / 24 >= float(rule["min_hold_s"])
+            ok = dur + 0.5 / fps >= float(rule["min_hold_s"])      # half a frame of the film's master rate (A44)
             out.append({"rule": "patient-hold", "ok": ok, "unit": h[0]["id"], "severity": "block",
                         "evidence": {"shots": [s["id"] for s in h], "asset": h[0].get("asset"), "hold_s": dur,
                                      "min_hold_s": rule["min_hold_s"]}})

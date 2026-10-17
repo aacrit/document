@@ -132,10 +132,10 @@ def sub_marks(item: dict, start_s: float) -> list[dict]:
     return [{"start": start_s + m["frame"] / _r(item), "cls": m["cls"], "label": m["label"], "year": m["year"]} for m in timeline(item)]
 
 
-def source_frame(k: int, fps: float = FPS, src: float = FPS) -> int:
+def source_frame(k: int, fps: float = FPS, src: float = FPS, n: int | None = None) -> int:
     """The title master's frame on the shot's frame k when the film masters at ``fps`` and the title at ``src`` (A44):
     k itself when they agree, else the frame a repeat or drop conform shows there (cadence.source_index)."""
-    return CAD.source_index(k, src, fps)
+    return CAD.source_index(k, src, fps, n)
 
 
 def film_frame(j: int, fps: float = FPS, src: float = FPS) -> int:
@@ -557,7 +557,7 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
                             "rate": CAD.rate_str(CAD.parse_rate(item.get("fps", FPS))) if r else None}
                 if fmt_ok and not same:
                     # A44 (and A40: the title is played as rendered): no master at the film's rate, so it is conformed
-                    pat = CAD.pattern(r, fps, s["f1"] - s["f0"])
+                    pat = CAD.pattern(r, fps, s["f1"] - s["f0"], n)         # never past the master's last frame
                     out[sid]["conform"] = {"shot": sid, "asset": s.get("asset"), "method": "repeat" if fps > r else "drop",
                                            "in_fps": round(r, 3),
                                            "out_rate": CAD.rate_str(CAD.Fraction(fps).limit_denominator(100000)), **pat}

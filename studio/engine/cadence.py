@@ -111,15 +111,15 @@ def resolve(declared, clips: list[dict]) -> dict:
     return {"rate": rate, "name": rate_str(rate), "fps": float(rate), "from": how, "tally": tally, "problem": problem}
 
 
-def source_index(k: int, src: Fraction | float, master: Fraction | float) -> int:
+def source_index(k: int, src: Fraction | float, master: Fraction | float, n: int | None = None) -> int:
     """The source frame on output frame k of ffmpeg's fps filter, both clocks starting at 0: source frame i lands on
     output slot round(i x master / src) (to nearest, halves up), and slot k shows the latest frame that landed on or
     before it (a later one landing on the same slot replaces it: a drop; a slot nothing lands on shows the last one
-    again: a repeat). round(i x r) <= k holds exactly when i < (k + 1/2) / r, so i is the largest such integer."""
+    again: a repeat). round(i x r) <= k holds exactly when i < (k + 1/2) / r, so i is the largest such integer. With
+    ``n``, the source's frame count, a slot past its last frame holds the last (frame n - 1)."""
     src, master = Fraction(src).limit_denominator(100000), Fraction(master).limit_denominator(100000)
-    if src == master:
-        return k
-    return math.ceil((k + Fraction(1, 2)) * src / master) - 1
+    i = k if src == master else math.ceil((k + Fraction(1, 2)) * src / master) - 1
+    return i if n is None or n <= 0 else min(i, n - 1)
 
 
 def output_slot(i: int, src: Fraction | float, master: Fraction | float) -> int:
@@ -128,18 +128,18 @@ def output_slot(i: int, src: Fraction | float, master: Fraction | float) -> int:
     return i if src == master else math.floor(i * master / src + Fraction(1, 2))
 
 
-def source_indices(src: Fraction | float, master: Fraction | float, n_out: int) -> list[int]:
-    """source_index for output frames 0 to n_out - 1."""
-    return [source_index(k, src, master) for k in range(n_out)]
+def source_indices(src: Fraction | float, master: Fraction | float, n_out: int, n: int | None = None) -> list[int]:
+    """source_index for output frames 0 to n_out - 1 (clamped to a source of ``n`` frames)."""
+    return [source_index(k, src, master, n) for k in range(n_out)]
 
 
-def pattern(src: Fraction | float, master: Fraction | float, n_out: int) -> dict:
+def pattern(src: Fraction | float, master: Fraction | float, n_out: int, n: int | None = None) -> dict:
     """What a drop or repeat conform does over ``n_out`` output frames: the source frames it spans, how many it never
     shows (dropped) and how many output frames repeat the one before (repeated). A clip at the master's rate drops
     and repeats nothing."""
     if n_out <= 0:
         return {"out_frames": 0, "source_frames": 0, "dropped": 0, "repeated": 0}
-    idx = source_indices(src, master, n_out)
+    idx = source_indices(src, master, n_out, n)    # a source of n frames: never a frame past its last
     shown = len(set(idx))
     span = idx[-1] - idx[0] + 1
     return {"out_frames": n_out, "source_frames": span, "dropped": span - shown, "repeated": n_out - shown}

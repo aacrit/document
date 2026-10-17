@@ -65,8 +65,10 @@ SPEECH_MERGE_S = 0.08               # gaps shorter than this are inside a word (
 SPEECH_MIN_RUN_S = 0.05             # shorter runs are clicks
 
 SYNC_TOL_S = 1.0 / 24               # A33(1): a line's offset into its shot equals its offset into the source, within a frame
+                                    # (A44: a frame of the clip's own source rate, source_frame_s; this is the 24 fallback)
 FLASH_S = 0.75                      # A33(2a): no shot starts or ends within 0.75 s of a source cut ...
-ON_CUT_OUTSIDE_S = 0.5 / 24         # ... unless it is on it: never a frame of the other source shot ...
+ON_CUT_OUTSIDE_S = 0.5 / 24         # ... unless it is on it: never a frame of the other source shot (half a source frame,
+                                    # A44: of the clip's own rate; this is the 24 fallback) ...
 ON_CUT_INSIDE_S = 0.10              # ... and at most 0.1 s short of the cut on the side that only trims the shot
 QUOTE_LEAD_S = 0.15                 # A33(2c): a quote's audio opens 0.15 s before its first word ...
 QUOTE_TAIL_S = 0.25                 # ... and closes 0.25 s after its last
@@ -261,6 +263,15 @@ class ClipBounds:
     def has_audio(self) -> bool:
         return bool(self.data.get("has_audio"))
 
+    @property
+    def fps(self) -> float | None:
+        """The source's own frame rate (A44: the clip's frame, not the master's, sets the frame tolerances)."""
+        try:
+            f = float(self.data.get("fps") or 0.0)
+        except (TypeError, ValueError):
+            return None
+        return f if f > 0 else None
+
     def _save(self) -> None:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         tmp = self.sidecar.with_name(self.sidecar.name + ".part")
@@ -311,11 +322,12 @@ class ClipBounds:
 class StaticBounds:
     """Bounds given as data (tests, and a builder that measured them itself)."""
 
-    def __init__(self, cuts=(), speech=(), duration: float = 3600.0, has_audio: bool = True):
+    def __init__(self, cuts=(), speech=(), duration: float = 3600.0, has_audio: bool = True, fps: float | None = None):
         self._cuts = sorted(float(c) for c in cuts)
         self._speech = merge_runs([tuple(map(float, r)) for r in speech])
         self.duration = float(duration)
         self.has_audio = has_audio
+        self.fps = fps
 
     def ensure(self, a, b):
         pass
@@ -495,6 +507,24 @@ def _r(x: float) -> float:
     return round(float(x), 3)
 
 
+def source_frame_s(b=None, item: dict | None = None) -> float:
+    """One frame of a clip's own source (A44): from its measured bounds, else the ledger's stated ``fps`` (a number,
+    "30000/1001" or "29.97 progressive"), else 1/24. A33's frame tolerances (sync, on a cut) are this, not the master's:
+    at 29.97 a frame is 33.4 ms, and half of one 16.7 ms."""
+    f = getattr(b, "fps", None) if b is not None else None
+    if not f:
+        x = (item or {}).get("fps")
+        try:
+            if isinstance(x, (int, float)) and not isinstance(x, bool):
+                f = float(x)
+            elif isinstance(x, str):
+                m = re.match(r"\s*(\d+(?:\.\d+)?)(?:\s*/\s*(\d+(?:\.\d+)?))?", x)
+                f = float(m.group(1)) / float(m.group(2) or 1) if m else None
+        except (ValueError, ZeroDivisionError):
+            f = None
+    return 1.0 / f if f and f > 0 else SYNC_TOL_S
+
+
 def check_clips(shots: list[dict], lines: list[dict], bounds: dict, items: dict | None = None) -> list[dict]:
     """Every A33 plan-time check, as {rule, ok, unit, severity, evidence}.
     ``shots`` come from ``norm_shots``; ``lines`` are the archival span
@@ -517,15 +547,16 @@ def check_clips(shots: list[dict], lines: list[dict], bounds: dict, items: dict 
         if not over:
             continue
         errs = []
+        tol = source_frame_s(bounds.get(ln["clip"]), items.get(ln["clip"]))      # A44: a frame of the clip's own rate
         for s in over:
             err = (ls - s["start"]) - (li - s["in_s"])
             errs.append({"shot": s["id"], "error_ms": round(err * 1000), "film_offset_s": _r(ls - s["start"]),
-                         "source_offset_s": _r(li - s["in_s"]), "ok": abs(err) <= SYNC_TOL_S + 1e-6,
-                         "fix": None if abs(err) <= SYNC_TOL_S + 1e-6 else (
+                         "source_offset_s": _r(li - s["in_s"]), "ok": abs(err) <= tol + 1e-6,
+                         "fix": None if abs(err) <= tol + 1e-6 else (
                              f"start {s['id']} at in_s {s['in_s'] - err:.3f} (picture {err * 1000:+.0f} ms) or lengthen the shot "
                              f"before it by {err:.3f} s and start {s['id']} that much later; never leave in_s fixed when a line moves")})
         add("archival-sync", all(e["ok"] for e in errs), ln["id"],
-            {"line_start_s": ls, "in_s": li, "shots": errs, "tolerance_ms": round(SYNC_TOL_S * 1000, 1),
+            {"line_start_s": ls, "in_s": li, "shots": errs, "tolerance_ms": round(tol * 1000, 1),
              "sign": "positive: the sound is heard after the picture shows it"})
         for s in over:
             add("talking-head-declared", s["talking_head_stated"] and s["talking_head"] is not None, s["id"],
@@ -628,12 +659,14 @@ def check_clips(shots: list[dict], lines: list[dict], bounds: dict, items: dict 
         if b is None:
             continue
         ii, oo = s["in_s"], s["out_s"]
+        frame = source_frame_s(b, items.get(s["asset"]))         # A44: the clip's own frame
+        on_cut = 0.5 * frame                                      # within half a source frame of a cut is on it
         cuts = [c for c in b.cuts(ii - FLASH_S, oo + FLASH_S) if 0 < c < (b.duration or float("inf")) - 1e-3]
         th_runs = b.speech(ii - FLASH_S, oo + FLASH_S) if s["talking_head"] and b.has_audio else []
         flashes = []
         # the in point: the nearest cut at or before it, and the first after it
-        before = [c for c in cuts if c <= ii + ON_CUT_OUTSIDE_S]
-        after = [c for c in cuts if c > ii + ON_CUT_OUTSIDE_S]
+        before = [c for c in cuts if c <= ii + on_cut]
+        after = [c for c in cuts if c > ii + on_cut]
         if after and after[0] - ii < FLASH_S:
             flashes.append({"edge": "in", "cut_s": after[0], "what": f"opens on the last {after[0] - ii:.2f} s of the previous "
                             "source shot", "fix": f"in_s {after[0]:.3f}"})
@@ -642,8 +675,8 @@ def check_clips(shots: list[dict], lines: list[dict], bounds: dict, items: dict 
             flashes.append({"edge": "in", "cut_s": before[-1], "what": f"starts {ii - before[-1]:.2f} s after a source cut",
                             "fix": f"in_s {before[-1]:.3f} (on the cut)"})
         # the out point: the nearest cut at or after it, and the last before it
-        before = [c for c in cuts if c < oo - ON_CUT_OUTSIDE_S]
-        after = [c for c in cuts if c >= oo - ON_CUT_OUTSIDE_S]
+        before = [c for c in cuts if c < oo - on_cut]
+        after = [c for c in cuts if c >= oo - on_cut]
         if before and oo - before[-1] < FLASH_S:
             flashes.append({"edge": "out", "cut_s": before[-1], "what": f"ends {oo - before[-1]:.2f} s into the next source shot",
                             "fix": f"out_s {before[-1]:.3f}"})
@@ -678,7 +711,7 @@ def check_clips(shots: list[dict], lines: list[dict], bounds: dict, items: dict 
         # clip-cut-mid-action (warning)
         nxt_shot = next((x for x in shots if x["start"] > s["start"] + 1e-9), None)
         continued = nxt_shot is not None and nxt_shot["kind"] == "archive_video" and nxt_shot["asset"] == s["asset"] \
-            and abs(nxt_shot["in_s"] - oo) <= SYNC_TOL_S
+            and abs(nxt_shot["in_s"] - oo) <= frame
         # the source shot's natural end: its next cut (one just before out is the flash lint's) or the clip's end, looked
         # for over the analysed 25 s past the out point; none there means more than 25 s of it is left unplayed
         horizon = oo + ANALYSIS_PAD_AFTER_S
@@ -692,10 +725,11 @@ def check_clips(shots: list[dict], lines: list[dict], bounds: dict, items: dict 
              "continued_by_next_shot": continued,
              "fix": None if ok else "let it play to its source shot's end (breathe_out), or declare cut_reason"}, severity="warn")
     for clip, ss in by_clip.items():
+        frame = source_frame_s(bounds.get(clip), items.get(clip))
         for j, s in enumerate(ss):
             rep = [{"shot": t["id"], "overlap_s": _r(min(s["out_s"], t["out_s"]) - max(s["in_s"], t["in_s"])),
                     "adjacent": s["index"] - t["index"] == 1}
-                   for t in ss[:j] if min(s["out_s"], t["out_s"]) - max(s["in_s"], t["in_s"]) > SYNC_TOL_S]
+                   for t in ss[:j] if min(s["out_s"], t["out_s"]) - max(s["in_s"], t["in_s"]) > frame]
             # a refrain (the same image shown again, further on, on purpose) is declared: repeat_of names the earlier shot.
             # A shot never replays the one right before it: that is a backward jump, declared or not.
             refrain = s["repeat_of"] in {r["shot"] for r in rep if not r["adjacent"]}
