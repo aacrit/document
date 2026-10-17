@@ -1006,15 +1006,16 @@ def rendered_sync_lints(journal, plan: dict, master: Path, *, draft: bool = Fals
     from studio.engine.render import clip_file
     refusals = []
     W, H = plan["W"], plan["H"]
+    fps = float(plan.get("fps") or 24)          # the film's master rate (A44): shot frames are at it
     for ln in span_lines(plan["lines"]):
         corr = av_correction_s(plan["assets"].get(ln["clip"]))
         ls = float(ln["start_s"]) - corr
         dur = float(ln["out_s"]) - float(ln["in_s"])
         holder = next((s for s in plan["shots"] if s["kind"] == "archive_video" and s.get("asset") == ln["clip"]
-                       and s["f0"] / 24 <= ls + 0.3 < s["f1"] / 24), None)
+                       and s["f0"] / fps <= ls + 0.3 < s["f1"] / fps), None)
         if holder is None:
             continue
-        a, z = max(ls, holder["f0"] / 24), min(ls + dur, holder["f1"] / 24)
+        a, z = max(ls, holder["f0"] / fps), min(ls + dur, holder["f1"] / fps)
         if z - a < RENDER_SYNC_MIN_S:
             journal.lint("archival-sync-rendered", True, stage="assembly", unit=ln["id"], grammar="A33", phase="post-render",
                          status="inconclusive", severity="warn",
@@ -1027,7 +1028,7 @@ def rendered_sync_lints(journal, plan: dict, master: Path, *, draft: bool = Fals
         if cam is not None and len(cam["path"]) > 1:
             # A34: a FILL clip is whole only in its opening and still only once the fill holds; it is measured in
             # whichever of the two holds enough of the line, never during the move
-            f0 = holder["f0"] / 24
+            f0 = holder["f0"] / fps
             opened, held = f0 + cam["open_s"], f0 + cam["open_s"] + cam["move_s"]
             if min(z, opened) - a >= RENDER_SYNC_MIN_S + 0.3:
                 z = min(z, opened)
@@ -1043,7 +1044,7 @@ def rendered_sync_lints(journal, plan: dict, master: Path, *, draft: bool = Fals
                                        "shot": holder["id"]})
                 continue
         src, base = clip_file(holder)
-        m = measure_sync(master, a + 0.15, min(4.0, z - a - 0.3), src, base, holder["in_s"], holder["f0"] / 24, crop,
+        m = measure_sync(master, a + 0.15, min(4.0, z - a - 0.3), src, base, holder["in_s"], holder["f0"] / fps, crop,
                          src_crop=src_crop)
         expected = -corr * 1000
         ok = (m["audio_late_ms"] is not None and abs(m["audio_late_ms"] - expected) <= RENDER_SYNC_TOL_MS)

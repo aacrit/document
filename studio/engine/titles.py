@@ -28,12 +28,14 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from studio.engine import cadence as CAD
 from studio.engine import motion as M
 
 KIND = "title_sequence"
 SERIES = "void document · As It Was"
 SIZE = (1920, 1080)                 # the master is the 1080p24 delivery (GRAMMAR 7.5); the engine scales it for 720p
-FPS = 24
+FPS = 24                            # the title master's own rate (its 1080p24 delivery); the film may master at another
+                                    # rate (A44), and then the title is conformed to it by frame repeat, declared
 FADE_FRAMES = round(M.LABEL["fade"] * FPS)   # the glyph's 4-frame crossfade at a class change (GRAMMAR 4.1)
 HUE_TOL = 2                         # a burned glyph pixel is its class hue within this (the master is lossless RGB)
 RECORD_LIMIT = 6.0                  # A7's low-pass mean difference: the record beat is the film's own scan, held whole
@@ -89,13 +91,25 @@ def sub_marks(item: dict, start_s: float) -> list[dict]:
     return [{"start": start_s + m["frame"] / FPS, "cls": m["cls"], "label": m["label"], "year": m["year"]} for m in timeline(item)]
 
 
-def spans(item: dict, f0: int, f1: int) -> list[tuple[int, int, str, str]]:
-    """The title's frames by class: (from_frame, to_frame, cls, label), film frames, for the mark track and the share."""
+def source_frame(k: int, fps: float = FPS) -> int:
+    """The title master's frame on the shot's frame k when the film masters at ``fps`` (A44): k itself at 24, else the
+    frame a repeat conform shows there (cadence.source_index)."""
+    return CAD.source_index(k, FPS, fps)
+
+
+def film_frame(j: int, fps: float = FPS) -> int:
+    """The shot's frame on which the title master's frame j first shows (A44)."""
+    return CAD.output_slot(j, FPS, fps)
+
+
+def spans(item: dict, f0: int, f1: int, fps: float = FPS) -> list[tuple[int, int, str, str]]:
+    """The title's frames by class: (from_frame, to_frame, cls, label), film frames at the film's master rate ``fps``,
+    for the mark track and the share."""
     tl = timeline(item) or [{"frame": 0, "cls": "DRAWN", "label": ""}]
     out = []
     for k, m in enumerate(tl):
-        a = f0 + m["frame"]
-        b = f0 + tl[k + 1]["frame"] if k + 1 < len(tl) else f1
+        a = f0 + film_frame(m["frame"], fps)
+        b = f0 + film_frame(tl[k + 1]["frame"], fps) if k + 1 < len(tl) else f1
         a, b = max(f0, min(a, f1)), max(f0, min(b, f1))
         if b > a:
             out.append((a, b, m["cls"], m["label"]))
@@ -123,12 +137,13 @@ def dip_hold_frames(item: dict) -> list[int]:
     t0 = c / FPS - s / 2
     n = int(item.get("frames") or 0)
     return [k for k in range(max(0, int((t0 - 1) * FPS)), min(n, int((t0 + s + 1) * FPS)))
-            if 0 <= k / FPS - t0 <= s and M.dip_level(k / FPS - t0, s) <= 0.0]
+            if 0 <= k / FPS - t0 <= s and M.dip_level(k / FPS - t0, s, fps=FPS) <= 0.0]
 
 
-def expected_class(item: dict, k: int) -> tuple[str | None, str | None, float]:
-    """(class, outgoing class, crossfade weight) at master frame k, as mark_frame draws it."""
-    st = M.mark_state(k / FPS, [{"start": m["frame"] / FPS, "cls": m["cls"], "label": m["label"]} for m in timeline(item)])
+def expected_class(item: dict, k: int, t: float | None = None) -> tuple[str | None, str | None, float]:
+    """(class, outgoing class, crossfade weight) at master frame k (or at ``t`` seconds into the title, when the film
+    masters at another rate and the engine draws the marks at its own frame times), as mark_frame draws it."""
+    st = M.mark_state(k / FPS if t is None else t, [{"start": m["frame"] / FPS, "cls": m["cls"], "label": m["label"]} for m in timeline(item)])
     if st is None:
         return None, None, 1.0
     return st["cls"], st["prev_cls"], st["mix"]
@@ -250,7 +265,7 @@ def _marks_only(arr: np.ndarray) -> bool:
     return bool(inside.all())
 
 
-def check_frame(arr: np.ndarray, item: dict, k: int) -> str:
+def check_frame(arr: np.ndarray, item: dict, k: int, t: float | None = None) -> str:
     """One title frame's mark against the master's timeline: 'burned' (the class glyph is there), 'fade' (inside a
     class change's 4-frame crossfade, the centre between the two), 'dip' (the dip's black hold, every pixel off),
     'dip_glyph' (the black hold with marks alone on it, the glyph, a label or the watermark: a warning), else 'fail'."""
@@ -259,7 +274,7 @@ def check_frame(arr: np.ndarray, item: dict, k: int) -> str:
         if not arr.any():
             return "dip"
         return "dip_glyph" if _marks_only(arr) else "fail"
-    cls, prev, mix = expected_class(item, k)
+    cls, prev, mix = expected_class(item, k, t)
     if cls is None:
         return "fail"
     if prev is not None and mix < 1.0:
@@ -349,26 +364,27 @@ def plain(text) -> str:
 # --------------------------------------------------------------------------
 
 
-def _overlaps(a0: float, a1: float, b0: float, b1: float, eps: float = 0.5 / FPS) -> bool:
+def _overlaps(a0: float, a1: float, b0: float, b1: float, eps: float = 0.5 / FPS) -> bool:   # half a frame at 24
     return a0 < b1 - eps and a1 > b0 + eps
 
 
 def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, lines: list[dict], texts: list[dict],
-               cues: list[dict], vl: list[dict], silences: list) -> dict:
+               cues: list[dict], vl: list[dict], silences: list, fps: float = FPS) -> dict:
     """Every A40 check the plan can decide. ``lint`` is build_plan's; ``silences`` gains the title's span when
     nothing sounds under it (silence is allowed until the main-title theme exists). Returns, per title shot id,
-    what the plan and the frames need: {item, burned, record_path, probe}."""
+    what the plan and the frames need: {item, burned, record_path, probe}. ``fps`` is the film's master rate (A44): the
+    shots' frames are at it, and a title at another rate is conformed to it by frame repeat and declared."""
     from studio.engine import render as R      # the engine's probes and licence rules (render imports this module)
     from studio.engine import score as SC
 
     out: dict = {}
     idx = [i for i, s in enumerate(shots) if is_title(s)]
-    spans_s = [(shots[i]["f0"] / FPS, shots[i]["f1"] / FPS) for i in idx]
+    spans_s = [(shots[i]["f0"] / fps, shots[i]["f1"] / fps) for i in idx]
     for c in cues:                             # the theme plays under the series titles and nowhere else
         if c.get("kind", "music") != "music" or c.get("role") != THEME_ROLE:
             continue
         a, b = float(c["start_s"]), float(c["end_s"])
-        if not any(t0 - 0.5 / FPS <= a and b <= t1 + 0.5 / FPS for t0, t1 in spans_s):
+        if not any(t0 - 0.5 / fps <= a and b <= t1 + 0.5 / fps for t0, t1 in spans_s):
             lint("title-theme", False, unit=c.get("id"), grammar="A40",
                  evidence={"start_s": a, "end_s": b, "titles": [[round(x, 3) for x in sp] for sp in spans_s],
                            "fix": "a main_title cue plays under a title_sequence shot only, from its first frame"})
@@ -382,7 +398,7 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
         s = shots[i]
         item = s.get("_item") or {}
         sid = s["id"]
-        t0, t1 = s["f0"] / FPS, s["f1"] / FPS
+        t0, t1 = s["f0"] / fps, s["f1"] / fps
         # Placement: after the hook, before Part 1
         want = (cold[-1] + 1) if cold else 0
         place_ok = i == want and (not chapters or i < chapters[0])
@@ -427,7 +443,7 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
         theme = [c for c in sounding if roles[c.get("id")] == THEME_ROLE]
         for c in theme:
             a, b = float(c["start_s"]), float(c["end_s"])
-            ok = abs(a - t0) <= 0.5 / FPS and b <= t1 + 0.5 / FPS
+            ok = abs(a - t0) <= 0.5 / fps and b <= t1 + 0.5 / fps
             lint("title-theme", ok, unit=c.get("id"), grammar="A40",
                  evidence={"start_s": a, "end_s": b, "title": [round(t0, 3), round(t1, 3)],
                            "fix": None if ok else "the theme starts on the title's first frame and ends by its last"})
@@ -491,13 +507,23 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
                 fmt_ok = ((pr["width"], pr["height"]) == SIZE and abs(pr["fps"] - FPS) < 1e-6
                           and (item.get("width"), item.get("height"), item.get("fps")) == (SIZE[0], SIZE[1], FPS)
                           and n > 0 and frames == n and abs(pr["duration_s"] - n / FPS) <= 0.5 / FPS
-                          and abs(s["_dur"] - n / FPS) <= 0.5 / FPS and s["f1"] - s["f0"] == n)
+                          and abs(s["_dur"] - n / FPS) <= 0.5 / FPS
+                          and abs((s["f1"] - s["f0"]) - n * fps / FPS) <= (0 if abs(fps - FPS) < 1e-9 else 1))
                 out[sid] = {"probe": pr}
+                if fmt_ok and abs(fps - FPS) >= 1e-9:
+                    # A44 (and A40: the title is played as rendered): at another master rate it is conformed by repeat
+                    pat = CAD.pattern(FPS, fps, s["f1"] - s["f0"])
+                    out[sid]["conform"] = {"method": "repeat" if fps > FPS else "drop", "in_fps": FPS,
+                                           "out_rate": CAD.rate_str(CAD.Fraction(fps).limit_denominator(100000)), **pat}
+                    journal.decision("conform", f"{sid}: the series titles ({FPS} fps) conformed to the film's "
+                                     f"{out[sid]['conform']['out_rate']} by frame {out[sid]['conform']['method']}",
+                                     "A40 and A44: the title master is played as rendered, its frames conformed to the "
+                                     "film's master rate with no speed change", unit=sid, evidence=out[sid]["conform"])
             except Exception as e:
                 ev["error"] = f"{type(e).__name__}: {e}"
         lint("title-format", fmt_ok, unit=sid, grammar="A40, 7.5",
              evidence=dict(ev, fix=None if fmt_ok else "the master is 1920x1080 at 24 fps, its frame count the ledger's, "
-                                                       "and the shot's dur_s is frames / 24"))
+                                                       "and the shot's dur_s is frames / 24 (at a 29.97 master its frames are repeated, A44)"))
         # The record beat: the film's own record, from this film's ledgers, its pixels the film's scan
         rid = item.get("record")
         rec = assets.get(rid) if rid else None

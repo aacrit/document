@@ -498,8 +498,15 @@ def film_settings(play: dict) -> tuple[dict, dict, list[str]]:
     if not isinstance(declared, dict):
         return settings, stated, [f"settings must be an object, not {type(declared).__name__}"]
     for k, v in declared.items():
+        if k == "master_fps":             # A44: a rate, not a number in bounds (studio/engine/cadence.py), kept exact
+            from studio.engine import cadence as CAD
+            try:
+                stated[k] = CAD.rate_str(CAD.parse_rate(v))
+            except CAD.RateError as e:
+                problems.append(str(e))
+            continue
         if k not in SETTING_BOUNDS:
-            problems.append(f"unknown setting {k!r} (known: {', '.join(sorted(SETTING_BOUNDS))})")
+            problems.append(f"unknown setting {k!r} (known: {', '.join(sorted([*SETTING_BOUNDS, 'master_fps']))})")
             continue
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(float(v)):
             problems.append(f"{k} must be a share from 0 to 1, not {v!r}" if k in SHARE_SETTINGS else

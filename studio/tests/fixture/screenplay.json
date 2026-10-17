@@ -4,6 +4,7 @@
   "_note": "Engine test fixture (GRAMMAR 12 format v2). Every voice, speaker and source here is a test stand-in; no words are attributed to a real person. Durations are shortened for speed and do not meet GRAMMAR's part lengths.",
   "languages": {"spoken": "en", "subtitles": ["en"]},
   "runtime_target_s": 25,
+  "settings": {"master_fps": 24},
   "as_of": "2026",
   "ledgers": {
     "stills": {"path": "stills-ledger.json", "media": "stills"},
