@@ -1,0 +1,82 @@
+{
+ "ledger": "The Run: Foley recordings (proofs)",
+ "checked": "2026-10-17",
+ "precedent": "the original WAVs need a Freesound login; the HQ preview MP3 is pinned and decoded once (house room tone 329569)",
+ "ir": {
+  "file": "D:/document-media/house-room/AIR_1_4/air_binaural_lecture_1_1_2.mat",
+  "var": "h_air",
+  "sr": 48000,
+  "what": "Aachen Impulse Response database, lecture room (the house IR)"
+ },
+ "room_tone": "D:/document-media/house-room/roomtone/house-roomtone-329569.json (Freesound 329569, leonelmail, CC0)",
+ "recordings": [
+  {
+   "id": "FS197214",
+   "title": "coin(s) spin drop.wav",
+   "uploader": "Yuval",
+   "source_page": "https://freesound.org/s/197214/",
+   "file_pinned": "https://cdn.freesound.org/previews/197/197214_770707-hq.mp3",
+   "file": "197214_770707-hq.mp3",
+   "decoded": "197214_770707-hq.wav",
+   "mp3_sha256": "8b9132dca4668c13a728953e8510435799fcba06d496e4120e6705a006f2c439",
+   "licence": "CC0 1.0 (the sound page's licence line, read 2026-10-17)",
+   "licence_evidence": "D:/document-media/title-sequence/run/evidence/fs-197214.html",
+   "credit_line": "Yuval on Freesound (CC0)",
+   "kind": "recording",
+   "claims_period": false,
+   "ai": false,
+   "use": "coin spin-down: the bronze disc's whir, its stop placed on the slap (latch)"
+  },
+  {
+   "id": "FS628997",
+   "title": "Marbles_Hitting each other.wav",
+   "uploader": "KaleidacousticsAudio",
+   "source_page": "https://freesound.org/s/628997/",
+   "file_pinned": "https://cdn.freesound.org/previews/628/628997_13875907-hq.mp3",
+   "file": "628997_13875907-hq.mp3",
+   "decoded": "628997_13875907-hq.wav",
+   "mp3_sha256": "a500684abdbde23137eaacfcc89dc2214640c0d43b77dce30f3f81334b724369",
+   "licence": "CC0 1.0 (the sound page's licence line, read 2026-10-17)",
+   "licence_evidence": "D:/document-media/title-sequence/run/evidence/fs-628997.html",
+   "credit_line": "KaleidacousticsAudio on Freesound (CC0)",
+   "kind": "recording",
+   "claims_period": false,
+   "ai": false,
+   "use": "marbles knocking: clay rim taps, the papyrus edge, clay on type, clay on clay (low-passed, pitched down)"
+  },
+  {
+   "id": "FS458136",
+   "title": "Ball in hole.wav",
+   "uploader": "NeatoEnt",
+   "source_page": "https://freesound.org/s/458136/",
+   "file_pinned": "https://cdn.freesound.org/previews/458/458136_7254624-hq.mp3",
+   "file": "458136_7254624-hq.mp3",
+   "decoded": "458136_7254624-hq.wav",
+   "mp3_sha256": "c0c0a8eefcaf7c6277897ef8f0517e9c77ab74ab708b2c7acaa19c2c2ae4bdb0",
+   "licence": "CC0 1.0 (the sound page's licence line, read 2026-10-17)",
+   "licence_evidence": "D:/document-media/title-sequence/run/evidence/fs-458136.html",
+   "credit_line": "NeatoEnt on Freesound (CC0)",
+   "kind": "recording",
+   "claims_period": false,
+   "ai": false,
+   "use": "a marble dropped onto a table and rolling: drops off the lip and edges; the rolling loop"
+  },
+  {
+   "id": "FS259553",
+   "title": "small metal object fall",
+   "uploader": "nicktermer",
+   "source_page": "https://freesound.org/s/259553/",
+   "file_pinned": "https://cdn.freesound.org/previews/259/259553_2316086-hq.mp3",
+   "file": "259553_2316086-hq.mp3",
+   "decoded": "259553_2316086-hq.wav",
+   "mp3_sha256": "2e026fe115bec79c2f15075f75218d5d2d1d7d511d1bfc91ebbbb48364911355",
+   "licence": "CC0 1.0 (the sound page's licence line, read 2026-10-17)",
+   "licence_evidence": "D:/document-media/title-sequence/run/evidence/fs-259553.html",
+   "credit_line": "nicktermer on Freesound (CC0)",
+   "kind": "recording",
+   "claims_period": false,
+   "ai": false,
+   "use": "small metal object falling: the type falling on brass (pitched up 1.5x), the end stop"
+  }
+ ]
+}
