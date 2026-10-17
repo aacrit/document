@@ -157,7 +157,8 @@ def test_a16_a_card_carries_the_glyph_alone_and_imagery_its_label_then_the_glyph
     st = M.mark_state((s3["f0"] + 30) / 24, plan["marks"])
     assert st["label"] == s3["label"] and st["label_alpha"] > 0.99
     # the G2 plate set its text at 3.1% of height, opaque on a scrim; A16's label 1.85% at 0.72; A31's is smaller and fainter
-    assert M.LABEL["size"] < 1.85 and M.LABEL["alpha"] < 0.72
+    # (the cinematography pass raised both labels for the phone; the AI label stays the larger and the brighter)
+    assert M.LABEL["size"] < M.LABEL_AI["size"] and M.LABEL["alpha"] < 0.72
 
 
 def test_a31_the_label_surfaces_holds_about_2_s_and_is_let_go_to_the_glyph():

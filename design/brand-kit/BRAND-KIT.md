@@ -444,3 +444,15 @@ The founder: "a cinematic ... intro ... after the hook of each video like it's a
 | AI | none: the master's provenance states `ai: false` for every input, so the film's mark key keeps "No picture in this film is AI-generated." One AI pixel would make the whole sequence AI-GENERATED, labelled for all its seconds in every film |
 
 Do: keep the record the film's own (an item of its ledgers, held whole); state in the master's ledger item what it already carries. Don't: draw a second mark, label or watermark over a burned master; let narration, a lower third or a subtitle run over it; dissolve into or out of it; let the master's own dip show anything on its black hold.
+
+## 16. Legible on a phone (2026-10-17, founder; cinematography pass, ticket 8)
+
+The house's small screen is a landscape phone, the 16:9 frame about 693 px wide. A portrait phone shows a thumbnail. Every text a viewer must read renders at 7 px or more there. The glyphs are marks, not text, and stay as section 12 sets them.
+
+| | Value | 1080p | 693 px phone |
+|---|---|---|---|
+| Label type (12) | Inter 400 at **2.0%** of height (was 1.6%); opacity, shadow, whisper, hold, fold and repeat unchanged (12a) | 22 px | 7.8 px |
+| Lower third source (4) | Inter 400 at **2.2%** of height (was 1.8%), at 0.62 | 24 px | 8.6 px |
+| `phone-legibility` | every must-read size the engine draws (`motion.must_read_text`, plus the map renderer's label and sizes) measured at 693 px: guidance, a warning and a reviewer item, never a refusal | | |
+
+Do: size any new text from this floor up. Don't: shrink text under it to make room; move a line or wrap it instead.

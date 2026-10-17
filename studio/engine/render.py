@@ -69,6 +69,7 @@ from PIL import Image
 
 from studio.engine import aswas as AW
 from studio.engine import clips as CL
+from studio.engine import maps as MP
 from studio.engine import motion as M
 from studio.engine import overlays as OV
 from studio.engine import policy as POL
@@ -5918,6 +5919,23 @@ LABEL_RATE_WINDOW_MAX = 4       # A31 (review): and at most 4 in any 60 s window
 PICTURE_CLASSES = ("ARCHIVE", "RECONSTRUCTED", "DRAWN", "AI-GENERATED")
 
 
+def phone_legibility_lint(journal: Journal, plan: dict) -> list[str]:
+    """phone-legibility (cinematography pass, founder 2026-10-17): every must-read text the house draws (the motion
+    module's and the map renderer's sizes) renders at M.PHONE.min_px or more on a landscape phone (the frame
+    M.PHONE.width_px wide). Guidance: a warning and a reviewer item, never a refusal. Returns [] (nothing to refuse)."""
+    extra = {f"map {k}": v[1] for k, v in MP.LABEL.items()}
+    extra.update({f"map {k}": v for k, v in MP.SIZES.items()})
+    rows = M.phone_legibility(int(plan.get("W", 1920)), int(plan.get("H", 1080)), extra=extra)
+    small = [r for r in rows if not r["ok"]]
+    journal.lint("phone-legibility", not small, stage="scout", phase="preflight", unit="text", severity="warn",
+                 grammar="cinematography pass 6, BRAND-KIT 4 and 12",
+                 evidence={"phone_width_px": M.PHONE["width_px"], "min_px": M.PHONE["min_px"], "under": small,
+                           "smallest": min(rows, key=lambda r: r["px"]), "checked": len(rows),
+                           "fix": None if not small else "raise these sizes (% of H) until each renders at "
+                                                         f"{M.PHONE['min_px']:g} px on the landscape phone"})
+    return []
+
+
 def label_rate_lint(journal: Journal, plan: dict, *, draft: bool = False) -> list[str]:
     """label-rate (A31, and A39 refined: founder 2026-10-12, a pacing guide):
     the provenance label surfaces only on a change of class or year
@@ -6708,7 +6726,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         # render) journal them as warnings
         advisory = draft or audio_only or until_s is not None
         lt_refusals = (lower_third_time_lints(journal, plan, draft=advisory) + credits_roll_lints(journal, plan, draft=advisory)
-                       + label_rate_lint(journal, plan, draft=advisory) + mark_key_lints(journal, dict(plan, until_s=until_s), draft=advisory))
+                       + label_rate_lint(journal, plan, draft=advisory) + phone_legibility_lint(journal, plan) + mark_key_lints(journal, dict(plan, until_s=until_s), draft=advisory))
         lt_refusals += black_dip_lints(journal, plan, draft=advisory)
         if lt_refusals:
             raise Refused(f"on-screen time (pre-flight): {'; '.join(lt_refusals)} (BRAND-KIT 4 and 11c, A20(b), A30; "
