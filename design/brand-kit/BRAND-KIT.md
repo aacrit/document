@@ -470,3 +470,19 @@ The house's small screen is a landscape phone, the 16:9 frame about 693 px wide.
 | `phone-legibility` | every must-read size the engine draws (`motion.must_read_text`, plus the map renderer's label and sizes) measured at 693 px: guidance, a warning and a reviewer item, never a refusal | | |
 
 Do: size any new text from this floor up. Don't: shrink text under it to make room; move a line or wrap it instead.
+
+## 17. The master frame rate (2026-10-17, founder ruling 1 (c); GRAMMAR A44)
+
+A film masters at 24 fps or at 30000/1001 (29.97): stated in `settings.master_fps`, else the native rate of the majority of its clip runtime (a tie or no clips: 24). Every number in this kit given in seconds keeps its seconds; a number given in frames "at 24 fps" is that many seconds, so at 29.97 it is about a quarter more frames. The ones that change, at 29.97:
+
+| | at 24 | at 29.97 |
+|---|---|---|
+| Dip to black at 0.5 s | hold 2 frames (0.083 s), fades 0.208 s each | hold 2 frames (0.067 s), fades 0.217 s each; the cut frame and its neighbours black |
+| Cross-class dip, at least | 12 frames (0.5 s) | 15 frames (0.5 s) |
+| The glyph's class crossfade | 4 frames (0.167 s) | 5 frames (0.167 s) |
+| Watermark fade either side of a CARD | 12 frames (0.5 s) | 15 frames (0.5 s) |
+| Lower third stagger | 4 frames (0.167 s) | 5 frames (0.167 s) |
+| The dot's grow (`whisper`), hold, fold, repeat | 0.357 s, 2.0 s, 0.75 s, 40 s | unchanged |
+| Series titles (section 15) | the master's own 24 frames a second | the same frames, repeated about one in four (declared) |
+
+The 720p web encode keeps the master's rate with a 2 s keyframe interval (48 frames at 24, 60 at 29.97).
