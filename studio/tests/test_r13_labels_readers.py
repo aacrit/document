@@ -113,13 +113,14 @@ def test_voice_names_follow_the_cast_files():
 def test_the_house_table_is_derived_never_hand_set_and_inside_the_bounds():
     data = json.loads(VO.TABLE.read_text(encoding="utf-8"))
     voices = data["voices"]
-    assert len(voices) == 38 and data["bounds"] == json.loads(json.dumps(VO.READER_EQ_BOUNDS))
+    assert len(voices) >= 38 and data["bounds"]   # 38 measured in R13; a film adds its new voices with --add (A38 refined)
+    assert data["bounds"] == json.loads(json.dumps(VO.READER_EQ_BOUNDS))
     assert data["target"]["warmth_db"] == VO.targets()["warmth_db"]
     for k, rec in voices.items():
         assert VO.eq_problems(k, rec["eq"]) == [], k
         ex = {int(c): v for c, v in rec["excess_db"].items()}
         assert VO.derive(ex, rec["f0_hz"])[0] == rec["eq"], k                         # re-derives exactly
-        assert set(rec["films"]) <= {"smallpox", "episode-v2"} and rec["takes"] >= 1
+        assert set(rec["films"]) <= {"smallpox", "episode-v2", "sept11"} and rec["takes"] >= 1
     # the brightest readers measured (+14 dB at 6.3 to 8 kHz) take the deepest cut; the darkest keep their treble
     assert voices["kokoro:bm_george"]["eq"]["high"]["gain_db"] == -6.0
     assert voices["kokoro:hm_psi"]["eq"]["high"]["gain_db"] == 0.0
