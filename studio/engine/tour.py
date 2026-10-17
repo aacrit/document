@@ -285,18 +285,25 @@ def default_stops(size, aspect: float, dur: float, direction: str = "") -> list[
 def covering_stops(size, aspect: float, dur: float, focus=None) -> list[dict]:
     """A pass that shows the whole picture: the default tour, and with a
     ``focus`` it starts at the end farther from the focus, passes to the other
-    end and settles on the focus (``TOUR['default_settle']`` of the shot in)."""
+    end and comes back to settle on the focus. The shot's time is shared by
+    how far each leg travels, so the camera keeps one even speed (the rostrum
+    cruise) instead of rushing the settle."""
     ax = long_axis(size, aspect)
     if ax is None or focus is None:
         return default_stops(size, aspect, dur)
     fx, fy = float(focus[0]), float(focus[1])
     f = fx if ax == "x" else fy
-    a, b = (1.0, 0.0) if f >= 0.5 else (0.0, 1.0)
-    t_mid = TOUR["default_settle"] * dur
+    a, b = (0.0, 1.0) if f >= 0.5 else (1.0, 0.0)          # from the far end, through the near one
     s0 = {"t": 0.0, "z": 1.0, "x": 0.5, "y": 0.5, "from": "covering pass: open"}
-    s1 = {"t": t_mid, "z": 1.0, "x": 0.5, "y": 0.5, "from": "covering pass: the far end"}
+    s1 = {"t": 0.0, "z": 1.0, "x": 0.5, "y": 0.5, "from": "covering pass: the near end"}
     s0[ax], s1[ax] = a, b
     s2 = {"t": dur, "z": 1.0, "x": fx, "y": fy, "from": "covering pass: settle on the focus"}
+    p0, p1, p2 = (settle(st, size, aspect)[ax] for st in (s0, s1, s2))
+    sweep, back = abs(p1 - p0), abs(p2 - p1)
+    if back <= 1e-3 or sweep + back <= 1e-9:
+        s1["t"] = dur
+        return [s0, s1]
+    s1["t"] = dur * sweep / (sweep + back)
     return [s0, s1, s2]
 
 

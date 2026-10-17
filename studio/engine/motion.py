@@ -1703,14 +1703,13 @@ FILL = dict(open_s=2.5, move_s=6.0, move_min_s=3.0, curve="rostrum", default_min
 #   zoom_guide_per_s    a zoom changing scale faster than 15% a second is a warning
 #   still_eps_per_s     slower than this (frame or log-scale per second) the camera is landed on a stop, for the
 #                       continuity check across a cut (a creep is under it)
-#   default_settle      the FILL macro's covering pass ends this share of the shot in, then settles on its focus
 #   sample_hz           how often the guards sample the path (the people and fill checks)
 #   still_max_upscale   the softness cap for a still on the 1080p master unless the film states fill_max_upscale
 #                       (founder, 2026-10-17: "fill the frame, soft is acceptable up to 3x"); a clip keeps A34's 1.6
 #   whole_creep_max     a still held whole under a fill_exception creeps inside its own shape (pillarboxed, never
 #                       frozen) at creep_scale_per_s, to at most this zoom of the whole (founder, 2026-10-17)
 TOUR = dict(hold_creep_after_s=1.5, creep_scale_per_s=0.015, creep_drift_per_s=0.01, pan_guide_per_s=1 / 3,
-            zoom_guide_per_s=0.15, still_eps_per_s=0.03, default_settle=0.7, sample_hz=8.0, curve="rostrum",
+            zoom_guide_per_s=0.15, still_eps_per_s=0.03, sample_hz=8.0, curve="rostrum",
             still_max_upscale=3.0, whole_creep_max=1.06)
 
 

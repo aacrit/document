@@ -560,3 +560,16 @@ def test_an_unspoken_anchor_refuses(film):
     plan, _ = _plan(film, "a41-anchor-ok")
     st = next(s for s in plan["shots"] if s["id"] == "S3")["_cam"]["tour"]["stops"][1]
     assert 0.5 < st["t"] < 4.0 and st["at"] == "narrator"
+
+
+def test_a_covering_pass_starts_far_from_the_focus_and_keeps_one_speed():
+    size = PORTRAIT                                                         # tilts: the fill window travels in y
+    st = T.covering_stops(size, A, 9.0, focus=[0.5, 0.6])
+    assert st[0]["y"] == 0.0 and st[1]["y"] == 1.0 and st[2]["y"] == 0.6    # far end, near end, back to the focus
+    ys = [T.settle(x, size, A)["y"] for x in st]
+    sweep, back = abs(ys[1] - ys[0]), abs(ys[2] - ys[1])
+    assert st[1]["t"] == pytest.approx(9.0 * sweep / (sweep + back))         # time shared by distance: one speed
+    tl = T.build(st, 9.0, size, A, 2.0)
+    assert T.covered(T.windows_of(tl), (0, 0, 1, 1), size)
+    end = T.covering_stops(size, A, 9.0, focus=[0.5, 1.0])                  # the focus is the near end: two stops
+    assert len(end) == 2 and end[-1]["t"] == 9.0
