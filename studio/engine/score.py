@@ -83,15 +83,16 @@ DUCK_GRID_S = 0.01                  # duck-pumping is judged on a 10 ms grid
 DUCK_ATTACK_S = 1.0
 DUCK_ATTACK_MAX_DB = 2.0            # per 100 ms: a 0.7 s sine pre-roll (2.0 dB) is the steepest that passes
 
-ROLES = ("bed", "transition", "sting", "outro", "regional", "motif", "brand_pulse", "palette")
+ROLES = ("bed", "transition", "sting", "outro", "regional", "motif", "brand_pulse", "palette", "main_title")
 UNDERSCORE = ("bed", "transition", "sting", "outro", "regional")   # levelled to the bed target; under the score standard
 TRANSITIONS = ("transition", "sting", "outro")            # linted against the bed they lead into (or follow)
 SHAPED = ("bed", "regional")                              # band-shaped (bed_shape) before they are levelled
 FILM_LAYER = ("bed", "transition", "sting", "outro")      # the film's own score: never another film's (bed-reuse)
-BRAND = ("motif", "brand_pulse")                          # the house's signature: recurs by design (score-repetition)
+BRAND = ("motif", "brand_pulse", "main_title")            # the house's signature: recurs by design (score-repetition);
+                                                          # A40: the main-title theme plays in every film's series titles
 TREBLE_LIMITED = UNDERSCORE + BRAND                       # music-treble: every scored cue (a palette recording is a source)
-FEATURED = ("motif", "brand_pulse", "palette")            # heard for itself, levelled to FEATURE_LUFS
-MUSIC_ROLES = ("underscore", "house_motif", "brand_pulse", "palette")    # a music cue's `role`; absent is underscore
+FEATURED = ("motif", "brand_pulse", "palette", "main_title")   # heard for itself, levelled to FEATURE_LUFS
+MUSIC_ROLES = ("underscore", "house_motif", "brand_pulse", "palette", "main_title")   # a music cue's `role`; absent is underscore
 RULES = ("bed-under-voice", "bed-low-end", "music-treble", "bed-breathing", "underscore-level", "ambience-level",
          "ambience-low-end", "transition-ceiling", "regional-density", "brand-pulse-place", "bed-reuse",
          "score-repetition", "phone-check", "music-entry", "music-exit", "music-holes", "duck-pumping", "duck-slope")
@@ -190,6 +191,8 @@ def cue_role(c: dict) -> str:
         return "palette"
     if c.get("role") == "brand_pulse":
         return "brand_pulse"
+    if c.get("role") == "main_title":          # A40: the series titles' theme, developed from the house motif
+        return "main_title"
     sr = c.get("score_role")
     if isinstance(sr, str) and sr in UNDERSCORE:
         return sr
@@ -216,7 +219,8 @@ def role_problem(c: dict) -> str | None:
         return f"role {role!r} is not one of {', '.join(MUSIC_ROLES)}"
     if "score_role" in c:
         sr = c["score_role"]
-        allowed = {"house_motif": ("motif",), "palette": ("palette",), "brand_pulse": ("brand_pulse",)}.get(role, UNDERSCORE)
+        allowed = {"house_motif": ("motif",), "palette": ("palette",), "brand_pulse": ("brand_pulse",),
+                   "main_title": ("main_title",)}.get(role, UNDERSCORE)
         if not isinstance(sr, str) or sr not in allowed:
             return f"score_role {sr!r} with role {role or 'underscore'!r}: it may be {', '.join(allowed)}"
     regional = cue_role(c) == "regional"

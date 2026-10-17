@@ -33,6 +33,7 @@ import {
   secondsByMark,
   shotAt,
   shotTreatment,
+  shotWhat,
   silentRecord,
   stepChapter,
   transcript,
@@ -210,6 +211,13 @@ describe("words: sources, flags, the transcript, the record's silences", () => {
     expect(itemLinkLabel(clip)).toBe("The film at the Internet Archive");
     expect(shotTreatment(still)).toMatch(/^Shown whole, then the camera moves/);
     expect(shotTreatment({ ...clip, mark: { class: "RECONSTRUCTED", detail: "" }, alterations: ["colour cast removed"] })).toBe("Changed: colour cast removed.");
+  });
+
+  it("names the series titles (GRAMMAR A40) in plain words", () => {
+    const clip = film.shots.find((s) => s.id === "S05")!;
+    const titles = { ...clip, kind: "title_sequence", start_s: 20, end_s: 77, mark: { class: "DRAWN", detail: "from period records" }, alterations: [] };
+    expect(shotWhat(titles)).toBe("The series titles, drawn by the studio from period records, 57 s");
+    expect(shotTreatment(titles)).toMatch(/^A model made by the studio from scans of period records/);
   });
 });
 

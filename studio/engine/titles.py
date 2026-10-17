@@ -1,0 +1,574 @@
+"""GRAMMAR A40, the series titles: ``void document · As It Was``, a pre-rendered master played as it is.
+
+A screenplay shot ``{kind: title_sequence, asset: <master id>, mark: DRAWN}`` sits right after the cold open (the hook)
+and before Part 1. Its asset is a master clip in a ledger the film declares (``design/title-sequence``'s delivery:
+lossless 1080p24), whose ledger item states what the master already carries:
+
+    {"id": "TS-v1-S-130", "file": "title-v1-S-130.mkv", "licence": "CC BY 2.0", "ai": false,
+     "generator": "...", "content_date": "1947-08-17", "content_basis": "...",
+     "provenance": "<path to the title's assets-ledger.json>", "record": "S-130",
+     "fps": 24, "width": 1920, "height": 1080, "frames": 1368, "burned": true,
+     "marks": [{"frame": 0, "cls": "DRAWN", "label": "Drawn · from period records"},
+               {"frame": 1152, "cls": "ARCHIVE", "label": "Archive · 1947"}, {"frame": 1248, "cls": "CARD"}],
+     "record_frames": [1156, 1238], "dip": {"centre_frame": 1248, "s": 0.75}, "lockup_frame": 1320}
+
+``burned: true`` means the master carries its own provenance glyph and labels, watermark and lockup, so the engine
+draws nothing over it (no double mark); the lints read the pixels to confirm it. ``burned: false`` makes the engine
+draw the glyph, the labels and the watermark from ``marks`` (and refuses a master that already shows a glyph).
+Pure helpers and plan-time lints; render.py calls them.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+
+from studio.engine import motion as M
+
+KIND = "title_sequence"
+SERIES = "void document · As It Was"
+SIZE = (1920, 1080)                 # the master is the 1080p24 delivery (GRAMMAR 7.5); the engine scales it for 720p
+FPS = 24
+FADE_FRAMES = round(M.LABEL["fade"] * FPS)   # the glyph's 4-frame crossfade at a class change (GRAMMAR 4.1)
+HUE_TOL = 2                         # a burned glyph pixel is its class hue within this (the master is lossless RGB)
+RECORD_LIMIT = 6.0                  # A7's low-pass mean difference: the record beat is the film's own scan, held whole
+LOCKUP_MIN_PX = 2000                # bright type pixels in the lockup band at 1080p: the words and the logomark are there
+THEME_ROLE = "main_title"           # the main-title theme cue (score.py), composed for the series titles
+STAND_IN = ("motif",)               # until the theme exists, the house motif may stand in (a reviewer item), or silence
+PLACE_AFTER = "cold_open"           # the hook
+CHAPTER = "chapter"                 # Part 1 and on
+# Licences from the least to the most demanding: the master's own licence is at least as demanding as any input's.
+_RANK = ((re.compile(r"^public domain$", re.I), 0), (re.compile(r"^cc0( 1\.0)?$", re.I), 1),
+         (re.compile(r"^cc[- ]?by[- ]?sa([- ][1-4]\.0)?$", re.I), 3), (re.compile(r"^cc[- ]?by([- ][1-4]\.0)?$", re.I), 2))
+
+
+def licence_rank(lic: str) -> int | None:
+    lic = str(lic or "").strip()
+    for rx, k in _RANK:
+        if rx.match(lic):
+            return k
+    return None
+
+
+def is_title(shot: dict) -> bool:
+    return shot.get("kind") == KIND
+
+
+# --------------------------------------------------------------------------
+# The master's declared mark timeline
+# --------------------------------------------------------------------------
+
+
+def timeline(item: dict) -> list[dict]:
+    """The master's marks, sorted by frame: ``{frame, cls, label, year}``."""
+    out = []
+    for m in sorted(item.get("marks") or [], key=lambda m: int(m.get("frame", 0))):
+        label = str(m.get("label") or "")
+        y = re.search(r"(?<!\d)(\d{4})(?!\d)", label)
+        out.append({"frame": int(m.get("frame", 0)), "cls": m.get("cls"), "label": label, "year": y.group(1) if y else None})
+    return out
+
+
+def classes(item: dict) -> list[str]:
+    return [m["cls"] for m in timeline(item)]
+
+
+def out_class(item: dict, default: str = "DRAWN") -> str:
+    """The class the master ends on (its last mark): what the next shot's glyph crossfades from."""
+    tl = timeline(item)
+    return tl[-1]["cls"] if tl else default
+
+
+def sub_marks(item: dict, start_s: float) -> list[dict]:
+    """The timeline as mark_frame's shots (absolute times), for a master the engine marks itself."""
+    return [{"start": start_s + m["frame"] / FPS, "cls": m["cls"], "label": m["label"], "year": m["year"]} for m in timeline(item)]
+
+
+def spans(item: dict, f0: int, f1: int) -> list[tuple[int, int, str, str]]:
+    """The title's frames by class: (from_frame, to_frame, cls, label), film frames, for the mark track and the share."""
+    tl = timeline(item) or [{"frame": 0, "cls": "DRAWN", "label": ""}]
+    out = []
+    for k, m in enumerate(tl):
+        a = f0 + m["frame"]
+        b = f0 + tl[k + 1]["frame"] if k + 1 < len(tl) else f1
+        a, b = max(f0, min(a, f1)), max(f0, min(b, f1))
+        if b > a:
+            out.append((a, b, m["cls"], m["label"]))
+    return out
+
+
+def card_spans(item: dict, start_s: float, end_s: float) -> list[tuple[float, float]]:
+    """The title's CARD stretches (the lockup), in seconds: the film's watermark stays off there and fades back after."""
+    tl = timeline(item)
+    out = []
+    for k, m in enumerate(tl):
+        if m["cls"] != "CARD":
+            continue
+        b = start_s + tl[k + 1]["frame"] / FPS if k + 1 < len(tl) else end_s
+        out.append((start_s + m["frame"] / FPS, b))
+    return out
+
+
+def dip_hold_frames(item: dict) -> list[int]:
+    """The master's own dip (ARCHIVE to CARD): the frames of its black hold, master frames."""
+    d = item.get("dip")
+    if not isinstance(d, dict) or d.get("centre_frame") is None:
+        return []
+    c, s = int(d["centre_frame"]), float(d.get("s", 0.75))
+    t0 = c / FPS - s / 2
+    n = int(item.get("frames") or 0)
+    return [k for k in range(max(0, int((t0 - 1) * FPS)), min(n, int((t0 + s + 1) * FPS)))
+            if 0 <= k / FPS - t0 <= s and M.dip_level(k / FPS - t0, s) <= 0.0]
+
+
+def expected_class(item: dict, k: int) -> tuple[str | None, str | None, float]:
+    """(class, outgoing class, crossfade weight) at master frame k, as mark_frame draws it."""
+    st = M.mark_state(k / FPS, [{"start": m["frame"] / FPS, "cls": m["cls"], "label": m["label"]} for m in timeline(item)])
+    if st is None:
+        return None, None, 1.0
+    return st["cls"], st["prev_cls"], st["mix"]
+
+
+# --------------------------------------------------------------------------
+# Pixels
+# --------------------------------------------------------------------------
+
+
+def read_frame(ffmpeg: str, path: str, k: int, size: tuple[int, int] = SIZE) -> np.ndarray:
+    """Master frame k as an HxWx3 uint8 array (RGB, no matrix: the master is RGB)."""
+    W, H = size
+    r = subprocess.run([ffmpeg, "-v", "error", "-ss", f"{k / FPS:.6f}", "-i", str(path), "-map", "0:v:0", "-frames:v", "1",
+                        "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, timeout=120, stdin=subprocess.DEVNULL)
+    if len(r.stdout) != W * H * 3:
+        raise ValueError(f"frame {k} of {path}: {len(r.stdout)} bytes, not {W}x{H} RGB ({r.stderr.decode(errors='replace')[-200:]})")
+    return np.frombuffer(r.stdout, np.uint8).reshape(H, W, 3)
+
+
+class Reader:
+    """The master read in order from frame k0, one RGB frame at a time (a title shot renders its frames in order)."""
+
+    def __init__(self, ffmpeg: str, path: str, k0: int, size: tuple[int, int] = SIZE):
+        self.W, self.H = size
+        self.k = k0
+        self.proc = subprocess.Popen([ffmpeg, "-v", "error", "-ss", f"{k0 / FPS:.6f}", "-i", str(path), "-map", "0:v:0",
+                                      "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+        self.last: np.ndarray | None = None
+
+    def frame(self, k: int) -> np.ndarray:
+        n = self.W * self.H * 3
+        while self.k <= k:
+            buf = self.proc.stdout.read(n)
+            if len(buf) < n:
+                if self.last is None:
+                    raise ValueError(f"the master ended before frame {k}")
+                break                       # past the end: the format lint has already refused a short master
+            self.last = np.frombuffer(buf, np.uint8).reshape(self.H, self.W, 3)
+            self.k += 1
+        return self.last
+
+    def close(self):
+        try:
+            self.proc.stdout.close()
+            self.proc.kill()
+            self.proc.wait(timeout=5)
+        except Exception:
+            pass
+
+
+def _probe_expect(W: int, H: int, cls: str, at: tuple[int, int], bare) -> np.ndarray:
+    tile, (ox, oy) = M.glyph_tile(W, H, cls)
+    px = Image.new("RGBA", (1, 1), tuple(int(v) for v in bare[:3]) + (255,))
+    px.alpha_composite(tile.crop((at[0] - ox, at[1] - oy, at[0] - ox + 1, at[1] - oy + 1)))
+    return np.array(px.getpixel((0, 0))[:3], dtype=int)
+
+
+def _centre_expect(W: int, H: int, cls: str) -> np.ndarray:
+    """The glyph centre as the class draws it: its hue where the shape is solid there, else (the ring) over black,
+    which is what the lockup's CARD sits on."""
+    return _probe_expect(W, H, cls, M.glyph_centre(M.Layout(W, H)), (0, 0, 0))
+
+
+def glyph_shows(arr: np.ndarray, cls: str) -> bool:
+    """The frame carries ``cls``'s glyph (A16 refined, A31): the centre (and, for the square, its corner; for the
+    ring over the lockup's black, every shape probe) is what the glyph composes there, within HUE_TOL."""
+    H, W = arr.shape[:2]
+    L = M.Layout(W, H)
+    cx, cy = M.glyph_centre(L)
+    if int(np.max(np.abs(arr[cy, cx, :3].astype(int) - _centre_expect(W, H, cls)))) > HUE_TOL:
+        return False
+    shape = M.GLYPH_SHAPE[cls]
+    ox, oy = M.glyph_origin(L)
+    corner_is_hue = int(np.max(np.abs(arr[oy, ox, :3].astype(int) - np.array(M.MARK_HUE[cls])))) <= HUE_TOL
+    if shape == "square":                     # DRAWN's square: its corner is solid, which no other shape's is
+        return corner_is_hue
+    if shape == "diamond":                    # AI-GENERATED's diamond leaves the box's corner to the picture
+        return not corner_is_hue
+    if shape == "ring":
+        return all(int(np.max(np.abs(arr[y, x, :3].astype(int) - _probe_expect(W, H, cls, (x, y), (0, 0, 0))))) <= HUE_TOL
+                   for x, y in M.glyph_shape_probes(L))
+    return True
+
+
+def any_glyph(arr: np.ndarray) -> str | None:
+    """The class whose glyph the frame already shows, if any (a master the engine would mark twice)."""
+    for cls in ("DRAWN", "AI-GENERATED", "ARCHIVE", "RECONSTRUCTED"):
+        if glyph_shows(arr, cls):
+            return cls
+    return None
+
+
+def _marks_only(arr: np.ndarray) -> bool:
+    """Every lit pixel lies where the mark is drawn (the label's zone and the glyph's box, A31, with the label's
+    shadow): marks alone on black, no picture."""
+    H, W = arr.shape[:2]
+    ys, xs = np.nonzero(arr.max(axis=2))
+    if not len(ys):
+        return True
+    x0 = min(M.MARK_ZONE[0], M.MARK_GLYPH_ZONE[0]) * W - 8
+    y0 = min(M.MARK_ZONE[1], M.MARK_GLYPH_ZONE[1]) * H - 8
+    x1 = max(M.MARK_ZONE[2], M.MARK_GLYPH_ZONE[2]) * W + 8
+    y1 = max(M.MARK_ZONE[3], M.MARK_GLYPH_ZONE[3]) * H + 8
+    return bool(xs.min() >= x0 and xs.max() <= x1 and ys.min() >= y0 and ys.max() <= y1)
+
+
+def check_frame(arr: np.ndarray, item: dict, k: int) -> str:
+    """One title frame's mark against the master's timeline: 'burned' (the class glyph is there), 'fade' (inside a
+    class change's 4-frame crossfade, the centre between the two), 'dip' (the dip's black hold, every pixel off),
+    'dip_glyph' (the black hold with the mark alone on it, glyph or label: a warning), else 'fail'."""
+    H, W = arr.shape[:2]
+    if k in dip_hold_frames(item):
+        if not arr.any():
+            return "dip"
+        return "dip_glyph" if _marks_only(arr) else "fail"
+    cls, prev, mix = expected_class(item, k)
+    if cls is None:
+        return "fail"
+    if prev is not None and mix < 1.0:
+        L = M.Layout(W, H)
+        cx, cy = M.glyph_centre(L)
+        a, b = _centre_expect(W, H, prev), _centre_expect(W, H, cls)
+        p, d = arr[cy, cx, :3].astype(float), (b - a).astype(float)
+        u = float(np.clip(np.dot(p - a, d) / max(float(np.dot(d, d)), 1e-9), 0.0, 1.0))
+        return "fade" if float(np.max(np.abs(p - (a + u * d)))) <= 3.0 else "fail"
+    return "burned" if glyph_shows(arr, cls) else "fail"
+
+
+def hold_fit(img: Image.Image, W: int, H: int) -> Image.Image:
+    """GRAMMAR 7.2 HOLD (A7): the whole picture, contained, on film black (assemble.py's own fit)."""
+    k = min(W / img.width, H / img.height)
+    w, h = round(img.width * k), round(img.height * k)
+    out = Image.new("RGB", (W, H), M.PALETTE["black"])
+    out.paste(img.convert("RGB").resize((w, h), Image.LANCZOS), ((W - w) // 2, (H - h) // 2))
+    return out
+
+
+def _masked(a: np.ndarray) -> np.ndarray:
+    """The picture without the marks: the label and glyph corner (bottom right) and the watermark (top right)."""
+    a = a.astype(np.float32).copy()
+    H, W = a.shape[:2]
+    a[int(0.90 * H):, int(0.55 * W):] = 0
+    a[:int(0.15 * H), int(0.85 * W):] = 0
+    return a
+
+
+def record_difference(arr: np.ndarray, record_path: str) -> float:
+    """A7's low-pass mean difference between a master frame and the film's record scan held whole at the master's
+    size (marks masked): 0.03 for the masters' own records, about 150 against another film's."""
+    H, W = arr.shape[:2]
+    with Image.open(record_path) as im:
+        ref = np.asarray(hold_fit(im, W, H))
+
+    def lp(x):
+        return np.asarray(Image.fromarray(np.clip(x, 0, 255).astype(np.uint8)).resize((96, 54), Image.BOX), dtype=np.float32)
+
+    return float(np.abs(lp(_masked(arr)) - lp(_masked(ref))).mean())
+
+
+def lockup_pixels(arr: np.ndarray) -> int:
+    """Bright pixels in the lockup's band (the middle third of the height): the words and the logomark."""
+    H, W = arr.shape[:2]
+    band = arr[H // 3: 2 * H // 3, W // 10: 9 * W // 10]
+    n = int((band.max(axis=2) >= 150).sum())
+    return round(n * (1080 / H) ** 2)
+
+
+# --------------------------------------------------------------------------
+# Provenance
+# --------------------------------------------------------------------------
+
+
+def provenance(item: dict) -> tuple[dict | None, str | None, str | None]:
+    """(the title's assets ledger, its path, the problem) from the master's ``provenance``, read as is or beside the
+    ledger that holds the master."""
+    ref = item.get("provenance")
+    if not isinstance(ref, str) or not ref.strip():
+        return None, None, "the master names no provenance (its title assets ledger)"
+    p = Path(ref)
+    if not p.is_absolute() and item.get("_ledger_file"):
+        p = Path(item["_ledger_file"]).parent / p
+    if not p.exists():
+        return None, str(p), f"provenance ledger not found at {p}"
+    try:
+        return json.loads(p.read_text(encoding="utf-8")), str(p), None
+    except Exception as e:
+        return None, str(p), f"provenance ledger unreadable: {type(e).__name__}: {e}"
+
+
+def provenance_items(prov: dict | None) -> list[dict]:
+    return list((prov or {}).get("items") or [])
+
+
+def plain(text) -> str:
+    """A ledger's credit as words: the HTML a file page's attribution carries (links, bdi) taken out."""
+    import html
+    t = re.sub(r"<[^>]+>", "", str(text or ""))
+    return " ".join(html.unescape(t).split())
+
+
+# --------------------------------------------------------------------------
+# Plan-time lints (GRAMMAR A40), called by render.build_plan once the timeline is tiled
+# --------------------------------------------------------------------------
+
+
+def _overlaps(a0: float, a1: float, b0: float, b1: float, eps: float = 0.5 / FPS) -> bool:
+    return a0 < b1 - eps and a1 > b0 + eps
+
+
+def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, lines: list[dict], texts: list[dict],
+               cues: list[dict], vl: list[dict], silences: list) -> dict:
+    """Every A40 check the plan can decide. ``lint`` is build_plan's; ``silences`` gains the title's span when
+    nothing sounds under it (silence is allowed until the main-title theme exists). Returns, per title shot id,
+    what the plan and the frames need: {item, burned, record_path, probe}."""
+    from studio.engine import render as R      # the engine's probes and licence rules (render imports this module)
+    from studio.engine import score as SC
+
+    out: dict = {}
+    idx = [i for i, s in enumerate(shots) if is_title(s)]
+    spans_s = [(shots[i]["f0"] / FPS, shots[i]["f1"] / FPS) for i in idx]
+    for c in cues:                             # the theme plays under the series titles and nowhere else
+        if c.get("kind", "music") != "music" or c.get("role") != THEME_ROLE:
+            continue
+        a, b = float(c["start_s"]), float(c["end_s"])
+        if not any(t0 - 0.5 / FPS <= a and b <= t1 + 0.5 / FPS for t0, t1 in spans_s):
+            lint("title-theme", False, unit=c.get("id"), grammar="A40",
+                 evidence={"start_s": a, "end_s": b, "titles": [[round(x, 3) for x in sp] for sp in spans_s],
+                           "fix": "a main_title cue plays under a title_sequence shot only, from its first frame"})
+    if not idx:
+        return out
+    lint("title-sequence-once", len(idx) == 1, unit=shots[idx[0]]["id"], grammar="A40",
+         evidence={"title_shots": [shots[i]["id"] for i in idx], "fix": None if len(idx) == 1 else "the series titles play once"})
+    cold = [i for i, s in enumerate(shots) if s["_part_kind"] == PLACE_AFTER]
+    chapters = [i for i, s in enumerate(shots) if s["_part_kind"] == CHAPTER]
+    for i in idx:
+        s = shots[i]
+        item = s.get("_item") or {}
+        sid = s["id"]
+        t0, t1 = s["f0"] / FPS, s["f1"] / FPS
+        # Placement: after the hook, before Part 1
+        want = (cold[-1] + 1) if cold else 0
+        place_ok = i == want and (not chapters or i < chapters[0])
+        lint("title-sequence-place", place_ok, unit=sid, grammar="A40",
+             evidence={"index": i, "expected_index": want, "after": shots[cold[-1]]["id"] if cold else None,
+                       "first_chapter_shot": shots[chapters[0]]["id"] if chapters else None,
+                       "fix": None if place_ok else "place the series titles right after the cold open's last shot, before Part 1"})
+        # Transitions: the master opens and ends on its own black; nothing dissolves into or out of burned marks
+        tin = (s.get("transition_in") or {}).get("type", "cut")
+        nxt = shots[i + 1] if i + 1 < len(shots) else None
+        tout = (nxt.get("transition_in") or {}).get("type", "cut") if nxt else "cut"
+        tr_ok = tin == "cut" and tout in ("cut", "dip")
+        lint("title-sequence-transitions", tr_ok, unit=sid, grammar="A40, 4.4, 7.3",
+             evidence={"in": tin, "out": tout, "next": nxt["id"] if nxt else None,
+                       "fix": None if tr_ok else "cut into the series titles (the master opens from black); cut or dip out"})
+        # Nothing spoken, drawn or subtitled over it
+        over = [v["id"] for v in vl if _overlaps(v["start"], v["start"] + v["dur"], t0, t1)]
+        over += [ln["id"] for ln in lines if ln.get("kind") in R.VOICE_KINDS and ln["id"] not in over
+                 and t0 - 1e-9 <= float(ln.get("start_s", -1)) < t1]
+        over += [t["id"] for t in texts if t.get("kind") in ("lower_third", "overlay")
+                 and _overlaps(float(t["start_s"]), float(t["end_s"]), t0, t1)]
+        over += [str(c.get("ref")) for c in play.get("subtitle_source", []) if isinstance(c.get("start_s"), (int, float))
+                 and isinstance(c.get("end_s"), (int, float)) and _overlaps(float(c["start_s"]), float(c["end_s"]), t0, t1)]
+        lint("title-sequence-clear", not over, unit=sid, grammar="A40",
+             evidence={"over": over[:20], "fix": None if not over else "nothing is spoken, drawn or subtitled over the series titles"})
+        # The audio slot: the main-title theme; until it exists, the house motif or silence
+        sounding = [c for c in cues if _overlaps(float(c.get("start_s", 0)), float(c.get("end_s", 0)), t0, t1)]
+        roles = {c.get("id"): (SC.cue_role(c) if c.get("kind", "music") == "music" else "ambience") for c in sounding}
+        wrong = [cid for cid, r in roles.items() if r not in (THEME_ROLE,) + STAND_IN]
+        lint("title-audio-slot", not wrong, unit=sid, grammar="A40, A29",
+             evidence={"cues": roles, "allowed": [THEME_ROLE, *STAND_IN],
+                       "fix": None if not wrong else "only the main-title theme (or, until it exists, the house motif) "
+                                                     "sounds under the series titles: end the other cues at the cut"})
+        theme = [c for c in sounding if roles[c.get("id")] == THEME_ROLE]
+        for c in theme:
+            a, b = float(c["start_s"]), float(c["end_s"])
+            ok = abs(a - t0) <= 0.5 / FPS and b <= t1 + 0.5 / FPS
+            lint("title-theme", ok, unit=c.get("id"), grammar="A40",
+                 evidence={"start_s": a, "end_s": b, "title": [round(t0, 3), round(t1, 3)],
+                           "fix": None if ok else "the theme starts on the title's first frame and ends by its last"})
+        if not theme:
+            stand = [cid for cid, r in roles.items() if r in STAND_IN]
+            journal.lint("title-theme-pending", True, stage="scout", unit=sid, severity="review", grammar="A40", phase="preflight",
+                         evidence={"stand_in": stand or "silence",
+                                   "check": "The main-title theme is not placed yet: the series titles play under "
+                                            + ("the house motif" if stand else "silence")
+                                            + ". Place the music director's main_title cue when it exists."})
+            if not sounding:
+                silences.append((t0, t1))
+                journal.decision("scout", f"{sid}: silence under the series titles", "A40: until the main-title theme "
+                                 "exists the slot may be silent; declared intended so A19 does not warn", unit=sid)
+        # Provenance: the title's assets ledger, every input open-licensed, sourced and not AI
+        prov, prov_path, why = provenance(item)
+        problems = [why] if why else []
+        pitems = provenance_items(prov)
+        if prov is not None and not pitems:
+            problems.append("the provenance ledger lists no items")
+        for it in pitems:
+            if not R.licence_allowed(str(it.get("licence") or ""), play)[0]:
+                problems.append(f"{it.get('id')}: licence {it.get('licence')!r} is not allowed")
+            if it.get("ai") is not False:
+                problems.append(f"{it.get('id')}: ai must be stated false")
+            if not (it.get("source_page") or it.get("source_url")):
+                problems.append(f"{it.get('id')}: no source page")
+            if not (it.get("licence_evidence") or it.get("basis")):
+                problems.append(f"{it.get('id')}: no licence evidence or basis")
+            if not it.get("sha256"):
+                problems.append(f"{it.get('id')}: no sha256 of the file used")
+        lint("title-provenance", not problems, unit=sid, grammar="A40, 1.2, 11.1",
+             evidence={"provenance": prov_path, "items": len(pitems), "problems": problems[:20],
+                       "licences": sorted({str(it.get("licence")) for it in pitems})})
+        need = max([licence_rank(it.get("licence")) or 0 for it in pitems] or [0])
+        have = licence_rank(item.get("licence"))
+        lic_ok = have is not None and have >= need
+        lint("title-licence", lic_ok, unit=sid, grammar="A40, 1.2",
+             evidence={"licence": item.get("licence"), "rank": have, "inputs_need": need,
+                       "attribution": [it.get("id") for it in pitems if (licence_rank(it.get("licence")) or 0) >= 2],
+                       "fix": None if lic_ok else "the master's licence is at least as demanding as its inputs' "
+                                                  "(CC BY when any input is CC BY)"})
+        ai_bits = [] if item.get("ai") is False else ["the master's ai is not stated false"]
+        ai_bits += [f"{it.get('id')} is AI" for it in pitems if it.get("ai") is not False]
+        if "AI-GENERATED" in classes(item):
+            ai_bits.append("the master marks an AI-GENERATED stretch")
+        lint("title-no-ai", not ai_bits, unit=sid, grammar="A40, 2.6, A31",
+             evidence={"problems": ai_bits, "key_line": M.KEY_NO_AI,
+                       "why": "the series titles hold no AI pixel, so the film's mark key keeps its no-AI line"})
+        # Format: size, frame rate and duration match the delivery, the ledger and the shot
+        path = item.get("_path")
+        fmt_ok, ev = False, {"file": path}
+        if path and Path(path).exists():
+            try:
+                pr = R.probe_video(Path(path))
+                frames = R.count_frames(Path(path))
+                n = int(item.get("frames") or 0)
+                ev.update(width=pr["width"], height=pr["height"], fps=round(pr["fps"], 4), r_frame_rate=pr["r_frame_rate"],
+                          frames=frames, duration_s=round(pr["duration_s"], 4), shot_s=round(s["_dur"], 4), size=list(SIZE),
+                          declared={k: item.get(k) for k in ("width", "height", "fps", "frames")})
+                fmt_ok = ((pr["width"], pr["height"]) == SIZE and abs(pr["fps"] - FPS) < 1e-6
+                          and (item.get("width"), item.get("height"), item.get("fps")) == (SIZE[0], SIZE[1], FPS)
+                          and n > 0 and frames == n and abs(pr["duration_s"] - n / FPS) <= 0.5 / FPS
+                          and abs(s["_dur"] - n / FPS) <= 0.5 / FPS and s["f1"] - s["f0"] == n)
+                out[sid] = {"probe": pr}
+            except Exception as e:
+                ev["error"] = f"{type(e).__name__}: {e}"
+        lint("title-format", fmt_ok, unit=sid, grammar="A40, 7.5",
+             evidence=dict(ev, fix=None if fmt_ok else "the master is 1920x1080 at 24 fps, its frame count the ledger's, "
+                                                       "and the shot's dur_s is frames / 24"))
+        # The record beat: the film's own record, from this film's ledgers, its pixels the film's scan
+        rid = item.get("record")
+        rec = assets.get(rid) if rid else None
+        rec_ok = rec is not None and rec.get("_ledger") != item.get("_ledger")
+        tl = timeline(item)
+        rframes = [int(x) for x in (item.get("record_frames") or [])]
+        rcls = expected_class(item, rframes[0])[0] if rframes else None
+        want_cls = ("DRAWN" if R.is_synthetic(rec) else "ARCHIVE") if rec else None
+        rec_year = R.year_of(rec) if rec else None
+        lab = next((m for m in tl if m["cls"] == rcls), None)
+        prov_rec = ((prov or {}).get("records") or {}).get(item.get("record_key") or rid)
+        sha_ok = (not (prov_rec and prov_rec.get("sha256") and rec and rec.get("sha256"))) or prov_rec["sha256"] == rec["sha256"]
+        year_ok = rcls != "ARCHIVE" or (lab is not None and lab["year"] == rec_year)
+        r_ok = rec_ok and bool(rframes) and rcls == want_cls and prov_rec is not None and sha_ok and year_ok
+        lint("title-record", r_ok, unit=sid, grammar="A40, A0, 11.1",
+             evidence={"record": rid, "in_film_ledger": (rec or {}).get("_ledger"), "record_frames": rframes,
+                       "burned_class": rcls, "film_class": want_cls, "label_year": lab["year"] if lab else None,
+                       "film_year": rec_year, "in_provenance": prov_rec is not None, "sha256_match": sha_ok,
+                       "fix": None if r_ok else "the master's record is an item of this film's own ledgers (not the masters'), "
+                                                "in the title's provenance records with the same file, marked as the film marks it"})
+        out.setdefault(sid, {}).update(item=item, burned=item.get("burned") is True, record_path=(rec or {}).get("_path"))
+        if not (fmt_ok and path):
+            continue
+        ff = R.ffmpeg()
+        n = int(item.get("frames") or 0)
+        # The record's pixels: frames of the record beat are the film's scan, held whole (marks masked)
+        if rec_ok and rec.get("_path") and rframes:
+            diffs: dict = {}
+            try:
+                for k in sorted({rframes[0], rframes[-1], (rframes[0] + rframes[-1]) // 2}):
+                    diffs[k] = round(record_difference(read_frame(ff, path, k), rec["_path"]), 3)
+            except Exception as e:
+                diffs = {"error": f"{type(e).__name__}: {e}"}
+            px_ok = bool(diffs) and "error" not in diffs and max(diffs.values()) <= RECORD_LIMIT
+            lint("title-record-pixels", px_ok, unit=sid, grammar="A40, A7",
+                 evidence={"record": rid, "file": rec["_path"], "difference": diffs, "limit": RECORD_LIMIT,
+                           "measure": "low-pass mean difference against the scan held whole, marks masked"})
+        # The marks: burned in and right, or absent and drawn by the engine (never both)
+        sample = set()
+        for k, m in enumerate(tl):
+            a = m["frame"]
+            b = tl[k + 1]["frame"] if k + 1 < len(tl) else n
+            for f in (a + FADE_FRAMES + 1, (a + b) // 2, b - 2):
+                if a <= f < b and f < n:
+                    sample.add(f)
+        holds = dip_hold_frames(item)
+        if holds:
+            sample -= set(range(min(holds) - FADE_FRAMES - 2, max(holds) + FADE_FRAMES + 3))
+        try:
+            frames_ = {k: read_frame(ff, path, k) for k in sorted(sample | set(holds))}
+        except Exception as e:
+            lint("title-marks", False, unit=sid, grammar="A40, 4, A16, A31", evidence={"error": f"{type(e).__name__}: {e}"})
+            continue
+        burned = item.get("burned") is True
+        got = {k: (check_frame(frames_[k], item, k) if burned else (any_glyph(frames_[k]) or "none")) for k in sorted(sample)}
+        if burned:
+            bad = {k: v for k, v in got.items() if v != "burned"}
+            lint("title-marks", bool(tl) and not bad, unit=sid, grammar="A40, 4, A16, A31",
+                 evidence={"burned": True, "timeline": tl, "sampled": got, "bad": bad,
+                           "fix": None if tl and not bad else "the master's burned glyph does not match its declared marks"})
+            journal.lint("title-burned-review", True, stage="scout", unit=sid, severity="review", grammar="A40, BRAND-KIT 3, 12",
+                         phase="preflight",
+                         evidence={"check": "The master carries its own glyph, labels, watermark and lockup; the engine draws "
+                                            "none of them over it. Confirm they read on the proof."})
+        else:
+            twice = {k: v for k, v in got.items() if v != "none"}
+            lint("title-marks", bool(tl) and not twice, unit=sid, grammar="A40, 4, A16, A31",
+                 evidence={"burned": False, "timeline": tl, "already_marked": twice,
+                           "fix": None if tl and not twice else ("state the master's marks" if not tl else
+                                                                 "the master already shows a glyph: state burned: true")})
+        if burned:
+            dip = {k: check_frame(frames_[k], item, k) for k in holds}
+            bad_dip = {k: v for k, v in dip.items() if v != "dip"}
+            # the mark alone on the black hold is a warning; a picture there is no dip at all, and is refused
+            lint("title-dip-hold", not bad_dip, unit=sid, grammar="A40, 7.3, A11",
+                 severity="block" if "fail" in dip.values() else "warn",
+                 evidence={"hold_frames": holds, "found": dip,
+                           "fix": None if not bad_dip else "the master's own dip should hold every pixel off on its black "
+                                                           "frames (founder ruling 2026-10-10): re-assemble it without the glyph there"})
+            if bad_dip:
+                journal.lint("title-dip-hold-review", True, stage="scout", unit=sid, severity="review", grammar="A40, A11",
+                             phase="preflight", evidence={"check": f"The master's dip shows the glyph on its black hold "
+                                                                   f"(frames {sorted(bad_dip)}); the house dip is all black."})
+        lf = item.get("lockup_frame")
+        if lf is None:
+            cards = [m for m in tl if m["cls"] == "CARD"]
+            lf = (cards[-1]["frame"] + n) // 2 if cards else None
+        try:
+            lp = lockup_pixels(read_frame(ff, path, int(lf))) if lf is not None else 0
+        except Exception:
+            lp = 0
+        lint("title-lockup", lp >= LOCKUP_MIN_PX, unit=sid, grammar="A40, BRAND-KIT 2",
+             evidence={"frame": lf, "bright_px": lp, "min_px": LOCKUP_MIN_PX, "lockup": SERIES,
+                       "fix": None if lp >= LOCKUP_MIN_PX else "the master ends on the series lockup; the engine never draws it"})
+    return out

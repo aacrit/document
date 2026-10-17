@@ -394,3 +394,20 @@ The founder, on The Next Village pilot: "show the original, then slowly zoom in 
 **Why the rostrum curve, not a spring.** A spring is an arrival of a graphic (section 6); a FILL is a camera, and the house camera is the rostrum: one even speed, eased in and out, the way a motion-control stand moves. A spring's exponential settle would read as the picture landing, which it does not do.
 
 Do: let every 4:3 or square archive picture over 6 s open whole and fill; name the focus where the subject sits off-centre. Don't: fill a clip whose source burns its speakers' names into the frame (the crop could cut them off; the engine refuses it); fill a document that must be read whole (state `preset: HOLD`); push past the fill (DETAIL is the move for a region).
+
+## 15. The series titles: `void document · As It Was` (2026-10-17; GRAMMAR A40)
+
+The founder: "a cinematic ... intro ... after the hook of each video like it's a documentary episode." The series titles are the archive machine (`design/title-sequence/`: 12 beats, 57.0 s, G2 approved 2026-10-16), rendered once per film with that film's own record, and played by the engine as they are.
+
+| | Value |
+|---|---|
+| Place | after the cold open's last shot (the hook), before the film's title card and Part 1; cut in (the master opens from black), cut or dip out |
+| Picture | the master, 1920x1080 at 24 fps, lossless; no grade, no camera, no re-drawing; scaled only for a 720p delivery |
+| Marks | the master's own: DRAWN's cold-blue square and `Drawn · from period records` over the machine; at the cut to the record its class and year (`Archive · 1947`), the first safelight of the film; CARD's ring on the lockup. The engine draws nothing over a master that carries them, and reads the glyph on every frame against the master's declared timeline. One glyph, never two |
+| Watermark | the master's own over the machine and the record, off on the lockup (a CARD), as section 3; the film's watermark resumes after |
+| Lockup | `void document · As It Was`: `void` in JetBrains Mono 500, `document` in Fraunces 300, a middle dot, `As It Was` in Fraunces 300 italic, centred at 5.6% of the height with the logomark (its corners close on `drift`, the ember in the last tenth); the second and last safelight of the sequence |
+| Motion | the house vocabulary only (sections 6, 11, 13 and 14): the camera is `rostrum`; arrivals `arrive` and `settle`; contacts `stamp`; travels `trace`; once engaged a wheel turns at constant speed |
+| Sound | the main-title theme (`role: main_title`), developed from the house motif, from the first frame; nothing else under it. Until it exists: the house motif or silence, a reviewer item |
+| AI | none: the master's provenance states `ai: false` for every input, so the film's mark key keeps "No picture in this film is AI-generated." One AI pixel would make the whole sequence AI-GENERATED, labelled for all its seconds in every film |
+
+Do: keep the record the film's own (an item of its ledgers, held whole); state in the master's ledger item what it already carries. Don't: draw a second mark, label or watermark over a burned master; let narration, a lower third or a subtitle run over it; dissolve into or out of it; let the master's own dip show anything on its black hold.
