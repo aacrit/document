@@ -380,14 +380,7 @@ def test_a40_the_master_is_dated_by_its_content_for_a0(tmp_path, masters):
 
 
 def test_a40_a_burned_master_plays_as_it_is(tmp_path, masters):
-    film = titled_film(tmp_path, masters)
-    play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
-    for p in play["parts"]:                       # A41: the fixture's 500 px still cannot fill 1080p under 1.6x
-        for s in p["shots"]:
-            if s["id"] == "S3":
-                s["fill_exception"] = "the fixture's small scan cannot fill 1080p under 1.6x"
-    (film / "screenplay.json").write_text(json.dumps(play), encoding="utf-8")
-    plan, _ = plan_of(film, W=1920, H=1080)
+    plan, _ = plan_of(titled_film(tmp_path, masters), W=1920, H=1080)
     s = next(x for x in plan["shots"] if x["id"] == "TS1")
     ff = R.ffmpeg()
     pics = R.Pictures(plan)

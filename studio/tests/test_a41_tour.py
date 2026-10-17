@@ -197,9 +197,13 @@ def test_the_js_tour_helper_agrees_with_the_engine():
           f"const item = {json.dumps(item)};"
           f"const words = {json.dumps([{'w': w['w'], 't': w['t']} for w in words])};"
           f"console.log(JSON.stringify([tour(item, {{narration: {json.dumps(LINE['text'])}}}),"
-          " tour(item, {words, start_s: 9}), tour(item), tour(item, {narration: 'nothing here'})]));")
+          " tour(item, {words, start_s: 9}), tour(item), tour(item, {narration: 'nothing here'}),"
+          " tour(item, {words, start_s: 9, dur_s: 3.0})]));")
     out = subprocess.run([node, "--input-type=module", "-e", js], capture_output=True, text=True, check=True).stdout
-    by_cue, timed, bare, none = json.loads(out)
+    by_cue, timed, bare, none, short = json.loads(out)
+    # a region named too late to reach is left out, in both
+    py_short = T.tour_stops(item["roi"], words, 9.0, 3.0, LANDSCAPE43, A, 2.0)
+    assert [s.get("roi") for s in short] == [s.get("roi") for s in py_short] == [None, "road"]
     assert by_cue == [{"t": 0, "z": 1, "x": 0.5, "y": 0.5}, {"at": "Bengal", "roi": "road"}, {"at": "the mill", "roi": "the mill"}]
     assert bare == "tour" and none is None
     py = T.tour_stops(item["roi"], words, 9.0, 8.0, LANDSCAPE43, A, 2.0)
@@ -214,6 +218,92 @@ def test_the_js_tour_helper_agrees_with_the_engine():
 # --------------------------------------------------------------------------
 # Guards, pure
 # --------------------------------------------------------------------------
+
+def test_a_thin_box_between_sample_lines_is_judged_exactly():
+    size = (3200, 1000)                                                     # a panorama: the fill is 1778 px wide
+    hold = T.build(T.macro_stops("HOLD", {}, 6.0), 6.0, size, A, 2.0)
+    wins = T.windows_of(hold)
+    x0 = min(w[0] for w in wins) / 3200
+    x1 = max(w[2] for w in wins) / 3200
+    assert 0.2 < x0 < 0.25 and 0.75 < x1 < 0.82
+    line = (0.0, 0.515, 1.0, 0.528)                                         # a row of people across the whole width
+    assert not T.covered(wins, line, size) and not T.seen(wins, line, size)
+    people = {"boxes": [{"name": "the row", "box": line}], "unlocated": 0, "known": True}
+    assert not T.people_check(wins, people, size)["ok"]
+    assert T.coverage(wins, size) == pytest.approx((x1 - x0), abs=0.01)
+    assert T.covered(wins, (0.3, 0.515, 0.7, 0.528), size)
+
+
+@pytest.mark.parametrize("words,nobody", [(False, True), ([], True), ("none", True), ("None visible", True),
+                                          ("none resolvable", True), ("no one named; three refugees", False),
+                                          ("nobody identifiable; a guard at left", False),
+                                          ("empty street but for a policeman", False), ("none named", False)])
+def test_only_a_closed_set_of_words_means_nobody(words, nobody):
+    assert (T.people_of({"people": words})["unlocated"] == 0) is nobody
+
+
+def test_a_720p_delivery_frames_exactly_as_the_1080p_master():
+    size = (1400, 980)                                    # at 1.6x on the master a DETAIL (1.3) stops at 1.167
+    shot = {"id": "X", "kind": "archive_still", "_dur": 6.0, "_item": {"people": False}, "preset": "DETAIL",
+            "_fill_max_upscale": 1.6}
+    a = R.still_camera(dict(shot), size, 1280, 720)
+    b = R.still_camera(dict(shot), size, 1920, 1080)
+    assert a["capped"] and b["capped"] and a["tour"]["z_max"] == pytest.approx(b["tour"]["z_max"])
+    for t in (0.0, 1.3, 3.0, 6.0):
+        assert T.at(a["tour"], t) == pytest.approx(T.at(b["tour"], t))
+
+
+def test_a_still_softness_cap_is_3x_unless_the_film_states_one():
+    """Founder, 2026-10-17: "fill the frame, soft is acceptable up to 3x"."""
+    assert R.STILL_MAX_UPSCALE == 3.0 and R.FILL_MAX_UPSCALE == 1.6           # a clip's FILL keeps 1.6
+    size = (800, 600)                                                       # 2.4x to fill the 1080p master
+    shot = {"id": "X", "kind": "archive_still", "_dur": 6.0, "_item": {"people": False}, "preset": "HOLD"}
+    cam = R.still_camera(dict(shot), size, 1920, 1080)
+    assert cam["preset"] == "TOUR" and cam["zcap"] == pytest.approx(3.0 * 800 / 1920)
+    assert cam["zcap"] >= 1.0                                               # it fills: no exception needed
+    assert R.still_camera(dict(shot, _fill_max_upscale=1.6), size, 1920, 1080)["zcap"] < 1.0
+
+
+def test_a_still_held_whole_creeps_inside_its_own_shape():
+    """Founder, 2026-10-17: a still under fill_exception is never frozen: whole on its first frame, then a gentle
+    push inside its pillarboxed shape, no further than whole_creep_max."""
+    size = (300, 420)
+    shot = {"id": "X", "kind": "archive_still", "_dur": 8.0, "_item": {"people": False},
+            "fill_exception": "a small scan, held whole"}
+    cam = R.still_camera(shot, size, W, H)
+    assert cam["opens_whole"] and cam["clamp"] == "native"
+    fs = frames(cam, 8.0)
+    assert fs[0] == {"z": 1.0, "x": 0.5, "y": 0.5}
+    assert all(b["z"] > a["z"] for a, b in zip(fs[1:-1], fs[2:-1]))        # moving on every frame
+    assert fs[-1]["z"] == pytest.approx(min(M.TOUR["whole_creep_max"], 1 + M.TOUR["creep_scale_per_s"] * 8.0))
+    assert max(f["z"] for f in fs) <= M.TOUR["whole_creep_max"] + 1e-9
+    for f in fs:                                                            # inside the picture's own fitted shape
+        src, dst = M.still_view(size, M.Layout(W, H), z=f["z"], cx=f["x"], cy=f["y"], clamp="native")
+        assert src[0] >= -0.5 and src[2] <= 300.5 and src[1] >= -0.5 and src[3] <= 420.5
+        assert dst[2] - dst[0] < W                                           # pillarboxed
+    long = R.still_camera(dict(shot, _dur=20.0), size, W, H)
+    assert long["z_max"] == pytest.approx(M.TOUR["whole_creep_max"])
+
+
+def test_a_stop_at_zero_or_negative_zoom_is_refused_not_a_crash():
+    for z in (0.0, -1.0):
+        cam = cam_for({"camera": [{"t": 0, "z": z}, {"t": 4, "z": 1.2}]}, LANDSCAPE43)
+        assert any("below the fill" in p for p in cam["problems"])
+        assert all(fills(LANDSCAPE43, f) for f in frames(cam, 8.0))
+
+
+def test_find_under_a41_opens_at_the_fill_not_the_whole_sheet():
+    size = (1600, 1200)
+    shot = {"id": "M", "kind": "archive_still", "_dur": 6.0, "_item": {"people": False}, "preset": "FIND",
+            "fill_ok": False}
+    cam = R.still_camera(shot, size, W, H)
+    zf = max(W / (1600 * min(W / 1600, H / 1200)), H / (1200 * min(W / 1600, H / 1200)))
+    assert cam["preset"] == "FIND" and cam["clamp"] == "image" and cam["opens_whole"] is False
+    assert cam["path"][0]["z"] == pytest.approx(zf)
+    assert all(fills(size, OV.framing_at(cam, k / 4, 6.0)) for k in range(25))
+    held = R.still_camera(dict(shot, fill_exception="a small sheet, held whole"), size, W, H)
+    assert held["opens_whole"] and held["path"][0] == {"z": 1.0, "x": 0.5, "y": 0.5}
+
 
 def test_people_check_over_the_path():
     size = LANDSCAPE43
@@ -299,10 +389,14 @@ def film(base, tmp_path):
     return dest
 
 
+ROI_A = [{"name": "the shapes", "x": 0.2, "y": 0.2, "w": 0.65, "h": 0.6}]   # an authored subject: no covering pass
+
+
 def test_the_fixture_tours_its_landscape_still_and_holds_the_small_ones_whole(film):
     plan, j = _plan(film, "a41-base")
     by = {s["id"]: s for s in plan["shots"]}
     assert by["S3"]["_cam"]["preset"] == "TOUR" and by["S3"]["_cam"]["macro"] == "PUSH"
+    assert by["S3"]["_cam"]["covering"]                     # a PUSH alone shows 80% of a 10:7 picture: it tours it all
     assert by["S5"]["_cam"]["fill_exception"] and by["S5"]["_cam"]["opens_whole"]
     evs = J.read(j.path)
     for rule in ("tour-path", "tour-anchor", "tour-fills", "tour-softness", "tour-people"):
@@ -315,6 +409,10 @@ def test_the_fixture_tours_its_landscape_still_and_holds_the_small_ones_whole(fi
 
 def test_a_person_never_in_frame_over_the_path_refuses(film):
     _item(film, "FX-STILL-A", lambda i: i.update(people=[{"name": "edge", "x": 0.0, "y": 0.0, "w": 0.08, "h": 0.08}]))
+    # a preset that misses her becomes a covering pass (journaled); an authored path that misses her is refused
+    plan, _ = _plan(film, "a41-people-macro")
+    assert next(s for s in plan["shots"] if s["id"] == "S3")["_cam"]["covering"]
+    _edit(film, lambda p: _shot(p, "S3").update(preset=None, camera=[{"t": 0, "x": 0.5, "y": 0.5, "z": 1.2}]))
     with pytest.raises(R.Refused, match=r"tour-people \(S3\)"):
         _plan(film, "a41-people")
     # a path that passes over her clears it
@@ -360,23 +458,37 @@ def test_the_softness_cap_refuses_without_a_stated_exception(film):
 
 
 def test_a_macro_past_the_cap_stops_at_it(film):
-    _edit(film, lambda p: _shot(p, "S3").update(preset="DETAIL"))           # 1.3 x 1.28 = 1.66x: past 1.6
-    _edit(film, lambda p: _shot(p, "S3").update(dur_s=4.0))
+    _item(film, "FX-STILL-A", lambda i: i.update(roi=ROI_A))
+    _edit(film, lambda p: p.update(settings={"fill_max_upscale": 1.6}))      # the film states the old cap
+    _edit(film, lambda p: _shot(p, "S3").update(preset="DETAIL"))           # 1.3 x 1.28 = 1.66x on the master: past 1.6
     plan, j = _plan(film, "a41-macro-cap")
     cam = next(s for s in plan["shots"] if s["id"] == "S3")["_cam"]
-    assert T.upscale((500, 350), W, H, cam["tour"]["z_max"]) <= 1.6 + 1e-6
+    assert cam["capped"] and T.upscale((1500, 1050), 1920, 1080, cam["tour"]["z_max"]) <= 1.6 + 1e-6
+    partial = [e for e in lints(J.read(j.path), "tour-partial") if e["unit"] == "S3"]
+    assert partial and partial[0]["severity"] == "review"                    # authored (roi): a reviewer item, no pass
 
 
 def test_speed_and_reversal_are_warnings_never_refusals(film):
-    _edit(film, lambda p: _shot(p, "S3").update(preset=None, camera=[{"t": 0, "x": 0.0, "z": 1.2}, {"t": 0.8, "x": 1.0, "z": 1.2},
-                                                                      {"t": 4.0, "x": 1.0, "z": 1.2}]))
-    plan, j = _plan(film, "a41-speed")
+    def edit(p):
+        _shot(p, "S3").update(preset=None, dur_s=3.25, camera=[{"t": 0, "x": 0.0, "y": 0.0, "z": 1.2},
+                                                               {"t": 0.8, "x": 1.0, "y": 1.0, "z": 1.2},
+                                                               {"t": 3.25, "x": 0.0, "y": 0.0, "z": 1.2}])
+        s4 = _shot(p, "S4")
+        s4.update(asset="FX-STILL-A", preset=None, transition_in={"type": "cut"}, start_s=7.75, dur_s=4.0,
+                  fill_ok=None, repeat_reason="the same landscape, a second look the fixture intends",
+                  camera=[{"t": 0, "x": 0.0, "y": 0.5, "z": 1.2}, {"t": 0.5, "x": 1.0, "y": 0.5, "z": 1.2}])
+        s4.pop("fill_exception")
+    _edit(film, edit)
+    plan, j = _plan(film, "a41-speed")                                        # warnings only: the plan is made
     evs = J.read(j.path)
     sp = [e for e in lints(evs, "tour-speed") if e["unit"] == "S3"]
     assert sp and sp[0]["status"] == "fail" and sp[0]["severity"] == "warn"
+    rv = [e for e in lints(evs, "tour-continuity") if e["unit"] == "S4"]
+    assert rv and rv[0]["status"] == "fail" and rv[0]["severity"] == "warn" and "pan x" in rv[0]["evidence"]["reversed"]
 
 
 def test_a_reversal_across_a_cut_warns(film):
+    _item(film, "FX-STILL-A", lambda i: i.update(roi=ROI_A))                 # authored: the DRIFTs stay DRIFTs
     def two(p):
         s3 = _shot(p, "S3")
         s3.update(preset="DRIFT", dur_s=3.25, fill_ok=None)
@@ -403,6 +515,38 @@ def test_ml_upscaling_still_forces_reconstructed(film):
     _item(film, "FX-STILL-A", lambda i: i.update(ml_upscaled=True))
     with pytest.raises(R.Refused, match=r"tour-ml-upscale \(S3\)"):
         _plan(film, "a41-ml")
+    _item(film, "FX-STILL-A", lambda i: i.update(ml_upscaled=False))
+    _item(film, "FX-STILL-C", lambda i: i.update(upscaler="Real-ESRGAN x4"))   # S5, held whole under its exception
+    with pytest.raises(R.Refused, match=r"tour-ml-upscale \(S5\)"):
+        _plan(film, "a41-ml-whole")
+    _item(film, "FX-STILL-C", lambda i: i.update(upscaler=None))
+    _edit(film, lambda d: d["items"][0].update(ml_upscaled=True), name="footage-ledger.json")   # a clip too
+    with pytest.raises(R.Refused, match=r"tour-ml-upscale \(S6\)"):
+        _plan(film, "a41-ml-clip")
+
+
+def test_a_path_on_a_clip_is_refused_with_or_without_a_preset(film):
+    _edit(film, lambda p: _shot(p, "S6").update(camera="tour"))               # no burned captions: still a later ticket
+    with pytest.raises(R.Refused, match=r"tour-video \(S6\)"):
+        _plan(film, "a41-clip-tour")
+    _edit(film, lambda p: _shot(p, "S6").update(camera=[{"t": 0, "z": 1.2}], preset="FILL"))   # never silently ignored
+    with pytest.raises(R.Refused, match=r"tour-video \(S6\)"):
+        _plan(film, "a41-clip-both")
+
+
+def test_a_hold_that_shows_part_of_the_picture_tours_it_unless_authored(film):
+    _edit(film, lambda p: _shot(p, "S3").update(preset="HOLD"))               # people: false; 10:7 at the fill shows 80%
+    plan, j = _plan(film, "a41-hold-cover")
+    cam = next(s for s in plan["shots"] if s["id"] == "S3")["_cam"]
+    assert cam["covering"]
+    assert T.covered([w for _, w in R.still_windows(cam, {"_dur": 4.0}, (1500, 1050), W, H)], (0, 0, 1, 1), (1500, 1050))
+    evs = J.read(j.path)
+    assert any(e["kind"] == "decision" and e.get("unit") == "S3" and "covering" in e.get("what", "") for e in evs)
+    assert not [e for e in lints(evs, "tour-partial") if e["unit"] == "S3"]
+    _item(film, "FX-STILL-A", lambda i: i.update(must_show=["the shapes"], roi=ROI_A))
+    plan, j = _plan(film, "a41-hold-authored")
+    assert not next(s for s in plan["shots"] if s["id"] == "S3")["_cam"]["covering"]
+    assert [e["severity"] for e in lints(J.read(j.path), "tour-partial") if e["unit"] == "S3"] == ["review"]
 
 
 def test_an_unspoken_anchor_refuses(film):

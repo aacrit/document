@@ -238,11 +238,16 @@ PRESET_ZMAX = {"HOLD": 1.0, "PUSH": 1.12, "PULL": 1.12, "DRIFT": 1.15, "TILT": 1
 # or more across fills 1080p; a 640x480 reel, already 2.25x in its plain fit (A5), stays whole and is journaled.
 FILL = "FILL"
 TOUR = "TOUR"                       # A41: a still's camera is a path of stops (studio/engine/tour.py)
+COVERABLE = ("HOLD", "PUSH", "PULL", "DRIFT", "TILT", "DETAIL", "FILL", "DEFAULT")   # A41: not authored paths
 FILL_MAX_UPSCALE = 1.6
 FILL_ASPECT_TOL = 0.01              # narrower than 16:9 by more than 1% (a 1.77 transfer is 16:9)
 FILL_SAFE = (0.04, 0.05, 0.96, 0.75)   # the focus at the end framing: inside the marks' insets, above the lower thirds
 VIDEO_PRESETS = (FILL, "HOLD")      # a clip either plays as it is (HOLD, or no preset) or FILLs (A34)
 assert FILL_MAX_UPSCALE == POL.DEFAULT_SETTINGS["fill_max_upscale"]
+# A41 (founder, 2026-10-17: "fill the frame, soft is acceptable up to 3x"): a still's softness cap on the 1080p
+# master when the film states no fill_max_upscale; a clip's FILL keeps FILL_MAX_UPSCALE
+STILL_MAX_UPSCALE = M.TOUR["still_max_upscale"]
+assert STILL_MAX_UPSCALE <= POL.SETTING_BOUNDS["fill_max_upscale"][1]
 # 7.2, max 1.3. FIND (A32, a georeferenced sheet between extents) is not here: its limit is the
 # scan's own resolution, per shot and per delivery resolution (OV.scan_zmax, A32 refined, CoS 2026-10-11).
 SILENT_RE = re.compile(r"^The record holds no .+\.$")
@@ -745,13 +750,18 @@ def card_lints(lint, shots: list[dict], W: int, H: int, *, rule_fits: str = "car
 
 
 def whole_camera(shot: dict, img_size, W: int, H: int, *, preset: str = "HOLD") -> dict:
-    """A7's camera: the whole photograph at native aspect on the field, held
-    (a still under ``fill_exception``, A41)."""
+    """A7's camera for a still under ``fill_exception`` (A41): the whole
+    photograph at native aspect on the field on its first frame, then a gentle
+    push inside its own shape (pillarboxed) at ``TOUR['creep_scale_per_s']``,
+    never past ``TOUR['whole_creep_max']`` of the whole, so it is never frozen
+    (founder, 2026-10-17)."""
     iw, ih = img_size
     s = min(W / iw, H / ih)
-    return {"path": [{"z": 1.0, "x": 0.5, "y": 0.5}], "clamp": "native", "fill_ok": False, "preset": preset,
-            "open_s": min(OPEN_S, 0.4 * float(shot["_dur"])), "z_max": 1.0, "fit_scale": s, "z_rel_max": 1.0,
-            "opens_whole": True}
+    dur = float(shot["_dur"])
+    z_end = min(M.TOUR["whole_creep_max"], 1.0 + M.TOUR["creep_scale_per_s"] * dur)
+    path = [{"z": 1.0, "x": 0.5, "y": 0.5}] + ([{"z": z_end, "x": 0.5, "y": 0.5}] if z_end > 1.0 + 1e-9 else [])
+    return {"path": path, "clamp": "native", "fill_ok": False, "preset": preset, "open_s": 0.0, "move_s": dur,
+            "z_max": z_end, "fit_scale": s, "z_rel_max": 1.0, "creep_z": z_end, "opens_whole": True}
 
 
 def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words=None, cover: bool = False,
@@ -761,17 +771,20 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
     ``overlays.framing_at``. The path is the shot's ``camera`` (a list of
     stops, ``"tour"`` or ``{"tour": [names]}``: the ledger's regions visited
     as the narration names them), else its preset as a macro, else the
-    default tour. ``cover`` swaps a HOLD, FILL or default for a pass that
-    shows the whole picture (the people guard asked for it). A still the
+    default tour. ``cover`` swaps a preset or the default for a pass that
+    shows the whole picture (a FILL then settles on its focus, a DETAIL on its
+    region): the plan asks for it when the path would leave part of the
+    picture, or a person, unseen. A still the
     softness cap cannot fill states ``fill_exception`` and is held whole (A7).
     FIND (A32) keeps its own camera, held at the fill. ``words`` are the
     narration's words over the shot (tour.shot_words), for ``at`` anchors."""
     iw, ih = img_size
     s = min(W / iw, H / ih)
     fw, fh = iw * s, ih * s
-    cap = float(cap if cap is not None else shot.get("_fill_max_upscale") or FILL_MAX_UPSCALE)
+    cap = float(cap if cap is not None else shot.get("_fill_max_upscale") or STILL_MAX_UPSCALE)
     aspect = W / H
-    zcap = T.z_cap(img_size, W, H, cap)
+    # the softness cap is judged on the 1080p master, so a 720p delivery frames exactly as the master does
+    zcap = T.z_cap(img_size, *RESOLUTIONS[1080], cap)
     item = shot.get("_item") or {}
     exc = shot.get("fill_exception")
     preset = shot_preset(shot, iw / ih, still=True)
@@ -827,8 +840,11 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
         stops = T.default_stops(img_size, aspect, dur, str(shot.get("direction", "")).lower())
     else:
         raise Refused(f"shot {shot['id']}: unknown preset {preset!r} (GRAMMAR 7.2, A41)")
-    if cover and macro in ("HOLD", "FILL", "DEFAULT"):
-        stops = T.covering_stops(img_size, aspect, dur, shot.get("focus") if macro == "FILL" else None)
+    if cover and macro in COVERABLE:
+        region = shot.get("region") or {}
+        focus = (shot.get("focus") if macro == "FILL" else
+                 [float(region.get("x", 0.5)), float(region.get("y", 0.5))] if macro == "DETAIL" else None)
+        stops = T.covering_stops(img_size, aspect, dur, focus)
         covering = True
     tl = T.build(stops, dur, img_size, aspect, zmax, no_zoom=shot.get("no_zoom") is True)
     frame_path = [T.to_frame(st, img_size, W, H) for st in tl["stops"]]
@@ -986,16 +1002,18 @@ def still_windows(cam: dict, s: dict, size, W: int, H: int, hz: float = FPS) -> 
     return out
 
 
-def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int, showing: dict) -> None:
+def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int) -> None:
     """A41 at plan time, for a still that tours (or a FIND held at the fill).
     Blocking: the path as written (tour-path), its narration anchors
     (tour-anchor), every frame filled inside the picture (tour-fills), the
     softness cap at the deepest framing (tour-softness), 7.2's zoom limits
-    (still-zoom-limit: a preset's own depth, a face at 1.3), an ML upscale
-    marked RECONSTRUCTED (tour-ml-upscale). Warnings (pacing is guidance,
-    A39): a pan or zoom past the speed guides (tour-speed), a hold that cannot
-    creep (tour-held). The people guard and must_show run on the whole
-    showing (showing_lints)."""
+    (still-zoom-limit: a preset's own depth, a face at 1.3), and
+    every person in the picture in frame at some point in the shot (tour-people:
+    A7 over the path; a person the ledger does not locate needs the whole
+    picture shown). Warnings (pacing is guidance, A39): a pan or zoom past
+    the speed guides (tour-speed), a hold that cannot creep (tour-held).
+    Reviewer items: a ``must_show`` region never shown (tour-must-show), a
+    path that never shows the whole picture (tour-partial)."""
     dur = float(s["_dur"])
     probs = cam.get("problems") or []
     anchor = [p for p in probs if p.startswith("anchor:")]
@@ -1021,12 +1039,13 @@ def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int,
         wins.append((t, src))
     lint("tour-fills", not bad, unit=s["id"], stage="motion", grammar="A41",
          evidence={"frames": len(wins), "z_min": round(z_min, 4), "not_filled": bad})
-    up = cam["fit_scale"] * cam["z_max"]
-    cap = float(s.get("_fill_max_upscale") or FILL_MAX_UPSCALE)
-    fill_up = T.upscale(size, W, H, 1.0)
+    mw, mh = RESOLUTIONS[1080]                # judged on the 1080p master: every delivery frames the same
+    up = min(mw / size[0], mh / size[1]) * cam["z_max"]
+    cap = float(s.get("_fill_max_upscale") or STILL_MAX_UPSCALE)
+    fill_up = T.upscale(size, mw, mh, 1.0)
     ok = up <= cap + 1e-6
     lint("tour-softness", ok, unit=s["id"], stage="motion", grammar="A5, A34, A41",
-         evidence={"deepest_upscale": round(up, 4), "fill_upscale": round(fill_up, 4), "max_upscale": cap,
+         evidence={"deepest_upscale": round(up, 4), "fill_upscale": round(fill_up, 4), "max_upscale": cap, "at": "1080p",
                    "capped": cam.get("capped", False), "fix": None if ok else (
                        f"the fill alone magnifies this picture {fill_up:.2f}x, over {cap:g}x: state fill_exception: "
                        "\"<reason>\" (it is then held whole) or raise the film's fill_max_upscale"
@@ -1057,15 +1076,38 @@ def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int,
                                                  "segments": [g["kind"] for g in cam["tour"]["segments"]],
                                                  "speed": sp})
     item = s.get("_item") or {}
+    win = [w for _, w in wins]
+    people = T.people_of(item, kind=s.get("kind", "archive_still"))
+    r = T.people_check(win, people, size)
+    lint("tour-people", r["ok"], unit=s["id"], stage="motion", grammar="A7, A41",
+         evidence=dict(r, fix=None if r["ok"] else (
+             "a path that passes over every person (locate them in the ledger: people [{name, x, y, w, h}]), "
+             "or a pass that shows the whole picture")))
+    missed = T.must_show(win, item, size)
+    if missed:
+        journal.lint("tour-must-show", True, stage="motion", unit=s["id"], severity="review", grammar="A41",
+                     phase="preflight", evidence={"never_shown": missed,
+                                                  "check": "a crop never removes what changes the reading"})
+    if not r["whole_shown"]:
+        journal.lint("tour-partial", True, stage="motion", unit=s["id"], severity="review", grammar="A41",
+                     phase="preflight", evidence={"macro": cam.get("macro"), "shown": round(T.coverage(win, size), 4),
+                                                  "check": "the path never shows the whole picture: what it leaves "
+                                                           "out is the author's choice (A41: full visibility comes "
+                                                           "from touring the whole surface)"})
+
+
+def ml_upscale_lint(lint, s: dict) -> None:
+    """A5 (and A41): a picture made with a learned upscaler is RECONSTRUCTED
+    ``upscaled``, whatever its camera: a still that tours, one held whole, a
+    clip."""
+    item = s.get("_item") or {}
     ml = item.get("ml_upscaled") is True or item.get("upscaler") not in ML_UPSCALERS_OFF or "upscaled" in (
         item.get("alterations") or [])
     if ml:
         okm = s.get("mark") == "RECONSTRUCTED" and "upscaled" in (s.get("alterations") or [])
         lint("tour-ml-upscale", okm, unit=s["id"], stage="motion", grammar="A5, A41",
              evidence={"upscaler": item.get("upscaler"), "ml_upscaled": item.get("ml_upscaled"), "mark": s.get("mark"),
-                       "fix": None if okm else "a learned upscale is RECONSTRUCTED 'upscaled', on a tour as anywhere"})
-    showing["windows"] += [w for _, w in wins]
-    showing.setdefault("cams", []).append((s, wins))
+                       "fix": None if okm else "a learned upscale is RECONSTRUCTED 'upscaled', on any camera"})
 
 
 def fill_exception_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int) -> None:
@@ -1074,7 +1116,7 @@ def fill_exception_lints(lint, journal: Journal, s: dict, cam: dict, size, W: in
     film renders the same way at every delivery), and it states why.
     Journaled and a reviewer item."""
     exc = s.get("fill_exception")
-    cap = float(s.get("_fill_max_upscale") or FILL_MAX_UPSCALE)
+    cap = float(s.get("_fill_max_upscale") or STILL_MAX_UPSCALE)
     mw, mh = RESOLUTIONS[1080]
     fill_up = T.upscale(size, mw, mh, 1.0)
     needed = fill_up > cap + 1e-6
@@ -1092,33 +1134,6 @@ def fill_exception_lints(lint, journal: Journal, s: dict, cam: dict, size, W: in
     journal.lint("tour-exception-review", True, stage="motion", unit=s["id"], severity="review", grammar="A41",
                  phase="preflight", evidence={"check": "the still is held whole, pillarboxed, under its stated exception",
                                               "fill_exception": exc})
-
-
-def showing_lints(lint, journal: Journal, showings: list[dict]) -> None:
-    """A41's people guard (blocking, A7 over the path): over each showing of a
-    still (A35's: its shots in a row joined by a cut or a dissolve), every
-    person in the picture is in frame at some point; a person the ledger does
-    not locate needs the whole picture shown at some point. And a reviewer
-    item for each ``must_show`` region the showing never shows."""
-    for sh in showings:
-        cams = sh.get("cams") or []
-        if not cams:
-            continue
-        size, item = sh["size"], sh["item"]
-        people = T.people_of(item, kind=sh["kind"])
-        r = T.people_check(sh["windows"], people, size)
-        first = cams[0][0]
-        ids = [c[0]["id"] for c in cams]
-        for s, _ in cams:
-            lint("tour-people", r["ok"], unit=s["id"], stage="motion", grammar="A7, A41",
-                 evidence=dict(r, showing=ids, fix=None if r["ok"] else (
-                     "a path that passes over every person (locate them in the ledger: people [{name, x, y, w, h}]), "
-                     "or a pass that shows the whole picture")))
-        missed = T.must_show(sh["windows"], item, size)
-        if missed:
-            journal.lint("tour-must-show", True, stage="motion", unit=first["id"], severity="review", grammar="A41",
-                         phase="preflight", evidence={"showing": ids, "never_shown": missed,
-                                                      "check": "a crop never removes what changes the reading"})
 
 
 def continuity_lints(journal: Journal, shots: list[dict], W: int, H: int) -> None:
@@ -1882,47 +1897,45 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
              evidence={"generated_frames": gen, "frames": total_frames, "share": round(gen / total_frames, 4), "max": gen_max})
 
     image_repeat_lints(lint, journal, shots)     # A35 (R12): an image is shown at most twice, once per part
-    showings: list[dict] = []                    # A41: a still's showings (A35's), for the people guard
 
     # Stills: the camera (A41: a tour that fills, or whole under a fill exception), the people guard over each
-    # showing, the resampler (A5), fill_ok for the reviewer.
+    # shot, the resampler (A5), fill_ok for the reviewer.
     words_src = None
-    showing = None
-    prev = None
     for s in shots:
         if s["kind"] in ("archive_still", "drawn") and s.get("_item", {}).get("_path"):
             if s["kind"] == "drawn" and s.get("camera") is None:
                 s.setdefault("preset", "HOLD")
             with Image.open(s["_item"]["_path"]) as im:
                 size = im.size
-            s["_fill_max_upscale"] = settings["fill_max_upscale"]
+            # A41 (founder, 2026-10-17): a still may go to 3.0x unless the film states its own fill_max_upscale
+            s["_fill_max_upscale"] = (settings["fill_max_upscale"] if "fill_max_upscale" in settings_stated
+                                      else STILL_MAX_UPSCALE)
             if words_src is None and any(x.get("camera") is not None for x in shots):
                 words_src = tour_lines(play, film)
             words = T.shot_words(words_src or [], s["start_s"], s["end_s"])
-            tr = (s.get("transition_in") or {}).get("type", "cut")
-            if not (prev is not None and showing is not None and prev.get("asset") == s.get("asset")
-                    and tr in ("cut", "dissolve")):
-                showing = {"shots": [], "windows": [], "size": size, "item": s["_item"], "kind": s["kind"]}
-                showings.append(showing)
             cam = still_camera(s, size, W, H, words=words)
-            if cam["preset"] == TOUR:
-                people = T.people_of(s["_item"], kind=s["kind"])
+            if cam["preset"] == TOUR and cam["macro"] in COVERABLE:
+                # A41: full visibility comes from touring the whole surface. A preset or the default that leaves
+                # part of the picture unseen (or a person: A7) becomes a covering pass, unless the ledger names
+                # what this picture is about (roi, must_show): then the path is the author's, and a reviewer item
+                item = s["_item"]
+                people = T.people_of(item, kind=s["kind"])
                 wins = [w for _, w in still_windows(cam, s, size, W, H)]
-                need = not T.people_check(showing["windows"] + wins, people, size)["ok"]
-                if not need and s["kind"] == "drawn":
-                    # a studio-made picture is read: a HOLD that never shows its edges tours it instead
-                    need = not T.covered(showing["windows"] + wins, (0.0, 0.0, 1.0, 1.0), size)
-                if need and cam["macro"] in ("HOLD", "FILL", "DEFAULT"):
+                pc = T.people_check(wins, people, size)
+                authored = bool(item.get("roi") or item.get("must_show"))
+                why = ("a person would go unseen" if not pc["ok"] else
+                       None if pc["whole_shown"] or authored else
+                       f"it shows {100 * T.coverage(wins, size):.0f}% of the picture")
+                if why:
                     cam = still_camera(s, size, W, H, words=words, cover=True)
                     journal.decision("motion", f"{s['id']}: {cam['macro']} made a covering pass of the whole picture",
-                                     "A41 and A7: a fill held on part of the picture would leave a person (or, on a "
-                                     "drawn picture, what is read) unseen; the pass shows every part", unit=s["id"],
-                                     evidence={"people": people, "kind": s["kind"]})
+                                     f"A41 and A7: as written {why}; full visibility comes from touring the whole "
+                                     "surface", unit=s["id"], evidence={"people": people, "kind": s["kind"]})
             s["_cam"] = cam
-            showing["shots"].append(s)
             fill_lints(lint, journal, s, cam)
+            ml_upscale_lint(lint, s)
             if cam["preset"] == TOUR or cam.get("a41"):
-                tour_lints(lint, journal, s, cam, size, W, H, showing)
+                tour_lints(lint, journal, s, cam, size, W, H)
                 if cam["preset"] == OV.FIND:
                     lint("still-zoom-limit", cam["z_rel_max"] <= cam["scan_zmax"] + 1e-9, unit=s["id"], stage="motion",
                          grammar="7.2, A32", evidence={"preset": OV.FIND, "z_max": round(cam["z_rel_max"], 4),
@@ -1936,6 +1949,8 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                 else:
                     limit = PRESET_ZMAX.get(cam["preset"], 1.0)
                     ok = cam["z_rel_max"] <= limit + 1e-9 and cam["z_rel_max"] <= 1.3 + 1e-9
+                    # A41: a still held whole creeps inside its own shape, at most whole_creep_max
+                    ok = ok and cam.get("creep_z", 1.0) <= M.TOUR["whole_creep_max"] + 1e-9
                 lint("still-zoom-limit", ok, unit=s["id"], stage="motion", grammar="7.2",
                      evidence={"preset": cam["preset"], "z_max": round(cam["z_rel_max"], 4),
                                "limit": round(limit, 4), "face": bool(s.get("face"))})
@@ -1957,10 +1972,6 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                 journal.decision("motion", f"{s['id']}: fill_ok: false no longer holds a still whole",
                                  "A41: every still fills 16:9; a still kept whole states fill_exception (only when the "
                                  "softness cap cannot be met)", unit=s["id"])
-            prev = s
-        else:
-            prev = None
-    showing_lints(lint, journal, showings)
     continuity_lints(journal, shots, W, H)
     OV.lints(lint, shots, W, H, play)                # A32: marks drawn over a georeferenced archive sheet
     if lint_fail:
@@ -2017,7 +2028,12 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             # for its end framing, so the crop samples the source once (Lanczos), never an upsampled fit
             preset = shot_preset(s, dar, still=False)
             cam = None
-            if preset == TOUR:
+            ml_upscale_lint(lint, s)
+            if s.get("camera") is not None and preset != TOUR:
+                lint("tour-video", False, unit=s["id"], stage="motion", grammar="A41",
+                     evidence={"camera": s.get("camera"), "preset": preset,
+                               "fix": "a clip takes no camera path (a later ticket): drop camera; the preset plays"})
+            elif preset == TOUR:
                 # A41: a crop could cut a burned caption off (A26 refined), and a path on video is a later ticket
                 burned = burned_names_in_shot(s, item) or ([{"burned_captions": True}] if item.get("burned_captions") else [])
                 lint("tour-burned-captions", not burned, unit=s["id"], stage="motion", grammar="A26 refined, A41",

@@ -13,7 +13,8 @@ frame. A window is always clamped inside the picture's own pixels.
 
 A path is a list of stops ``{t, x, y, z}`` (``t`` in shot seconds), or
 anchored to the narration with ``at`` (a word index, or a cue the narration
-speaks: ``resolve_stops``), or to a ledger region with ``roi``. Between stops
+speaks: ``parse_path`` resolves it with ``anchor_time``), or to a ledger region
+with ``roi``. Between stops
 the camera moves on the rostrum curve (BRAND-KIT 6). A stop held longer than
 ``motion.TOUR['hold_creep_after_s']`` keeps creeping (scale, or a slow drift)
 so no frame is frozen.
@@ -238,7 +239,9 @@ def tour_stops(roi: list[dict], words: list[dict], t0: float, dur: float, size, 
         st = roi_stop(r, size, aspect, zmax)
         st.update(t=max(0.0, min(dur, t)), roi=r.get("name"), **{"from": f"tour: {r.get('name')}"})
         if st["t"] <= stops[-1]["t"] + EPS:
-            st["t"] = min(dur, stops[-1]["t"] + 0.5)
+            st["t"] = stops[-1]["t"] + 0.5     # never two stops at one moment (tour.mjs does the same)
+        if st["t"] > dur + EPS:
+            continue                           # named too late to reach in this shot (tour.mjs drops it too)
         stops.append(st)
     return stops
 
@@ -363,6 +366,7 @@ def parse_path(path, dur: float, words: list[dict], t0: float, roi_by_name: dict
             probs.append(f"stop {k}: x and y are 0 to 1 in the picture")
         if st["z"] < 1.0 - EPS:
             probs.append(f"stop {k}: z {st['z']:g} is below the fill (z >= 1, A41)")
+            st["z"] = 1.0                     # drawn at the fill; the lint refuses the path as written
         if "t" in raw and "at" in raw:
             probs.append(f"stop {k}: t or at, not both")
         if "at" in raw:
@@ -525,13 +529,15 @@ def samples(tl: dict, hz: float | None = None) -> list[tuple[float, dict]]:
 # Guards
 # --------------------------------------------------------------------------
 
-NONE_WORDS = ("none", "no ", "nobody", "no one", "empty")
+# exactly these mean nobody; any other words name someone, so they are unlocated people (a ledger that says
+# "no one named; three refugees" holds three people)
+NOBODY = ("none", "none visible", "none resolvable")
 
 
 def people_of(item: dict, *, kind: str = "archive_still") -> dict:
     """Who is in the picture, from the ledger: ``{"boxes": [...], "unlocated":
-    n, "known": bool}``. ``people`` false, empty, or a "none ..." string is
-    nobody; a list holds people, each located when it carries {x, y, w, h};
+    n, "known": bool}``. ``people`` false, empty, or exactly "none", "none
+    visible" or "none resolvable" is nobody; any other string is someone; a list holds people, each located when it carries {x, y, w, h};
     a region of interest with ``person: true`` is a located person. Absent on
     an archive picture it is unknown (unlocated); a drawn picture is nobody
     unless it says so."""
@@ -543,7 +549,7 @@ def people_of(item: dict, *, kind: str = "archive_still") -> dict:
     elif pe is False or pe == [] or pe == 0:
         pass
     elif isinstance(pe, str):
-        if not pe.strip().lower().startswith(NONE_WORDS):
+        if pe.strip().lower().rstrip(".") not in NOBODY:
             unlocated = 1
     elif isinstance(pe, list):
         for p in pe:
@@ -560,47 +566,59 @@ def people_of(item: dict, *, kind: str = "archive_still") -> dict:
     return {"boxes": boxes, "unlocated": unlocated, "known": known}
 
 
-GRID = 48
-
-
-def _union(windows, size):
-    """The grid cells (GRID x GRID over the picture) whose centres some window holds."""
+def covered(windows, box, size, hit=None, tol_px: float = 0.5) -> bool:
+    """Every point of a box (picture fractions) is inside some window: exact,
+    on the grid the windows' own edges cut (coordinate compression), so a
+    thin box between any sample grid is judged as it is. ``hit`` is unused
+    (kept for callers)."""
     import numpy as np
     iw, ih = float(size[0]), float(size[1])
-    c = (np.arange(GRID) + 0.5) / GRID
-    cx, cy = c * iw, c * ih
-    hit = np.zeros((GRID, GRID), bool)
-    for (a, b, cc, d) in windows:
-        hit |= ((cy >= b - 0.5) & (cy <= d + 0.5))[:, None] & ((cx >= a - 0.5) & (cx <= cc + 0.5))[None, :]
-    return hit
+    bx0, by0, bx1, by1 = box[0] * iw, box[1] * ih, box[2] * iw, box[3] * ih
+    if bx1 - bx0 <= 0 or by1 - by0 <= 0:
+        return True
+    ws = [(a - tol_px, b - tol_px, c + tol_px, d + tol_px) for (a, b, c, d) in windows]
+    xs = np.unique(np.clip(np.array([bx0, bx1] + [v for w in ws for v in (w[0], w[2])]), bx0, bx1))
+    ys = np.unique(np.clip(np.array([by0, by1] + [v for w in ws for v in (w[1], w[3])]), by0, by1))
+    if len(xs) < 2 or len(ys) < 2:
+        return True
+    hit = np.zeros((len(ys) - 1, len(xs) - 1), bool)
+    for (a, b, c, d) in ws:
+        i0, i1 = np.searchsorted(xs, a, "left"), np.searchsorted(xs, c, "right") - 1
+        j0, j1 = np.searchsorted(ys, b, "left"), np.searchsorted(ys, d, "right") - 1
+        if i1 > i0 and j1 > j0:
+            hit[j0:j1, i0:i1] = True
+    return bool(hit.all())
 
 
-def covered(windows, box, size, hit=None) -> bool:
-    """Every grid cell of a box (picture fractions) is inside some window."""
+def coverage(windows, size) -> float:
+    """The share of the picture's area some window shows (for the evidence)."""
     import numpy as np
-    hit = _union(windows, size) if hit is None else hit
-    x0, y0, x1, y1 = box
-    c = (np.arange(GRID) + 0.5) / GRID
-    ys = (c >= y0 - EPS) & (c <= y1 + EPS)
-    xs = (c >= x0 - EPS) & (c <= x1 + EPS)
-    cells = ys[:, None] & xs[None, :]
-    return bool(np.all(hit[cells])) if cells.any() else True
-
-
-def seen(windows, box, size, tol: float = 0.005, hit=None) -> bool:
-    """A box (picture fractions) is in frame at some point: whole inside one
-    window, or, when it is larger than any window can hold, every part of it
-    inside some window over the path (a full-length figure the camera tilts
-    down)."""
     iw, ih = float(size[0]), float(size[1])
-    x0, y0, x1, y1 = box
+    xs = np.unique(np.clip(np.array([0.0, iw] + [v for w in windows for v in (w[0], w[2])]), 0, iw))
+    ys = np.unique(np.clip(np.array([0.0, ih] + [v for w in windows for v in (w[1], w[3])]), 0, ih))
+    hit = np.zeros((len(ys) - 1, len(xs) - 1), bool)
     for (a, b, c, d) in windows:
-        if a / iw <= x0 + tol and b / ih <= y0 + tol and c / iw >= x1 - tol and d / ih >= y1 - tol:
+        i0, i1 = np.searchsorted(xs, a - 0.5, "left"), np.searchsorted(xs, c + 0.5, "right") - 1
+        j0, j1 = np.searchsorted(ys, b - 0.5, "left"), np.searchsorted(ys, d + 0.5, "right") - 1
+        if i1 > i0 and j1 > j0:
+            hit[j0:j1, i0:i1] = True
+    area = np.outer(np.diff(ys), np.diff(xs))
+    return float((area * hit).sum() / (iw * ih))
+
+
+def seen(windows, box, size, tol_px: float = 0.5) -> bool:
+    """A box (picture fractions) is in frame at some point: whole inside one
+    window (to half a source pixel), or, when it is larger than any window can
+    hold, every part of it inside some window over the path (a full-length
+    figure the camera tilts down), judged exactly (``covered``)."""
+    iw, ih = float(size[0]), float(size[1])
+    x0, y0, x1, y1 = box[0] * iw, box[1] * ih, box[2] * iw, box[3] * ih
+    for (a, b, c, d) in windows:
+        if a <= x0 + tol_px and b <= y0 + tol_px and c >= x1 - tol_px and d >= y1 - tol_px:
             return True
-    fits = any((c - a) / iw >= (x1 - x0) - tol and (d - b) / ih >= (y1 - y0) - tol for (a, b, c, d) in windows)
-    if fits:
+    if any(c - a >= x1 - x0 - tol_px and d - b >= y1 - y0 - tol_px for (a, b, c, d) in windows):
         return False
-    return covered(windows, box, size, hit)
+    return covered(windows, box, size)
 
 
 def windows_of(tl: dict, hz: float | None = None) -> list[tuple[float, float, float, float]]:
@@ -613,10 +631,8 @@ def people_check(windows, people: dict, size) -> dict:
     """A7 over the path (A41, blocking): every located person is in frame at
     some point; an unlocated person (or unknown people) needs the whole
     picture shown at some point. Returns {ok, missed, whole_shown}."""
-    hit = _union(windows, size)
-    missed = [p["name"] or f"person {k}" for k, p in enumerate(people["boxes"])
-              if not seen(windows, p["box"], size, hit=hit)]
-    whole = covered(windows, (0.0, 0.0, 1.0, 1.0), size, hit)
+    missed = [p["name"] or f"person {k}" for k, p in enumerate(people["boxes"]) if not seen(windows, p["box"], size)]
+    whole = covered(windows, (0.0, 0.0, 1.0, 1.0), size)
     need_whole = people["unlocated"] > 0
     ok = not missed and (whole or not need_whole)
     return {"ok": ok, "missed": missed, "whole_shown": whole, "unlocated": people["unlocated"],
@@ -628,14 +644,12 @@ def must_show(windows, item: dict, size) -> list[str]:
     a region with ``must_show: true``, or a name in the item's ``must_show``
     list) that the path never shows whole."""
     names = item.get("must_show") if isinstance(item.get("must_show"), list) else []
-    hit = None
     out = []
     for r in item.get("roi") or []:
         if not isinstance(r, dict) or roi_box(r) is None:
             continue
         if r.get("must_show") is True or r.get("name") in names:
-            hit = _union(windows, size) if hit is None else hit
-            if not seen(windows, roi_box(r), size, hit=hit):
+            if not seen(windows, roi_box(r), size):
                 out.append(r.get("name"))
     return out
 

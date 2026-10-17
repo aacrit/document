@@ -407,9 +407,9 @@ The founder: "take the user through the artifact as needed, but use the full res
 | Creep | a stop held over 1.5 s keeps moving, so no frame is frozen | 1.5% scale a second; a slow pull at the cap; a 1% drift where scale cannot change |
 | Default | a still with no path and no preset opens at the fill on one end and passes to the other | a portrait or 4:3 picture tilts top to bottom; a wide map pans left to right |
 
-**The presets are paths.** HOLD, PUSH, PULL, DRIFT, TILT and DETAIL keep 7.2's framings, now measured from the fill; FILL is the fill about its focus. A HOLD or a FILL that would leave a person unseen becomes a covering pass of the whole picture (a FILL then settles on its focus).
+**The presets are paths.** HOLD, PUSH, PULL, DRIFT, TILT and DETAIL keep 7.2's framings, now measured from the fill; FILL is the fill about its focus. A preset that never shows the whole picture becomes a covering pass of it (a FILL then settles on its focus, a DETAIL on its region), unless the ledger names the picture's regions; then, and for a written path, a part left unseen is a reviewer item.
 
-**Softness.** Section 14's 1.6 output pixels per source pixel holds at the deepest framing, creep included. A preset stops at it; a written stop past it is refused.
+**Softness.** Founder ruling, 2026-10-17: "fill the frame, soft is acceptable up to 3x." A still may be magnified up to 3.0 output pixels per source pixel on the 1080p master (a film may state a lower `fill_max_upscale`; a clip's FILL keeps section 14's 1.6), judged at the deepest framing, creep included. A preset stops at it; a written stop past it is refused. A still that would need more states `fill_exception`: whole on its first frame, then a gentle push inside its own pillarboxed shape (1.5% a second, at most 1.06), never frozen.
 
 Do: write regions of interest once per image (`roi`) and let `tour` visit each as the narration names it; keep moves continuing across a cut, or land the cut on a stop. Don't: pillarbox a still because it is a document or a painting (tour it); push a face past z 1.3; state `fill_exception` on a picture that can fill.
 

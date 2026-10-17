@@ -1352,11 +1352,9 @@ def _dense_still(path, w=3551, h=2037):
 
 
 def _a7_fixture(film):
-    """The A7 pixel check's own tests plan the fixture at 1080p with a large S4. A41: S3 (500x350) cannot fill
-    there without passing 1.6x, so it states an exception; S4 can fill, so it tours unless a test holds it whole
-    (``_hold_whole``), which is what the check is for."""
+    """The A7 pixel check's own tests plan the fixture at 1080p with a large S4. A41: S4 can then fill, so it
+    tours unless a test holds it whole (``_hold_whole``), which is what the check is for."""
     def edit(p):
-        _shot(p, "S3")["fill_exception"] = "the fixture's small scan cannot fill 1080p under 1.6x"
         _shot(p, "S4").pop("fill_exception", None)
     _edit_play(film, edit)
     return film
@@ -1517,7 +1515,6 @@ def test_a_still_without_detail_at_its_edges_is_inconclusive(tmp_path):
     _use_still(film, soft)
     ok, ev = _a7_at(film, "S4", 1.0)
     assert ok and ev["verdict"] == "inconclusive" and ev["band_detail"] < R.A7_DETAIL_FLOOR
-    _edit_play(film, lambda p: _shot(p, "S3").pop("fill_exception"))       # at 360p S3 fills under 1.6x (A41)
     plan = _hold_whole(R.build_plan(film, W=640, H=360, burn_subtitles=False, journal=J.Journal(film="soft")), "S4")
     j = J.Journal(film="soft-preflight")
     assert R.preflight_stills(plan, j) == []                          # inconclusive never blocks; the geometric lint decides
