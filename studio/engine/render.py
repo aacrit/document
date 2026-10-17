@@ -1973,7 +1973,8 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         # from its timeline), so the next shot's glyph crossfades from what the screen shows
         "marks": [{"start": s["f0"] / FPS, "cls": s["_title"]["out_class"], "detail": s["detail"], "label": "", "year": None,
                    "title": True} if TS.is_title(s) else
-                  {"start": s["f0"] / FPS, "cls": s["mark"], "detail": s["detail"], "label": s["label"], "year": mark_year(s)}
+                  {"start": s["f0"] / FPS, "end": s["f1"] / FPS, "cls": s["mark"], "detail": s["detail"],
+                   "label": s["label"], "year": mark_year(s)}           # end: A42's repeats stay inside the shot
                   for s in shots],
         "card_spans": card_spans, "wm_start": (imagery[0]["f0"] / FPS) if imagery else None,
         # A31: the mark key's classes, from the whole film (kept by --until), the series titles' own classes with them (A40)
@@ -6292,6 +6293,7 @@ def shot_key(plan: dict, i: int, asset_hash: dict, env_key: dict | None = None) 
         "next_transition": nxt["transition_in"] if nxt else None, "next_f0": nxt["f0"] if nxt else None,
         "marks": plan["marks"][max(0, i - 1): i + 1],
         "label_start": M.label_starts(plan["marks"])[i],        # A31: it may come from an earlier shot (a label runs on)
+        "label_times": M.label_times(plan["marks"])[i],         # A42: and it grows again within a long shot
         "lower_thirds": [lt for lt in plan["lower_thirds"] if lt["start"] < t1 and lt["end"] > t0],
         "overlays": [o for o in plan["overlays"] if o["start"] < t1 and o["end"] > t0],
         "tools": env_key,
