@@ -840,6 +840,7 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
         stops = T.default_stops(img_size, aspect, dur, str(shot.get("direction", "")).lower())
     else:
         raise Refused(f"shot {shot['id']}: unknown preset {preset!r} (GRAMMAR 7.2, A41)")
+    asked = stops                             # still-zoom-limit judges the preset as written, before any cover
     if cover and macro in COVERABLE:
         region = shot.get("region") or {}
         focus = (shot.get("focus") if macro == "FILL" else
@@ -850,7 +851,7 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
     frame_path = [T.to_frame(st, img_size, W, H) for st in tl["stops"]]
     zf = max(W / fw, H / fh)
     return {"path": frame_path, "clamp": "image", "fill_ok": True, "preset": TOUR, "macro": macro, "open_s": 0.0,
-            "z_max": zf * tl["z_max"], "fit_scale": s, "z_rel_max": max(max(1.0, float(st["z"])) for st in stops),
+            "z_max": zf * tl["z_max"], "fit_scale": s, "z_rel_max": max(max(1.0, float(st["z"])) for st in asked),
             "tour": tl, "W": W, "H": H, "opens_whole": False, "problems": problems, "zcap": zcap, "cap": cap,
             "covering": covering, "capped": any(st.get("capped") for st in stops)}
 
