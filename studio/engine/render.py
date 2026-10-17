@@ -6623,7 +6623,7 @@ def shot_key(plan: dict, i: int, asset_hash: dict, env_key: dict | None = None) 
     prev = plan["shots"][i - 1] if i else None
     nxt = plan["shots"][i + 1] if i + 1 < len(plan["shots"]) else None
     rec = {
-        "engine": ENGINE_HASH, "W": plan["W"], "H": plan["H"], "fps": FPS, "shot": _clean(s),
+        "engine": ENGINE_HASH, "resample": M.RESAMPLE, "W": plan["W"], "H": plan["H"], "fps": FPS, "shot": _clean(s),
         "asset": asset_hash.get(s.get("asset")), "prev": _clean(prev) if prev else None,
         "prev_asset": asset_hash.get(prev.get("asset")) if prev else None,
         "next_transition": nxt["transition_in"] if nxt else None, "next_f0": nxt["f0"] if nxt else None,

@@ -1852,21 +1852,56 @@ def still_view(size, L: Layout, *, z: float = 1.0, cx: float = 0.5, cy: float = 
     return (a[0], a[1], b[0], b[1]), (0.0, 0.0, float(L.W), float(L.H))
 
 
+# How fit_still samples (cine ticket 1, 2026-10-17): a Lanczos resize of the fractional window, which
+# prefilters a reduction (no twinkle on halftones, engravings, hatching or type at a 2-3x stop) and has
+# no bicubic sub-pixel phase "breathing" on a creep. Part of every segment's cache key (render.shot_key):
+# change it whenever the sampling changes, so no cached frame of the old sampling is reused.
+RESAMPLE = "lanczos-box-1"
+
+
+def _sample_window(rgb: Image.Image, src, size) -> Image.Image:
+    """The image window ``src`` (x0, y0, x1, y1 in image pixels, fractional,
+    possibly reaching past the photograph) drawn into a ``size`` canvas with
+    filtered (Lanczos) sampling. A canvas pixel whose centre falls outside the
+    photograph is the letterbox field, as the bicubic transform's fill was."""
+    W, H = size
+    iw, ih = rgb.size
+    x0, y0, x1, y1 = (float(v) for v in src)
+    sx, sy = (x1 - x0) / W, (y1 - y0) / H
+
+    def span(a, s, n, lim):                 # canvas pixels [lo, hi) whose centres lie on the photograph
+        lo = max(0, math.ceil(-a / s - 0.5 - 1e-9))
+        hi = min(n, math.floor((lim - a) / s - 0.5 + 1e-9) + 1)
+        return lo, hi
+
+    X0, X1 = span(x0, sx, W, iw)
+    Y0, Y1 = span(y0, sy, H, ih)
+    if X1 <= X0 or Y1 <= Y0:
+        return Image.new("RGB", (W, H), PALETTE["letterbox"])
+    box = (min(max(x0 + X0 * sx, 0.0), iw), min(max(y0 + Y0 * sy, 0.0), ih),
+           min(max(x0 + X1 * sx, 0.0), iw), min(max(y0 + Y1 * sy, 0.0), ih))
+    pic = rgb.resize((X1 - X0, Y1 - Y0), Image.Resampling.LANCZOS, box=box)
+    if (X0, Y0, X1, Y1) == (0, 0, W, H):
+        return pic
+    out = Image.new("RGB", (W, H), PALETTE["letterbox"])
+    out.paste(pic, (X0, Y0))
+    return out
+
+
 def fit_still(still: Image.Image, L: Layout, *, z: float = 1.0, cx: float = 0.5, cy: float = 0.5,
               clamp: str = "frame") -> Image.Image:
     """Letterbox or pillarbox the photograph on the letterbox field, then take
-    the window (zoom z about centre cx, cy in 0..1) with bicubic sampling.
-    ``clamp`` is as ``still_view`` says."""
+    the window (zoom z about centre cx, cy in 0..1) with filtered sampling
+    (``RESAMPLE``: Lanczos over the fractional window, so a reduction is
+    prefiltered). ``clamp`` is as ``still_view`` says."""
     src, dst = still_view(still.size, L, z=z, cx=cx, cy=cy, clamp=clamp)
     rgb = still if still.mode == "RGB" else still.convert("RGB")
     if dst == (0.0, 0.0, float(L.W), float(L.H)):
-        return rgb.transform((L.W, L.H), Image.Transform.EXTENT, src,
-                             resample=Image.Resampling.BICUBIC, fillcolor=PALETTE["letterbox"])
+        return _sample_window(rgb, src, (L.W, L.H))
     x0, y0 = int(round(dst[0])), int(round(dst[1]))
     dw, dh = int(round(dst[2])) - x0, int(round(dst[3])) - y0
     out = Image.new("RGB", (L.W, L.H), PALETTE["letterbox"])
-    out.paste(rgb.transform((dw, dh), Image.Transform.EXTENT, src, resample=Image.Resampling.BICUBIC,
-                            fillcolor=PALETTE["letterbox"]), (x0, y0))
+    out.paste(_sample_window(rgb, src, (dw, dh)), (x0, y0))
     return out
 
 
