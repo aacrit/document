@@ -199,10 +199,29 @@ def test_an_edge_that_enters_from_music_is_not_judged():
 
 def test_digital_zero_is_a_hole_even_in_a_rest_but_not_under_the_titles():
     an = SC.take_analysis(_stem(zero=(3.0, 4.0)), _take())
-    holes = SC.take_holes(an, STD["music_hole_max_s"])
+    holes = SC.take_holes(an, SC.TAKE_HOLE_MAX_S)
     assert [(h["from_s"], h["to_s"], h["why"].split(":")[0]) for h in holes] == [(3.0, 4.0, "digital zero")]
     titled = SC.take_analysis(_stem(zero=(3.0, 4.0)), _take(), titles=[(2.5, 4.5)])
-    assert SC.take_holes(titled, STD["music_hole_max_s"]) == []
+    assert SC.take_holes(titled, SC.TAKE_HOLE_MAX_S) == []
+
+
+@pytest.mark.parametrize("gap_s, hole", [(3.0, False), (5.5, True)])
+def test_a_breath_in_a_composed_line_is_not_a_hole_but_the_room_over_4_s_is(gap_s, hole):
+    """8.4 revised (WG-4 ruling 2026-10-17): over a real room a hole is the room alone for more than 4 s
+    (TAKE_HOLE_MAX_S), not music_hole_max_s, which stays for films scored by cues."""
+    y = _room(40.0)
+    a = _swell(7.0, amp=0.04, rise=2.0, fall=0.6)                  # a phrase that closes quickly,
+    b = _swell(8.0, amp=0.04, rise=0.6, fall=2.0)                  # a breath of the room, and the next phrase
+    y[int(9.0 * RATE): int(9.0 * RATE) + len(a)] += a
+    i = int((16.0 + gap_s) * RATE)
+    y[i: i + len(b)] += b
+    span = [{"id": "bed-1", "role": "bed", "start_s": 9.0, "end_s": 24.0 + gap_s}]
+    an = SC.take_analysis(y, _take(spans=span, rests=[RESTS[0], dict(RESTS[2], start_s=32.0)]))
+    room = [h for h in SC.take_holes(an, SC.TAKE_HOLE_MAX_S) if h["why"].startswith("the room")]
+    assert bool(room) is hole
+    assert SC.TAKE_HOLE_MAX_S == 4.0 and STD["music_hole_max_s"] == 1.5
+    held = _get(SC.take_checks(an, STD), "music-holes", "music")
+    assert held["evidence"]["max_s"] == SC.TAKE_HOLE_MAX_S and held["ok"] is (not hole)
 
 
 def test_eight_four_counts_the_rests_with_no_voice():

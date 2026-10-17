@@ -846,6 +846,9 @@ TAKE_SPAN_ROLES = ("bed", "transition", "featured", "outro")
 TAKE_EDGE_TOL_S = 0.05              # a take ends with the film within this (the renderer's sample grid, not a frame)
 TAKE_TAIL_MAX_S = 6.0               # a span is judged with its release tail, until the room is heard, at most 6 s
 ROOM_MARGIN_DB = 3.0                # the music band within 3 dB over the room tone is the room alone: no music
+TAKE_HOLE_MAX_S = 4.0               # 8.4 (revised; WG-4 ruling 2026-10-17): a take's hole is the room alone over 4 s.
+                                    # The floor is a real room now, not digital silence, so a short breath in a
+                                    # composed line is not a hole; music_hole_max_s stays for the per-cue path
 TAKE_NEAR_P90_DB = 6.0              # a composed entry has arrived when the music band is within 6 dB of the span's p90
 TAKE_EDGE_LOOKBACK_S = 10.0         # an edge enters from the room (or leaves into it) when the room is heard within 10 s
 TAKE_LEAD_S = 0.5                   # a humanised first note may sound a little before its span starts
@@ -1104,7 +1107,7 @@ def take_holes(take: dict, max_s: float, silences=(), own_sound=(), voice100: np
     """music-holes for a take (8.4 revised): digital zero anywhere in it but
     under the series titles is a hole outright (the floor is the room tone);
     and, between the first span's start and the last one's end, any stretch
-    over ``max_s`` where the music band is at the room (at most ROOM_MARGIN_DB
+    over ``max_s`` (TAKE_HOLE_MAX_S in take_checks) where the music band is at the room (at most ROOM_MARGIN_DB
     over its floor) with no voice, outside the rest map, the declared
     silences and a source's own sound."""
     band, zero = take["band_db"], take["zero"]
@@ -1203,9 +1206,9 @@ def take_checks(take: dict, std: dict, *, silences=(), own_sound=(), voice100: n
                            "(100 ms RMS)", "p90_db": e["p90_db"], "near_db": e["near_db"], "room_db": e["room_db"],
                 "fix": None if ok else ("compose the entry softer (niente), never fade it" if side == "entry" else
                                         "compose the release longer (let it die away into the room), never fade it")}})
-    holes = take_holes(take, std["music_hole_max_s"], silences, own_sound, voice100)
+    holes = take_holes(take, TAKE_HOLE_MAX_S, silences, own_sound, voice100)
     out.append({"rule": "music-holes", "ok": not holes, "unit": "music", "evidence": {
-        "holes": holes[:30], "count": len(holes), "max_s": std["music_hole_max_s"], "take": take["id"],
+        "holes": holes[:30], "count": len(holes), "max_s": TAKE_HOLE_MAX_S, "take": take["id"],
         "room_floor_db": floor_db, "room_floor_from": take["floor_from"], "margin_db": ROOM_MARGIN_DB,
         "rests": len(take["rests"]), "voice_measured": voice100 is not None,
         "fix": None if not holes else "a hole is the room alone where the score has not said so: declare the rest in "
