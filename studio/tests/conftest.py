@@ -36,8 +36,58 @@ def pytest_configure(config):
         import tempfile
         key = hashlib.sha256(str(ROOT).lower().encode()).hexdigest()[:10]
         root = Path(tempfile.gettempdir()) / f"document-studio-tests-{key}"
+        prune_orphan_roots(root.parent, keep=root)
         root.mkdir(parents=True, exist_ok=True)
+        tmp = root / f"{ROOT_MARKER}.{os.getpid()}"
+        tmp.write_text(str(ROOT), encoding="utf-8")
+        os.replace(tmp, root / ROOT_MARKER)   # atomic: a crash never leaves a truncated path
         os.environ["PYTEST_DEBUG_TEMPROOT"] = str(root)
+
+
+ROOT_MARKER = "worktree.txt"
+UNMARKED_MAX_AGE_S = 24 * 3600
+
+
+def prune_orphan_roots(parent: Path, keep: Path, now: float | None = None) -> list[Path]:
+    """Remove the temp roots of worktrees that no longer exist. Every worktree
+    gets its own root (above) and each holds a rendered fixture film, so roots
+    outlived their removed worktrees and filled C: (backlog 2026-10-17). A root
+    names its worktree in ``worktree.txt``; it goes when that path is gone. A
+    root from before the marker goes once it is a day unused (any live
+    worktree writes its marker on its next run). Use is read from the newest
+    mtime of the root, its ``pytest-of-*`` folders and their sessions, since
+    pytest makes a new numbered session folder on every run (old code
+    included); the root's own mtime alone never moves once it exists.
+    Passing sessions inside a live root are removed by pytest itself
+    (``tmp_path_retention_policy = failed`` in the repo's pytest.ini)."""
+    import time
+    now = time.time() if now is None else now
+    gone = []
+    for r in parent.glob("document-studio-tests-*"):
+        if r == keep or not r.is_dir():
+            continue
+        marker = r / ROOT_MARKER
+        try:
+            if marker.is_file():
+                orphan = not Path(marker.read_text(encoding="utf-8").strip()).exists()
+            else:
+                orphan = now - last_used(r) > UNMARKED_MAX_AGE_S
+        except OSError:
+            continue
+        if orphan:
+            shutil.rmtree(r, ignore_errors=True)
+            gone.append(r)
+    return gone
+
+
+def last_used(root: Path) -> float:
+    """The newest mtime among a temp root, its ``pytest-of-*`` folders and the
+    numbered sessions inside them."""
+    times = [root.stat().st_mtime]
+    for user in root.glob("pytest-of-*"):
+        times.append(user.stat().st_mtime)
+        times += [s.stat().st_mtime for s in user.iterdir()]
+    return max(times)
 
 
 @pytest.fixture(scope="session", autouse=True)
