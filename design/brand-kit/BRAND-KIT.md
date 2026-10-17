@@ -152,6 +152,7 @@ Hooke's law with viscous damping, solved in closed form, so every frame is a fun
 | Dip to black | 0.5 to 1.0 s: fade out over 45% (ease-in-quad), black for 10% (never under 2 frames), fade in over 45% (ease-out-quad); at 0.5 s and 24 fps: 5.4 + 1.2 + 5.4 frames | |
 | Ken Burns | the rostrum curve replaces `sketch.py`'s cosine ease: for an 8 s DRIFT, sine in-out never cruises and peaks at 1.57 times the mean speed; the rostrum ramps for 0.9 s, cruises at 1.13 times the mean for 6.2 s, and stops the same way, which is what a motion-control camera does | |
 | FILL (A34, section 14) | a picture narrower than 16:9 holds whole for 2.5 s, then grows on the rostrum curve over up to 6 s to the largest 16:9 window inside it, and holds the fill | |
+| TOUR (A41, section 14a) | a still fills 16:9 on every frame; the camera moves between stops on the rostrum curve, and a stop held over 1.5 s creeps at 1.5% scale a second; for stills it supersedes the FILL row's whole opening | |
 
 Type sizes on cards: chapter title Fraunces 300 at 5.6% of height (60 / 40 px) with the number in the data face at 80% opacity, baseline at 47% of height, rule 0.19% of height thick 1.6% below, dates in the data face at 2.6% (28 / 19 px) at 80% opacity; record-is-silent statement Fraunces 300 at 4.0% (43 / 29 px) on 1.35, at most 76% of width, Searched line Inter at 2.6%; film title Fraunces 300 at 7% (76 / 50 px) with the wordmark at 2.6% 2.2% of height beneath; credits Inter at 2.4% on 1.5 in a 70% column, headings in the data face at 1.85%.
 
@@ -394,6 +395,23 @@ The founder, on The Next Village pilot: "show the original, then slowly zoom in 
 **Why the rostrum curve, not a spring.** A spring is an arrival of a graphic (section 6); a FILL is a camera, and the house camera is the rostrum: one even speed, eased in and out, the way a motion-control stand moves. A spring's exponential settle would read as the picture landing, which it does not do.
 
 Do: let every 4:3 or square archive picture over 6 s open whole and fill; name the focus where the subject sits off-centre. Don't: fill a clip whose source burns its speakers' names into the frame (the crop could cut them off; the engine refuses it); fill a document that must be read whole (state `preset: HOLD`); push past the fill (DETAIL is the move for a region).
+
+### 14a. TOUR: the full screen, toured (2026-10-17, founder; GRAMMAR A41)
+
+The founder: "take the user through the artifact as needed, but use the full resolution of the screen. Same with even the paintings/other things that need full visibility." What now wins over section 14 for a still (a clip keeps section 14 as written): the still fills 16:9 from its first frame to its last, and the camera tours it. The open beat above (the whole original, pillarboxed) is dropped for stills; a still is held whole only under a stated `fill_exception`, where filling would pass the softness cap. `motion.TOUR` holds the numbers; `studio/engine/tour.py` draws it.
+
+| Beat | What the viewer sees | Numbers |
+|---|---|---|
+| Stop | a framing of the picture: its centre (x, y, 0 to 1 in the picture) and zoom z, never under the fill (z = 1) | a stop is reached at its time `t`, or on the narration word it is anchored to (`at`) |
+| Move | the camera travels to the next stop: pan, tilt, push and pull fall out of the stops | the rostrum curve (section 6), zoom geometric; guides: a third of the frame a second across, 15% scale a second (warnings) |
+| Creep | a stop held over 1.5 s keeps moving, so no frame is frozen | 1.5% scale a second; a slow pull at the cap; a 1% drift where scale cannot change |
+| Default | a still with no path and no preset opens at the fill on one end and passes to the other | a portrait or 4:3 picture tilts top to bottom; a wide map pans left to right |
+
+**The presets are paths.** HOLD, PUSH, PULL, DRIFT, TILT and DETAIL keep 7.2's framings, now measured from the fill; FILL is the fill about its focus. A preset that never shows the whole picture becomes a covering pass of it (a FILL then settles on its focus, a DETAIL on its region), unless the ledger names the picture's regions; then, and for a written path, a part left unseen is a reviewer item.
+
+**Softness.** Founder ruling, 2026-10-17: "fill the frame, soft is acceptable up to 3x." A still may be magnified up to 3.0 output pixels per source pixel on the 1080p master (a film may state a lower `fill_max_upscale`; a clip's FILL keeps section 14's 1.6), judged at the deepest framing, creep included. A preset stops at it; a written stop past it is refused. A still that would need more states `fill_exception`: whole on its first frame, then a gentle push inside its own pillarboxed shape (1.5% a second, at most 1.06), never frozen.
+
+Do: write regions of interest once per image (`roi`) and let `tour` visit each as the narration names it; keep moves continuing across a cut, or land the cut on a stop. Don't: pillarbox a still because it is a document or a painting (tour it); push a face past z 1.3; state `fill_exception` on a picture that can fill.
 
 ## 15. The series titles: `void document · As It Was` (2026-10-17; GRAMMAR A40)
 
