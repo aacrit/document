@@ -432,7 +432,8 @@ def as_of_checks(play: dict, assets: dict, horizon) -> list[dict]:
         credits = part.get("kind") == "credits"
         for k, s in enumerate(part.get("shots") or []):
             item = assets.get(s.get("asset")) if s.get("asset") else None
-            if s.get("kind") in ("archive_video", "archive_still", "drawn") and item is not None:
+            # A40: the series titles' master is dated by its content (content_date: the latest record it shows)
+            if s.get("kind") in ("archive_video", "archive_still", "drawn", "title_sequence") and item is not None:
                 checked += 1
                 judge(s.get("id"), *item_date(item, horizon))
             for mk in s.get("marks") or []:

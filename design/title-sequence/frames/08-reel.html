@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reel · title frame 08</title>
+<meta name="description" content="Style frame 8 of 12 for the void document title sequence: composition, palette, type and lighting intent.">
+<link rel="stylesheet" href="frames.css">
+<style>
+
+.box .wood { fill: url(#gWoodV); }
+.box .wood-lit { fill: var(--ts-wood-lit); }
+.box .brass { fill: url(#gBrass); }
+.box .glass { fill: var(--ts-lamp); opacity: 0.85; }
+.box .spool-rim { fill: none; stroke: var(--ts-brass); stroke-width: 16; }
+.box .spool-film { fill: none; stroke: var(--ts-iron); stroke-width: 70; }
+.box .spokes line { stroke: var(--ts-brass); stroke-width: 10; }
+.box .iron { fill: var(--ts-iron); }
+.beam { fill: url(#beamgrad); filter: url(#soft); mix-blend-mode: screen; }
+.beamstop0 { stop-color: var(--ts-lamp); stop-opacity: 0.42; }
+.beamstop1 { stop-color: var(--ts-lamp); stop-opacity: 0; }
+.dust circle { fill: var(--ts-lamp); }
+.strip-rig { left: 4cqw; top: -4cqw; width: 0; height: 0; transform: rotateZ(-7deg) rotateY(28deg) rotateX(-6deg); }
+.strip { position: absolute; left: 0; top: 0; width: 12.4cqw; padding: 0 1.7cqw; display: grid; gap: 0.5cqw;
+  background:
+    radial-gradient(circle 0.36cqw at 0.85cqw 0.25cqw, var(--ts-lamp-40) 96%, transparent) 0 0 / 100% 7.92cqw repeat-y,
+    radial-gradient(circle 0.36cqw at calc(100% - 0.85cqw) 0.25cqw, var(--ts-lamp-40) 96%, transparent) 0 0 / 100% 7.92cqw repeat-y,
+    var(--ts-rubber);
+  box-shadow: 0 0 2cqw var(--ts-dark-85); }
+.fr { width: 9cqw; height: 7.42cqw; overflow: hidden; }
+.fr:first-child { margin-top: 0.25cqw; }
+.fr img { width: 100%; height: 100%; object-fit: cover; filter: brightness(0.82) contrast(1.05); }
+.leak { background: radial-gradient(circle at 55.5% 59%, var(--ts-lamp-40), var(--ts-lamp-0) 6%), radial-gradient(ellipse 85% 85% at 50% 50%, var(--ts-dark-0) 50%, var(--ts-dark-85) 100%); }
+
+</style>
+</head>
+<body>
+<input type="checkbox" id="pins">
+<main class="stage" aria-label="Style frame 8: Reel">
+<svg class="fill-svg box" viewBox="0 0 1920 1080" aria-hidden="true">
+  <defs>
+<linearGradient id="gWoodV" x1="0" y1="0" x2="1" y2="0"><stop offset="0" class="s-deep"/><stop offset="0.55" class="s-wood"/><stop offset="0.9" class="s-woodlit"/><stop offset="1" class="s-wood"/></linearGradient>
+<linearGradient id="gWoodH" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="s-woodlit"/><stop offset="0.25" class="s-wood"/><stop offset="1" class="s-deep"/></linearGradient>
+<linearGradient id="gScrew" x1="0" y1="0" x2="1" y2="0"><stop offset="0" class="s-deep"/><stop offset="0.6" class="s-woodlit"/><stop offset="0.8" class="s-wood"/><stop offset="1" class="s-deep"/></linearGradient>
+<radialGradient id="gBrass" cx="0.38" cy="0.3" r="0.85"><stop offset="0" class="s-brasslit"/><stop offset="0.45" class="s-brass"/><stop offset="1" class="s-deep"/></radialGradient>
+<linearGradient id="gIron" x1="0" y1="0" x2="1" y2="1"><stop offset="0" class="s-ironlit"/><stop offset="0.35" class="s-iron"/><stop offset="1" class="s-void"/></linearGradient>
+</defs><defs><linearGradient id="beamgrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0" class="beamstop0"/><stop offset="1" class="beamstop1"/></linearGradient>
+  <filter id="soft"><feGaussianBlur stdDeviation="22"/></filter></defs>
+  <path class="beam" d="M1080 610 L1920 260 L1920 1060 L1080 660 Z"/>
+  <rect class="wood" x="380" y="430" width="620" height="420" rx="8"/><rect class="wood-lit" x="380" y="430" width="620" height="10"/>
+  <rect class="wood-lit" x="992" y="430" width="8" height="420" opacity="0.6"/>
+  <rect class="brass" x="1000" y="582" width="76" height="106" rx="12"/><circle class="glass" cx="1078" cy="635" r="38"/>
+  <rect class="iron" x="500" y="400" width="40" height="40"/><rect class="iron" x="680" y="320" width="16" height="120"/>
+  <circle class="spool-film" cx="520" cy="250" r="105"/><circle class="spool-rim" cx="520" cy="250" r="150"/><g class="spokes"><line x1="520" y1="250" x2="667" y2="280"/><line x1="520" y1="250" x2="568" y2="392"/><line x1="520" y1="250" x2="421" y2="362"/><line x1="520" y1="250" x2="373" y2="220"/><line x1="520" y1="250" x2="472" y2="108"/><line x1="520" y1="250" x2="619" y2="138"/></g>
+  <circle class="brass" cx="520" cy="250" r="24"/>
+  <path class="iron" d="M300 760 L360 760 L380 900 L290 900 Z"/>
+  <g class="dust"><circle cx="1281" cy="707" r="1.2" opacity="0.47"/><circle cx="1168" cy="592" r="2.8" opacity="0.24"/><circle cx="1613" cy="523" r="1.8" opacity="0.37"/><circle cx="1254" cy="688" r="1.2" opacity="0.26"/><circle cx="1116" cy="609" r="1.7" opacity="0.56"/><circle cx="1403" cy="507" r="1.5" opacity="0.60"/><circle cx="1150" cy="671" r="1.7" opacity="0.45"/><circle cx="1371" cy="631" r="1.9" opacity="0.44"/><circle cx="1821" cy="496" r="1.3" opacity="0.18"/><circle cx="1857" cy="469" r="1.3" opacity="0.58"/><circle cx="1563" cy="590" r="2.6" opacity="0.28"/><circle cx="1385" cy="664" r="1.2" opacity="0.49"/><circle cx="1178" cy="679" r="2.3" opacity="0.58"/><circle cx="1775" cy="492" r="1.4" opacity="0.22"/><circle cx="1523" cy="556" r="1.1" opacity="0.56"/><circle cx="1506" cy="599" r="1.4" opacity="0.26"/><circle cx="1110" cy="626" r="1.5" opacity="0.34"/><circle cx="1402" cy="651" r="2.6" opacity="0.23"/><circle cx="1417" cy="514" r="2.2" opacity="0.59"/><circle cx="1261" cy="673" r="1.5" opacity="0.16"/><circle cx="1711" cy="476" r="1.3" opacity="0.35"/><circle cx="1285" cy="596" r="1.8" opacity="0.34"/><circle cx="1571" cy="500" r="1.2" opacity="0.19"/><circle cx="1185" cy="643" r="1.6" opacity="0.51"/><circle cx="1504" cy="601" r="2.8" opacity="0.18"/><circle cx="1114" cy="585" r="1.7" opacity="0.41"/><circle cx="1695" cy="482" r="2.7" opacity="0.15"/><circle cx="1769" cy="435" r="2.6" opacity="0.16"/><circle cx="1872" cy="519" r="2.8" opacity="0.41"/><circle cx="1242" cy="718" r="1.8" opacity="0.19"/><circle cx="1584" cy="538" r="1.9" opacity="0.22"/><circle cx="1198" cy="652" r="1.8" opacity="0.21"/><circle cx="1452" cy="617" r="2.3" opacity="0.36"/><circle cx="1415" cy="553" r="1.4" opacity="0.24"/><circle cx="1457" cy="492" r="2.3" opacity="0.47"/><circle cx="1589" cy="442" r="1.7" opacity="0.34"/><circle cx="1175" cy="735" r="2.4" opacity="0.38"/><circle cx="1664" cy="459" r="1.4" opacity="0.39"/><circle cx="1695" cy="541" r="1.0" opacity="0.43"/><circle cx="1827" cy="527" r="2.7" opacity="0.59"/><circle cx="1279" cy="575" r="2.0" opacity="0.59"/><circle cx="1395" cy="674" r="2.5" opacity="0.38"/><circle cx="1600" cy="626" r="2.4" opacity="0.28"/><circle cx="1777" cy="430" r="1.7" opacity="0.58"/><circle cx="1778" cy="453" r="1.5" opacity="0.43"/><circle cx="1774" cy="528" r="2.7" opacity="0.48"/><circle cx="1757" cy="517" r="1.7" opacity="0.34"/><circle cx="1492" cy="568" r="2.5" opacity="0.27"/><circle cx="1155" cy="693" r="1.5" opacity="0.34"/><circle cx="1194" cy="702" r="1.5" opacity="0.28"/><circle cx="1743" cy="500" r="1.5" opacity="0.55"/><circle cx="1429" cy="550" r="2.7" opacity="0.51"/><circle cx="1698" cy="461" r="2.5" opacity="0.42"/><circle cx="1764" cy="468" r="2.4" opacity="0.51"/><circle cx="1410" cy="613" r="2.4" opacity="0.60"/><circle cx="1836" cy="533" r="1.2" opacity="0.42"/><circle cx="1648" cy="440" r="1.8" opacity="0.54"/><circle cx="1824" cy="564" r="1.2" opacity="0.42"/><circle cx="1792" cy="518" r="1.6" opacity="0.17"/><circle cx="1836" cy="548" r="2.2" opacity="0.31"/><circle cx="1763" cy="557" r="2.3" opacity="0.42"/><circle cx="1355" cy="555" r="1.6" opacity="0.30"/><circle cx="1516" cy="479" r="2.3" opacity="0.31"/><circle cx="1228" cy="579" r="1.7" opacity="0.34"/><circle cx="1726" cy="424" r="1.4" opacity="0.28"/><circle cx="1241" cy="675" r="1.2" opacity="0.17"/><circle cx="1545" cy="596" r="2.5" opacity="0.40"/><circle cx="1361" cy="671" r="2.3" opacity="0.37"/><circle cx="1550" cy="635" r="2.8" opacity="0.57"/><circle cx="1206" cy="599" r="1.7" opacity="0.23"/></g>
+</svg>
+<div class="scene" style="perspective-origin:20% 40%"><div class="rig strip-rig"><div class="strip" role="img" aria-label="A strip of Promio's Grand Canal frames with round Lumière perforations"><div class="fr"><img src="../_media/lumiere.jpg" alt=""></div><div class="fr"><img src="../_media/lumiere.jpg" alt=""></div><div class="fr"><img src="../_media/lumiere.jpg" alt=""></div><div class="fr"><img src="../_media/lumiere.jpg" alt=""></div><div class="fr"><img src="../_media/lumiere.jpg" alt=""></div><div class="fr"><img src="../_media/lumiere.jpg" alt=""></div></div></div></div>
+<div class="layer leak"></div>
+<div class="mark" aria-label="provenance mark"><span class="glyph drawn"></span></div>
+<span class="pin" style="left:10cqw;top:46cqw"><b class="src">T-16 scan</b> Promio, Grand Canal, 1896, frames in order</span>
+<span class="pin" style="left:27cqw;top:7cqw"><b class="src">T-15 reference</b> Lumière cinématographe, 1896</span>
+<span class="pin" style="left:74cqw;top:26cqw"><b class="made">Procedural</b> the beam, a bounded volume</span>
+<span class="pin" style="left:40cqw;top:40cqw"><b class="made">Modelled</b> box, spool, gate, crank, lens</span>
+<svg class="wm" viewBox="0 0 24 24" aria-hidden="true"><g class="lm-halo"><path d="M3.5 8V4.5H7"/><path d="M17 4.5h3.5V8"/><path d="M20.5 16v3.5H17"/><path d="M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/></g><g class="lm-stroke"><path d="M3.5 8V4.5H7"/><path d="M17 4.5h3.5V8"/><path d="M20.5 16v3.5H17"/><path d="M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/></g><circle class="lm-ember" cx="18.6" cy="17.6" r="1.25"/></svg>
+</main>
+<section class="notes">
+<header>
+<p class="eyebrow">Beat <span class="num">8</span> of <span class="num">12</span></p>
+<h1>Reel</h1>
+<p class="when"><span class="num">0:33.50</span> to <span class="num">0:37.50</span> · frames <span class="num">804</span> to <span class="num">899</span></p>
+<p class="when">This frame: <span class="num">0:35.50,</span> the turn to look along the beam</p>
+</header>
+<div>
+<dl>
+<dt>Artifact</dt><dd>The Lumière cinématographe, camera and projector in one box (1896). The film is the real one: Alexandre Promio's <em>Panorama du Grand Canal pris d'un bateau</em>, Venice, 1896, shot from a moving boat: the first travelling shot, inside ours. Lumière film has one round perforation each side of each frame.</dd>
+<dt>Picture</dt><dd>The spool on top turns; the strip runs through the gate and its small Grand Canal frames pass; the lamp, outside the box as the Lumières' lantern was, shines through the gate and its beam opens into haze.</dd>
+<dt>Camera</dt><dd>A <code>rostrum</code> track down the strip from the spool to the gate, then a turn to look along the beam.</dd>
+<dt>Light</dt><dd>The beam is the lamp; dust drifts in it. The box is lit only by what leaks from the gate.</dd>
+<dt>Motion</dt><dd>The spool turns at constant speed; the strip advances through the gate intermittently, frame by frame, <span class="num">16</span> a second, as the claw did.</dd>
+<dt>Transition</dt><dd>The strip runs on out of the gate; its edge curls around a black roller, the Underwood's platen, and gives way to a sheet of paper.</dd>
+<dt>Sound</dt><dd>The ostinato lightens (strings, sul tasto); the motif sounds once at full, the widest moment of the sequence.</dd>
+<dt>Mark</dt><dd>The DRAWN glyph only. The frames on the strip are a texture inside the model and do not change the mark. Promio's gondoliers are never framed as subjects.</dd>
+<dt>Textures</dt><dd><ul class="tags"><li><span class="k src">Scan</span>T-16 frames</li><li><span class="k src">Reference</span>T-15 cinématographe</li><li><span class="k made">Procedural</span>beam volume, dust</li><li><span class="k made">AI</span>None planned: no AI-generated pixels in this frame's plan</li></ul></dd>
+</dl>
+</div>
+<div class="controls">
+<label class="toggle" for="pins">Show texture notes</label>
+<nav class="pager" aria-label="Beats"><a href="07-count.html">Previous beat</a><a href="../index.html">All beats</a><a href="09-type.html">Next beat</a></nav>
+</div>
+</section>
+</body>
+</html>

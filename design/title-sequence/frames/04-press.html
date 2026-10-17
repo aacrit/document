@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Press · title frame 04</title>
+<meta name="description" content="Style frame 4 of 12 for the void document title sequence: composition, palette, type and lighting intent.">
+<link rel="stylesheet" href="frames.css">
+<style>
+
+.leaf-rig { left: 50%; top: 42cqw; width: 0; height: 0; transform: rotateX(66deg) rotateZ(-3deg); }
+.leaf { left: -27cqw; top: -24cqw; width: 54cqw; height: 52.7cqw; background-image: url(../_media/gutenberg.jpg); filter: brightness(1.0) contrast(1.05); box-shadow: 0 0 0 0.6cqw var(--ts-wood); }
+.platen-shadow { left: -27cqw; top: -24cqw; width: 54cqw; height: 38cqw; background: linear-gradient(180deg, var(--ts-dark-95), var(--ts-dark-70) 60%, var(--ts-dark-0)); filter: blur(0.9cqw); }
+.press .wood { fill: url(#gWoodV); }
+.press .beam { fill: url(#gWoodH); }
+.press .screw { fill: url(#gScrew); }
+.press .wood-lit { fill: var(--ts-wood-lit); }
+.press .edge { fill: none; stroke: var(--ts-wood-lit); stroke-width: 4; }
+.press .thread { stroke: var(--ts-wood-lit); stroke-width: 7; fill: none; opacity: 0.85; }
+.press .iron { fill: var(--ts-iron); }
+.sidelight { background: linear-gradient(270deg, var(--ts-lamp-12) 0%, var(--ts-dark-0) 35%, var(--ts-dark-50) 100%); }
+.vignette { background: radial-gradient(ellipse 72% 78% at 52% 60%, var(--ts-dark-0) 45%, var(--ts-dark-85) 100%); }
+
+</style>
+</head>
+<body>
+<input type="checkbox" id="pins">
+<main class="stage" aria-label="Style frame 4: Press">
+<div class="scene" style="perspective-origin:50% 30%">
+  <div class="rig leaf-rig"><div class="plane leaf" role="img" aria-label="The opening of Genesis in the Gutenberg Bible, with its red rubric"></div><div class="plane platen-shadow"></div></div>
+</div>
+<svg class="fill-svg press" viewBox="0 0 1920 1080" aria-hidden="true"><defs>
+<linearGradient id="gWoodV" x1="0" y1="0" x2="1" y2="0"><stop offset="0" class="s-deep"/><stop offset="0.55" class="s-wood"/><stop offset="0.9" class="s-woodlit"/><stop offset="1" class="s-wood"/></linearGradient>
+<linearGradient id="gWoodH" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="s-woodlit"/><stop offset="0.25" class="s-wood"/><stop offset="1" class="s-deep"/></linearGradient>
+<linearGradient id="gScrew" x1="0" y1="0" x2="1" y2="0"><stop offset="0" class="s-deep"/><stop offset="0.6" class="s-woodlit"/><stop offset="0.8" class="s-wood"/><stop offset="1" class="s-deep"/></linearGradient>
+<radialGradient id="gBrass" cx="0.38" cy="0.3" r="0.85"><stop offset="0" class="s-brasslit"/><stop offset="0.45" class="s-brass"/><stop offset="1" class="s-deep"/></radialGradient>
+<linearGradient id="gIron" x1="0" y1="0" x2="1" y2="1"><stop offset="0" class="s-ironlit"/><stop offset="0.35" class="s-iron"/><stop offset="1" class="s-void"/></linearGradient>
+</defs>
+  <rect class="wood" x="150" y="0" width="150" height="1080"/><rect class="wood-lit" x="286" y="0" width="14" height="1080"/>
+  <rect class="wood" x="1620" y="0" width="150" height="1080"/><rect class="wood-lit" x="1620" y="0" width="12" height="1080"/>
+  <rect class="beam" x="150" y="40" width="1620" height="110"/><rect class="wood-lit" x="150" y="140" width="1620" height="10"/>
+  <rect class="screw" x="906" y="150" width="108" height="330"/><path class="thread" d="M906 40 Q960 14 1014 32"/><path class="thread" d="M906 74 Q960 48 1014 66"/><path class="thread" d="M906 108 Q960 82 1014 100"/><path class="thread" d="M906 142 Q960 116 1014 134"/><path class="thread" d="M906 176 Q960 150 1014 168"/><path class="thread" d="M906 210 Q960 184 1014 202"/><path class="thread" d="M906 244 Q960 218 1014 236"/><path class="thread" d="M906 278 Q960 252 1014 270"/><path class="thread" d="M906 312 Q960 286 1014 304"/><path class="thread" d="M906 346 Q960 320 1014 338"/><path class="thread" d="M906 380 Q960 354 1014 372"/><path class="thread" d="M906 414 Q960 388 1014 406"/><path class="thread" d="M906 448 Q960 422 1014 440"/>
+  <path class="iron" d="M1014 300 L1530 220 L1546 246 L1020 334 Z"/>
+  <path class="beam" d="M520 470 L1400 470 L1470 548 L450 548 Z"/>
+  <rect class="beam" x="450" y="548" width="1020" height="46"/><rect class="wood-lit" x="450" y="588" width="1020" height="6"/>
+</svg>
+<div class="layer sidelight"></div>
+<div class="layer vignette"></div>
+<div class="mark" aria-label="provenance mark"><span class="glyph drawn"></span></div>
+<span class="pin" style="left:50cqw;top:44cqw"><b class="src">T-06 scan</b> Genesis 1, B42, c. 1455</span>
+<span class="pin" style="left:50cqw;top:15cqw"><b class="made">Modelled</b> screw thread, pitch matched to the khipu ply</span>
+<span class="pin" style="left:12cqw;top:8cqw"><b class="src">T-07 reference</b> press after Jost Amman, 1568</span>
+<span class="pin" style="left:70cqw;top:29cqw"><b class="made">Modelled</b> platen, landing on stamp</span>
+<svg class="wm" viewBox="0 0 24 24" aria-hidden="true"><g class="lm-halo"><path d="M3.5 8V4.5H7"/><path d="M17 4.5h3.5V8"/><path d="M20.5 16v3.5H17"/><path d="M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/></g><g class="lm-stroke"><path d="M3.5 8V4.5H7"/><path d="M17 4.5h3.5V8"/><path d="M20.5 16v3.5H17"/><path d="M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/></g><circle class="lm-ember" cx="18.6" cy="17.6" r="1.25"/></svg>
+</main>
+<section class="notes">
+<header>
+<p class="eyebrow">Beat <span class="num">4</span> of <span class="num">12</span></p>
+<h1>Press</h1>
+<p class="when"><span class="num">0:16.00</span> to <span class="num">0:20.50</span> · frames <span class="num">384</span> to <span class="num">491</span></p>
+<p class="when">This frame: <span class="num">0:17.80,</span> eight frames before the platen lands</p>
+</header>
+<div>
+<dl>
+<dt>Artifact</dt><dd>The opening of Genesis in the 42-line Gutenberg Bible (Mainz, c. 1455), with its red rubric, on a common press modelled after Jost Amman's woodcut "Der Buchdrucker" (1568): no press of Gutenberg's own survives.</dd>
+<dt>Picture</dt><dd>Down the screw to the bed. The printed leaf lies under the platen, which comes down; its shadow lies across the page until contact.</dd>
+<dt>Camera</dt><dd>A <code>rostrum</code> descent along the screw (<span class="num">1.6</span> s), then a low track across the leaf toward the platen.</dd>
+<dt>Light</dt><dd>A low side key from frame right. After the stamp, the leaf is lit full for the first time.</dd>
+<dt>Transition</dt><dd>The leaf is drawn off the bed and the camera follows it up and over; paper lands on paper, a station pass onto Ino's survey.</dd>
+<dt>Sound</dt><dd>The platen's <code>stamp</code> lands on a low struck string at frame <span class="num">432</span>; the motif restates an octave higher.</dd>
+<dt>Mark</dt><dd>The DRAWN glyph only.</dd>
+<dt>Textures</dt><dd><ul class="tags"><li><span class="k src">Scan</span>T-06 leaf</li><li><span class="k src">Reference</span>T-07 press proportions</li><li><span class="k made">Modelled</span>cheeks, head, screw, bar, platen, bed</li><li><span class="k made">AI</span>None planned: no AI-generated pixels in this frame's plan</li></ul></dd>
+</dl>
+</div>
+<div class="controls">
+<label class="toggle" for="pins">Show texture notes</label>
+<nav class="pager" aria-label="Beats"><a href="03-khipu.html">Previous beat</a><a href="../index.html">All beats</a><a href="05-survey.html">Next beat</a></nav>
+</div>
+</section>
+</body>
+</html>

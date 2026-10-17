@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atlas · title frame 02</title>
+<meta name="description" content="Style frame 2 of 12 for the void document title sequence: composition, palette, type and lighting intent.">
+<link rel="stylesheet" href="frames.css">
+<style>
+
+.board { position: absolute; left: 7cqw; top: 14cqw; width: 23cqw; height: 31.8cqw; transform-origin: 0 0;
+  background-image: var(--shade), url(../_media/catalan_eu.jpg); background-size: 100% 100%, 300% 140%;
+  box-shadow: 0 0 0 0.28cqw var(--ts-wood), 0 0 0 0.34cqw var(--ts-wood-lit); }
+.b1 { transform: rotateX(52deg) rotateZ(-12deg); background-position: 0 0, 0% 0%; --shade: linear-gradient(110deg, var(--ts-dark-50), var(--ts-dark-0) 70%); }
+.b2 { transform: rotateX(52deg) rotateZ(-12deg) translateX(23.6cqw) rotateY(-10deg); background-position: 0 0, 50% 0%; --shade: linear-gradient(200deg, var(--ts-lamp-12), var(--ts-dark-0) 60%); }
+.b3 { transform: rotateX(52deg) rotateZ(-12deg) translateX(23.6cqw) rotateY(-10deg) translateX(23.6cqw) rotateY(-34deg); background-position: 0 0, 100% 0%; --shade: linear-gradient(90deg, var(--ts-dark-30), var(--ts-dark-70)); }
+.papyrus-rig { left: -8cqw; top: 44cqw; width: 0; height: 0; transform: rotateX(68deg) rotateZ(6deg); }
+.papyrus { width: 64cqw; height: 46.4cqw; background-image: url(../_media/turin.jpg); filter: blur(0.4cqw) brightness(0.55); }
+.lampfall { background: radial-gradient(ellipse 55% 60% at 80% 6%, var(--ts-lamp-12), var(--ts-lamp-0) 70%), linear-gradient(205deg, var(--ts-dark-0) 25%, var(--ts-dark-70) 95%); }
+.vignette { background: radial-gradient(ellipse 75% 80% at 55% 40%, var(--ts-dark-0) 50%, var(--ts-dark-85) 100%); }
+
+</style>
+</head>
+<body>
+<input type="checkbox" id="pins">
+<main class="stage" aria-label="Style frame 2: Atlas">
+<div class="scene" style="perspective-origin:55% 30%"><div class="board b1"></div></div>
+<div class="scene" style="perspective-origin:55% 30%"><div class="board b2"></div></div>
+<div class="scene" style="perspective-origin:55% 30%"><div class="board b3"></div></div>
+<div class="scene" style="perspective-origin:30% 90%"><div class="rig papyrus-rig"><div class="plane papyrus"></div></div></div>
+<div class="layer lampfall"></div>
+<div class="layer vignette"></div>
+<div class="mark" aria-label="provenance mark"><span class="glyph drawn"></span></div>
+<span class="pin" style="left:20cqw;top:16cqw"><b class="src">T-03 scan</b> Catalan Atlas, BnF Espagnol 30</span>
+<span class="pin" style="left:66cqw;top:12cqw"><b class="made">Modelled</b> board three, still opening on trace</span>
+<span class="pin" style="left:16cqw;top:50cqw"><b class="src">T-02 scan</b> Turin papyrus, out of focus</span>
+<span class="pin" style="left:42cqw;top:30cqw"><b class="made">Relief</b> painted ranges, traced from the sheet</span>
+<svg class="wm" viewBox="0 0 24 24" aria-hidden="true"><g class="lm-halo"><path d="M3.5 8V4.5H7"/><path d="M17 4.5h3.5V8"/><path d="M20.5 16v3.5H17"/><path d="M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/></g><g class="lm-stroke"><path d="M3.5 8V4.5H7"/><path d="M17 4.5h3.5V8"/><path d="M20.5 16v3.5H17"/><path d="M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/></g><circle class="lm-ember" cx="18.6" cy="17.6" r="1.25"/></svg>
+</main>
+<section class="notes">
+<header>
+<p class="eyebrow">Beat <span class="num">2</span> of <span class="num">12</span></p>
+<h1>Atlas</h1>
+<p class="when"><span class="num">0:05.00</span> to <span class="num">0:11.00</span> · frames <span class="num">120</span> to <span class="num">263</span></p>
+<p class="when">This frame: <span class="num">0:08.50,</span> the third board still opening</p>
+</header>
+<div>
+<dl>
+<dt>Artifact</dt><dd>The Turin papyrus map of the Wadi Hammamat (Egypt, c. 1156 to 1150 BCE, Museo Egizio) leads to the Catalan Atlas (Abraham Cresques, Majorca, 1375, BnF Espagnol 30), made as panels mounted on boards that fold like a screen.</dd>
+<dt>Picture</dt><dd>The papyrus passes out of focus in the foreground. The Atlas's boards open one after another; its rhumb lines run like spokes, and its painted ranges rise from the vellum as painted, never higher.</dd>
+<dt>Camera</dt><dd>A <code>rostrum</code> station pass top-down (<span class="num">1.2</span> s), a tilt to <span class="num">50</span> degrees, a track left along the boards.</dd>
+<dt>Light</dt><dd>The lamp at top right, 40 degrees; boards facing it bloom, the gilt catches, the board still folding falls into shade.</dd>
+<dt>Transition</dt><dd>Past the last board's blank western margin and wooden edge; beyond it, a level lower in the dark, another sheet.</dd>
+<dt>Sound</dt><dd>The motif's rising figure, first statement: one struck note per board landing (frames <span class="num">177,</span> <span class="num">185,</span> <span class="num">193,</span> <span class="num">201</span>).</dd>
+<dt>Mark</dt><dd>The DRAWN glyph only. The framing keeps the Atlas's painted figures out of shot.</dd>
+<dt>Textures</dt><dd><ul class="tags"><li><span class="k src">Scan</span>T-02 papyrus, T-03 Atlas</li><li><span class="k made">Modelled</span>boards, hinges, table</li><li><span class="k made">Relief</span>H maps traced from the painted hills and ranges</li><li><span class="k made">AI</span>None planned: no AI-generated pixels in this frame's plan</li></ul></dd>
+</dl>
+</div>
+<div class="controls">
+<label class="toggle" for="pins">Show texture notes</label>
+<nav class="pager" aria-label="Beats"><a href="01-clay.html">Previous beat</a><a href="../index.html">All beats</a><a href="03-khipu.html">Next beat</a></nav>
+</div>
+</section>
+</body>
+</html>

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lockup · title frame 12</title>
+<meta name="description" content="Style frame 12 of 12 for the void document title sequence: composition, palette, type and lighting intent.">
+<link rel="stylesheet" href="frames.css">
+<style>
+
+.lockup { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 1.42cqw;
+  font-size: 3.15cqw; color: var(--doc-bone); white-space: nowrap; }  /* 5.6% of height: 60 px at 1080p */
+.lockup svg { width: 4.32cqw; height: 4.32cqw; flex: none; }         /* the wordmark's mark box, 1.37 x the type */
+.lockup .words { display: inline-flex; align-items: baseline; gap: 0.45em; line-height: 1; }
+.lockup .void { font-family: var(--font-data); font-weight: 500; font-feature-settings: "calt" 0, "liga" 0; }
+.lockup .document { font-family: var(--font-display); font-weight: 300; }
+.lockup .dot { font-family: var(--font-display); font-weight: 300; opacity: 0.6; }
+.lockup .series { font-family: var(--font-display); font-weight: 300; font-style: italic; }
+
+</style>
+</head>
+<body>
+<input type="checkbox" id="pins">
+<main class="stage" aria-label="Style frame 12: Lockup">
+<div class="lockup" role="img" aria-label="void document · As It Was">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><g class="lm-stroke"><path d="M3.5 8V4.5H7"/><path d="M17 4.5h3.5V8"/><path d="M20.5 16v3.5H17"/><path d="M7 19.5H3.5V16"/><circle cx="12" cy="12" r="4.2"/></g><circle class="lm-ember" cx="18.6" cy="17.6" r="1.25"/></svg>
+  <span class="words"><span class="void">void</span><span class="document">document</span><span class="dot">·</span><span class="series">As It Was</span></span>
+</div>
+<div class="mark" aria-label="provenance mark"><span class="glyph card"></span></div>
+<span class="pin" style="left:50cqw;top:21cqw"><b class="made">Type</b> void: JetBrains Mono 500 · document: Fraunces 300 · As It Was: Fraunces 300 italic, 5.6% of height</span>
+<span class="pin" style="left:36cqw;top:35cqw"><b class="src">Ember</b> the second and last safelight</span>
+<span class="pin" style="left:80cqw;top:50cqw"><b class="made">CARD</b> ring glyph; no watermark</span>
+
+</main>
+<section class="notes">
+<header>
+<p class="eyebrow">Beat <span class="num">12</span> of <span class="num">12</span></p>
+<h1>Lockup</h1>
+<p class="when"><span class="num">0:52.00</span> to <span class="num">0:57.00</span> · frames <span class="num">1248</span> to <span class="num">1367</span></p>
+<p class="when">This frame: <span class="num">0:54.50,</span> the hold</p>
+</header>
+<div>
+<dl>
+<dt>Picture</dt><dd>True black (CARD). The logomark and, on one line, <span class="num">void</span> in JetBrains Mono 500, document in Fraunces 300, a middle dot, <em>As It Was</em> in Fraunces 300 italic: the series is a title of a work and is set as one. Centred, at 5.6% of frame height (the chapter title's size); clear space of one ring diameter all round.</dd>
+<dt>Motion</dt><dd>From <span class="num">0:52.375</span> (frame <span class="num">1257</span>) the four corners close from <span class="num">8</span>% outside their rest on <code>drift</code> (<span class="num">23</span> frames) while the strokes fade in with the same progress; the ember appears in the last tenth (frame <span class="num">1278</span>). The words come <span class="num">0.4</span> s later on <code>settle</code>, rising <span class="num">0.6</span>% of height. Out: everything fades together over the last <span class="num">16</span> frames, ease-in-quad. Nothing moves on the way out.</dd>
+<dt>Light</dt><dd>Only the type: bone strokes and words, and the safelight ember, its second and last appearance.</dd>
+<dt>Transition</dt><dd>Black, then the film's title card (CARD to CARD, a cut), then Part 1.</dd>
+<dt>Sound</dt><dd>The motif's rising figure completes as the corners close and lands its last note with the ember (frame <span class="num">1278</span>); it rings out under the hold and is gone by the fade's end.</dd>
+<dt>Mark</dt><dd>The CARD ring, bottom right. No watermark on a CARD.</dd>
+<dt>Textures</dt><dd><ul class="tags"><li><span class="k made">Type</span>self-hosted Fraunces, Inter, JetBrains Mono</li><li><span class="k src">Mark</span>logomark.svg, as the brand kit draws it</li><li><span class="k made">AI</span>None planned: no AI-generated pixels in this frame's plan</li></ul></dd>
+</dl>
+</div>
+<div class="controls">
+<label class="toggle" for="pins">Show texture notes</label>
+<nav class="pager" aria-label="Beats"><a href="11-record.html">Previous beat</a><a href="../index.html">All beats</a></nav>
+</div>
+</section>
+</body>
+</html>

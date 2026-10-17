@@ -71,6 +71,7 @@ from studio.engine import motion as M
 from studio.engine import overlays as OV
 from studio.engine import policy as POL
 from studio.engine import score as SC
+from studio.engine import titles as TS
 from studio.engine import voicing as VO
 from studio.engine.journal import Journal, sha256_file
 
@@ -186,6 +187,7 @@ KIND_CLASSES = {
     "generated": {"AI-GENERATED"},
     "card": {"CARD"},
     "black": {"CARD"},
+    TS.KIND: {"DRAWN"},             # A40: the series titles, drawn by the studio; their own marks are burned in
 }
 ALTERATIONS = {"colourised", "upscaled", "stabilised", "interpolated", "re-timed", "inpainted", "motion added", "tinted",
                "audio synthesised", "colour cast removed"}   # the last by GRAMMAR A14
@@ -247,7 +249,7 @@ LT_SUFFIXES = ("  ·  read by a computer voice", "  ·  original recording")
 EM_DASH = "—"
 
 _HERE = Path(__file__).resolve().parent
-ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py", "score.py", "overlays.py", "georef.py", "clips.py", "voicing.py"))).hexdigest()[:12]
+ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py", "score.py", "overlays.py", "georef.py", "clips.py", "voicing.py", "titles.py"))).hexdigest()[:12]
 ENGINE_MODEL = {"name": "studio.engine.render", "version": f"{ENGINE_VERSION}+{ENGINE_HASH}"}
 
 
@@ -477,7 +479,7 @@ def preflight_sources(film: Path, play: dict, journal: Journal, *, draft: bool =
     checked = 0
     for part in play.get("parts", []):
         for s in part.get("shots", []):
-            if s.get("kind") not in ("archive_video", "archive_still", "drawn") or not s.get("asset"):
+            if s.get("kind") not in ("archive_video", "archive_still", "drawn", TS.KIND) or not s.get("asset"):
                 continue
             item = assets.get(s["asset"])
             if item is None:                              # build_plan's ledger-cited lint names it
@@ -492,7 +494,7 @@ def preflight_sources(film: Path, play: dict, journal: Journal, *, draft: bool =
             checked += 1
             if not Path(path).exists():
                 why = "missing"
-            elif s["kind"] == "archive_video":
+            elif s["kind"] in ("archive_video", TS.KIND):
                 why = decodes_a_frame(path)
             else:
                 why = opens_as_image(path)
@@ -544,6 +546,7 @@ def load_ledgers(film: Path, play: dict) -> dict:
             it = dict(it)
             it["_private_keys"] = private_keys(it)       # refused in build_plan: "_" keys belong to the engine
             it["_ledger"] = name
+            it["_ledger_file"] = str(path)
             it["_path"] = str((media / it["file"]).resolve()) if it.get("file") else None
             assets[it["id"]] = it
     return assets
@@ -962,6 +965,12 @@ def image_appearances(shots: list[dict]) -> list[dict]:
     prev = None
     for s in shots:
         a = s.get("asset")
+        if TS.is_title(s) and (s.get("_item") or {}).get("record"):
+            # A40: the series titles show the film's record whole: a showing of that image
+            out.append({"asset": s["_item"]["record"], "part": s.get("_part"), "shots": [s["id"]],
+                        "reason": s.get("repeat_reason")})
+            prev = None
+            continue
         if s.get("kind") not in IMAGE_KINDS or not a:
             prev = None
             continue
@@ -1156,6 +1165,17 @@ def credits_blocks(plan: dict) -> list:
         bits = [c.get("source", ""), c.get("tradition", ""), c.get("performer", ""), c.get("licence", "")]
         sound += wrap(", ".join(b for b in bits if b))
     blocks = [("Shots", shots)]
+    titles = [s for s in plan["shots"] if TS.is_title(s)]
+    if titles:                  # A40: the series titles, drawn from period records; every CC BY input is attributed
+        prov, _, _ = TS.provenance(titles[0].get("_item") or {})
+        items = TS.provenance_items(prov)
+        series = wrap(f"{TS.SERIES}: drawn from {len(items)} period records, no AI; every record on the "
+                      "sources page")
+        for x in items:
+            if (TS.licence_rank(x.get("licence")) or 0) >= 2:
+                series += wrap(", ".join(b for b in [TS.plain(x.get("title")), TS.plain(x.get("credit") or x.get("holder")),
+                                                     str(x.get("licence") or "")] if b))
+        blocks.append(("Series titles", series))
     if readings:
         blocks.append(("Readings", readings))
     if recordings:
@@ -1478,7 +1498,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         if kind == "drawn" and not s.get("asset"):
             lint("kind-supported", False, unit=s["id"], evidence="a drawn shot needs a pre-rendered image cited as its asset in T1")
             continue
-        if kind in ("archive_video", "archive_still", "drawn"):
+        if kind in ("archive_video", "archive_still", "drawn", TS.KIND):
             ok = item is not None
             lint("ledger-cited", ok, unit=s["id"], evidence={"asset": s.get("asset")}, grammar="11.1")
             if not ok:
@@ -1926,7 +1946,18 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     for x in list(cues) + list(play.get("moments", [])):
         if x.get("silence") == "intended":
             silences.append((float(x["start_s"]), float(x["end_s"])))
+    # A40: the series titles, a pre-rendered master played as it is after the cold open (studio/engine/titles.py)
+    titles = TS.plan_lints(lint, journal, play, shots, assets, lines=lines, texts=texts, cues=cues, vl=vl, silences=silences)
+    if lint_fail:
+        raise Refused("lint failed: " + "; ".join(lint_fail))
     card_spans = [(s["f0"] / FPS, s["f1"] / FPS) for s in shots if s["mark"] == "CARD"]
+    for s in shots:
+        if TS.is_title(s):                      # its lockup is a CARD: the film's watermark is off there and fades back
+            s["_title"] = {"burned": titles[s["id"]]["burned"], "marks": TS.sub_marks(s["_item"], s["f0"] / FPS),
+                           "classes": TS.classes(s["_item"]), "out_class": TS.out_class(s["_item"]),
+                           "holds": TS.dip_hold_frames(s["_item"])}
+            card_spans += TS.card_spans(s["_item"], s["f0"] / FPS, s["f1"] / FPS)
+    card_spans.sort()
     imagery = [s for s in shots if s["mark"] != "CARD"]
     plan = {
         "film": str(film), "title": play.get("title", film.name), "slug": play.get("slug", film.name),
@@ -1938,10 +1969,15 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         "reader_voices": VO.reader_voices(play),
         "runtime_target_s": play.get("runtime_target_s"),
         "lower_thirds": lower_thirds, "overlays": overlays, "subtitles": subs, "burn_subtitles": burn_subtitles,
-        "marks": [{"start": s["f0"] / FPS, "cls": s["mark"], "detail": s["detail"], "label": s["label"], "year": mark_year(s)}
+        # A40: a title's entry is the class it ends on, with no label of ours (its own are in the master or drawn
+        # from its timeline), so the next shot's glyph crossfades from what the screen shows
+        "marks": [{"start": s["f0"] / FPS, "cls": s["_title"]["out_class"], "detail": s["detail"], "label": "", "year": None,
+                   "title": True} if TS.is_title(s) else
+                  {"start": s["f0"] / FPS, "cls": s["mark"], "detail": s["detail"], "label": s["label"], "year": mark_year(s)}
                   for s in shots],
         "card_spans": card_spans, "wm_start": (imagery[0]["f0"] / FPS) if imagery else None,
-        "key_classes": list(M.key_classes(shots)),  # A31: the mark key's classes, from the whole film (kept by --until)
+        # A31: the mark key's classes, from the whole film (kept by --until), the series titles' own classes with them (A40)
+        "key_classes": list(M.key_classes(shots + [{"mark": c} for s in shots if TS.is_title(s) for c in s["_title"]["classes"]])),
         # A21, A25 and E2's sides: what the sources page states about the film's own rules
         "imagery_rule": rule, "settings": settings, "settings_stated": settings_stated, "shortfalls": shortfalls,
         "score_standard": score_std, "score_standard_stated": score_stated,
@@ -2408,6 +2444,8 @@ class Pictures:
         self.stills: dict[str, Image.Image] = {}
         self.readers: dict[str, VideoReader] = {}
         self._held: dict[str, int] = {}          # held frames of readers already closed, by the clip's shot id
+        self.titles: dict[str, TS.Reader] = {}   # A40: the series titles' master, read in order
+        self.title_native: np.ndarray | None = None   # the master's own frame last shown (its burned marks are checked on it)
 
     def still(self, s: dict) -> Image.Image:
         key = s["id"]
@@ -2433,6 +2471,21 @@ class Pictures:
         out = Image.new("RGB", (self.plan["W"], self.plan["H"]), M.PALETTE["letterbox"])
         out.paste(fr, ((self.plan["W"] - r.vw) // 2, (self.plan["H"] - r.vh) // 2))
         return out
+
+    def title(self, s: dict, t_local: float) -> Image.Image:
+        """A40: the master's frame, as it is (scaled only when the delivery is not the master's 1080p)."""
+        k = min(int(round(t_local * FPS)), s["f1"] - s["f0"] - 1)
+        r = self.titles.get(s["id"])
+        if r is None or k < r.k - 1:
+            if r:
+                r.close()
+            r = self.titles[s["id"]] = TS.Reader(ffmpeg(), s["_item"]["_path"], k)
+        arr = r.frame(k)
+        self.title_native = arr
+        img = Image.fromarray(arr)
+        if img.size != (self.plan["W"], self.plan["H"]):
+            img = img.resize((self.plan["W"], self.plan["H"]), Image.Resampling.LANCZOS)
+        return img
 
     def card(self, s: dict, t: float) -> Image.Image:
         L, f, dur = self.L, self.fonts, s["_dur"]
@@ -2464,6 +2517,8 @@ class Pictures:
             return self.card(s, t_local)
         if s["kind"] == "archive_video":
             return self.video(s, t_local)
+        if TS.is_title(s):
+            return self.title(s, t_local)
         cam = s["_cam"]
         img = self.still(s)
         f = OV.framing_at(cam, t_local, s["_dur"])          # the opening framing, then the rostrum move
@@ -2486,6 +2541,9 @@ class Pictures:
         for r in self.readers.values():
             self._retire(r)
         self.readers.clear()
+        for r in self.titles.values():
+            r.close()
+        self.titles.clear()
 
 
 def picture_level(plan: dict, f: int, i: int) -> float:
@@ -2529,6 +2587,10 @@ def compose(plan: dict, pics: Pictures, f: int, i: int, probe: dict | None = Non
     if level < 1.0:
         arr = np.asarray(img, dtype=np.float32) * level
         img = Image.fromarray(arr.astype(np.uint8))
+    title = s.get("_title")
+    if title is not None and (title["burned"] or int(round(tl * FPS)) in title["holds"]):
+        return img.convert("RGB")           # A40: the master carries its own marks, watermark and lockup: nothing over it
+                                            # (and its own dip's black hold stays black, A11)
     rgba = img.convert("RGBA")
     lt_top = None
     for lt in plan["lower_thirds"]:
@@ -2546,6 +2608,8 @@ def compose(plan: dict, pics: Pictures, f: int, i: int, probe: dict | None = Non
         rgba = M.watermark(rgba, t, start=plan["wm_start"], card_spans=plan["card_spans"])
     if probe is not None:                # the shape probes before the mark, so the shape check never reads the picture
         probe["bare_corner"] = [rgba.getpixel(at)[:3] for at in M.glyph_shape_probes(pics.L)]
+    if title is not None:                # A40: a master without its own marks is marked from its timeline
+        return M.mark_frame(rgba, t, title["marks"], pics.fonts).convert("RGB")
     rgba = M.mark_frame(rgba, t, plan["marks"], pics.fonts)
     return rgba.convert("RGB")
 
@@ -2617,8 +2681,9 @@ def check_mark(plan: dict, arr: np.ndarray, f: int, i: int, bare=None) -> str:
     x, y = M.glyph_centre(L)
     b_c = bares[probes.index((x, y))]
     px = arr[y, x, :3].astype(int)
-    if i > 0 and plan["shots"][i - 1]["mark"] != s["mark"] and f - s["f0"] < round(M.LABEL["fade"] * FPS):
-        prev = plan["shots"][i - 1]["mark"]
+    prev_cls = plan["marks"][i - 1]["cls"] if i > 0 else None     # A40: a title's entry is the class it ends on
+    if i > 0 and prev_cls != s["mark"] and f - s["f0"] < round(M.LABEL["fade"] * FPS):
+        prev = prev_cls
         mix = M.mark_state(f / FPS, plan["marks"])["mix"]
         want = expected_probe(plan, s["mark"], (x, y), b_c, prev=prev, mix=mix)
         return "fade" if int(np.max(np.abs(px - want))) <= 2 else "fail"
@@ -2673,7 +2738,9 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
     pics = Pictures(plan)
     err = tempfile.TemporaryFile()
     enc = subprocess.Popen(encoder_cmd(plan, part), stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=err)
-    stats = {"ok": 0, "fade": 0, "dip": 0, "fail": 0, "shape": 0, "fail_frames": [], "label": 0, "glyph_only": 0}
+    stats = {"ok": 0, "fade": 0, "dip": 0, "fail": 0, "shape": 0, "fail_frames": [], "label": 0, "glyph_only": 0,
+             "burned": 0, "dip_glyph": 0}
+    title = s.get("_title")
     first_whole, first_detail = None, None
     ms = []
     try:
@@ -2681,9 +2748,15 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
             ft = time.perf_counter()
             probe: dict = {}
             arr = np.asarray(compose(plan, pics, f, i, probe))
-            res = check_mark(plan, arr, f, i, probe.get("bare_corner"))
+            if title is not None:               # A40: the master's own marks (on its native frame), or ours from its timeline
+                k = f - s["f0"]
+                res = TS.check_frame(pics.title_native if title["burned"] else arr, s["_item"], k)
+                if res == "fail" and picture_level(plan, f, i) < 1.0:
+                    res = "dip" if not arr.any() else "fade"     # the next shot's own dip, laid over the master's black
+            else:
+                res = check_mark(plan, arr, f, i, probe.get("bare_corner"))
             stats[res] += 1
-            if res in ("ok", "fade"):           # A16: which of the two carried the provenance on this frame
+            if res in ("ok", "fade") and title is None:   # A16: which of the two carried the provenance on this frame
                 st = M.mark_state(f / FPS, plan["marks"])
                 stats["label" if st and st["label_alpha"] > 0 else "glyph_only"] += 1
             if res in ("fail", "shape") and len(stats["fail_frames"]) < 10:
@@ -6058,6 +6131,21 @@ def loudnorm(src: Path, dst: Path) -> dict:
 # --------------------------------------------------------------------------
 
 
+def title_sources_fields(s: dict) -> dict:
+    """A40: what the sources page says of the series titles: the master, its record, its marks and every period
+    record it was drawn from, with its licence and source (the CC BY ones are attributed here and in the credits)."""
+    if not TS.is_title(s):
+        return {}
+    it = s.get("_item") or {}
+    prov, _, _ = TS.provenance(it)
+    keep = ("id", "title", "date", "holder", "licence", "source_page", "use", "beats")
+    return {"title_sequence": {
+        "series": TS.SERIES, "master": it.get("id"), "version": it.get("version"), "record": it.get("record"),
+        "burned_marks": it.get("burned") is True, "marks": TS.timeline(it), "ai": False,
+        "made_with": it.get("generator"),
+        "provenance": [dict({k: x.get(k) for k in keep}, credit=TS.plain(x.get("credit"))) for x in TS.provenance_items(prov)]}}
+
+
 def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
     shots = []
     for s in plan["shots"]:
@@ -6078,17 +6166,25 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             "neutralise_cast": (s.get("_video") or {}).get("neutralise_cast"),
             "test_fixture": is_synthetic(it),
             **OV.sources_fields(s),
+            **title_sources_fields(s),
             "text": s.get("text"),
         })
-    track = []
-    for s in shots:
-        if track and track[-1]["class"] == s["mark"]["class"] and track[-1]["detail"] == s["mark"]["detail"]:
-            track[-1]["to_s"] = s["end_s"]
+    # the mark track and the share by class, frame by frame: a series title (A40) by its own marks' spans
+    pieces = []
+    for s, d in zip(plan["shots"], shots):
+        if TS.is_title(s):
+            pieces += [(a, b, cls, "" if cls == "CARD" else (s["detail"] if cls == s["mark"] else ""), lab)
+                       for a, b, cls, lab in TS.spans(s["_item"], s["f0"], s["f1"])]
         else:
-            track.append({"from_s": s["start_s"], "to_s": s["end_s"], "class": s["mark"]["class"], "detail": s["mark"]["detail"],
-                          "label": s["mark"]["label"]})
+            pieces.append((s["f0"], s["f1"], d["mark"]["class"], d["mark"]["detail"], d["mark"]["label"]))
+    track = []
+    for a, b, cls, detail, label in pieces:
+        if track and track[-1]["class"] == cls and track[-1]["detail"] == detail:
+            track[-1]["to_s"] = round(b / FPS, 4)
+        else:
+            track.append({"from_s": round(a / FPS, 4), "to_s": round(b / FPS, 4), "class": cls, "detail": detail, "label": label})
     total = plan["frames"]
-    share = {c: round(sum(s["end_frame"] - s["start_frame"] for s in shots if s["mark"]["class"] == c) / total, 4) for c in CLASSES}
+    share = {c: round(sum(b - a for a, b, cls, _, _ in pieces if cls == c) / total, 4) for c in CLASSES}
     readings = readings_doc(plan)
     # The narrator's words, so the site's transcript holds everything spoken, and the narrator's voice credit, so
     # the site can say the narration is a computer voice from the film's own record (web/src/film-data.ts).
@@ -6498,7 +6594,11 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         fails = {plan["shots"][i]["id"]: r["mark"]["fail_frames"] for i, r in results.items()
                  if r["mark"]["fail"] or r["mark"].get("shape", 0)}
         checked = sum(r["mark"]["ok"] + r["mark"]["fade"] + r["mark"].get("dip", 0) + r["mark"]["fail"] + r["mark"].get("shape", 0)
-                      for r in results.values())
+                      + r["mark"].get("burned", 0) + r["mark"].get("dip_glyph", 0) for r in results.values())
+        dip_glyph = {plan["shots"][i]["id"]: r["mark"]["dip_glyph"] for i, r in results.items() if r["mark"].get("dip_glyph")}
+        if dip_glyph:                            # A40: a master's own dip that shows its mark on the black hold (a warning)
+            journal.lint("title-dip-hold", False, stage="marks", grammar="A40, 7.3, A11", phase="post-render", severity="warn",
+                         evidence={"frames": dip_glyph, "fix": "re-assemble the master with its dip's black hold all black"})
         journal.lint("mark-coverage", not fails and checked == plan["frames"], stage="marks", grammar="1.3, 4, A11", phase="post-render",
                      evidence={"frames": plan["frames"], "checked": checked, "ok": sum(r["mark"]["ok"] for r in results.values()),
                                "probe": "the class glyph's centre for the hue and its corner for the shape (A16 refined)",
@@ -6506,7 +6606,10 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
                                "label_frames": sum(r["mark"].get("label", 0) for r in results.values()),
                                "glyph_only_frames": sum(r["mark"].get("glyph_only", 0) for r in results.values()),
                                "crossfade": sum(r["mark"]["fade"] for r in results.values()),
-                               "dip_black": sum(r["mark"].get("dip", 0) for r in results.values()), "failed": fails})
+                               "dip_black": sum(r["mark"].get("dip", 0) for r in results.values()),
+                               # A40: the series titles' frames, checked against the master's own declared marks
+                               "title_burned": sum(r["mark"].get("burned", 0) for r in results.values()),
+                               "title_dip_glyph": sum(r["mark"].get("dip_glyph", 0) for r in results.values()), "failed": fails})
         stills_bad = [plan["shots"][i]["id"] for i, r in results.items() if r.get("first_frame_whole") is False]
         for i in sorted(results):                # one lint per still, with its scores and verdict, as in pre-flight
             r = results[i]

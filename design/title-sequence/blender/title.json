@@ -1,0 +1,40 @@
+{
+ "title": "void document · As It Was",
+ "fps": 24,
+ "frames": 1368,
+ "machine_last_frame": 1151,
+ "cut_frame": 1152,
+ "source": "design/title-sequence/STORYBOARD.md (G2 approved 2026-10-16, DRAWN, no AI pixels)",
+ "modules": [
+  {"id": "M01", "beat": 1, "name": "Clay",   "start": 0,    "end": 120,  "module_date": "-2047"},
+  {"id": "M02", "beat": 2, "name": "Atlas",  "start": 120,  "end": 264,  "module_date": "1375"},
+  {"id": "M03", "beat": 3, "name": "Khipu",  "start": 264,  "end": 384,  "module_date": "1532"},
+  {"id": "M04", "beat": 4, "name": "Press",  "start": 384,  "end": 492,  "module_date": "1568"},
+  {"id": "M05", "beat": 5, "name": "Survey", "start": 492,  "end": 612,  "module_date": "1821"},
+  {"id": "M06", "beat": 6, "name": "Wire",   "start": 612,  "end": 708,  "module_date": "1849"},
+  {"id": "M07", "beat": 7, "name": "Count",  "start": 708,  "end": 804,  "module_date": "1890"},
+  {"id": "M08", "beat": 8, "name": "Reel",   "start": 804,  "end": 900,  "module_date": "1896"},
+  {"id": "M09", "beat": 9, "name": "Type",   "start": 900,  "end": 996,  "module_date": "1921"},
+  {"id": "M10", "beat": 10, "name": "Swell", "start": 996,  "end": 1104, "module_date": "1931"},
+  {"id": "M11", "beat": 11, "name": "Record", "start": 1104, "end": 1152, "module_date": "film"}
+ ],
+ "sync": {
+  "drone": 12, "ring_engages": 50, "atlas_boards_land": [177, 185, 193, 201], "platen_stamp": 432, "key_stamp": 640,
+  "census_press": 756, "typebar": 948, "machine_stopped": 1104, "cut": 1152, "dip_middle": 1248, "ember": 1278, "last": 1367
+ },
+ "records": {
+  "S-130": {"film": "Not a Free Agent (Partition)", "tex": "R-S-130", "cls": "ARCHIVE", "label": "Archive · 1947"},
+  "S-16928": {"film": "The Next Village (smallpox)", "tex": "R-S-16928", "cls": "ARCHIVE", "label": "Archive · 1976"},
+  "C20-METAR-0851": {"film": "September 11 (08:51 weather line)", "tex": "R-C20-METAR-0851", "cls": "DRAWN", "label": "Drawn · 2001"}
+ },
+ "render": {
+  "animatic": {"engine": "EEVEE", "res": [640, 360], "tex": "lite", "samples": 8, "motion_blur": false, "volumes": true},
+  "proof":    {"engine": "CYCLES", "res": [1920, 1080], "tex": "full", "samples": 256, "noise_threshold": 0.015, "min_samples": 32, "motion_blur": true},
+  "final":    {"engine": "CYCLES", "res": [1920, 1080], "tex": "full", "samples": 256, "noise_threshold": 0.015, "min_samples": 32, "motion_blur": true}
+ },
+ "paths": {
+  "media": "D:/document-media/title-sequence",
+  "blend": "D:/document-media/title-sequence/blend/title-{record}.blend",
+  "renders": "D:/document-media/title-sequence/renders"
+ }
+}
