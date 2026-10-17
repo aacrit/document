@@ -63,10 +63,14 @@ def test_the_label_grows_out_of_the_glyph_and_is_never_wider_than_its_words(reve
     cols = _alpha_cols(tile) + tx
     gx, _ = M.glyph_origin(L)
     assert cols.size and cols.max() < gx                                 # never on the glyph
-    if reveal < 1.0:                                                     # nothing shows left of the reveal's edge
-        right = M.label_right(L)
-        edge = right - reveal * (right - tx)
-        assert cols.min() >= math.floor(edge) - 1
+    if reveal < 1.0:                                                     # the drawn tile: nothing left of the reveal
+        feather = max(1.0, M.LABEL["feather"] * L.px(M.LABEL["size"]))   # (but its soft edge, a shadow's width)
+        assert cols.min() >= math.floor(x0 - feather) - 1
+        a = np.asarray(tile.getchannel("A")).astype(int)
+        whole, _ = M._label_tile(L, TEXT, 1.0, 1.0, FONTS)
+        full = np.asarray(whole.getchannel("A")).astype(int)
+        right_of = slice(int(math.ceil(x0)) - tx + 1, None)              # right of the edge: the label as drawn whole
+        assert np.array_equal(a[:, right_of], full[:, right_of])
 
 
 def test_the_revealed_width_widens_with_the_reveal():
@@ -116,6 +120,41 @@ def test_a_cut_that_repeats_class_and_year_brings_no_new_surfacing():
     assert M.label_surfacings([a, b]) == [0.0, 40.0, 80.0]
     c = _shot(30.0, cls="ARCHIVE", label="Archive · 1948", year="1948", end=100.0)   # a year change surfaces at the cut
     assert M.label_surfacings([a, c]) == [0.0, 30.0, 70.0]
+
+
+def test_after_a_card_a_same_key_shot_still_grows_its_label_when_due():
+    """The reviewer's case: Real World labels every shot 'Archive · 2001'; after a card a same-key shot showed the
+    glyph alone and never repeated. The 40 s clock runs across cards and glyph-only shots."""
+    shots = [_shot(0.0, end=10.0), _shot(10.0, cls="CARD", label="", year=None, end=15.0), _shot(15.0, end=75.0)]
+    plan = M.label_plan(shots)
+    assert plan[2]["start"] is None and not plan[2]["surfaces"]           # no surfacing at the cut (A31)
+    assert plan[2]["repeats"] == [40.0]                                   # due 40 s after 0, inside the shot
+    assert M.mark_state(41.0, shots)["label_reveal"] > 0.9
+    late = [_shot(0.0, end=10.0), _shot(10.0, cls="CARD", label="", year=None, end=60.0), _shot(60.0, end=120.0)]
+    assert M.label_plan(late)[2]["repeats"] == [61.0, 101.0]              # overdue: 1 s into the shot, never the cut
+
+
+def test_many_short_same_key_shots_between_cards_recur_about_every_40_s_never_on_a_cut():
+    shots, t = [], 0.0
+    for k in range(30):                                                   # 8 s pictures and 2 s cards for 300 s
+        shots.append(_shot(t, end=t + 8.0))
+        shots.append(_shot(t + 8.0, cls="CARD", label="", year=None, end=t + 10.0))
+        t += 10.0
+    times = M.label_surfacings(shots)
+    cuts = {s["start"] for s in shots}
+    assert times[0] == 0.0 and len(times) >= 6
+    assert all(b - a >= M.LABEL["repeat_s"] - 1e-9 for a, b in zip(times, times[1:]))
+    assert all(b - a <= M.LABEL["repeat_s"] + 10.0 for a, b in zip(times, times[1:]))   # about every 40 s
+    assert not any(u in cuts for u in times[1:])                         # never on a cut frame
+    for u in times:                                                       # each one whole inside its own shot
+        s = max((x for x in shots if x["start"] <= u), key=lambda x: x["start"])
+        assert s["cls"] == "ARCHIVE" and u + M.LABEL_MAX_S <= s["end"] - M.LABEL["repeat_tail"] + 1e-9
+
+
+def test_a_repeat_never_lands_on_a_cut_that_repeats_class_and_year():
+    shots = [_shot(0.0, end=40.0), _shot(40.0, end=100.0)]
+    times = M.label_surfacings(shots)
+    assert 40.0 not in times and times == [0.0, 41.0, 81.0]
 
 
 def test_a_shot_without_its_end_never_repeats():

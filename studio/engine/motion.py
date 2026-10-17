@@ -856,17 +856,21 @@ def mark_key(shot: dict) -> tuple[str, str | None]:
     return shot["cls"], (str(y) if y not in (None, "") else None)
 
 
-def label_repeats(s: dict, last: float) -> list[float]:
+def label_repeats(s: dict, last: float, *, at_cut: bool = False) -> list[float]:
     """A42: the times within shot ``s`` (with an ``end``) that its label grows
-    again, LABEL.repeat_s after the last surfacing (``last``, maybe in an
-    earlier shot of the same class and year), each only when its whole grow,
-    hold and fold ends LABEL.repeat_tail before the shot's cut."""
+    again: due LABEL.repeat_s after the last surfacing of its class and year
+    (``last``, maybe shots and cards ago), never on or within
+    LABEL.repeat_tail after a cut that repeats them (``at_cut``: the shot did
+    not surface at its own cut; the label grows that long into the shot
+    instead), then every LABEL.repeat_s; each only when its whole grow, hold
+    and fold ends LABEL.repeat_tail before the shot's cut."""
     end = s.get("end")
     if end is None:
         return []
-    out, r = [], last + LABEL["repeat_s"]
-    while r < s["start"]:
-        r += LABEL["repeat_s"]
+    r = last + LABEL["repeat_s"]
+    if at_cut:
+        r = max(r, s["start"] + LABEL["repeat_tail"])
+    out = []
     while r + LABEL_MAX_S <= float(end) - LABEL["repeat_tail"] + 1e-9:
         out.append(r)
         r += LABEL["repeat_s"]
@@ -885,9 +889,12 @@ def label_plan(shots) -> list[dict]:
     AI-GENERATED shot is labelled for the whole shot, from its cut frame,
     whatever came before (A16 refined: the class is never hidden). A42: a
     shot that states its ``end`` also has ``repeats``, the times its label
-    grows again (``label_repeats``); ``times`` is ``start`` and the repeats."""
+    grows again (``label_repeats``), counted from the last surfacing of its
+    class and year wherever that was, across cards and shots that showed the
+    glyph alone; ``times`` is ``start`` and the repeats."""
     out: list[dict] = []
     prev_key = None
+    last: dict = {}                              # A42: the last time each class and year's label grew
     for k, s in enumerate(shots):
         if s["cls"] == "CARD" or not s.get("label"):
             out.append({"start": None, "surfaces": False, "repeats": [], "times": []})
@@ -899,9 +906,15 @@ def label_plan(shots) -> list[dict]:
             start = s["start"]
         elif k > 0 and out[k - 1]["start"] is not None and shots[k - 1]["cls"] != "CARD" and shots[k - 1].get("label"):
             start = out[k - 1]["times"][-1]      # the same class and year across a cut: the label runs on
-        reps = label_repeats(s, start) if start is not None and s["cls"] not in LABEL_STAYS else []
-        out.append({"start": start, "surfaces": surfaces, "repeats": reps,
-                    "times": ([start] if start is not None else []) + reps})
+        reps = []
+        if s["cls"] not in LABEL_STAYS:
+            since = s["start"] if surfaces else last.get(key, start)
+            if since is not None:
+                reps = label_repeats(s, since, at_cut=not surfaces)
+        times = ([start] if start is not None else []) + reps
+        if surfaces or reps:
+            last[key] = times[-1]
+        out.append({"start": start, "surfaces": surfaces, "repeats": reps, "times": times})
         prev_key = key
     return out
 
@@ -974,9 +987,9 @@ def _label_tile(L: Layout, text: str, alpha: float, reveal: float, fonts: Fonts,
     the data face, drawn and blurred on a crop around the words only, and the
     frame pixel the crop lands on. The crop stops short of the glyph's tile,
     so the label never touches a pixel the mark-coverage lint reads. A42:
-    only ``reveal`` of it shows, grown out of the glyph leftward (a mask
-    anchored at the words' right end with a soft LABEL.feather edge); at 1 it
-    is the whole label, shadow included."""
+    only ``reveal`` of the words' width shows, grown out of the glyph leftward
+    (``label_reveal_span``, with a soft LABEL.feather edge to its left); at 1
+    it is the whole label, shadow included."""
     from PIL import ImageFilter
     size, opacity = label_type(cls)
     px = L.px(size)
@@ -1002,12 +1015,11 @@ def _label_tile(L: Layout, text: str, alpha: float, reveal: float, fonts: Fonts,
     out.putalpha(Image.fromarray(sh.astype(np.uint8)))
     out.alpha_composite(words)
     if reveal < 1.0:
-        # the reveal: everything left of the edge hidden, a soft ramp over LABEL.feather em to its right; the edge
-        # runs from the words' right end (reveal 0) to the crop's own left side (reveal 1: the whole label, shadow too)
-        right = label_right(L, cls)
-        edge = right - clamp01(reveal) * (right - x0)
+        # the reveal, measured on the words (label_reveal_span): every pixel from its left edge to the glyph shows,
+        # and a soft ramp of LABEL.feather em leftward of the edge carries the words' shadow; nothing further left
+        edge, _ = label_reveal_span(L, text, reveal, fonts, cls)
         feather = max(1.0, LABEL["feather"] * px)
-        m = np.clip((np.arange(out.width, dtype=np.float32) + x0 + 0.5 - edge) / feather, 0.0, 1.0)[None, :]
+        m = np.clip((np.arange(out.width, dtype=np.float32) + x0 + 0.5 - (edge - feather)) / feather, 0.0, 1.0)[None, :]
         a = np.asarray(out.getchannel("A"), dtype=np.float32) * m
         out.putalpha(Image.fromarray(np.clip(a, 0, 255).astype(np.uint8)))
     return out, (x0, y0)
