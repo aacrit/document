@@ -23,8 +23,8 @@ TILT_DEG = 0.8                     # the bench's fall, far end to near end, alon
 G = 9.81
 
 
-def gravity_xml() -> str:
-    th = math.radians(TILT_DEG)
+def gravity_xml(tilt_deg: float = TILT_DEG) -> str:
+    th = math.radians(tilt_deg)
     return f"{G * math.sin(th):.6f} 0 {-G * math.cos(th):.6f}"
 
 

@@ -445,7 +445,7 @@ def build_latch():
     bv = disc.modifiers.new("edge", "BEVEL")
     bv.width, bv.segments, bv.limit_method = 0.0004, 3, "ANGLE"
     bpy.ops.object.shade_smooth()
-    disc.data.materials.append(m_metal("bronze", (0.50, 0.30, 0.15), 0.26, radial=True, patina=((0.16, 0.20, 0.13), 0.35)))
+    disc.data.materials.append(m_metal("bronze", (0.50, 0.30, 0.15), 0.34, radial=True, patina=((0.16, 0.20, 0.13), 0.35)))
     bake_track(disc, P["disc"], f0, f1)
     bpy.ops.mesh.primitive_uv_sphere_add(segments=96, ring_count=48, radius=0.008)
     mar = bpy.context.active_object
@@ -453,24 +453,30 @@ def build_latch():
     bpy.ops.object.shade_smooth()
     mar.data.materials.append(m_clay())
     bake_track(mar, P["marble"], f0, f1)
-    # camera: bench level, 0.35 m from the disc, f/2.8; holds on the settle, cruises with the marble from f130
+    # camera: 25 degrees down, 0.23 m from the disc, f/2.8; holds on the settle, cruises with the marble from f130
     mp = np.array(P["marble"])
     def marble_at(f):
         return np.array([np.interp(f / FPS, mp[:, 0], mp[:, k]) for k in (1, 2, 3)])
     a0 = Vector((0.0, 0.0, 0.010))
     m167 = marble_at(f1)
-    a1 = Vector((float(m167[0]) * 0.6, float(m167[1]) * 0.6, 0.009))
+    # the camera follows the release only a little and lets the marble run out of frame (the 7-second guide: the
+    # pan stays under 11 px a frame); the marble's own speed carries the release
+    a1 = Vector((float(m167[0]) * 0.15, float(m167[1]) * 0.15, 0.009))
     frames = list(range(f0 - 1, f1 + 2))
     eyes, tgts, focus = [], [], []
     for f in frames:
         p = rostrum((f - 130) / FPS, (f1 + 12 - 130) / FPS) if f >= 130 else 0.0
         t = a0.lerp(a1, p)
-        e = t + Vector((0.06, -0.345, 0.036))
+        # re-proof (founder via the coordinator, 2026-10-17): about 25 degrees down and tighter, so the disc and the
+        # marble read as a DETAIL (about a third of the frame) on the golden band, the tablet filling the top
+        e = t + Vector((0.035, -0.205, 0.096))
         subj = Vector((0, 0, MF.T)) if f < 121 else Vector(marble_at(f))
         k = MO["smoothstep"]((f - 118) / 14.0)
         sd = (Vector((0, 0, MF.T)) - e).length * (1 - k) + (Vector(marble_at(f)) - e).length * k
         eyes.append(e)
-        tgts.append(t)
+        # aim right of and above the subject: it sits at about 0.38 of the width (lead room on the marble's side)
+        # and 0.6 of the height
+        tgts.append(t + Vector((0.019, 0.0, 0.006)))
         focus.append(sd)
     cam = camera()
     key_cam(cam, frames, eyes, tgts, focus, 2.8)

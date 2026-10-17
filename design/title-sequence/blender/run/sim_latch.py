@@ -35,6 +35,11 @@ ROLL = {"oak": 0.002 * R, "papyrus": 0.006 * R, "bronze": 0.001 * R}
 TABLET = (0.155, 0.1525, 0.025)             # T-01 half extents (31 x 30.5 x 5 cm, ledger)
 
 
+# The latch's own fall (founder, 2026-10-17, re-proof: "a steeper fall so the release reads"): the bench falls 2.5
+# degrees here, by the disc, where the marble must visibly get going; the galley keeps the bench's 0.8.
+TILT = 2.5
+
+
 def model_xml(papyrus_x: float | None) -> str:
     pap = ""
     if papyrus_x is not None:
@@ -42,7 +47,7 @@ def model_xml(papyrus_x: float | None) -> str:
                f'{PAPYRUS_T / 2}" friction="0.5 0.0005 {ROLL["papyrus"]}" condim="6"/>')
     return f"""
 <mujoco model="latch">
-  <option timestep="{S.DT_SIM}" gravity="{S.gravity_xml()}" integrator="implicitfast" cone="elliptic" impratio="10"/>
+  <option timestep="{S.DT_SIM}" gravity="{S.gravity_xml(TILT)}" integrator="implicitfast" cone="elliptic" impratio="10"/>
   <worldbody>
     <geom name="oak" type="plane" size="2 2 0.1" friction="0.45 0.0005 {ROLL['oak']}" condim="6"/>
     <geom name="tablet" type="box" size="{TABLET[0]} {TABLET[1]} {TABLET[2]}" pos="-0.16 0.215 {TABLET[2]}"
@@ -118,7 +123,7 @@ def main():
     res = simulate(papyrus_x)
     mpos = np.array(res["poses"]["marble"])
     info = {"papyrus_x": round(papyrus_x, 5), "marble_x_f167_no_papyrus": round(float(x167), 5),
-            "mass_g": round(MASS * 1000, 3), "sim_s": [T0, T1], "dt_sim": S.DT_SIM, "tilt_deg": S.TILT_DEG,
+            "mass_g": round(MASS * 1000, 3), "sim_s": [T0, T1], "dt_sim": S.DT_SIM, "tilt_deg": TILT,
             "roll_m": ROLL, "moffatt": {"A": MF.A, "T": MF.T, "C_HZ": MF.C_HZ, "T_SLAP": MF.T_SLAP,
                                         "alpha_deg_f96": round(math.degrees(MF.alpha(4.0)), 2),
                                         "rate_hz_f96": round(MF.rate_hz(4.0), 1),
