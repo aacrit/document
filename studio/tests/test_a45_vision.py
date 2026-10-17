@@ -72,9 +72,20 @@ def test_caption_names(text, names):
     assert RB.caption_names(text) == names
 
 
-def test_a_title_alone_without_the_is_not_a_name():
-    assert RB.caption_names("Secretary at work") == []
-    assert RB.caption_names("A President arrives") == []
+@pytest.mark.parametrize("text, names", [
+    # a title with the name after it resolves to the titled person
+    ("Mayor Giuliani at the command post", ["Mayor Giuliani"]),
+    ("Mr. Card and Mrs. Bush", ["Mr Card", "Mrs Bush"]),
+    # a bare title or honorific is kept as one name, the title itself: it errs toward a checked binding (A43 binds
+    # it to a face only when it is the caption's only name, the ledger counts one person and one is located)
+    ("The President in his office", ["President"]),
+    ("the Mayor at the scene", ["Mayor"]),
+    ("A Senator arrives", ["Senator"]),
+    ("Captain on the bridge", ["Captain"]),
+    ("The President and Card", ["President", "Card"]),
+])
+def test_a_bare_title_is_one_name_and_a_titled_name_is_the_person(text, names):
+    assert RB.caption_names(text) == names
 
 
 # --------------------------------------------------------------------------

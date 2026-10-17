@@ -26,7 +26,7 @@ import re
 
 from studio.engine import motion as M
 
-RULEBOOK_VERSION = "1"
+RULEBOOK_VERSION = "2"     # 2: a bare title or honorific is one name (was: one-holder offices with "the" only)
 CLASSES = ("person", "crowd", "place", "document", "map", "painting", "object")
 RECORDS = ("document", "map", "painting", "object")       # composed centred: the picture is a record
 FLOOR = M.CINE["auto_confidence_floor"]                   # a box under it is not a subject (A43)
@@ -66,7 +66,7 @@ THING = {
     "bangladesh", "pakistan", "america", "american", "international", "space", "earth", "world", "trade",
     "emergency", "operations", "presidential", "white", "plaza", "fort", "camp", "museum", "library",
 }
-# An office held by one person at a time: "the President" names that person by the office
+# Offices and titles: joined to the name they precede ("President Bush"); bare, they are one name themselves
 OFFICES = {"president", "pope", "king", "queen", "emperor", "empress", "shah", "kaiser", "viceroy", "tsar", "czar",
            "chancellor", "premier", "governor-general"}
 # A title that joins the name it precedes ("President Bush")
@@ -99,11 +99,13 @@ def caption_names(text: str) -> list[str]:
     joined across "of", "de", "van" and the like). A run is dropped when any
     word in it is a place, institution or thing word (``THING``: "Emma E.
     Booker Elementary School", "New York", "Air Force One"). A leading
-    function word ("The", "A") is dropped from a run, and a run that is then
-    only a title is a name only when it is a one-holder office used with
-    "the" ("The President" gives ["President"]). A title before a name stays
-    with it: "President Bush at the school" gives ["President Bush"] (so the
-    narration's "Bush" or "President Bush" both match it). Quoted text is
+    function word ("The", "A") is dropped from a run. A title before a name
+    stays with it and resolves to the titled person: "President Bush at the
+    school" gives ["President Bush"] (so the narration's "Bush" or "President
+    Bush" both match it). A bare title or honorific with no name after it
+    ("The President", "the Mayor", "Captain") still counts as one name, the
+    title itself (["President"]): it may be someone, so it errs toward a
+    binding being checked, never toward a face bound unchecked. Quoted text is
     words in the picture, not the caption naming anyone, and is skipped.
 
     The direction of error is chosen: a word the lists do not know is taken
@@ -138,17 +140,11 @@ def caption_names(text: str) -> list[str]:
     runs = [(a, ws) for a, ws in runs if a not in route]
     out: list[str] = []
     for _, words in runs:
-        lead_the = False
         while words and words[0].lower() in FUNCTION:
-            lead_the = lead_the or words[0].lower() == "the"
             words = words[1:]
         while words and words[-1].lower() in CONNECT:
             words = words[:-1]
         if not words or any(w.lower() in THING for w in words):
-            continue
-        if all(w.lower() in TITLES for w in words):
-            if lead_the and len(words) == 1 and words[0].lower() in OFFICES:
-                out.append(words[0])
             continue
         name = " ".join(words)
         if name not in out:
