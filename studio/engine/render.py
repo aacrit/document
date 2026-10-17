@@ -849,7 +849,7 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
     else:
         raise Refused(f"shot {shot['id']}: unknown preset {preset!r} (GRAMMAR 7.2, A41)")
     asked = stops                             # still-zoom-limit judges the preset as written, before any cover
-    if cover and macro in COVERABLE:
+    if cover and (macro in COVERABLE or macro == "TOUR"):
         region = shot.get("region") or {}
         focus = (shot.get("focus") if macro == "FILL" else
                  [float(region.get("x", 0.5)), float(region.get("y", 0.5))] if macro == "DETAIL" else None)
@@ -876,6 +876,36 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
             "covering": covering, "capped": any(st.get("capped") for st in stops),
             "cine": {"persons": persons, "regions": roi_by_name, "ignored": eff["ignored"], "reframed": reframed,
                      "pulled": pulled}}
+
+
+def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journal | None) -> dict:
+    """A41 and A43: a path the engine made (a preset, the default, or the
+    ``tour`` resolver's visits, re-framed or not) can never fail tour-people.
+    Its windows are checked against every person in the picture (A7 over the
+    path); one that misses anyone becomes a covering pass of the whole
+    picture, journaled. A preset or the default that leaves part of the
+    picture unseen is covered too, unless the ledger names what the picture
+    is about (roi, must_show): then the path is the author's, and a reviewer
+    item. A path a person wrote (``camera`` stops) is never changed here."""
+    if cam.get("preset") != TOUR or not (cam.get("macro") in COVERABLE or cam.get("macro") == "TOUR"):
+        return cam
+    item = s["_item"]
+    people = T.people_of(item, kind=s["kind"])
+    wins = [w for _, w in still_windows(cam, s, size, W, H)]
+    pc = T.people_check(wins, people, size)
+    authored = bool(item.get("roi") or item.get("must_show")) or cam["macro"] == "TOUR"
+    why = ("a person would go unseen" if not pc["ok"] else
+           None if pc["whole_shown"] or authored else
+           f"it shows {100 * T.coverage(wins, size):.0f}% of the picture")
+    if not why:
+        return cam
+    macro = cam["macro"]
+    cam = still_camera(s, size, W, H, words=words, cover=True)
+    if journal is not None:
+        journal.decision("motion", f"{s['id']}: {macro} made a covering pass of the whole picture",
+                         f"A41 and A7: as written {why}; full visibility comes from touring the whole surface",
+                         unit=s["id"], evidence={"people": people, "kind": s["kind"], "missed": pc["missed"]})
+    return cam
 
 
 def narrower_than_frame(aspect: float, W: int = 1920, H: int = 1080) -> bool:
@@ -2030,23 +2060,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                                       else STILL_MAX_UPSCALE)
             words = T.shot_words(words_src or [], s["start_s"], s["end_s"])
             cam = still_camera(s, size, W, H, words=words)
-            if cam["preset"] == TOUR and cam["macro"] in COVERABLE:
-                # A41: full visibility comes from touring the whole surface. A preset or the default that leaves
-                # part of the picture unseen (or a person: A7) becomes a covering pass, unless the ledger names
-                # what this picture is about (roi, must_show): then the path is the author's, and a reviewer item
-                item = s["_item"]
-                people = T.people_of(item, kind=s["kind"])
-                wins = [w for _, w in still_windows(cam, s, size, W, H)]
-                pc = T.people_check(wins, people, size)
-                authored = bool(item.get("roi") or item.get("must_show"))
-                why = ("a person would go unseen" if not pc["ok"] else
-                       None if pc["whole_shown"] or authored else
-                       f"it shows {100 * T.coverage(wins, size):.0f}% of the picture")
-                if why:
-                    cam = still_camera(s, size, W, H, words=words, cover=True)
-                    journal.decision("motion", f"{s['id']}: {cam['macro']} made a covering pass of the whole picture",
-                                     f"A41 and A7: as written {why}; full visibility comes from touring the whole "
-                                     "surface", unit=s["id"], evidence={"people": people, "kind": s["kind"]})
+            cam = engine_cover(s, cam, size, W, H, words, journal)
             s["_cam"] = cam
             fill_lints(lint, journal, s, cam)
             ml_upscale_lint(lint, s)

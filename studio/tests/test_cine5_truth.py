@@ -499,3 +499,103 @@ def test_plan_ruling_2_probe_a_fully_automatic_tour_is_never_refused(film):
     evs = J.read(j.path)
     assert [e["status"] for e in lints(evs, "anchor-identity") if e["unit"] == "S3"] == ["pass"]
     assert any(e["kind"] == "decision" and e.get("unit") == "S3" and "re-framed" in e.get("what", "") for e in evs)
+
+
+# --------------------------------------------------------------------------
+# An engine path can never fail tour-people (re-review)
+# --------------------------------------------------------------------------
+
+PANORAMA = (4500, 1500)
+TWO_ENDS = {"id": "N4", "kind": "narration", "start": 10.0, "dur": 6.0,
+            "text": "On the left stood Ramos and far across the square waited Diaz for the word."}
+
+
+def _engine_cam(item, size, words, dur=8.0):
+    shot = {"id": "X", "kind": "archive_still", "_dur": dur, "start_s": 9.0, "camera": "tour", "_item": item}
+    cam = R.still_camera(shot, size, W, H, words=words)
+    return R.engine_cover(shot, cam, size, W, H, words, None), shot
+
+
+def _never_refused(cam, shot, item, size):
+    wins = [w for _, w in R.still_windows(cam, shot, size, W, H)]
+    assert T.people_check(wins, T.people_of(item), size)["ok"]
+    assert not T.face_cap_check(cam["tour"], cam["cine"]["persons"])
+    assert not T.anchor_identity_check(cam["tour"], item, cam["cine"]["regions"], cam["cine"]["persons"])
+
+
+def test_a_panorama_s_two_ends_are_each_still_visited_after_unbinding():
+    ws = T.shot_words([TWO_ENDS], 9.0, 17.0)
+    item = {"title": "Two men at the ends of the square", "people": [], "roi": [
+        {"name": "subject", "kind": "person", "cue": "Ramos", "x": 0.02, "y": 0.3, "w": 0.04, "h": 0.4,
+         "source": "auto", "confidence": 0.9},
+        {"name": "person-1", "kind": "person", "cue": "Diaz", "x": 0.93, "y": 0.3, "w": 0.04, "h": 0.4,
+         "source": "auto", "confidence": 0.9}]}
+    cam, shot = _engine_cam(item, PANORAMA, ws)
+    rf = cam["cine"]["reframed"]
+    assert {r["person"] for r in rf} == {"subject", "person-1"} and all(r["now"] == "whole" for r in rf)
+    st = [s for s in cam["tour"]["stops"] if s.get("reframed")]
+    assert all(s["z"] == 1.0 for s in st) and st[0]["x"] < 0.5 < st[1]["x"]          # each end, at the fill
+    _never_refused(cam, shot, item, PANORAMA)
+
+
+def test_a_group_that_fits_one_window_is_framed_together():
+    persons = T.person_regions({"people": [{"x": 0.3, "y": 0.3, "w": 0.05, "h": 0.2},
+                                           {"x": 0.45, "y": 0.3, "w": 0.05, "h": 0.2}]})
+    g, now = T.group_stop(persons, LANDSCAPE43, A)
+    assert now == "group" and 1.0 <= g["z"] <= M.CINE["face_zmax"]
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_property_random_auto_people_with_a_tour_are_never_refused(seed):
+    import random
+    rng = random.Random(seed)
+    size = rng.choice([PANORAMA, LANDSCAPE43, (1200, 1600), (3200, 1000), (1920, 1080)])
+    names = ["Ramos", "Diaz", "Ortiz", "Silva", "Mendes"]
+    n = rng.randint(1, 5)
+    roi = []
+    for k in range(n):
+        w, h = rng.uniform(0.01, 0.2), rng.uniform(0.02, 0.5)
+        roi.append({"name": "subject" if k == 0 else f"person-{k}", "kind": rng.choice(["person", "face"]),
+                    "cue": names[k], "x": rng.uniform(0, 1 - w), "y": rng.uniform(0, 1 - h), "w": w, "h": h,
+                    "source": "auto", "confidence": rng.uniform(0.3, 1.0)})
+    title = rng.choice([f"{names[0]} in the square", f"{names[0]} and {names[1]} in the square", "The square"])
+    item = {"title": title, "people": [], "roi": roi}
+    if rng.random() < 0.3:
+        item["caption_names"] = [names[0]]
+    text = "In the square " + " then ".join(rng.sample(names[:n], n)) + " stood waiting for the word."
+    line = {"id": "N5", "kind": "narration", "start": 9.0 + rng.uniform(0, 2), "dur": rng.uniform(2, 6), "text": text}
+    if rng.random() < 0.5:
+        toks = text.split()
+        line["words"] = [{"w": t, "t": line["start"] + line["dur"] * i / len(toks)} for i, t in enumerate(toks)]
+    ws = T.shot_words([line], 9.0, 17.0)
+    cam, shot = _engine_cam(item, size, ws, dur=8.0)
+    _never_refused(cam, shot, item, size)
+
+
+def test_without_caption_names_a_capitalised_caption_cue_is_a_name():
+    ws = T.shot_words([BUSH], 9.0, 17.0)
+    one = {"name": "person-1", "x": 0.4, "y": 0.2, "w": 0.15, "h": 0.4}
+    item = {"title": "Bush and Card pass a policeman at the barrier", "people": [one]}
+    assert T.names_a_person(["Bush"], item, T.person_regions(item))
+    bad = ident([{"t": 0}, {"roi": "person-1", "at": "Bush", "lead_s": 1.2, "hold": 2.0}], ws, item=item)
+    assert bad and bad[0]["authored"] and any("Card" in w for w in bad[0]["why"])
+    # crowd safety: a stop placed by x and y inside one of several people binds no one
+    crowd = dict(item, people=[one, {"name": "person-2", "x": 0.7, "y": 0.2, "w": 0.1, "h": 0.4}])
+    assert not ident([{"t": 0}, {"at": "Bush", "x": 0.47, "y": 0.4, "z": 1.2}], ws, item=crowd)
+    assert not T.names_a_person(["barrier"], item, T.person_regions(item))     # lower case in the caption
+
+
+def test_plan_panorama_tour_is_never_refused(film):
+    from PIL import Image
+    Image.new("RGB", PANORAMA, (90, 80, 70)).save(film / "stills" / "FX-STILL-A.png")
+    _edit(film, lambda p: _line(p, "L1").update(text="Ramos stood left and Diaz right."))
+    _item(film, "FX-STILL-A", lambda i: i.update(width=PANORAMA[0], height=PANORAMA[1], title="Two men", roi=[
+        {"name": "subject", "kind": "person", "cue": "Ramos", "x": 0.02, "y": 0.3, "w": 0.04, "h": 0.4,
+         "source": "auto", "confidence": 0.9},
+        {"name": "person-1", "kind": "person", "cue": "Diaz", "x": 0.93, "y": 0.3, "w": 0.04, "h": 0.4,
+         "source": "auto", "confidence": 0.9}]))
+    _edit(film, lambda p: _shot(p, "S3").update(preset=None, camera="tour"))
+    plan, j = _plan(film, "cine5-panorama")
+    evs = J.read(j.path)
+    for rule in ("tour-people", "anchor-identity", "face-cap-live"):
+        assert [e["status"] for e in lints(evs, rule) if e["unit"] == "S3"] == ["pass"], rule

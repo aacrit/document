@@ -861,8 +861,9 @@ def _same_name(a: list[str], b: list[str]) -> bool:
 def names_a_person(spoken: list[str], item: dict, persons: list[dict]) -> bool:
     """Whether an anchor is a person's name: it matches the name or the cue of
     a person the ledger records (not the rulebook's own names: subject,
-    person-1, ...), or an entry of the item's ``caption_names``. A capital
-    letter alone never makes a name ("New York", "Pentagon")."""
+    person-1, ...), or an entry of the item's ``caption_names``, or, when the
+    item states none, a cue its caption gives with a capital. A capital in
+    the narration alone never makes a name ("New York", "Pentagon")."""
     cue = [norm_word(w) for w in spoken if norm_word(w)]
     if not cue:
         return False
@@ -871,7 +872,17 @@ def names_a_person(spoken: list[str], item: dict, persons: list[dict]) -> bool:
         for c in [e.get("name")] + (cue_of(e) if e.get("cue") is not None else []):
             if isinstance(c, str) and not GENERIC_NAME.match(c) and _same_name(_norm_words(c), cue):
                 return True
-    return any(_same_name(_norm_words(n), cue) for n in item.get("caption_names") or [] if isinstance(n, str))
+    names = item.get("caption_names")
+    if isinstance(names, list):
+        return any(_same_name(_norm_words(n), cue) for n in names if isinstance(n, str))
+    # no caption_names: a cue the caption itself gives with a capital is taken as a name, so the binding rule (and
+    # its check for other capitalised caption words) runs; a crowd still binds no one (stop_person)
+    toks = [w.strip(_QUOTES) for w in str(item.get("caption") or item.get("title") or "").split()]
+    toks = [w for w in toks if norm_word(w)]
+    for i in range(len(toks) - len(cue) + 1):
+        if [norm_word(w) for w in toks[i:i + len(cue)]] == cue and toks[i][:1].isupper():
+            return True
+    return False
 
 
 _SENTENCE_END = (".", "!", "?", ":", ";")
@@ -1001,26 +1012,31 @@ def anchor_identity_check(tl: dict, item: dict, regions: dict, persons: list[dic
     return out
 
 
-def group_stop(persons: list[dict], size, aspect: float) -> dict:
-    """Where a person stop that may not bind a name goes instead (ruling 2):
-    the group, every located person framed with a margin and never past the
-    face cap, or, with one person, the fill about them (the whole picture's
-    framing, never a single face)."""
+def group_stop(persons: list[dict], size, aspect: float, who: dict | None = None) -> tuple[dict, str]:
+    """Where a person stop that may not bind a name goes instead (ruling 2),
+    and what it now frames: the group, every located person framed with a
+    margin and never past the face cap, when the group fits one window; else
+    (one person, or a group wider than any window, a panorama's two ends)
+    the fill about the person the stop visited, z 1, the whole picture's
+    framing and never a face push, so the visit still shows them."""
     bs = [q["box"] for q in persons]
     box = {"x": min(b[0] for b in bs), "y": min(b[1] for b in bs)}
     box.update(w=max(b[2] for b in bs) - box["x"], h=max(b[3] for b in bs) - box["y"])
-    if located_persons(persons) <= 1:
-        return {"z": 1.0, "x": box["x"] + box["w"] / 2.0, "y": box["y"] + box["h"] / 2.0}
-    return roi_stop(box, size, aspect, CINE["face_zmax"])
+    if located_persons(persons) > 1:
+        fw, fh = fill_window(size, aspect)
+        if box["w"] * float(size[0]) * 1.25 <= fw + EPS and box["h"] * float(size[1]) * 1.25 <= fh + EPS:
+            return roi_stop(box, size, aspect, CINE["face_zmax"]), "group"
+    b = who["box"] if who is not None else (box["x"], box["y"], box["x"] + box["w"], box["y"] + box["h"])
+    return {"z": 1.0, "x": (b[0] + b[2]) / 2.0, "y": (b[1] + b[3]) / 2.0}, "whole"
 
 
 def degrade_bindings(stops: list[dict], dur: float, item: dict, regions: dict, persons: list[dict], size,
                      aspect: float, zmax: float, *, no_zoom: bool = False) -> tuple[list[dict], list[dict]]:
     """The engine's side of ``anchor-identity`` (founder ruling 2: degrade,
     never block): an engine-placed stop that lands on a person and fails the
-    timing or the binding is re-framed to the group or the whole, keeping its
-    time, and no longer binds the name. A stop a person wrote is left for the
-    lint. Returns (stops, what was re-framed)."""
+    timing or the binding is re-framed (``group_stop``), keeping its time, and
+    no longer binds the name. A stop a person wrote is left for the lint.
+    Returns (stops, what was re-framed)."""
     if not persons:
         return stops, []
     tl = build(stops, dur, size, aspect, zmax, no_zoom=no_zoom)
@@ -1028,14 +1044,16 @@ def degrade_bindings(stops: list[dict], dur: float, item: dict, regions: dict, p
     if not fails:
         return stops, []
     stops = [dict(st) for st in stops]
-    now = "group" if located_persons(persons) > 1 else "whole"
     done = []
     for f in fails:
         st = stops[f["i"]]               # build keeps one stop per input stop, in order
+        r = regions.get(st.get("roi")) if st.get("roi") is not None else None
+        who = {"box": roi_box(r)} if r is not None and roi_box(r) is not None else next(
+            (q for q in persons if q["name"] == f["person"]), None)
         for key in ("roi", "at", "onset", "name_end", "measured", "spoken", "spoken_line", "spoken_i", "z_authored"):
             st.pop(key, None)
-        st.update(group_stop(persons, size, aspect), reframed=f["person"],
-                  **{"from": f"{st.get('from')}: re-framed to the {now}"})
+        g, now = group_stop(persons, size, aspect, who)
+        st.update(g, reframed=f["person"], **{"from": f"{st.get('from')}: re-framed to the {now}"})
         done.append({"stop": f["stop"], "person": f["person"], "spoken": f["spoken"], "why": f["why"], "now": now})
     return stops, done
 

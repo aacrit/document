@@ -437,7 +437,7 @@ Do: write regions of interest once per image (`roi`) and let `tour` visit each a
 | Face cap | any framing (a stop, its creep, a move) that shows half or more of a face or person box: z at most 1.3; less than half in frame is not capped |
 | A name on a face, measured words | the camera arrives between 0.8 s before and 0.25 s after the name's onset |
 | A name on a face, estimated words | the camera arrives at least 1.0 s before the name and stays until it ends |
-| The engine's own person stop | arrives 0.5 s early on measured words, 1.0 s on estimated ones, held through the name; one that may not bind is re-framed to the group or the whole |
+| The engine's own person stop | arrives 0.5 s early on measured words, 1.0 s on estimated ones, held through the name; one that may not bind is re-framed to the group (if it fits one window) or the fill about that person; an engine path that would miss anyone becomes a covering pass |
 | Machine boxes | `source: auto` under confidence 0.5 is set aside: the person counts as unlocated and the whole picture is toured |
 | One person | a face inside its figure (80% of the face box inside) is one person, for the binding rule |
 
