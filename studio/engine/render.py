@@ -1758,6 +1758,18 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                            "fix": None if ok else ("intent is a string from the closed list" if not known else
                                                    f"{it} is for a black shot only" if it in BLACK_ONLY_INTENTS else
                                                    "intent is for a black or card shot")})
+        if s.get("black_reason") is not None:    # A30 refined: a free-text reason, on a black shot only
+            reason = s["black_reason"]
+            is_black = s["kind"] == "black"
+            is_str = isinstance(reason, str)
+            ok = is_black and valid_black_reason(reason)
+            fix = (None if ok else
+                   "black_reason is for a black shot only" if not is_black else
+                   "black_reason is a string" if not is_str else
+                   f"black_reason is a sentence of its own words (at least {BLACK_REASON_MIN_WORDS}), "
+                   "never a filler token padded to length")
+            lint("black-reason", ok, unit=s["id"], grammar="A30 refined",
+                 evidence={"kind": s["kind"], "black_reason": reason, "min_words": BLACK_REASON_MIN_WORDS, "fix": fix})
     card_lints(lint, shots, W, H)            # E15: laid out at plan time; overflow refuses, nothing is cut
     lower_thirds, subs, overlays = [], [], []
     for t in texts:
@@ -5248,6 +5260,25 @@ BLACK_INTENTS = {
     "the-film-speaks": "The film's own card, read aloud.",
 }
 BLACK_ONLY_INTENTS = ("count-of-the-dead",)    # bare black: never on a card (its why says so)
+# A30 refined (founder, 2026-10-17: "Black with nothing could mean mourning. Silence even. I don't think we
+# should be saying no black at all. It should be demanded by the story, the script, and how things are
+# flowing."): alongside the closed BLACK_INTENTS list (unchanged), a `black` shot (never a `card`) may instead
+# declare a free-text `black_reason`: a sentence, in the story's own words, for what its black demands (mourning,
+# silence, the record falling silent). A shot with a valid reason passes black-under-voice as a declared intent
+# does, journaled as a reviewer item that prints the reason, never a closed-list decision.
+BLACK_REASON_MIN_WORDS = 4      # a non-trivial sentence, never a single filler token padded to length
+_BLACK_REASON_WORD_RE = re.compile(r"[A-Za-z']+")
+
+
+def valid_black_reason(text) -> bool:
+    """A30 refined: ``black_reason`` is a string of at least BLACK_REASON_MIN_WORDS of its own words; a filler
+    token repeated to pad the count (its distinct words number one) does not pass."""
+    if not isinstance(text, str):
+        return False
+    words = _BLACK_REASON_WORD_RE.findall(text)
+    return len(words) >= BLACK_REASON_MIN_WORDS and len({w.lower() for w in words}) > 1
+
+
 # A30 (R4): the dip budget (FOUNDER-FEEDBACK-1 section 4: Partition's 56 dips, one every 21 s, made "a lot of black").
 # Over each part, at most one dip per 40 s on average (rounded up, so a short part keeps its one dip); over the film,
 # at most 12 s of dip per 10 minutes.
@@ -5298,7 +5329,8 @@ def dark_voice_runs(plan: dict) -> list[dict]:
             s0, s1 = s["f0"] / FPS, s["f1"] / FPS
             sv = sum(max(0.0, min(s1, y) - max(s0, x)) for x, y in merged)
             if sv > 0:
-                shots.append({"id": s["id"], "kind": s["kind"], "voice_s": round(sv, 2), "intent": s.get("intent")})
+                shots.append({"id": s["id"], "kind": s["kind"], "voice_s": round(sv, 2), "intent": s.get("intent"),
+                              "reason": s.get("black_reason")})
         readings = []
         for x, y, ln in over:
             if ln.get("kind") == "testimony":
@@ -5364,10 +5396,12 @@ def part_spans(plan: dict) -> dict:
 
 
 def black_dip_lints(journal: Journal, plan: dict, *, draft: bool = False) -> list[str]:
-    """A30 (R4). black-under-voice: a voice over a run of black or card
-    shots for more than BLACK_VOICE_MAX_S is refused unless every such shot
-    declares an intent from BLACK_INTENTS (journaled as a decision, printed in
-    sources.json), and a reading over it has a lower third. dip-budget: over
+    """A30 (R4), refined (founder, 2026-10-17). black-under-voice: a voice over
+    a run of black or card shots for more than BLACK_VOICE_MAX_S is refused
+    unless every such shot declares an intent from BLACK_INTENTS (journaled as
+    a decision, printed in sources.json) or, on a black shot only, a valid
+    free-text black_reason (journaled as a reviewer item that prints the
+    reason); and a reading over it has a lower third. dip-budget: over
     each part at most one dip per DIP_EVERY_S on average (rounded up, so a
     short part keeps one), and over the film at most DIP_SECONDS_PER_10MIN_MAX
     seconds of dip per 10 minutes, a pacing guide (A39): a warning and a
@@ -5380,8 +5414,12 @@ def black_dip_lints(journal: Journal, plan: dict, *, draft: bool = False) -> lis
     runs = plan["dark_voice"] if "dark_voice" in plan else dark_voice_runs(plan)
     for r in runs:
         long_ = r["voice_s"] > BLACK_VOICE_MAX_S + 1e-9
-        missing = [s["id"] for s in r["shots"] if not (isinstance(s.get("intent"), str) and s["intent"] in BLACK_INTENTS)
-                   ] if long_ else []
+        # A30 refined: a shot passes on its closed-list intent, as before, or (black only) a valid free-text
+        # black_reason; `declared` names which, so the reviewer item and the decision print the right one.
+        declared = {s["id"]: ("intent" if isinstance(s.get("intent"), str) and s["intent"] in BLACK_INTENTS else
+                              "reason" if s["kind"] == "black" and valid_black_reason(s.get("reason")) else None)
+                    for s in r["shots"]} if long_ else {}
+        missing = [sid for sid, d in declared.items() if d is None] if long_ else []
         bare = [x["id"] for x in r["readings"] if not x["lower_thirds"]] if long_ else []
         ok = not missing and not bare
         unit = r["shots"][0]["id"] if r["shots"] else r["part"]
@@ -5390,13 +5428,22 @@ def black_dip_lints(journal: Journal, plan: dict, *, draft: bool = False) -> lis
                                    readings_without_lower_third=bare,
                                    fix=None if ok else (
                                        "give the words a picture (typeset the document as a DRAWN page, or a still), or "
-                                       f"declare the shot's intent from {sorted(BLACK_INTENTS)}" if missing else
+                                       f"declare the shot's intent from {sorted(BLACK_INTENTS)}, or a black shot's own "
+                                       "black_reason" if missing else
                                        "a reading over black carries its lower third")))
         if ok and long_:
             for s in r["shots"]:
-                journal.decision("scout", f"{s['id']}: a voice over {s['kind']} for {s['voice_s']:g} s, intent {s['intent']}",
-                                 f"A30: {BLACK_INTENTS[s['intent']]}", unit=s["id"],
-                                 evidence={"intent": s["intent"], "lines": r["lines"], "run_voice_s": r["voice_s"]})
+                d = declared.get(s["id"])
+                if d == "intent":
+                    journal.decision("scout", f"{s['id']}: a voice over {s['kind']} for {s['voice_s']:g} s, intent {s['intent']}",
+                                     f"A30: {BLACK_INTENTS[s['intent']]}", unit=s["id"],
+                                     evidence={"intent": s["intent"], "lines": r["lines"], "run_voice_s": r["voice_s"]})
+                elif d == "reason":
+                    journal.lint("black-reason", True, stage="scout", phase="preflight", unit=s["id"], severity="review",
+                                 grammar="A30 refined",
+                                 evidence={"black_reason": s["reason"], "lines": r["lines"], "run_voice_s": r["voice_s"],
+                                           "voice_s": s["voice_s"],
+                                           "check": "the reason is a black the story, the script or its flow demands"})
         if not ok and not draft:
             out.append(f"black-under-voice ({unit}: {r['voice_s']:g} s of voice over {r['from_s']:g} to {r['to_s']:g} s; "
                        + (f"no intent on {', '.join(missing)}" if missing else f"no lower third for {', '.join(bare)}") + ")")
