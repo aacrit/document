@@ -771,7 +771,7 @@ def whole_camera(shot: dict, img_size, W: int, H: int, *, preset: str = "HOLD") 
 
 
 def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words=None, cover: bool = False,
-                 cap: float | None = None) -> dict:
+                 cap: float | None = None, fps: float | None = None) -> dict:
     """The still's camera (A41, TOUR): a path of stops in picture coordinates
     (studio/engine/tour.py) that fills 16:9 on every frame, drawn by
     ``overlays.framing_at``. The path is the shot's ``camera`` (a list of
@@ -869,7 +869,8 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
     stops, reframed = T.degrade_bindings(stops, dur, item, roi_by_name, persons, img_size, aspect, zmax,
                                          no_zoom=no_zoom)
     stops = T.cap_faces(stops, persons, img_size, aspect)
-    stops, pulled = T.enforce_face_cap(stops, persons, dur, img_size, aspect, zmax, no_zoom=no_zoom)
+    stops, pulled = T.enforce_face_cap(stops, persons, dur, img_size, aspect, zmax, no_zoom=no_zoom,
+                                       hz=fps)               # A44: the face cap sampled at every master frame
     if shot.get("match") == "prev" and stops:
         stops[0] = dict(stops[0], match="prev")   # the schema: a shot's match is its first stop's (#9 draws it)
     tl = T.build(stops, dur, img_size, aspect, zmax, no_zoom=no_zoom)
@@ -905,7 +906,7 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
     if not why:
         return cam
     macro = cam["macro"]
-    cam = still_camera(s, size, W, H, words=words, cover=True)
+    cam = still_camera(s, size, W, H, words=words, cover=True, fps=fps)
     if journal is not None:
         journal.decision("motion", f"{s['id']}: {macro} made a covering pass of the whole picture",
                          f"A41 and A7: as written {why}; full visibility comes from touring the whole surface",
@@ -2141,7 +2142,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             s["_fill_max_upscale"] = (settings["fill_max_upscale"] if "fill_max_upscale" in settings_stated
                                       else STILL_MAX_UPSCALE)
             words = T.shot_words(words_src or [], s["start_s"], s["end_s"])
-            cam = still_camera(s, size, W, H, words=words)
+            cam = still_camera(s, size, W, H, words=words, fps=fps)
             cam = engine_cover(s, cam, size, W, H, words, journal, fps=fps)
             s["_cam"] = cam
             fill_lints(lint, journal, s, cam)

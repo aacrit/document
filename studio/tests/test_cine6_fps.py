@@ -24,7 +24,6 @@ from studio.engine import policy as POL
 from studio.engine import render as R
 from studio.engine import titles as TS
 
-REAL_WORLD = Path("C:/Users/aacri/document-work/sept11")
 BITS, BAR, BAND = 16, 40, (150, 190)        # a frame's index, written as 16 bars 40 px wide across the frame's middle
 
 
@@ -153,13 +152,86 @@ def test_a44_the_majority_of_clip_runtime_sets_the_rate():
         "tally": {"24": 0.0, "30000/1001": 209.0}, "problem": None}
 
 
-@pytest.mark.skipif(not (REAL_WORLD / "screenplay.json").exists(), reason="Real World's working folder is not on this machine")
-def test_a44_real_world_resolves_to_30000_1001_by_its_clips():
-    play = json.loads((REAL_WORLD / "screenplay.json").read_text(encoding="utf-8"))
-    cad = R.master_rate(play, R.load_ledgers(REAL_WORLD, play))
-    assert cad["rate"] == CAD.NTSC and cad["name"] == "30000/1001" and cad["from"] == "majority"
-    assert cad["tally"]["30000/1001"] > 200 and cad["tally"]["24"] == 0
-    assert all(c["native"] == "30000/1001" for c in cad["clips"])
+def _synthetic_film(root: Path, *, ntsc_s: float, film_s: float, title_frames: int = 48, stated=None) -> Path:
+    """A small film in Real World's shape for the check: a 29.97 clip of ``ntsc_s`` seconds, a 24 clip of ``film_s``,
+    and a series-titles shot whose ledger item is a 24 master of ``title_frames`` frames (no file needed to resolve)."""
+    film = root / "film"
+    (film / "footage").mkdir(parents=True)
+    indexed_clip(film / "footage" / "ntsc.mkv", "30000/1001", ntsc_s + 0.2, size=(320, 180))
+    indexed_clip(film / "footage" / "film.mkv", "24", film_s + 0.2, size=(320, 180))
+    items = [ledger_item("V-NTSC", "ntsc.mkv", "30000/1001", ntsc_s + 0.2), ledger_item("V-FILM", "film.mkv", "24", film_s + 0.2),
+             {"id": "TS-x", "file": "title.mkv", "fps": 24, "frames": title_frames}]
+    (film / "ledger.json").write_text(json.dumps({"items": items}), encoding="utf-8")
+    t_dur = title_frames / 24
+    shots = [{"id": "A", "kind": "archive_video", "asset": "V-NTSC", "start_s": 0.0, "in_s": 0.0, "out_s": ntsc_s},
+             {"id": "TS1", "kind": "title_sequence", "asset": "TS-x", "start_s": ntsc_s, "dur_s": t_dur},
+             {"id": "B", "kind": "archive_video", "asset": "V-FILM", "start_s": ntsc_s + t_dur, "in_s": 0.0, "out_s": film_s}]
+    play = {"title": "synthetic", "parts": [{"id": "p", "shots": shots}],
+            "ledgers": {"footage": {"path": "ledger.json", "media": "footage"}}}
+    if stated is not None:
+        play["settings"] = {"master_fps": stated}
+    (film / "screenplay.json").write_text(json.dumps(play), encoding="utf-8")
+    return film
+
+
+def test_a44_the_cadence_check_reads_a_film_like_real_world(tmp_path, capsys):
+    """``python -m studio.engine.cadence --check <film> --expect 30000/1001`` (the Real World check, run by hand on
+    the working folder): mostly 29.97 clip runtime resolves to 30000/1001, the 29.97 clip plays 1:1, the 24 clip and
+    the 24 title are conformed by repeat and declared, and a wrong --expect exits 1."""
+    film = _synthetic_film(tmp_path, ntsc_s=3.0, film_s=1.0)
+    assert CAD.main(["--check", str(film), "--expect", "30000/1001"]) == 0
+    out = capsys.readouterr().out
+    rep = json.loads(out[:out.rindex("}") + 1])
+    assert rep["master_fps"] == "30000/1001" and rep["from"] == "majority" and rep["tally_s"] == {"24": 1.0, "30000/1001": 3.0}
+    a, b = rep["clips"]
+    assert a["method"] == "none" and b["method"] == "repeat" and b["repeated"] > 0 and b["dropped"] == 0
+    t = rep["titles"][0]
+    assert t["how"] == "conform" and t["source_frames"] == 48 and t["out_frames"] == 60 and t["repeated"] == 12
+    assert {c["shot"] for c in rep["conformed"]} == {"B", "TS1"}
+    assert CAD.main(["--check", str(film), "--expect", "24"]) == 1
+    assert "MISMATCH: resolves to 30000/1001, expected 24" in capsys.readouterr().out
+    assert CAD.main(["--check", str(tmp_path / "nowhere")]) == 2
+
+
+def test_a44_the_cadence_check_honours_a_stated_rate_and_ties(tmp_path, capsys):
+    film = _synthetic_film(tmp_path / "a", ntsc_s=1.0, film_s=1.0)              # a tie: the house rate
+    assert CAD.main(["--check", str(film), "--expect", "24"]) == 0
+    stated = _synthetic_film(tmp_path / "b", ntsc_s=3.0, film_s=1.0, stated="24")
+    assert CAD.main(["--check", str(stated), "--expect", "24"]) == 0
+    out = capsys.readouterr().out
+    assert json.loads(out[out.rindex('{\n  "film"'):out.rindex("}") + 1])["from"] == "settings"
+    bad = _synthetic_film(tmp_path / "c", ntsc_s=3.0, film_s=1.0, stated=25)
+    assert CAD.main(["--check", str(bad)]) == 1                                   # a malformed master_fps
+
+
+def test_a44_the_plans_rate_reaches_engine_cover_and_cine_lints(tmp_path, monkeypatch):
+    """The 30000/1001 rate a film resolves to is the rate engine_cover's people check and cine_lints' face cap sample
+    at (they read 24 before A44 met A43)."""
+    film = make_film(tmp_path / "film")
+    _edit(film, lambda p: p.pop("settings", None))                              # its one clip is 29.97
+    seen = {"engine_cover": [], "cine_lints": [], "face_cap_check": []}
+    real_cover, real_cine, real_cap = R.engine_cover, R.cine_lints, R.T.face_cap_check
+
+    def cover(*a, **k):
+        seen["engine_cover"].append(k.get("fps"))
+        return real_cover(*a, **k)
+
+    def cine(*a, **k):
+        seen["cine_lints"].append(k.get("fps"))
+        return real_cine(*a, **k)
+
+    def cap(*a, **k):
+        seen["face_cap_check"].append(k.get("hz", a[2] if len(a) > 2 else None))   # the lint's and the engine's own
+        return real_cap(*a, **k)
+
+    monkeypatch.setattr(R, "engine_cover", cover)
+    monkeypatch.setattr(R, "cine_lints", cine)
+    monkeypatch.setattr(R.T, "face_cap_check", cap)
+    plan, _ = _plan(film, "spy")
+    assert plan["fps_rate"] == "30000/1001"
+    assert seen["engine_cover"] and set(seen["engine_cover"]) == {30000 / 1001}
+    assert seen["cine_lints"] and set(seen["cine_lints"]) == {30000 / 1001}
+    assert seen["face_cap_check"] and set(seen["face_cap_check"]) == {30000 / 1001}
 
 
 def test_a44_the_fixture_film_states_24_and_keeps_it(film):

@@ -149,3 +149,87 @@ def frame_floor(seconds: float, master: Fraction | float) -> int:
     """Frames of the master a span of ``seconds`` covers, rounded (a 0.5 s cross-class dip is 12 frames at 24 and
     15 at 29.97: the rule is in seconds and follows the master)."""
     return int(round(seconds * float(master)))
+
+
+# --------------------------------------------------------------------------
+# The check: a film's resolved rate, its conformed clips and its title, read-only (no plan, no render)
+# --------------------------------------------------------------------------
+
+
+def check_film(film) -> dict:
+    """A44 on a film folder, read-only: the master rate it resolves to (stated, or the majority of its clip runtime),
+    each clip's conform at that rate, and the series titles' master (the one at the film's rate, played 1:1, else the
+    item's own, conformed). Reads the screenplay, its ledgers and the clips' headers; builds no plan, so other lints
+    (a score's, a framing's) never hide the answer."""
+    import json
+    from pathlib import Path
+    from studio.engine import render as R
+    from studio.engine import titles as TS
+    film = Path(film)
+    play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
+    assets = R.load_ledgers(film, play)
+    cad = R.master_rate(play, assets)
+    rate, fps = cad["rate"], cad["fps"]
+    clips, titles, probes = [], [], {}
+
+    def owned(s, dur):           # the frames the shot owns at the master rate, as the plan counts them
+        t0 = float(s.get("start_s", 0.0))
+        return int(round((t0 + dur) * fps)) - int(round(t0 * fps))
+    for part in play.get("parts") or []:
+        for s in part.get("shots") or []:
+            item = assets.get(s.get("asset")) or {}
+            if s.get("kind") == "archive_video" and item.get("_path") and Path(item["_path"]).exists():
+                p = item["_path"]
+                pr = probes[p] = probes.get(p) or R.probe_video(Path(p))
+                in_s = float(s.get("in_s", item.get("in_s", 0.0)))
+                out_s = float(s.get("out_s", item.get("out_s", in_s + float(s.get("dur_s", 0)))))
+                conf = R.conform_plan(item, pr, rate)
+                row = {"shot": s.get("id"), "asset": s.get("asset"), "in_fps": conf["in_fps"], "method": conf["method"]}
+                if conf["method"] != "none":
+                    src = pr["fps"] if conf["method"] != "ivtc" else FILM
+                    left = int(math.floor(max(0.0, pr["duration_s"] - in_s) * float(src) + 1e-6))
+                    row.update(pattern(src, rate, owned(s, out_s - in_s), left or None))
+                clips.append(row)
+            elif TS.is_title(s) and item:
+                chosen, how = TS.select_master(item, fps)
+                r = TS.rate_of(chosen)
+                row = {"shot": s.get("id"), "asset": s.get("asset"), "file": chosen.get("file"),
+                       "fps": chosen.get("fps", TS.FPS), "how": how}
+                if how == "conform" and r:
+                    row.update(pattern(r, rate, owned(s, float(s.get("dur_s", 0))),
+                                       int(chosen.get("frames") or 0) or None))
+                titles.append(row)
+    return {"film": str(film), "master_fps": cad["name"], "from": cad["from"], "tally_s": cad["tally"],
+            "problem": cad["problem"], "clips": clips, "titles": titles,
+            "conformed": [c for c in clips + titles if c.get("method", "none") != "none" or c.get("how") == "conform"]}
+
+
+def main(argv=None) -> int:
+    """``python -m studio.engine.cadence --check <film dir> [--expect 24|30000/1001]``: print the film's resolved
+    master rate, every clip's conform and the title's master as JSON; exit 1 when the rate is not the expected one
+    (or the stated master_fps is malformed), 2 when the film cannot be read."""
+    import argparse
+    import json
+    ap = argparse.ArgumentParser(prog="python -m studio.engine.cadence")
+    ap.add_argument("--check", required=True, metavar="FILM_DIR")
+    ap.add_argument("--expect", help="the rate the film must resolve to: 24 or 30000/1001")
+    a = ap.parse_args(argv)
+    try:
+        want = parse_rate(a.expect) if a.expect is not None else None
+        rep = check_film(a.check)
+    except (OSError, ValueError, KeyError) as e:
+        print(f"cadence: {type(e).__name__}: {e}")
+        return 2
+    print(json.dumps(rep, indent=2, ensure_ascii=False))
+    bad = []
+    if rep["problem"]:
+        bad.append(rep["problem"])
+    if want is not None and rep["master_fps"] != rate_str(want):
+        bad.append(f"resolves to {rep['master_fps']}, expected {rate_str(want)}")
+    for b in bad:
+        print(f"cadence: MISMATCH: {b}")
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
