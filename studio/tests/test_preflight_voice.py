@@ -9,6 +9,7 @@ the render's mix does not journal it again. The parity tests hold
 render.SOUND_LINTS to the code."""
 
 import ast
+import hashlib
 import inspect
 import json
 from pathlib import Path
@@ -30,43 +31,130 @@ def lints(evs, rule=None):
 
 # --------------------------------------------------------------------------
 # Parity: every lint the sound path journals is classified, and every
-# take-only one is judged at plan time
+# take-only one is judged at plan time. The scan is the enforcer: it reads
+# studio/engine's own modules, follows calls across them (an alias such as
+# SC.x, a name imported from a sibling module, a class's methods, self.x;
+# nested functions sit inside their parent), and takes its roots from what
+# render() itself calls in its sound section and in its pre-flight.
 # --------------------------------------------------------------------------
 
-# What render() runs on the sound, from the mix to the loudness pass (the roots of the sound path).
-SOUND_ROOTS = ("build_mix", "sound_lints", "score_lints", "fill_cards", "card_fill_lints", "still_hold_lints",
-               "loudness_lints")
-# Rules the sound path names through a variable, not a literal first argument (sound_lints' floors) or from
-# score.score_checks (score_lints journals c["rule"]): the table lists them by name or as one group.
+ENGINE = Path(R.__file__).resolve().parent
+# Rules the sound path names through a variable, not a literal (sound_lints' floors), or from score.score_checks
+# (score_lints journals c["rule"]): the table lists them by name or as one group.
 DYNAMIC = {"voiceless-floor": "sound_lints", "readings-floor": "sound_lints", "women-floor": "sound_lints",
            "score-standard checks": "score_lints"}
 
 
-def _module_functions():
-    tree = ast.parse(Path(R.__file__).read_text(encoding="utf-8"))
-    return {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+def engine_sources() -> dict[str, str]:
+    return {p.stem: p.read_text(encoding="utf-8") for p in sorted(ENGINE.glob("*.py")) if p.stem != "__init__"}
 
 
-def _called(fn: ast.FunctionDef, names: set[str]) -> set[str]:
-    out = set()
-    for n in ast.walk(fn):
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in names:
-            out.add(n.func.id)
-    return out
+_TREES: dict[tuple[str, str], ast.AST] = {}
 
 
-def _closure(roots, funcs) -> set[str]:
-    seen, todo = set(), list(roots)
-    while todo:
-        f = todo.pop()
-        if f in seen or f not in funcs:
-            continue
-        seen.add(f)
-        todo += sorted(_called(funcs[f], set(funcs)) - seen)
-    return seen
+def _parse(module: str, src: str) -> ast.AST:
+    """Each source parsed once per session (the engine is about 30k lines; the tests reuse its trees and parse
+    only a module they change)."""
+    key = (module, hashlib.sha256(src.encode()).hexdigest())
+    if key not in _TREES:
+        _TREES[key] = ast.parse(src)
+    return _TREES[key]
 
 
-def _rules(fn: ast.FunctionDef) -> set[str]:
+class Index:
+    """Every function of the engine's modules, keyed (module, name) or (module, "Class.method"), with each
+    module's names for its siblings."""
+
+    def __init__(self, sources: dict[str, str]):
+        self.trees = {m: _parse(m, src) for m, src in sources.items()}
+        self.funcs: dict[tuple[str, str], ast.AST] = {}
+        self.classes: dict[tuple[str, str], list[str]] = {}
+        self.alias: dict[str, dict[str, str]] = {}            # module -> alias -> sibling module
+        self.imported: dict[str, dict[str, tuple[str, str]]] = {}   # module -> name -> (sibling, name)
+        for m, tree in self.trees.items():
+            self.alias[m], self.imported[m] = {}, {}
+            for n in tree.body:
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    self.funcs[(m, n.name)] = n
+                elif isinstance(n, ast.ClassDef):
+                    meths = [b.name for b in n.body if isinstance(b, (ast.FunctionDef, ast.AsyncFunctionDef))]
+                    self.classes[(m, n.name)] = meths
+                    for b in n.body:
+                        if isinstance(b, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            self.funcs[(m, f"{n.name}.{b.name}")] = b
+                elif isinstance(n, ast.ImportFrom) and n.module == "studio.engine":
+                    for a in n.names:
+                        if a.name in sources:
+                            self.alias[m][a.asname or a.name] = a.name
+                elif isinstance(n, ast.ImportFrom) and (n.module or "").startswith("studio.engine."):
+                    sib = n.module.rsplit(".", 1)[1]
+                    for a in n.names:
+                        self.imported[m][a.asname or a.name] = (sib, a.name)
+                elif isinstance(n, ast.Import):
+                    for a in n.names:
+                        if a.name.startswith("studio.engine.") and a.asname:
+                            self.alias[m][a.asname] = a.name.rsplit(".", 1)[1]
+
+    def _target(self, m: str, name: str) -> list[tuple[str, str]]:
+        if (m, name) in self.funcs:
+            return [(m, name)]
+        if (m, name) in self.classes:
+            return [(m, f"{name}.{x}") for x in self.classes[(m, name)]]
+        return []
+
+    def resolve(self, m: str, key: str, call: ast.Call) -> list[tuple[str, str]]:
+        f = call.func
+        if isinstance(f, ast.Name):
+            if f.id in self.imported[m]:
+                return self._target(*self.imported[m][f.id])
+            return self._target(m, f.id)
+        if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name):
+            v = f.value.id
+            if v in self.alias[m]:
+                return self._target(self.alias[m][v], f.attr)
+            if v == "self" and "." in key:
+                return self._target(m, f"{key.split('.')[0]}.{f.attr}")
+        return []
+
+    def calls(self, m: str, key: str, lines: tuple[int, int] | None = None) -> set[tuple[str, str]]:
+        out = set()
+        for n in ast.walk(self.funcs[(m, key)]):
+            if isinstance(n, ast.Call) and (lines is None or lines[0] <= n.lineno < lines[1]):
+                out.update(self.resolve(m, key, n))
+        return out
+
+    def closure(self, roots) -> set[tuple[str, str]]:
+        seen, todo = set(), list(roots)
+        while todo:
+            k = todo.pop()
+            if k in seen or k not in self.funcs:
+                continue
+            seen.add(k)
+            todo += sorted(self.calls(*k) - seen)
+        return seen
+
+
+def _is_call(n, attr, *args) -> bool:
+    return (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == attr
+            and [a.value for a in n.args[:len(args)] if isinstance(a, ast.Constant)] == list(args))
+
+
+def render_roots(idx: Index, section: str) -> set[tuple[str, str]]:
+    """What render() itself calls in its sound section (from the assembly stage's start to the --audio-only
+    branch) or its pre-flight (from its first line to the scout stage's end)."""
+    fn = idx.funcs[("render", "render")]
+    nodes = list(ast.walk(fn))
+    if section == "sound":
+        a = min(n.lineno for n in nodes if _is_call(n, "stage", "assembly", "start"))
+        b = min(n.lineno for n in nodes if isinstance(n, ast.If) and isinstance(n.test, ast.Name)
+                and n.test.id == "audio_only" and n.lineno > a)
+    else:
+        a = fn.lineno
+        b = min(n.lineno for n in nodes if _is_call(n, "stage", "scout", "done"))
+    return idx.calls("render", "render", (a, b))
+
+
+def _rules(fn: ast.AST) -> set[str]:
     """The literal rule names a function journals: journal.lint("x", ...) or lint("x", ...), pacing_review(j, "x"),
     and card_lints' rule_fits / rule_drawn."""
     out = set()
@@ -84,49 +172,82 @@ def _rules(fn: ast.FunctionDef) -> set[str]:
     return out
 
 
-def _sound_path_rules() -> dict[str, set[str]]:
-    funcs = _module_functions()
-    reach = _closure(SOUND_ROOTS, funcs)
+def section_rules(idx: Index, section: str) -> dict[str, set[str]]:
     by_rule: dict[str, set[str]] = {}
-    for f in reach:
-        for r in _rules(funcs[f]):
-            by_rule.setdefault(r, set()).add(f)
+    for k in idx.closure(render_roots(idx, section)):
+        for r in _rules(idx.funcs[k]):
+            by_rule.setdefault(r, set()).add(f"{k[0]}.{k[1]}")
     return by_rule
 
 
-def test_every_lint_on_the_sound_path_is_classified():
-    found = _sound_path_rules()
-    table = R.SOUND_LINTS
-    assert set(found) - set(table) == set(), "a sound-path lint missing from render.SOUND_LINTS"
-    assert set(table) - set(found) == set(DYNAMIC), "render.SOUND_LINTS lists a lint the sound path does not journal"
+def parity_problems(sources: dict[str, str], table: dict[str, dict]) -> list[str]:
+    idx = Index(sources)
+    sound, plan = section_rules(idx, "sound"), section_rules(idx, "plan")
+    out = [f"unclassified sound lint {r} (journaled by {sorted(sound[r])})" for r in sorted(set(sound) - set(table))]
+    out += [f"render.SOUND_LINTS lists {r}, which the sound path does not journal"
+            for r in sorted(set(table) - set(sound) - set(DYNAMIC))]
+    out += [f"DYNAMIC {r} is not in render.SOUND_LINTS" for r in DYNAMIC if r not in table]
+    for r, row in table.items():
+        if row.get("class") not in ("take-only", "needs full mix") or not row.get("why"):
+            out.append(f"{r}: no class or no why")
+        elif ("plan" in row) != (row["class"] == "take-only"):
+            out.append(f"{r}: a take-only row names its plan-time rules, and only it")
+        elif row["class"] == "take-only" and set(row["plan"]) - set(plan):
+            out.append(f"take-only {r} is not judged at plan time ({sorted(set(row['plan']) - set(plan))})")
+    return out
+
+
+def test_the_sound_lints_table_matches_the_code():
+    assert parity_problems(engine_sources(), R.SOUND_LINTS) == []
+
+
+def test_the_scan_follows_render_into_the_mix_and_the_plan():
+    idx = Index(engine_sources())
+    sound = {k[1] for k in idx.closure(render_roots(idx, "sound"))}
+    plan = {k[1] for k in idx.closure(render_roots(idx, "plan"))}
+    shared = {"process_take", "journal_take", "narrator_consistency_lints", "narrator_eq_lints", "reader_eq_lints",
+              "_take_refusing"}
+    assert shared | {"build_mix", "loudness_lints", "score_lints", "apply_voice_eq"} <= sound
+    assert shared | {"build_plan", "take_lints", "preflight_sources"} <= plan
+    assert "_Muted.lint" in sound                                 # a class's methods, reached through its name
     for rule, where in DYNAMIC.items():
         src = inspect.getsource(getattr(R, where))
         assert ("SC.score_checks(" in src) if rule == "score-standard checks" else (f'"{rule}"' in src), rule
-    for rule, row in table.items():
-        assert row["class"] in ("take-only", "needs full mix") and row["why"], rule
-        assert ("plan" in row) == (row["class"] == "take-only"), rule
 
 
-def test_the_mix_journals_the_takes_through_the_same_helpers_the_plan_does():
-    funcs = _module_functions()
-    mix = _closure(("build_mix",), funcs)
-    plan = _closure(("take_lints",), funcs)
-    shared = {"process_take", "journal_take", "narrator_consistency_lints", "narrator_eq_lints", "reader_eq_lints",
-              "take_refusal"}
-    assert shared <= mix and shared <= plan
-    assert "take_lints" in _closure(("build_plan",), funcs)
+def _with_fake(sources, module, helper, call):
+    """The engine's sources with ``helper`` appended to ``module`` and ``call`` placed in build_mix (before its
+    music loop)."""
+    src = dict(sources)
+    src[module] = src[module] + "\n\n" + helper + "\n"
+    anchor = '    for c in plan["cues"]:\n        wav = film / (c.get("wav") or f"audio/{c[\'id\']}.wav")\n'
+    assert src["render"].count(anchor) == 1
+    src["render"] = src["render"].replace(anchor, f"    {call}\n" + anchor)
+    return src
 
 
-def test_every_take_only_lint_is_judged_at_plan_time():
-    funcs = _module_functions()
-    at_plan: set[str] = set()
-    for f in _closure(("take_lints", "build_plan", "preflight_sources"), funcs):
-        at_plan |= _rules(funcs[f])
-    take_only = {r: row for r, row in R.SOUND_LINTS.items() if row["class"] == "take-only"}
-    assert {"narrator-consistency", "narrator-drift", "voice-clean", "voice-chop", "voice-peak-control",
-            "narrator-eq", "reader-eq"} <= set(take_only)
-    for rule, row in take_only.items():
-        assert set(row["plan"]) <= at_plan, (rule, set(row["plan"]) - at_plan)
+FAKE = {"fake-take-lint": {"class": "take-only", "plan": ("fake-take-lint",), "why": "a fixture"}}
+
+
+@pytest.mark.parametrize("module,helper,call", [
+    ("score", "def fake_take_check(journal):\n    journal.lint('fake-take-lint', True, stage='assembly')",
+     "SC.fake_take_check(journal)"),
+    ("clips", "class FakeCheck:\n    def run(self, journal):\n        self._lint(journal)\n\n"
+              "    def _lint(self, journal):\n        def inner():\n            journal.lint('fake-take-lint', True)\n"
+              "        inner()",
+     "CL.FakeCheck().run(journal)"),
+])
+def test_a_lint_added_in_another_module_is_caught(module, helper, call):
+    src = _with_fake(engine_sources(), module, helper, call)
+    assert any(p.startswith("unclassified sound lint fake-take-lint") for p in parity_problems(src, R.SOUND_LINTS))
+    # classified take-only, it must be judged at plan time, and is not
+    probs = parity_problems(src, dict(R.SOUND_LINTS, **FAKE))
+    assert probs == ["take-only fake-take-lint is not judged at plan time (['fake-take-lint'])"]
+
+
+def test_a_dynamic_rule_must_be_in_the_table():
+    table = {k: v for k, v in R.SOUND_LINTS.items() if k != "women-floor"}
+    assert "DYNAMIC women-floor is not in render.SOUND_LINTS" in parity_problems(engine_sources(), table)
 
 
 # The sound-stage lints of WG-3's Real World --audio-only journal (r-20261018-013310-224ee218, on 5105fd8): each
@@ -137,7 +258,6 @@ REAL_WORLD_SOUND_STAGE = ("narrator-consistency", "narrator-drift", "narrator-eq
 
 def test_the_real_world_sound_stage_lints_are_all_take_only():
     assert all(R.SOUND_LINTS[r]["class"] == "take-only" for r in REAL_WORLD_SOUND_STAGE)
-
 
 # --------------------------------------------------------------------------
 # A fixture film with narration takes: a narrator at about 180 Hz and one
@@ -337,3 +457,16 @@ def test_a_preview_plan_runs_no_take_lints_and_writes_no_cache(tmp_path, takes_c
     assert not takes_cache.exists() and not (film / "cache" / "takes").exists()
     with pytest.raises(ValueError, match="take lints mode"):
         _plan(film, J.Journal(film="pv-bad-mode"), voice_lints="cached")
+
+
+def test_a_check_render_names_a_refused_take_outside_its_span(tmp_path, takes_cache, low_take):
+    film = _narration_film(tmp_path, low_take)                     # NLOW starts at 15.0 s
+    with pytest.raises(R.Refused, match=r"^narrator-consistency and narrator-drift \(A14\): .*NLOW \(f0 -1\.5\d semitones"
+                                        r".*\(refused by NLOW outside this check span; the plan judges every take in the film\)$"):
+        _plan(film, J.Journal(film="pv-until"), until_s=8.0)
+    with pytest.raises(R.Refused) as inside:                       # a span that plays it says nothing more
+        _plan(film, J.Journal(film="pv-until-in"), until_s=16.0)
+    assert "outside this check span" not in str(inside.value)
+    with pytest.raises(R.Refused, match=r"refused by NLOW outside this check span"):   # render passes --until on
+        R.render(film, tmp_path / "out", height=360, workers=1, min_free_gb=1, until_s=8.0)
+    assert not list((tmp_path / "out").rglob("*.mp4"))

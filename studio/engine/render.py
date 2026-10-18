@@ -2437,12 +2437,15 @@ def text_zone_timeline(play: dict, texts: list[dict]) -> list[dict]:
 
 
 def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Journal, play: dict | None = None,
-               write_overlays: bool = True, draft: bool = False, voice_lints: str = "run") -> dict:
+               write_overlays: bool = True, draft: bool = False, voice_lints: str = "run",
+               until_s: float | None = None) -> dict:
     """The film's plan, every plan-time lint journaled and every blocking
     one refused. Last, the take-only sound lints (take_lints: A13, A14,
     A19, A38 on the takes) at the severity the mix gives them, ``draft``
     making them warnings as it does there; ``voice_lints`` "off" skips them
-    (a preview tool's plan, which also passes ``write_overlays`` False)."""
+    (a preview tool's plan, which also passes ``write_overlays`` False).
+    ``until_s`` (a check render's --until) only words a take refusal: the
+    plan is the whole film's, and a refused take past the span is named so."""
     play = play if play is not None else json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
     if "parts" not in play:
         raise Refused("screenplay.json has no parts: it is not format v2 (GRAMMAR 12); studio/sketch.py renders v1")
@@ -3215,7 +3218,15 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     # the mix, after HEAVY.lock); cached by take sha, and not journaled again by this run's mix
     plan["_takes"] = take_lints(journal, plan, film, draft=draft, mode=voice_lints)
     if plan["_takes"] and plan["_takes"]["refusal"]:
-        raise Refused(plan["_takes"]["refusal"])
+        why = plan["_takes"]["refusal"]
+        if until_s is not None and until_s > 0:
+            # a check render (--until) is refused by a take it will not play: the plan judges every take in the film
+            kept = {ln["id"] for ln in trim_plan(plan, until_s)["lines"]}
+            outside = [lid for lid in plan["_takes"]["refused_lines"] if lid not in kept]
+            if outside:
+                why += (f" (refused by {', '.join(outside)} outside this check span; the plan judges every take in "
+                        "the film)")
+        raise Refused(why)
     return plan
 
 
@@ -5594,18 +5605,27 @@ def journal_take(journal, ln: dict, rec: dict, draft: bool) -> tuple[list[str], 
     return unclean, bad
 
 
+def _take_refusing(bad_takes: list[str], unclean: list[str], narrator_off: list[str], eq_off: list[str],
+                   draft: bool) -> tuple[str, list[str]] | None:
+    """The first refusal of the take lints, in build_mix's order and words, with the reasons it lists."""
+    if bad_takes and not draft:
+        return (f"voice-peak-control (A13): bad takes, re-render them instead of crushing them: {'; '.join(bad_takes)}",
+                bad_takes)
+    if unclean:
+        return f"voice-clean and voice-chop (A19): re-render these takes (or render with --draft): {'; '.join(unclean)}", unclean
+    if narrator_off and not draft:
+        return (f"narrator-consistency and narrator-drift (A14): not the narrator's voice: {'; '.join(narrator_off)}",
+                narrator_off)
+    if eq_off and not draft:
+        return f"narrator-eq and reader-eq (A38): the EQ applied is not the one declared: {'; '.join(eq_off)}", eq_off
+    return None
+
+
 def take_refusal(bad_takes: list[str], unclean: list[str], narrator_off: list[str], eq_off: list[str],
                  draft: bool) -> str | None:
     """The first refusal of the take lints, in build_mix's order and words (None: none refuses)."""
-    if bad_takes and not draft:
-        return f"voice-peak-control (A13): bad takes, re-render them instead of crushing them: {'; '.join(bad_takes)}"
-    if unclean:
-        return f"voice-clean and voice-chop (A19): re-render these takes (or render with --draft): {'; '.join(unclean)}"
-    if narrator_off and not draft:
-        return f"narrator-consistency and narrator-drift (A14): not the narrator's voice: {'; '.join(narrator_off)}"
-    if eq_off and not draft:
-        return f"narrator-eq and reader-eq (A38): the EQ applied is not the one declared: {'; '.join(eq_off)}"
-    return None
+    r = _take_refusing(bad_takes, unclean, narrator_off, eq_off, draft)
+    return r[0] if r else None
 
 
 class _Muted:
@@ -5660,7 +5680,7 @@ def take_lints(journal: Journal, plan: dict, film: Path, *, draft: bool = False,
     reader_eqs = plan.get("reader_eq") or {}
     reader_of = plan.get("reader_voices") or {}
     cache = takes_cache_dir(film)
-    tools = {"engine": ENGINE_HASH, "ffmpeg": ffmpeg_version()}
+    tools = {"engine": ENGINE_HASH, "ffmpeg": ffmpeg_version(), "numpy": np.__version__}
     narr: dict[str, dict] = {}
     eq_lines: dict[str, dict] = {}
     rd_lines: dict[str, dict] = {}
@@ -5723,8 +5743,14 @@ def take_lints(journal: Journal, plan: dict, film: Path, *, draft: bool = False,
                      "severity; the mix does not journal them again", unit="takes",
                      evidence={"takes": len(digests), "measured": measured, "cached": hits, "wall_s": wall,
                                "cache": str(cache), "cache_written": write_ok and measured > 0, "draft": draft})
+    refusing = _take_refusing(bad_takes, unclean, narrator_off, eq_off, draft)
+    ids = {ln["id"] for ln in plan["lines"]}
+    # the lines the refusal names (a reason starts with its line's id; the narrator's spread, a mood group and the
+    # drift name none)
+    named = [] if not refusing else list(dict.fromkeys(r.split(" ", 1)[0] for r in refusing[1]
+                                                        if r.split(" ", 1)[0] in ids))
     return {"run": journal.run, "draft": draft, "lines": digests, "wall_s": wall, "measured": measured, "cached": hits,
-            "refusal": take_refusal(bad_takes, unclean, narrator_off, eq_off, draft)}
+            "refusal": refusing[0] if refusing else None, "refused_lines": named}
 
 
 def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
@@ -8033,7 +8059,8 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
             raise Refused("source files missing or unreadable (pre-flight): " + "; ".join(
                 f"{b['unit']}: {b['file']} ({b['why']})" for b in bad_sources))
         with journal.unit("scout", "plan", size={"driver": "items", "value": 0}) as u:
-            plan = build_plan(film, W=W, H=H, burn_subtitles=burn_subtitles, journal=journal, play=play, draft=draft)
+            plan = build_plan(film, W=W, H=H, burn_subtitles=burn_subtitles, journal=journal, play=play, draft=draft,
+                              until_s=until_s)
             u.size = {"driver": "items", "value": len(plan["shots"])}
         # E15: binding on a run that renders the final frames; --draft, --audio-only (no frames) and --until (a check
         # render) journal them as warnings
