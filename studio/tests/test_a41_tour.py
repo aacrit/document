@@ -128,17 +128,21 @@ def test_macros_keep_direction_region_from_to_and_focus():
 
 
 def test_the_default_tour_tilts_a_portrait_and_pans_a_wide_picture():
-    cam = cam_for({"_dur": 8.0}, PORTRAIT)
+    # A47 retired the geometric tilt: the default pass sweeps from the end furthest from the subject to it, so a
+    # portrait whose subject sits low tilts top to bottom, and a wide picture whose subject sits right pans left to
+    # right; with no subject it holds the whole, upper-weighted (test_cine2_subject.py)
+    low = {"name": "subject", "x": 0.3, "y": 0.8, "w": 0.4, "h": 0.15, "kind": "place"}
+    cam = cam_for({"_dur": 16.0, "_item": {"people": False, "roi": [low]}}, PORTRAIT)   # time for the whole sweep
     assert cam["macro"] == "DEFAULT"
-    a, b = OV.framing_at(cam, 0.0, 8.0), OV.framing_at(cam, 8.0, 8.0)
-    assert a["x"] == pytest.approx(b["x"]) and a["y"] < b["y"]       # top to bottom
+    a, b = OV.framing_at(cam, 0.0, 16.0), OV.framing_at(cam, 16.0, 16.0)
+    assert a["y"] < b["y"]                                            # top to bottom, toward the subject
     src0, _ = M.still_view(PORTRAIT, M.Layout(W, H), z=a["z"], cx=a["x"], cy=a["y"], clamp="image")
-    src1, _ = M.still_view(PORTRAIT, M.Layout(W, H), z=b["z"], cx=b["x"], cy=b["y"], clamp="image")
-    assert src0[1] == pytest.approx(0, abs=0.5) and src1[3] == pytest.approx(PORTRAIT[1], abs=0.5)
-    assert src0[2] - src0[0] == pytest.approx(PORTRAIT[0], abs=0.5)   # opens at the fill: the full width
-    cam = cam_for({"_dur": 8.0}, WIDE)
+    assert src0[1] == pytest.approx(0, abs=0.5)                       # opens at the far end (the top) ...
+    assert src0[2] - src0[0] == pytest.approx(PORTRAIT[0], abs=0.5)   # ... at the fill: the full width
+    right = {"name": "subject", "x": 0.85, "y": 0.3, "w": 0.1, "h": 0.3, "kind": "place"}
+    cam = cam_for({"_dur": 8.0, "_item": {"people": False, "roi": [right]}}, WIDE)
     a, b = OV.framing_at(cam, 0.0, 8.0), OV.framing_at(cam, 8.0, 8.0)
-    assert a["y"] == pytest.approx(b["y"]) and a["x"] < b["x"]       # left to right
+    assert a["x"] < b["x"]                                            # left to right, toward the subject
     cam = cam_for({"_dur": 8.0}, (1920, 1080))                       # the frame's own shape: the fill, creeping
     assert [g["kind"] for g in cam["tour"]["segments"]] == ["creep"]
 
@@ -540,11 +544,21 @@ def test_a_hold_that_shows_part_of_the_picture_tours_it_unless_authored(film):
     _edit(film, lambda p: _shot(p, "S3").update(preset="HOLD"))               # people: false; 10:7 at the fill shows 80%
     plan, j = _plan(film, "a41-hold-cover")
     cam = next(s for s in plan["shots"] if s["id"] == "S3")["_cam"]
-    assert cam["covering"]
-    assert T.covered([w for _, w in R.still_windows(cam, {"_dur": 4.0}, (1500, 1050), W, H)], (0, 0, 1, 1), (1500, 1050))
+    # A47: the HOLD becomes the default pass, which ends on the subject; nobody is in the picture and the ledger
+    # names no subject, so the subject is the whole picture: the upper-weighted hold, never widened for coverage
+    # alone (what it leaves unseen is a reviewer item)
+    assert cam["covering"] and cam["cover"] == "subject" and cam["subject"]["src"] == "whole"
     evs = J.read(j.path)
-    assert any(e["kind"] == "decision" and e.get("unit") == "S3" and "covering" in e.get("what", "") for e in evs)
-    assert not [e for e in lints(evs, "tour-partial") if e["unit"] == "S3"]
+    assert any(e["kind"] == "decision" and e.get("unit") == "S3" and "ending on the subject" in e.get("what", "")
+               for e in evs)
+    assert [e["severity"] for e in lints(evs, "tour-partial") if e["unit"] == "S3"] == ["review"]
+    # a person the ledger has not located still needs the whole picture: then the pass covers it (A7)
+    _item(film, "FX-STILL-A", lambda i: i.update(people=True))
+    plan, j = _plan(film, "a41-hold-cover-whole")
+    cam = next(s for s in plan["shots"] if s["id"] == "S3")["_cam"]
+    assert T.covered([w for _, w in R.still_windows(cam, {"_dur": 4.0}, (1500, 1050), W, H)], (0, 0, 1, 1), (1500, 1050))
+    assert not [e for e in lints(J.read(j.path), "tour-partial") if e["unit"] == "S3"]
+    _item(film, "FX-STILL-A", lambda i: i.update(people=False))
     _item(film, "FX-STILL-A", lambda i: i.update(must_show=["the shapes"], roi=ROI_A))
     plan, j = _plan(film, "a41-hold-authored")
     assert not next(s for s in plan["shots"] if s["id"] == "S3")["_cam"]["covering"]
