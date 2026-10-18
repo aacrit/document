@@ -10,9 +10,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 
 from conftest import make_film
+from studio.engine import levels as LV
 from studio.engine import motion as M
 from studio.engine import overlays as OV
 from studio.engine import sheets as SH
@@ -78,7 +80,7 @@ def test_cell_geometry_matches_the_camera_window(tmp_path):
     s = next(x for x in plan["shots"] if x["id"] == "S3")
     cam = s["_cam"]
     dur = float(s["_dur"])
-    still = SH._StillImage(s["_item"]["_path"], cam)
+    still = SH._StillImage(s)
     L = M.Layout(320, 180)
     for t in SH.stop_times(cam, dur):
         pic, src, dst, f = SH.camera_crop(still, cam, t, dur, L)
@@ -90,7 +92,7 @@ def test_cell_geometry_matches_the_camera_window(tmp_path):
         want_src, want_dst = M.still_view(still.size, L, z=f["z"], cx=f["x"], cy=f["y"], clamp=cam["clamp"])
         assert src == want_src and dst == want_dst
         # the rendered cell is the crop over a caption strip: its top rows are this exact picture
-        cell = SH.render_cell(still, cam, t, dur, L.W, L.H)
+        cell = SH.render_cell(still, s, t, dur, L.W, L.H)
         assert cell.size == (L.W, L.H + SH.LABEL_H)
 
 
@@ -142,3 +144,43 @@ def test_whole_still_has_no_subject(tmp_path):
     assert s5["_item"].get("whole") is True
     box, source, name = SH.subject_box(s5["_cam"])
     assert box is None and source is None and name is None
+
+
+def test_a46_levels_overlay_is_never_written(tmp_path):
+    """Merged-tree regression (review of 2e50428, BLOCK 1): since #11,
+    build_plan writes ``<ledger>.levels.json`` beside the ledger by default,
+    even for a DRAWN (ineligible) still, held and measured there for
+    grade-jump. This tool threads ``write_overlays=False`` through so it
+    never does, on top of the generic no-write snapshot above."""
+    film = _film_with_subjects(tmp_path)
+    SH.build_sheets(film, out_dir=tmp_path / "out")
+    assert not list(film.glob("*.levels.json"))
+
+
+def test_still_image_applies_the_a46_black_floor(tmp_path):
+    """#11's floor applies to a sheet's cells in the same order as the
+    render (``render.Pictures.still``): on the full scan, before the
+    pre-scale."""
+    img = Image.new("RGB", (40, 40), (60, 60, 60))     # a flat, milky-grey scan: well above the floor's p2 threshold
+    path = tmp_path / "milky.png"
+    img.save(path)
+    m = LV.measure(Image.open(path))
+    fp = LV.floor_params(m)
+    assert fp is not None, "the fixture scan should be eligible for the floor"
+    levels = {"applied": True, **fp}
+    s = {"_item": {"_path": str(path)}, "_cam": {"fit_scale": 1.0, "z_max": 1.0}, "_levels": levels}
+    still = SH._StillImage(s)
+    got = np.asarray(still.img)
+    raw = np.asarray(Image.open(path).convert("RGB"))
+    assert not np.array_equal(got, raw)
+    want = np.asarray(LV.apply(Image.open(path).convert("RGB"), levels))
+    assert np.array_equal(got, want)
+
+
+def test_still_image_with_no_levels_record_is_unchanged(tmp_path):
+    img = Image.new("RGB", (10, 10), (128, 64, 32))
+    path = tmp_path / "plain.png"
+    img.save(path)
+    s = {"_item": {"_path": str(path)}, "_cam": {"fit_scale": 1.0, "z_max": 1.0}}
+    still = SH._StillImage(s)
+    assert np.array_equal(np.asarray(still.img), np.asarray(img.convert("RGB")))

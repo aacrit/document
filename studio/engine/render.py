@@ -1882,7 +1882,8 @@ def fit_voices(play: dict, film: Path, journal: Journal, gap: float = VOICE_GAP_
     return play
 
 
-def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Journal, play: dict | None = None) -> dict:
+def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Journal, play: dict | None = None,
+               write_overlays: bool = True) -> dict:
     play = play if play is not None else json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
     if "parts" not in play:
         raise Refused("screenplay.json has no parts: it is not format v2 (GRAMMAR 12); studio/sketch.py renders v1")
@@ -2194,8 +2195,10 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                 journal.decision("motion", f"{s['id']}: fill_ok: false no longer holds a still whole",
                                  "A41: every still fills 16:9; a still kept whole states fill_exception (only when the "
                                  "softness cap cannot be met)", unit=s["id"])
-    # A46 (founder ruling 4): the automatic black floor on archive stills, logged in the ledger overlay; grade-jump
-    LV.plan_levels(shots, journal)
+    # A46 (founder ruling 4): the automatic black floor on archive stills, logged in the ledger overlay; grade-jump.
+    # write_overlays false (a preview tool's plan, never a render's) skips writing <ledger>.levels.json beside
+    # the film: build_plan never writes into the film folder unless its caller asks it to.
+    LV.plan_levels(shots, journal, write=write_overlays)
     continuity_lints(journal, shots, W, H)
     OV.lints(lint, shots, W, H, play)                # A32: marks drawn over a georeferenced archive sheet
     if lint_fail:

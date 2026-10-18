@@ -11,7 +11,11 @@ the action- and graphics-safe borders, the house zones (``motion.LT``,
 (colour-coded by ``source``: auto or human, A43), the stop's time, zoom and
 ``scale`` (whole, field or detail, derived from the window's share of the
 picture), and a composition verdict (golden, centred or off; subject in
-frame; under the lower third or the subtitle band).
+frame; under the lower third or the subtitle band). Each cell is shown as
+the render would show it: #11's automatic black floor (A46) applied on the
+full scan before any pre-scale (``levels.apply``, ``_StillImage``), and a
+georeferenced sheet's own A32 marks drawn first (``overlays.draw``), under
+this tool's preview guides.
 
 Founder ruling (2026-10-17): the primary target is a 1080p screen (laptop or
 TV); a phone is a sanity check only. Sheets are phone-viewable for
@@ -21,9 +25,12 @@ frame, so every cell shows the true 16:9 window at a legible size.
 One PNG per chapter (a screenplay part), a header (film, chapter, shot ids,
 the plan's sha256) and one row per still; a chapter whose rows would not fit
 one page (MAX_ROWS_PER_PAGE) splits into numbered pages. Nothing is written
-into the film folder: the default output is ``D:/document-media/<slug>-sheets``.
-Deterministic: fixed fonts, no timestamps drawn or embedded, so the same plan
-gives byte-identical PNGs.
+into the film folder: the default output is ``D:/document-media/<slug>-sheets``,
+and the plan itself is asked not to write either (``build_plan``'s
+``write_overlays=False``: no ``<ledger>.levels.json``; ``DOCUMENT_BOUNDS_CACHE``
+/ ``DOCUMENT_SPANS_CACHE`` redirect the clip caches it would otherwise write
+beside the film). Deterministic: fixed fonts, no timestamps drawn or
+embedded, so the same plan gives byte-identical PNGs.
 
 This is a preview tool, not a lint: it blocks nothing (GRAMMAR unchanged).
 
@@ -39,13 +46,14 @@ import math
 import os
 import sys
 import tempfile
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from functools import lru_cache
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
 from studio.engine import journal as J
+from studio.engine import levels as LV
 from studio.engine import motion as M
 from studio.engine import overlays as OV
 from studio.engine import render as R
@@ -391,12 +399,16 @@ def _clamp_box(box, w: float, h: float) -> tuple[float, float, float, float]:
 
 
 class _StillImage:
-    """The still's source pixels, pre-scaled once to the deepest zoom any of
-    its cells needs (the same ``fit_scale`` * ``z_max`` the renderer pre-scales
-    to, ``render.Renderer.still``), reused for every cell of its row."""
+    """The still's source pixels, the A46 black floor applied (if any) on
+    the full scan, then pre-scaled once to the deepest zoom any of its cells
+    needs (the same order and the same ``fit_scale`` * ``z_max`` the renderer
+    pre-scales to, ``render.Pictures.still``), reused for every cell of its
+    row: a sheet's cells match what the render would show."""
 
-    def __init__(self, path: str, cam: dict) -> None:
-        img = Image.open(path).convert("RGB")
+    def __init__(self, s: dict) -> None:
+        cam = s["_cam"]
+        img = Image.open(s["_item"]["_path"]).convert("RGB")
+        img = LV.apply(img, s.get("_levels"))            # A46: the floor, once, before any pre-scale
         self.size = img.size
         need = float(cam["fit_scale"]) * float(cam["z_max"])
         if need < 1.0:
@@ -419,14 +431,20 @@ def camera_crop(still: "_StillImage", cam: dict, t: float, dur: float, L: "M.Lay
     return pic, src, dst, f
 
 
-def render_cell(still: _StillImage, cam: dict, t: float, dur: float, cell_w: int, cell_h: int) -> Image.Image:
+def render_cell(still: _StillImage, s: dict, t: float, dur: float, cell_w: int, cell_h: int) -> Image.Image:
     """One 16:9 cell: the camera window at shot time ``t``, with every
-    overlay drawn over it (thirds, phi, safe areas, the house zones, the
-    plan's roi boxes), plus a caption strip below it (never on top of the
+    preview overlay drawn over it (thirds, phi, safe areas, the house zones,
+    the plan's roi boxes), plus a caption strip below it (never on top of the
     picture, so every cell still shows the true full frame, per the
-    founder's 2026-10-17 ruling)."""
+    founder's 2026-10-17 ruling). A georeferenced sheet's own A32 marks
+    (``s["_overlay"]``), when the plan carries them, are drawn first, as part
+    of the picture the renderer would show (``overlays.draw``), under this
+    tool's own preview guides."""
+    cam = s["_cam"]
     L = M.Layout(cell_w, cell_h)
     pic, src, dst, f = camera_crop(still, cam, t, dur, L)
+    if s.get("_overlay"):
+        pic = OV.draw(pic, s, t, f, L, still.img.size)
     canvas = Image.new("RGBA", (cell_w, cell_h + LABEL_H), _rgba(BG, 1.0))
     canvas.paste(pic.convert("RGBA"), (0, 0))
     overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
@@ -499,13 +517,12 @@ def build_chapter_pages(part_id: str, part_title: str, stills: list[dict], plan_
                "\u00b7  safe: safelight=action, cold=graphics", font=mono_f, fill=_rgba(FG, 0.6))
         y = HEADER_H
         for s, ts in page_rows:
-            cam = s["_cam"]
             still = images[s["id"]]
             d.multiline_text((MARGIN, y + cell_h // 2 - 16), "\n".join(_row_label(s)), font=mono_f, fill=FG, spacing=3)
             x = MARGIN + ROW_LABEL_W
             n = len(ts)
             for i, t in enumerate(ts):
-                cell = render_cell(still, cam, t, float(s["_dur"]), cell_w, cell_h)
+                cell = render_cell(still, s, t, float(s["_dur"]), cell_w, cell_h)
                 canvas.paste(cell.convert("RGB"), (x, y))
                 lf = _font(M.Fonts().data, 11)
                 d.text((x + 6, y + 2), stop_label(i, n), font=lf, fill=_rgba(FG, 0.9))
@@ -549,23 +566,28 @@ def _redirect_film_caches(cache_dir: Path | None):
     reel's trimmed span (A26) beside the film unless ``DOCUMENT_BOUNDS_CACHE``
     / ``DOCUMENT_SPANS_CACHE`` say otherwise (``clips.py``, ``render.py``).
     This tool never writes into the film folder, so it always says
-    otherwise: a scratch folder beside the sheets, or (with no ``out_dir``,
-    as in a bare ``plan_stills`` call) a process-local temp folder, restored
-    on exit either way."""
-    base = Path(cache_dir) if cache_dir else Path(tempfile.mkdtemp(prefix="document-sheets-cache-"))
-    keys = ("DOCUMENT_BOUNDS_CACHE", "DOCUMENT_SPANS_CACHE")
-    sub = {"DOCUMENT_BOUNDS_CACHE": "bounds", "DOCUMENT_SPANS_CACHE": "spans"}
-    old = {k: os.environ.get(k) for k in keys}
-    try:
-        for k in keys:
-            os.environ[k] = str(base / sub[k])
-        yield base
-    finally:
-        for k, v in old.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
+    otherwise: a scratch folder beside the sheets (``cache_dir``, kept), or
+    (with no ``out_dir``, as in a bare ``plan_stills`` call) a process-local
+    temp folder, removed on exit, since nothing keeps its own reference to
+    clean it up later. The env vars are restored on exit either way."""
+    with ExitStack() as stack:
+        if cache_dir:
+            base = Path(cache_dir)
+        else:
+            base = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="document-sheets-cache-")))
+        keys = ("DOCUMENT_BOUNDS_CACHE", "DOCUMENT_SPANS_CACHE")
+        sub = {"DOCUMENT_BOUNDS_CACHE": "bounds", "DOCUMENT_SPANS_CACHE": "spans"}
+        old = {k: os.environ.get(k) for k in keys}
+        try:
+            for k in keys:
+                os.environ[k] = str(base / sub[k])
+            yield base
+        finally:
+            for k, v in old.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
 
 def plan_stills(film: Path, journal: J.Journal, *, skip_sound_lints: bool = False,
@@ -575,7 +597,9 @@ def plan_stills(film: Path, journal: J.Journal, *, skip_sound_lints: bool = Fals
     if skip_sound_lints:
         play = _strip_music_cues(play, journal)
     with _redirect_film_caches(cache_dir):
-        return R.build_plan(film, W=W, H=H, burn_subtitles=False, journal=journal, play=play)
+        # write_overlays false: a preview tool's plan never writes <ledger>.levels.json (A46) beside the film,
+        # the same rule as the bounds/spans caches above
+        return R.build_plan(film, W=W, H=H, burn_subtitles=False, journal=journal, play=play, write_overlays=False)
 
 
 def plan_sha(film: Path) -> str:
@@ -612,7 +636,7 @@ def build_sheets(film: Path, *, out_dir: Path | None = None, chapter: str | None
         part_stills = by_part[part_id]
         images: dict[str, _StillImage] = {}
         for s in part_stills:
-            images[s["id"]] = _StillImage(s["_item"]["_path"], s["_cam"])
+            images[s["id"]] = _StillImage(s)
         pages = build_chapter_pages(part_id, titles.get(part_id, part_id), part_stills, sha, plan, images)
         for i, (page, page_shots, cell_size) in enumerate(pages):
             name = f"{part_id}.png" if len(pages) == 1 else f"{part_id}-page{i + 1}of{len(pages)}.png"

@@ -301,7 +301,7 @@ def write_overlays(overlay: dict) -> list[str]:
         try:
             if path.exists() and path.read_text(encoding="utf-8") == text:
                 continue
-            tmp.write_text(text, encoding="utf-8")
+            tmp.write_text(text, encoding="utf-8", newline="")   # LF only: byte-identical across OSes (no CRLF translation)
             os.replace(tmp, path)                           # atomic: a reader never sees half an overlay
             written.append(str(path))
         except OSError:
