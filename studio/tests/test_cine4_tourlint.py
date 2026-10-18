@@ -5,14 +5,18 @@ engine's own ``cam``/``tl`` builders (the pattern ``test_cine2_subject.py``
 uses), so the module is proven against the real shapes ``render.py``
 passes it, not only against hand-built dicts."""
 
+import json
 import math
+import shutil
 
 import pytest
 
+from studio.engine import journal as J
 from studio.engine import motion as M
 from studio.engine import render as R
 from studio.engine import tour as T
 from studio.engine import tourlint as TL
+from conftest import make_film
 
 W, H = 1920, 1080
 # a wide picture (2:1): at z = 1 the fill window already has horizontal room to pan (unlike a square or 16:9
@@ -341,6 +345,92 @@ def test_check_still_runs_against_a_real_engine_cam():
     cam = R.engine_cover(s, cam, size, EW, EH, [], None, fps=24.0)
     row = TL.check_still(s, cam, size, fps=24.0)
     assert row["id"] == "X"
-    assert row["pan"]["ok"]                                 # the house's own default pass stays inside the pan guide
+    assert row["min_move"]["ok"]      # A49's engine fix: the default pass settles 0.5 s before its first leg
     assert row["scale"] in ("whole", "field", "detail")
     assert row["blocks"] == []                              # no must_show region: nothing here can block
+
+
+# --------------------------------------------------------------------------
+# A49, live in build_plan: a must_show box under a lower third is refused
+# (a written camera path) or steered clear of it (the engine's own pass).
+# --------------------------------------------------------------------------
+
+FW, FH = 640, 360          # the fixture film's own frame size (test_cine5_truth.py's convention)
+
+
+def _edit(film, fn, name="screenplay.json"):
+    data = json.loads((film / name).read_text(encoding="utf-8"))
+    fn(data)
+    (film / name).write_text(json.dumps(data), encoding="utf-8")
+
+
+def _shot(play, sid):
+    return next(s for p in play["parts"] for s in p["shots"] if s["id"] == sid)
+
+
+def _text(play, tid):
+    return next(x for p in play["parts"] for x in p.get("text", []) if x["id"] == tid)
+
+
+def _item(film, aid, fn):
+    _edit(film, lambda d: fn(next(i for i in d["items"] if i["id"] == aid)), name="stills-ledger.json")
+
+
+def _plan(film, name="cine4-fixture"):
+    j = J.Journal(film=name)
+    return R.build_plan(film, W=FW, H=FH, burn_subtitles=False, journal=j), j
+
+
+@pytest.fixture(scope="module")
+def base(tmp_path_factory):
+    return make_film(tmp_path_factory.mktemp("cine4") / "fixture")
+
+
+@pytest.fixture
+def film(base, tmp_path):
+    dest = tmp_path / "fixture"
+    shutil.copytree(base, dest, ignore=shutil.ignore_patterns("cache", "out"))
+    return dest
+
+
+def _widen_lt_over_s3(film):
+    # T1 (a lower third) already sits in S3's own chapter; widen it so it is fully up for S3's whole duration
+    # (4.5 to 8.5 s), regardless of A16's own stagger and exit clipping
+    _edit(film, lambda p: _text(p, "T1").update(start_s=4.5, end_s=10.0))
+
+
+# FX-STILL-A is 1500x1050 (make_media.STILLS); this box (picture fractions) and this stop (z, x, y), solved from
+# motion.ZONES["LT"] and tour.window's own geometry, together land the box exactly on the LT zone at FW x FH
+# (640x360, 16:9): a human-written stop here is refused as written (A43's rule); the engine never writes it this
+# way, but the same box as a must_show region lets A47's own pass try to steer clear of it instead
+MUST_SHOW_BOX = {"x": 0.1, "y": 0.70, "w": 0.5, "h": 0.0779177295918367}
+ON_LT_STOP = {"z": 1.12, "x": 0.5107142857142857, "y": 0.476578443877551}
+
+
+def test_plan_refuses_a_written_stop_that_puts_a_must_show_box_under_the_lower_third(film):
+    _widen_lt_over_s3(film)
+    _item(film, "FX-STILL-A", lambda i: i.update(roi=[dict(MUST_SHOW_BOX, name="caption", must_show=True)]))
+    _edit(film, lambda p: _shot(p, "S3").update(preset=None, camera=[dict(ON_LT_STOP, t=0.0, hold=4.0)]))
+    with pytest.raises(R.Refused, match=r"subject-under-text \(S3\)"):
+        _plan(film, "cine4-authored")
+
+
+def test_plan_steers_the_engine_s_own_pass_clear_of_the_lower_third(film):
+    from PIL import Image
+
+    _widen_lt_over_s3(film)
+    _item(film, "FX-STILL-A", lambda i: i.update(
+        roi=[dict(MUST_SHOW_BOX, name="subject", must_show=True, kind="place", source="auto", confidence=0.9)]))
+    _edit(film, lambda p: _shot(p, "S3").update(preset=None, camera=None))
+    plan, j = _plan(film, "cine4-engine")                   # must not raise: the engine steers, or is never refused
+    s3 = next(s for s in plan["shots"] if s["id"] == "S3")
+    sub = s3["_cam"].get("subject") or {}
+    assert sub.get("avoid_clear") is not None               # A47's end_pose ran with the must_show box to avoid
+    tl = s3["_cam"]["tour"]
+    wins = TL.frame_windows(tl, float(plan["fps"]))
+    box = T.roi_box(next(r for r in s3["_item"]["roi"] if r.get("name") == "subject"))
+    with Image.open(s3["_item"]["_path"]) as im:
+        size = im.size
+    span = [{"zone": "LT", "box": M.ZONES["LT"], "t0": 0.0, "t1": float(s3["_dur"])}]
+    r = TL.subject_under_text(wins, box, size, text_spans=span, must_show=True)
+    assert not r["block"]

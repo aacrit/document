@@ -302,6 +302,35 @@ def test_no_leg_outruns_the_speed_guides():
 
 
 # --------------------------------------------------------------------------
+# A49 (cinematography ticket #4): the default pass settles before its first move
+# --------------------------------------------------------------------------
+
+def test_the_pass_settles_before_its_first_move_when_there_is_room():
+    cam, _ = cam_for({"people": False, "roi": [subject(0.1, 0.1, 0.1, 0.1)]}, L43, dur=20.0)
+    tl = cam["tour"]
+    first_move = next(g for g in tl["segments"] if g["kind"] == "move")
+    assert first_move["t0"] >= T.MIN_OPEN_HOLD_S - 1e-6
+
+
+def test_a_matched_opening_is_never_held_artificially():
+    # a move already running across the cut (match: "prev"): A49's hold is never inserted
+    cam, _ = cam_for({"people": False, "roi": [subject(0.1, 0.1, 0.1, 0.1)]}, L43, dur=20.0,
+                     _match_screen=[0.9, 0.9])
+    tl = cam["tour"]
+    assert tl["segments"][0]["t0"] <= 1e-6
+
+
+def test_the_hold_never_steals_time_from_a_tight_arrival():
+    # a shot too short for both the leg's own minimum time and a 0.5 s hold: no hold is forced, and the pass
+    # still keeps to the speed guides (A47's own priority, reach the subject in time, wins, as it always has)
+    cam, s = cam_for({"people": False, "roi": [subject(0.1, 0.1, 0.1, 0.1)]}, L43, dur=0.6)
+    tl = cam["tour"]
+    assert tl["stops"][0].get("hold", 0.0) < T.MIN_OPEN_HOLD_S - 1e-6
+    wins = R.still_windows(cam, s, L43, W, H)
+    assert T.speed_report(wins)["ok"]
+
+
+# --------------------------------------------------------------------------
 # No in-shot reversal where the people are located
 # --------------------------------------------------------------------------
 

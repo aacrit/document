@@ -468,23 +468,23 @@ Do: let the subject decide the direction; let a whole picture breathe. Don't: en
 
 ### 14d. Tour lints: guidance, and the one truth guard (2026-10-17, cinematography pass ticket #4; GRAMMAR A49)
 
-Seven more checks on a still's tour, all guidance (a warning and a reviewer item, never a refusal: the founder judges pacing and framing); one, `subject-under-text`, blocks, because it guards truth rather than taste. `motion.CINE` holds the numbers; `studio/engine/tourlint.py` reads them, and `studio/engine/sheets.py`'s own guide constants (thirds, phi, the safe-area insets, `under_text_share`, `whole_share` and `detail_share`) moved there too, so the lint module and the contact-sheet preview read one source.
+Seven more checks on a still's tour, live inside `render.build_plan` (`render.a49_tour_lints`, run after every still's camera is placed), all guidance (a warning and a reviewer item, never a refusal: the founder judges pacing and framing); one, `subject-under-text`, blocks, because it guards truth rather than taste. `motion.ZONES` and `motion.CINE` hold the numbers and the house's text-zone boxes; `studio/engine/tourlint.py` reads them, and `studio/engine/sheets.py`'s own guide constants and zone boxes (thirds, phi, the safe-area insets, `under_text_share`, `under_text_block_share`, `whole_share` and `detail_share`) moved there too, so the lint module, the engine's own steering and the contact-sheet preview all read one source.
 
 | Check | Numbers |
 |---|---|
-| Pan speed | the 7-second rule: a point crosses the frame no faster than 11 px/frame horizontal, 6 vertical at 24p (9 and 5 at 29.97, derived from the plan's own fps); today's outer ceiling (a third of the frame a second) is unchanged in `render.tour_lints`'s `tour-speed` |
-| Zoom speed | a 5%/s cruise (today's 15%/s stays the outer ceiling) |
-| Settle before move | a stop settles 1.0 s (1.5 s for text, a face or a person) before the next leg |
-| Move after a cut | a move starting within 0.5 s of a cut, unless it continues one already running across it |
+| Pan speed | the 7-second rule: a point crosses the frame no faster than 11 px/frame horizontal, 6 vertical at 24p (9 and 5 at 29.97, derived from the plan's own fps); today's outer ceiling (a third of the frame a second) is unchanged in `render.tour_lints`'s `tour-speed`, and this warns only once that ceiling has already passed |
+| Zoom speed | a 5%/s cruise (today's 15%/s stays the outer ceiling, same rule) |
+| Settle before move | a stop settles 1.0 s (1.5 s for text, a face or a person, read from `cam["settle_kinds"]`, the stop's own named region) before the next leg |
+| Move after a cut | a move starting within 0.5 s of a cut, unless it continues one already running across it (a `match: "prev"` opening or a dissolve). The engine itself now settles 0.5 s at the cut frame before its first leg when the arrival time leaves room for it (`tour.subject_stops`, `MIN_OPEN_HOLD_S`), so this fires rarely on an engine path; a written path is unchanged |
 | End-pose composition | A47's own `compose_verdict`, with a borderline flag within half a bin (0.01) of a band edge (0.30, 0.44, 0.56, 0.70): reported, never flipped to the band on the other side (ported from Ratio's rulebook, `rules.ts:36-51`) |
 | Lead room | A47's own `lead_room` and `room_behind`, surfaced as a named check: room ahead at least the room behind |
 | Direction monotony | more than 4 consecutive stills (a hold breaks the run) with the same dominant move vector |
 | Scale variety | every chapter of 5 or more stills carries a WHOLE (`whole_share` 0.8) and a DETAIL (`detail_share` 0.4) |
 | Wide before detail | no DETAIL on a picture not already shown WHOLE or FIELD earlier in the same showing, unless declared a reveal |
 | Phone legibility | reused from ticket #8's `motion.phone_legibility` (693 px landscape, 7 px floor); never drives framing or size |
-| Subject under text | overlap with the LT, subtitle, overlay or mark zone while it is up: `under_text_share` (10%) warns; a `must_show` region covered (90% or more) while the zone is up refuses (A0: a burned caption or a must-show region a viewer cannot read is a truth fault); a face is never checked |
+| Subject under text | overlap with the LT zone or the subtitle band (`render.text_zone_timeline`, the plan's own lower thirds and subtitle cues, soft or burned) while either is up: `under_text_share` (10%) warns. A `must_show` region still covered (`under_text_block_share`, 90% or more) once A47's `end_pose` has had its own chance to steer the engine's pass clear of it (`avoid`: the same candidate placements `end_pose` already tries, never a new one) refuses; a written `camera` path is never steered and is refused as written (A43's own rule); a face is never checked |
 
-`python -m studio.engine.tourlint --check <film dir>` plans in memory (`sheets.plan_stills`, ticket #3) and prints every toured still's warnings and any block; nothing is rendered and nothing is written into the film folder.
+`python -m studio.engine.tourlint --check <film dir>` is the same report, standalone and read-only, for a film not yet planned for a render: it plans in memory (`sheets.plan_stills`, ticket #3) and prints every toured still's warnings and any block; nothing is rendered and nothing is written into the film folder.
 
 ## 15. The series titles: `void document · As It Was` (2026-10-17; GRAMMAR A40)
 

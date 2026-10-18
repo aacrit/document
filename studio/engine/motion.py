@@ -686,6 +686,45 @@ MARK_ZONE = (LABEL_MIN_X / 100.0, 0.93, 1.0 - LABEL["right"] / 100.0, 0.965)
 MARK_GLYPH_ZONE = (0.950, 0.935, 0.966, 0.956)
 
 
+def lt_zone_frac() -> tuple[float, float, float, float]:
+    """An approximate lower-third box (fractions of the frame), from ``LT``'s
+    own row heights and gaps: a guide for the contact-sheet preview and the
+    tour lints, not the exact text layout (``lower_third_layout`` draws
+    that). Cinematography ticket #3 (contact sheets) and #4 (tour lints):
+    the single source for this box, so ``studio/engine/sheets.py`` and
+    ``studio/engine/tourlint.py`` both read ``ZONES["LT"]``."""
+    h = (LT["gap_flag"] + LT["name"] * LT["lh_name"] + LT["gap_role"] + LT["role"] * LT["lh_role"]
+         + LT["gap_rule"] + LT["rule_h"] + LT["source"] * LT["lh_source"]) / 100.0
+    y1 = LT["bottom"] / 100.0
+    x0 = LT["x"] / 100.0
+    return (x0, max(0.0, y1 - h), x0 + LT["max_w"] / 100.0, y1)
+
+
+def sub_zone_frac() -> tuple[float, float, float, float]:
+    """The subtitle band (fractions of the frame): up to 2 lines (GRAMMAR
+    10), centred, ``SUB``'s own ``max_w`` wide."""
+    h = 2 * SUB["size"] * SUB["lh"] / 100.0
+    y1 = SUB["bottom"] / 100.0
+    w = SUB["max_w"] / 100.0
+    return ((1 - w) / 2.0, max(0.0, y1 - h), (1 + w) / 2.0, y1)
+
+
+def wm_zone_frac() -> tuple[float, float, float, float]:
+    """The watermark box (fractions of the frame): a square ``box`` % of H,
+    inset ``right`` % of W and ``top`` % of H; every delivery is 16:9 (A41),
+    so its width share is its height share * 9/16."""
+    box_h = WM["box"] / 100.0
+    box_w = box_h * 9.0 / 16.0
+    x1 = 1.0 - WM["right"] / 100.0
+    y0 = WM["top"] / 100.0
+    return (x1 - box_w, y0, x1, y0 + box_h)
+
+
+# The house zone map, fractions of the frame (cinematography ticket #4 moved these here from sheets.py, so the
+# contact-sheet preview, the tour lints and the build-plan steering they feed all read the same boxes):
+ZONES = {"LT": lt_zone_frac(), "SUB": sub_zone_frac(), "WM": wm_zone_frac(), "MARK": MARK_ZONE, "GLYPH": MARK_GLYPH_ZONE}
+
+
 def label_check(L: Layout, text: str, fonts: Fonts, cls: str | None = None) -> float:
     """A provenance label is one line, every glyph present, from at least
     LABEL_MIN_X of the width to the glyph, or TextOverflow (E15, A31). An
@@ -1873,6 +1912,7 @@ TOUR = dict(hold_creep_after_s=1.5, creep_scale_per_s=0.015, creep_drift_per_s=0
 #   action_safe             EBU R95 / SMPTE ST 2046-1 action-safe inset, a share of W and H
 #   graphics_safe           ... graphics-safe inset (BRAND-KIT 4 accepts the mark zone sitting outside it)
 #   under_text_share        `subject-under-text` (groundwork brief section 4): warns at this overlap share
+#   under_text_block_share  ... and blocks a `must_show` region (section 4): "covered" means this much or more
 #   whole_share, detail_share  doctrine 2.2: WHOLE shows this much of the picture or more, DETAIL this much or less
 WHOLE_HOLD_MIN_SHOWN = 0.90
 CINE = dict(face_zmax=1.3, framed_share=0.5, auto_confidence_floor=0.5, anchor_early_s=0.8, anchor_late_s=0.25,
@@ -1881,7 +1921,7 @@ CINE = dict(face_zmax=1.3, framed_share=0.5, auto_confidence_floor=0.5, anchor_e
             phi=0.382, compose_edge=0.02, eye_person=0.12, eye_face=0.4, centred_band=0.06,
             whole_hold_min_shown=WHOLE_HOLD_MIN_SHOWN, waypoint_hold_s=0.3, end_hold_s=0.1,
             thirds=(1 / 3, 2 / 3), action_safe=0.035, graphics_safe=0.05, under_text_share=0.10,
-            whole_share=0.8, detail_share=0.4)
+            under_text_block_share=0.90, whole_share=0.8, detail_share=0.4)
 
 
 def still_view(size, L: Layout, *, z: float = 1.0, cx: float = 0.5, cy: float = 0.5, clamp: str = "frame"):

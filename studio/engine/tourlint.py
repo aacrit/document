@@ -7,21 +7,24 @@ monotony) the founder-approved spec's section 4 lists as guidance.
 Every check here is GUIDANCE (warn and reviewer item: pacing and framing
 choice are the founder's to judge, A39, ``pacing-is-guidance``), with the one
 exception the spec states: ``subject_under_text`` BLOCKS when a ``must_show``
-region is covered while a text zone is up (truth, not pacing: a burned
-caption or a must-show region a viewer cannot read is a false "show as
-was"). Nothing here refuses a render on its own; ``check_film`` below is a
-read-only, in-memory report (the CLI), not wired into ``render.build_plan``'s
-own preflight.
+region is still covered by an active text zone once the engine has had its
+chance to steer clear of it (``tour.end_pose``'s own ``avoid``), or when the
+camera is a written path (never steered, A43's rule). ``render.build_plan``
+calls these functions directly (``render.a49_tour_lints``) at plan time, so
+the block is live on every render, not only in the standalone CLI below
+(``check_film``, a read-only, in-memory report for a film not yet rendered).
 
 Reuse, not reimplementation (house rule): ``end_pose_composition`` reads
 ``tour.compose_verdict``'s own numbers (A47, ticket #2) and only adds the
 borderline flag; ``lead_room_check`` reads the same verdict's ``lead_room``
 and ``lead_ok``; ``phone_legibility_report`` calls ``motion.phone_legibility``
-(ticket #8) rather than a second threshold. The pan and zoom speed checks are
-new, tighter guides beside (not instead of) the existing outer-ceiling
-warnings already in ``render.tour_lints`` (``tour-speed``, a third of the
-frame a second and 15% a second): both may warn independently, so this module
-never re-implements that ceiling.
+(ticket #8) rather than a second threshold; ``subject_under_text`` projects
+through ``tour.project_box``/``tour.box_overlap_share``, the same geometry
+``end_pose``'s steering uses. The pan and zoom speed checks are new, tighter
+guides beside (not instead of) the existing outer-ceiling warnings already
+in ``render.tour_lints`` (``tour-speed``, a third of the frame a second and
+15% a second): ``render.a49_tour_lints`` only warns ``pan-speed-px`` and
+``zoom-speed`` once ``tour-speed`` has already passed, so nothing double-warns.
 
 The end-pose composition's borderline logic (``_BORDERLINE_BIN``,
 ``_borderline``) is ported from Ratio's rulebook, ``PROPORTION_BIN`` and
@@ -49,10 +52,11 @@ SETTLE_READ_MIN_S = M.CINE["settle_read_s"]  # 1.5 s for text, a face or a perso
 MIN_MOVE_AFTER_CUT_S = 0.5
 DIRECTION_MONOTONY_MAX_RUN = 4
 # `motion.CINE` is the single source for these (cinematography ticket #4; ticket #3's sheets.py reads the
-# same keys, moved there out of its own module): under_text_share (the warn overlap), whole_share and
-# detail_share (doctrine 2.2's scale bands).
+# same keys, moved there out of its own module): under_text_share (the warn overlap), under_text_block_share
+# (what "covered" means for a must_show region, also `tour.end_pose`'s own steering threshold), whole_share
+# and detail_share (doctrine 2.2's scale bands).
 SUBJECT_UNDER_TEXT_WARN_SHARE = M.CINE["under_text_share"]
-SUBJECT_UNDER_TEXT_BLOCK_SHARE = 0.90       # "covered": a must_show region effectively hidden (this module's own)
+SUBJECT_UNDER_TEXT_BLOCK_SHARE = M.CINE["under_text_block_share"]
 SCALE_VARIETY_MIN_STILLS = 5
 DOMINANT_VECTOR_MIN_FRAC = 0.02             # below this share of the window, a move reads as noise
 # Ratio rules.ts:37 PROPORTION_BIN = 0.02; borderlineIn's tolerance is half of it
@@ -64,7 +68,7 @@ _BORDERLINE_BIN = 0.02
 # --------------------------------------------------------------------------
 
 
-def _frame_windows(tl: dict, fps: float) -> list[tuple[float, tuple]]:
+def frame_windows(tl: dict, fps: float) -> list[tuple[float, tuple]]:
     """The tour's picture-pixel windows at every rendered frame (``T.window``
     sampled through ``T.samples(tl, hz=fps)``): the same per-frame sampling
     ``render.tour_lints`` uses for ``tour-fills`` and ``tour-speed``."""
@@ -84,7 +88,7 @@ def pan_speed_px(tl: dict, fps: float, *, W: int = 1920, H: int = 1080) -> dict:
     guide_v_px, at_h_s, at_v_s}."""
     guide_h = W / (SEVEN_SECOND_RULE_S * fps)
     guide_v = H / (SEVEN_SECOND_RULE_S * fps)
-    wins = _frame_windows(tl, fps)
+    wins = frame_windows(tl, fps)
     max_h = max_v = 0.0
     at_h = at_v = 0.0
     for (ta, a), (tb, b) in zip(wins, wins[1:]):
@@ -107,7 +111,7 @@ def zoom_speed_cruise(tl: dict, fps: float, *, guide: float = ZOOM_CRUISE_GUIDE)
     ``render.tour_lints``). Peak scale-change rate between consecutive
     rendered frames, as ``tour.speed_report`` measures it, against the
     tighter guide."""
-    wins = _frame_windows(tl, fps)
+    wins = frame_windows(tl, fps)
     peak = 0.0
     at = 0.0
     for (ta, a), (tb, b) in zip(wins, wins[1:]):
@@ -224,32 +228,6 @@ def lead_room_check(verdict: dict) -> dict:
 # --------------------------------------------------------------------------
 
 
-def _frame_box_at(window: tuple, size, box: tuple) -> tuple | None:
-    """``box`` (picture fractions) projected through ``window`` (picture
-    pixels) into frame fractions [0, 1], clipped to what is on screen; None
-    when none of it is visible at this window."""
-    iw, ih = float(size[0]), float(size[1])
-    x0, y0, x1, y1 = window
-    ww, wh = x1 - x0, y1 - y0
-    if ww <= 0 or wh <= 0:
-        return None
-    bx0, by0, bx1, by1 = box[0] * iw, box[1] * ih, box[2] * iw, box[3] * ih
-    fx0, fy0 = max(0.0, (bx0 - x0) / ww), max(0.0, (by0 - y0) / wh)
-    fx1, fy1 = min(1.0, (bx1 - x0) / ww), min(1.0, (by1 - y0) / wh)
-    if fx1 <= fx0 or fy1 <= fy0:
-        return None
-    return fx0, fy0, fx1, fy1
-
-
-def _overlap_share(frame_box: tuple, zone_box: tuple) -> float:
-    ax0, ay0, ax1, ay1 = frame_box
-    zx0, zy0, zx1, zy1 = zone_box
-    iw = max(0.0, min(ax1, zx1) - max(ax0, zx0))
-    ih = max(0.0, min(ay1, zy1) - max(ay0, zy0))
-    full = (ax1 - ax0) * (ay1 - ay0)
-    return (iw * ih) / full if full > 0 else 0.0
-
-
 def subject_under_text(wins: Sequence[tuple], subject_box: tuple, size, *, text_spans: Sequence[dict],
                         is_face: bool = False, must_show: bool = False,
                         warn_share: float = SUBJECT_UNDER_TEXT_WARN_SHARE,
@@ -271,11 +249,11 @@ def subject_under_text(wins: Sequence[tuple], subject_box: tuple, size, *, text_
         active = [sp for sp in text_spans if sp["t0"] - 1e-9 <= t <= sp["t1"] + 1e-9]
         if not active:
             continue
-        fb = _frame_box_at(win, size, subject_box)
+        fb = T.project_box(size, win, subject_box)
         if fb is None:
             continue
         for sp in active:
-            share = _overlap_share(fb, sp["box"])
+            share = T.box_overlap_share(fb, sp["box"])
             if share > worst:
                 worst, worst_at, worst_zone = share, t, sp.get("zone")
     block = must_show and worst >= block_share - 1e-9
@@ -398,8 +376,20 @@ def phone_legibility_report(width: int = 1920, height: int = 1080, *, extra: dic
 # --------------------------------------------------------------------------
 
 
+def continues_across_cut(cam: dict, s: dict) -> bool:
+    """Whether this still's first move carries one already running across
+    the cut (A49's ``min-move-after-cut`` exemption): its first stop says
+    ``match: "prev"`` (A47), or the shot's own transition in is a dissolve.
+    The single source ``render.a49_tour_lints`` and this module's
+    ``check_film`` both read, so the CLI and the live plan never drift."""
+    tl = cam.get("tour") or {}
+    stops = tl.get("stops") or [{}]
+    return stops[0].get("match") == "prev" or (s.get("transition_in") or {}).get("type") == "dissolve"
+
+
 def check_still(s: dict, cam: dict, size, *, fps: float, text_spans: Sequence[dict] | None = None,
-                 must_show_boxes: Sequence[dict] | None = None, settle_kinds: dict | None = None) -> dict:
+                 must_show_boxes: Sequence[dict] | None = None, settle_kinds: dict | None = None,
+                 continues_across_cut: bool = False) -> dict:
     """Every GUIDANCE tour lint, plus ``subject-under-text``'s one BLOCK
     case, for one TOUR still. Returns a per-still dict with ``warnings`` and
     ``blocks`` naming which lints fired."""
@@ -419,7 +409,7 @@ def check_still(s: dict, cam: dict, size, *, fps: float, text_spans: Sequence[di
     out["settle"] = settle_before_move(tl, kinds=settle_kinds)
     if out["settle"]:
         warnings.append("settle-before-move")
-    out["min_move"] = min_move_after_cut(tl, continues_across_cut=bool(s.get("_continues_move")))
+    out["min_move"] = min_move_after_cut(tl, continues_across_cut=continues_across_cut)
     if not out["min_move"]["ok"]:
         warnings.append("min-move-after-cut")
 
@@ -440,7 +430,7 @@ def check_still(s: dict, cam: dict, size, *, fps: float, text_spans: Sequence[di
     box, is_face = sub.get("box"), sub.get("kind") == "face"
     spans = list(text_spans or [])
     if box is not None and spans:
-        r = subject_under_text([(t, w) for t, w in _frame_windows(tl, fps)], box, size, text_spans=spans,
+        r = subject_under_text([(t, w) for t, w in frame_windows(tl, fps)], box, size, text_spans=spans,
                                 is_face=is_face, must_show=False)
         out["subject_under_text"] = r
         if not r["ok"]:
@@ -448,7 +438,7 @@ def check_still(s: dict, cam: dict, size, *, fps: float, text_spans: Sequence[di
     if must_show_boxes and spans:
         rows = []
         for ms in must_show_boxes:
-            r = subject_under_text([(t, w) for t, w in _frame_windows(tl, fps)], ms["box"], size, text_spans=spans,
+            r = subject_under_text([(t, w) for t, w in frame_windows(tl, fps)], ms["box"], size, text_spans=spans,
                                     is_face=ms.get("kind") == "face", must_show=True)
             r["name"] = ms.get("name")
             rows.append(r)
@@ -470,11 +460,17 @@ def check_film(film: Path, *, W: int = 1920, H: int = 1080, skip_sound_lints: bo
     memory the same way the contact-sheet tool does, so this CLI runs before
     a score is settled). Groups stills by chapter (``s["_part"]``, the
     screenplay's own part id) for ``scale-variety`` and runs
-    ``direction-monotony`` over the stills in viewing order. Every text zone
-    that is on screen for a still's whole duration today (the class glyph,
-    A31/A42: it never goes off) is checked for ``subject-under-text``; a
-    shot's own lower third or subtitle timing is left to a follow-up (Real
-    World's archive stills carry neither today)."""
+    ``direction-monotony`` over the stills in viewing order. ``subject-under-text``
+    is checked against the film's own lower thirds (``plan["lower_thirds"]``,
+    already clipped the way A16 draws them) and subtitle cues
+    (``play["subtitle_source"]``, read fresh since ``burn_subtitles`` is
+    false here: a soft caption is still the viewer's own on-screen text over
+    the SUB band) plus the always-on class glyph. This mirrors
+    ``render.a49_tour_lints``, which runs the same check live in
+    ``build_plan`` (this CLI is the standalone report; the live check is
+    what actually blocks a render)."""
+    import json as json_mod
+
     from PIL import Image
 
     from studio.engine import journal as J
@@ -483,6 +479,18 @@ def check_film(film: Path, *, W: int = 1920, H: int = 1080, skip_sound_lints: bo
     journal = J.Journal(film=f"tourlint-{Path(film).name}")
     plan = SH.plan_stills(Path(film), journal, skip_sound_lints=skip_sound_lints)
     fps = float(plan["fps"])
+    play_raw = json_mod.loads((Path(film) / "screenplay.json").read_text(encoding="utf-8"))
+
+    zone_timeline = [(lt["start"], lt["end"], M.ZONES["LT"]) for lt in plan.get("lower_thirds", [])]
+    for c in play_raw.get("subtitle_source") or []:
+        if not isinstance(c, dict):
+            continue
+        try:
+            a, b = float(c["start_s"]), float(c["end_s"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if b > a:
+            zone_timeline.append((a, b, M.ZONES["SUB"]))
 
     stills = [s for s in plan["shots"] if s["kind"] in ("archive_still", "drawn")
               and s.get("_item", {}).get("_path") and s.get("_cam", {}).get("tour")]
@@ -491,11 +499,15 @@ def check_film(film: Path, *, W: int = 1920, H: int = 1080, skip_sound_lints: bo
         cam = s["_cam"]
         with Image.open(s["_item"]["_path"]) as im:
             size = im.size
-        text_spans = [{"zone": "mark-glyph", "box": M.MARK_GLYPH_ZONE, "t0": 0.0, "t1": float(s["_dur"])}]
+        shot_a, shot_b = float(s["start_s"]), float(s["start_s"]) + float(s["_dur"])
+        text_spans = [{"zone": "glyph", "box": M.MARK_GLYPH_ZONE, "t0": 0.0, "t1": float(s["_dur"])}]
+        text_spans += [{"zone": "LT" if zone == M.ZONES["LT"] else "SUB",
+                        "box": zone, "t0": max(0.0, a - shot_a), "t1": min(float(s["_dur"]), b - shot_a)}
+                       for a, b, zone in zone_timeline if a < shot_b and b > shot_a]
         must_show = [{"name": r.get("name"), "box": T.roi_box(r), "kind": r.get("kind")}
-                     for r in (s.get("_item", {}).get("roi") or [])
-                     if isinstance(r, dict) and r.get("must_show") is True and T.roi_box(r) is not None]
-        row = check_still(s, cam, size, fps=fps, text_spans=text_spans, must_show_boxes=must_show)
+                     for r in T.must_show_regions(s.get("_item") or {})]
+        row = check_still(s, cam, size, fps=fps, text_spans=text_spans, must_show_boxes=must_show,
+                          settle_kinds=cam.get("settle_kinds"), continues_across_cut=continues_across_cut(cam, s))
         per_still.append(row)
         chapters.setdefault(s.get("_part"), []).append(row.get("scale"))
         vectors.append(row.get("direction"))

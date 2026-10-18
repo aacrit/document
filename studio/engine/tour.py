@@ -49,6 +49,11 @@ EPS = 1e-9
 SHOWN_STRIP = 0.005
 WHOLE = (0.0, 0.0, 1.0, 1.0)
 FRAME_ASPECT = 16 / 9                      # every delivery is 16:9 (render.RESOLUTIONS)
+# A49 (cinematography ticket #4, min-move-after-cut): the default pass holds the cut frame this long before its
+# first leg, when the arrival time leaves room for it (``subject_stops``); never when the pass opens matched to
+# the previous shot's subject (a move already running across the cut, ``start``) or when there is no room, in
+# which case A47's own priority (reach the subject in time) wins, as it always has
+MIN_OPEN_HOLD_S = 0.5
 
 
 class TourError(ValueError):
@@ -110,6 +115,42 @@ def to_frame(f: dict, size, W: int, H: int) -> dict:
     ox, oy = (W - fw) / 2.0, (H - fh) / 2.0
     zf = max(W / fw, H / fh)
     return {"z": zf * f["z"], "x": (ox + f["x"] * fw) / W, "y": (oy + f["y"] * fh) / H}
+
+
+def project_box(size, window: tuple[float, float, float, float],
+                box_frac: tuple[float, float, float, float]) -> tuple[float, float, float, float] | None:
+    """A picture-fraction box (``roi_box``) projected through ``window``
+    (picture pixels, as this module's own ``window()`` returns it) into
+    frame fractions [0, 1], clipped to what is on screen during a TOUR
+    (every frame fills the output, so the window maps onto the whole
+    frame). None when none of the box is visible at this window.
+    Cinematography ticket #4: the single projection ``end_pose``'s steering
+    and ``tourlint.subject_under_text`` both read (the contact-sheet tool's
+    own, more general ``sheets.project_box`` handles an arbitrary cell
+    layout and stays separate)."""
+    iw, ih = float(size[0]), float(size[1])
+    x0, y0, x1, y1 = window
+    ww, wh = x1 - x0, y1 - y0
+    if ww <= 0 or wh <= 0:
+        return None
+    bx0, by0, bx1, by1 = box_frac[0] * iw, box_frac[1] * ih, box_frac[2] * iw, box_frac[3] * ih
+    fx0, fy0 = max(0.0, (bx0 - x0) / ww), max(0.0, (by0 - y0) / wh)
+    fx1, fy1 = min(1.0, (bx1 - x0) / ww), min(1.0, (by1 - y0) / wh)
+    if fx1 <= fx0 or fy1 <= fy0:
+        return None
+    return fx0, fy0, fx1, fy1
+
+
+def box_overlap_share(frame_box: tuple[float, float, float, float],
+                      zone_box: tuple[float, float, float, float]) -> float:
+    """The share of ``frame_box``'s own area that lies inside ``zone_box``
+    (both frame fractions). 0 when ``frame_box`` has no area."""
+    ax0, ay0, ax1, ay1 = frame_box
+    zx0, zy0, zx1, zy1 = zone_box
+    iw = max(0.0, min(ax1, zx1) - max(ax0, zx0))
+    ih = max(0.0, min(ay1, zy1) - max(ay0, zy0))
+    full = (ax1 - ax0) * (ay1 - ay0)
+    return (iw * ih) / full if full > 0 else 0.0
 
 
 # --------------------------------------------------------------------------
@@ -542,7 +583,7 @@ def _eyes(subj: dict) -> float | None:
 
 
 def end_pose(subj: dict, size, aspect: float, zlim: float, *, record: bool, facing: str | None = None,
-             no_zoom: bool = False) -> dict:
+             no_zoom: bool = False, avoid: list[tuple] | None = None) -> dict:
     """The subject stop (A47): as deep as the subject allows and never past
     ``zlim`` (the softness cap, and the face cap for people; z 1 under
     ``no_zoom``: drift only), the window inside the picture, composed by
@@ -551,9 +592,22 @@ def end_pose(subj: dict, size, aspect: float, zlim: float, *, record: bool, faci
     frame; a subject facing left or right sits on the side behind it, so the
     room ahead is the larger; a person's eyes sit nearest the upper third.
     Centred for a record. ``whole`` is the upper-weighted fill
-    (``whole_pose``). Returns {z, x, y}."""
+    (``whole_pose``).
+
+    ``avoid`` (A49, ``subject-under-text`` steering): ``[(box, zone), ...]``,
+    each a ``must_show`` region (picture fractions) and a house text zone
+    (frame fractions, ``motion.ZONES``) active while this still is shown.
+    Among the placements this function already tries, the one that leaves
+    every ``avoid`` box under ``CINE["under_text_block_share"]`` of its zone
+    wins first, ahead of the usual golden-band and eye-line scoring; this
+    never widens the search (no new placement is invented) and never moves
+    a path a person wrote (``parse_path`` never calls this with ``avoid``).
+    The chosen pose carries ``avoid_clear`` (bool) when ``avoid`` is given,
+    so the caller knows whether steering actually cleared it or every
+    candidate still covers something (A49: refuse only then, or when the
+    camera is a human's own). Returns {z, x, y[, avoid_clear]}."""
     if subj["box"] is None:
-        return whole_pose(size, aspect, record)
+        return whole_pose(size, aspect, record)   # a `whole` pose is not steered (A49 risk note): no `avoid_clear`
     iw, ih = float(size[0]), float(size[1])
     fw, fh = fill_window(size, aspect)
     x0, y0, x1, y1 = subj["box"]
@@ -582,6 +636,19 @@ def end_pose(subj: dict, size, aspect: float, zlim: float, *, record: bool, faci
         z = max(1.0, min(zs))
     ww, wh = fw / z, fh / z
     eye = _eyes(subj)
+    avoid_share = CINE["under_text_block_share"]
+
+    def hits(ax_, ay_) -> int:
+        if not avoid:
+            return 0
+        win = (ax_, ay_, ax_ + ww, ay_ + wh)
+        n = 0
+        for box, zone in avoid:
+            fb = project_box(size, win, box)
+            if fb is not None and box_overlap_share(fb, zone) >= avoid_share - 1e-9:
+                n += 1
+        return n
+
     best = None
     for t_y in ty:
         for t_x in tx:
@@ -591,11 +658,14 @@ def end_pose(subj: dict, size, aspect: float, zlim: float, *, record: bool, faci
                 miss = 0
             else:
                 miss = int(not (_in_band(px) or ww >= iw - 0.5)) + int(not (_in_band(py) or wh >= ih - 0.5))
-            key = (miss, round(abs((eye * ih - ay_) / wh - 1 / 3), 6) if eye is not None else 0.0)
+            key = (hits(ax_, ay_), miss, round(abs((eye * ih - ay_) / wh - 1 / 3), 6) if eye is not None else 0.0)
             if best is None or key < best[0]:
                 best = (key, ax_, ay_)
-    _, ax_, ay_ = best
-    return {"z": z, "x": (ax_ + ww / 2.0) / iw, "y": (ay_ + wh / 2.0) / ih}
+    (best_hits, *_), ax_, ay_ = best
+    pose = {"z": z, "x": (ax_ + ww / 2.0) / iw, "y": (ay_ + wh / 2.0) / ih}
+    if avoid:
+        pose["avoid_clear"] = best_hits == 0
+    return pose
 
 
 def compose_verdict(p: dict, subj: dict, size, aspect: float, *, record: bool, facing: str | None = None) -> dict:
@@ -793,6 +863,14 @@ def subject_stops(size, aspect: float, dur: float, pose: dict, *, arrive: float,
     out[-1]["t"] = max(want, out[-2]["t"]) if len(out) > 1 else want
     for st in out:
         st.pop("_hold", None)
+    # A49 (min-move-after-cut): settle on the cut frame for MIN_OPEN_HOLD_S before the first leg, when the
+    # arrival time leaves room for it; never when the pass opens matched to the shot before (a move already
+    # running across the cut), and never at the cost of the leg's own speed guide or the subject's arrival time,
+    # both of which are kept exactly as A47 already placed them
+    if start is None and len(out) >= 2 and out[0]["t"] <= EPS:
+        need_leg = leg_min_s(out[0], out[1], size, aspect)
+        if out[1]["t"] - need_leg >= MIN_OPEN_HOLD_S - 1e-6:
+            out[0]["hold"] = MIN_OPEN_HOLD_S
     timing["arrive_s"] = round(want, 3)
     return out, timing
 
@@ -964,8 +1042,8 @@ def subject_arrival(shot: dict, item: dict, subj: dict, persons: list[dict], wor
 
 def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], words: list[dict], size,
                  aspect: float, dur: float, t0: float, zmax: float, *, need_whole: bool, focus=None,
-                 match_screen=None, declared_whole: bool = False, hold_on=(), hz: float = 24.0
-                 ) -> tuple[list[dict], dict]:
+                 match_screen=None, declared_whole: bool = False, hold_on=(), hz: float = 24.0,
+                 avoid: list[tuple] | None = None) -> tuple[list[dict], dict]:
     """A47's default for a still: the subject (``resolve_subject``), its end
     pose composed by class (``end_pose``), when it arrives
     (``subject_arrival``), and the pass that ends on it (``subject_stops``).
@@ -978,7 +1056,9 @@ def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], w
     must be seen; else one sweep end to end (``whole_sweep``); either way its
     breath is a drift inside the fill, never a push. ``hold_on`` (boxes)
     holds the covering pass on each of them. ``no_zoom`` keeps every stop at
-    z 1 (drift only). Returns (stops, info) for the journal and the lints."""
+    z 1 (drift only). ``avoid`` (A49): passed straight to ``end_pose``, to
+    steer the subject's stop clear of an active text zone when it can.
+    Returns (stops, info) for the journal and the lints."""
     fpt = shot.get("focus") if focus is None else focus
     subj = resolve_subject(roi, fpt, declared_whole=declared_whole)
     record = is_record(item)
@@ -988,9 +1068,10 @@ def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], w
     people_kind = subj.get("kind") in PERSON_KINDS or subj.get("kind") == "group"
     if people_kind:
         zlim = min(zlim, CINE["face_zmax"])
-    pose = end_pose(subj, size, aspect, zlim, record=record, facing=facing, no_zoom=no_zoom)
+    pose = end_pose(subj, size, aspect, zlim, record=record, facing=facing, no_zoom=no_zoom, avoid=avoid)
     if pose["z"] > CINE["face_zmax"] + EPS and persons and framed_persons(pose, persons, size, aspect):
-        pose = end_pose(subj, size, aspect, CINE["face_zmax"], record=record, facing=facing, no_zoom=no_zoom)
+        pose = end_pose(subj, size, aspect, CINE["face_zmax"], record=record, facing=facing, no_zoom=no_zoom,
+                        avoid=avoid)
     whole = subj["src"] == "whole"
     settle_s = settle_for(subj)
     arrive, sp, why = subject_arrival(shot, item, subj, persons, words, t0, dur, settle_s)
@@ -1116,7 +1197,8 @@ def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], w
             # a whole still that sweeps toward the next shot's subject hands on that point's screen position
             "point": (tuple(shot["_end_toward"]) if whole and mode == "sweep" and shot.get("_end_toward") else
                       subject_point(subj, pose)), "subj": subj, "held_on": len(waypoints),
-            "focus_ignored": bool(declared_whole and _focus_point(fpt) is not None)}
+            "focus_ignored": bool(declared_whole and _focus_point(fpt) is not None),
+            "avoid_clear": pose.get("avoid_clear")}
     return stops, info
 
 
@@ -2064,19 +2146,22 @@ def people_check(windows, people: dict, size) -> dict:
             "located": len(people["boxes"]), "known": people["known"]}
 
 
-def must_show(windows, item: dict, size) -> list[str]:
-    """The ledger's ``must_show`` regions (a caption, a sign, a second figure:
-    a region with ``must_show: true``, or a name in the item's ``must_show``
-    list) that the path never shows whole."""
+def must_show_regions(item: dict) -> list[dict]:
+    """The ledger's ``must_show`` regions (a caption, a sign, a second
+    figure): a region with ``must_show: true``, or named in the item's
+    ``must_show`` list. Cinematography ticket #4: the single source for
+    ``must_show`` (section 7.2, A41), read by this module's own
+    ``must_show`` (coverage) and by ``render.build_plan``'s
+    ``subject-under-text`` steering and block (A49)."""
     names = item.get("must_show") if isinstance(item.get("must_show"), list) else []
-    out = []
-    for r in item.get("roi") or []:
-        if not isinstance(r, dict) or roi_box(r) is None:
-            continue
-        if r.get("must_show") is True or r.get("name") in names:
-            if not seen(windows, roi_box(r), size):
-                out.append(r.get("name"))
-    return out
+    return [r for r in item.get("roi") or [] if isinstance(r, dict) and roi_box(r) is not None
+            and (r.get("must_show") is True or r.get("name") in names)]
+
+
+def must_show(windows, item: dict, size) -> list[str]:
+    """The ledger's ``must_show`` regions (``must_show_regions``) that the
+    path never shows whole."""
+    return [r.get("name") for r in must_show_regions(item) if not seen(windows, roi_box(r), size)]
 
 
 def speed_report(wins: list[tuple[float, tuple]]) -> dict:

@@ -80,6 +80,7 @@ from studio.engine import policy as POL
 from studio.engine import score as SC
 from studio.engine import titles as TS
 from studio.engine import tour as T
+from studio.engine import tourlint as TL
 from studio.engine import vision as VIS
 from studio.engine import voicing as VO
 from studio.engine.journal import Journal, sha256_file
@@ -773,7 +774,7 @@ def whole_camera(shot: dict, img_size, W: int, H: int, *, preset: str = "HOLD") 
 
 
 def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words=None, cover=False,
-                 cap: float | None = None, fps: float | None = None, hold_on=()) -> dict:
+                 cap: float | None = None, fps: float | None = None, hold_on=(), avoid=None) -> dict:
     """The still's camera (A41, TOUR): a path of stops in picture coordinates
     (studio/engine/tour.py) that fills 16:9 on every frame, drawn by
     ``overlays.framing_at``. The path is the shot's ``camera`` (a list of
@@ -792,7 +793,11 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
     still the
     softness cap cannot fill states ``fill_exception`` and is held whole (A7).
     FIND (A32) keeps its own camera, held at the fill. ``words`` are the
-    narration's words over the shot (tour.shot_words), for ``at`` anchors."""
+    narration's words over the shot (tour.shot_words), for ``at`` anchors.
+    ``avoid`` (A49, ``subject-under-text`` steering): ``[(box, zone), ...]``
+    must_show boxes and the house text zones active over this shot, passed
+    to the A47 default pass (``tour.subject_plan``) only; a written
+    ``camera`` path is never steered."""
     iw, ih = img_size
     s = min(W / iw, H / ih)
     fw, fh = iw * s, ih * s
@@ -847,7 +852,7 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
                                                                 or [])
         st, subject = T.subject_plan(shot, item, roi, persons, words or [], img_size, aspect, dur, t0, zmax,
                                      need_whole=need, focus=focus, match_screen=shot.get("_match_screen"),
-                                     declared_whole=declared, hold_on=hold_on, hz=fps or FPS)
+                                     declared_whole=declared, hold_on=hold_on, hz=fps or FPS, avoid=avoid)
         return st
     if camera is not None and shot.get("preset") is not None:
         problems.append("a shot takes a camera path or a preset, not both")
@@ -916,16 +921,22 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
                        last_frame={k: round(last[k], 4) for k in ("x", "y", "z")},
                        reversals=T.reversals(tl))
         subject["point"] = [round(v, 4) for v in subject["point"]]
+    # A49 settle-before-move: a stop's picture-class kind (face, person, text, ...), from the named region it
+    # visited (``tour.tour_stops``'s and ``tour.parse_path``'s own ``roi`` field on the stop), keyed by its time;
+    # an unnamed stop (most of the A47 default pass) carries no kind and settles to the plain 1.0 s floor
+    settle_kinds = {round(st["t"], 3): roi_by_name[st["roi"]].get("kind") for st in tl["stops"]
+                    if st.get("roi") and st["roi"] in roi_by_name and roi_by_name[st["roi"]].get("kind")}
     return {"path": frame_path, "clamp": "image", "fill_ok": True, "preset": TOUR, "macro": macro, "open_s": 0.0,
             "z_max": zf * tl["z_max"], "fit_scale": s, "z_rel_max": max(max(1.0, float(st["z"])) for st in asked),
             "tour": tl, "W": W, "H": H, "opens_whole": False, "problems": problems, "zcap": zcap, "cap": cap,
             "covering": covering, "cover": (("whole" if cover is True else cover) if covering else None),
-            "capped": any(st.get("capped") for st in stops), "subject": subject,
+            "capped": any(st.get("capped") for st in stops), "subject": subject, "settle_kinds": settle_kinds,
             "cine": {"persons": persons, "regions": roi_by_name, "ignored": eff["ignored"], "reframed": reframed,
                      "pulled": pulled}}
 
 
-def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journal | None, fps: float = FPS) -> dict:
+def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journal | None, fps: float = FPS,
+                 avoid=None) -> dict:
     """A41, A43 and A47: a path the engine made (a preset, the default, or
     the ``tour`` resolver's visits, re-framed or not) can never fail
     tour-people. Its windows are checked against every person in the picture
@@ -937,7 +948,8 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
     roi, must_show): then the path is the author's, and a reviewer item. The
     default pass itself is never widened for coverage alone: what it leaves
     unseen is the subject's choice (``tour-partial``). A path a person wrote
-    (``camera`` stops) is never changed here."""
+    (``camera`` stops) is never changed here. ``avoid`` (A49) is carried into
+    every re-covered pass, the same as the first."""
     if cam.get("preset") != TOUR or not (cam.get("macro") in COVERABLE or cam.get("macro") == "TOUR"):
         return cam
     item = s["_item"]
@@ -961,7 +973,7 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
     if item.get("whole") is True and macro != "DEFAULT" and macro != "TOUR" and pc["ok"]:
         # A47 and A48: a still the ledger declares whole holds at the fill, its breath a drift (aimed at what
         # must be seen), never a preset's push, whoever named its regions
-        cam = still_camera(s, size, W, H, words=words, cover="subject", fps=fps)
+        cam = still_camera(s, size, W, H, words=words, cover="subject", fps=fps, avoid=avoid)
         wins, pc = check(cam)
         if journal is not None:
             journal.decision("motion", f"{s['id']}: {macro} on a whole still made the A47 whole pass",
@@ -971,7 +983,7 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
                                        "whole_mode": (cam.get("subject") or {}).get("whole_mode")})
     elif pc["ok"] and not pc["whole_shown"] and not authored:
         why = f"it shows {100 * T.coverage(wins, size):.0f}% of the picture"
-        cam = still_camera(s, size, W, H, words=words, cover="subject", fps=fps)
+        cam = still_camera(s, size, W, H, words=words, cover="subject", fps=fps, avoid=avoid)
         wins, pc = check(cam)
         if journal is not None and pc["ok"]:
             journal.decision("motion", f"{s['id']}: {macro} made the default pass, ending on the subject",
@@ -982,7 +994,7 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
     if pc["ok"] and not ms:
         return cam
     missed = pc["missed"]
-    cam = still_camera(s, size, W, H, words=words, cover="whole", fps=fps)
+    cam = still_camera(s, size, W, H, words=words, cover="whole", fps=fps, avoid=avoid)
     wins, pc = check(cam)
     held = []
     if not pc["ok"] or missed_must_show(cam, wins):
@@ -990,7 +1002,7 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
         names = set(missed_must_show(cam, wins))
         held = [p["box"] for p in people["boxes"] if not T.seen(wins, p["box"], size)]
         held += [T.roi_box(r) for r in item.get("roi") or [] if isinstance(r, dict) and r.get("name") in names]
-        cam = still_camera(s, size, W, H, words=words, cover="whole", fps=fps, hold_on=held)
+        cam = still_camera(s, size, W, H, words=words, cover="whole", fps=fps, hold_on=held, avoid=avoid)
         wins, pc = check(cam)                 # the held pass, checked again (tour-people judges it as drawn)
     if journal is not None:
         journal.decision("motion", f"{s['id']}: {macro} made a covering pass of the whole picture, ending on the "
@@ -1197,7 +1209,7 @@ def still_windows(cam: dict, s: dict, size, W: int, H: int, hz: float = FPS) -> 
     return out
 
 
-def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int, fps: float = FPS) -> None:
+def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int, fps: float = FPS) -> dict | None:
     """A41 at plan time, for a still that tours (or a FIND held at the fill).
     Blocking: the path as written (tour-path), its narration anchors
     (tour-anchor), every frame filled inside the picture (tour-fills), the
@@ -1208,8 +1220,12 @@ def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int,
     picture shown). Warnings (pacing is guidance, A39): a pan or zoom past
     the speed guides (tour-speed), a hold that cannot creep (tour-held).
     Reviewer items: a ``must_show`` region never shown (tour-must-show), a
-    path that never shows the whole picture (tour-partial)."""
+    path that never shows the whole picture (tour-partial). Returns the
+    ``tour-speed`` report (or None off the TOUR preset), so A49's
+    ``pan-speed-px`` can warn only when this outer ceiling has already
+    passed (never double-warned)."""
     dur = float(s["_dur"])
+    sp = None
     probs = cam.get("problems") or []
     anchor = [p for p in probs if p.startswith("anchor:")]
     other = [p for p in probs if not p.startswith("anchor:")]
@@ -1292,6 +1308,7 @@ def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int,
                                                            "out is the author's choice (A41: full visibility comes "
                                                            "from touring the whole surface)"})
     subject_lints(journal, s, cam, people)
+    return sp
 
 
 def subject_lints(journal: Journal, s: dict, cam: dict, people: dict) -> None:
@@ -1332,6 +1349,92 @@ def subject_lints(journal: Journal, s: dict, cam: dict, people: dict) -> None:
                                               "macro": cam.get("macro"), "fix": "every person here is located: "
                                               "end on the subject in one sweep (a path that passes over each of "
                                               "them), or cut between two stills"})
+
+
+def a49_tour_lints(lint, journal: Journal, s: dict, cam: dict, size, fps: float, sp: dict | None,
+                   text_spans: list[dict], must_show_rois: list[dict]) -> None:
+    """Cinematography ticket #4 (GRAMMAR A49): the tour lints beyond A41 and
+    A47, at plan time. Blocking: ``subject-under-text`` on a ``must_show``
+    region still covered by an active text zone (``text_spans``: the LT and
+    SUB zones on screen over this shot, ``text_zone_timeline``) once A47's
+    ``end_pose`` has had its chance to steer clear of it (``avoid``, built
+    by the caller from the same regions and zones); a written ``camera``
+    path is refused as written too, since it is never steered (A43's own
+    rule: only what the engine placed is re-framed). Every other check here
+    warns (pacing and framing choice are the founder's to judge, A39):
+    ``pan-speed-px`` and ``zoom-speed`` (the 7-second rule, tighter guides
+    beside ``tour-speed``'s outer ceiling in ``tour_lints``, warned only
+    once that ceiling has already passed, so nothing double-warns);
+    ``settle-before-move`` (``cam["settle_kinds"]``, a named region's own
+    kind); ``min-move-after-cut`` (waived when the first move continues one
+    already running across the cut: a ``match: "prev"`` opening, or a
+    dissolve); ``end-pose-composition``'s borderline flag and ``lead-room``
+    (both read A47's own verdict, never a second measurement); and
+    ``subject-under-text`` at the warn share for the subject itself (never
+    a face)."""
+    tl = cam.get("tour")
+    if not tl:
+        return
+    if sp is None or sp.get("ok"):
+        pan = TL.pan_speed_px(tl, fps)
+        journal.lint("pan-speed-px", pan["ok"], stage="motion", unit=s["id"], severity="warn", grammar="A49",
+                     phase="preflight", evidence=dict(pan, fix=None if pan["ok"] else
+                                                      "a point should take at least 7 s to cross the frame"))
+        zoom = TL.zoom_speed_cruise(tl, fps)
+        journal.lint("zoom-speed", zoom["ok"], stage="motion", unit=s["id"], severity="warn", grammar="A49",
+                     phase="preflight", evidence=dict(zoom, fix=None if zoom["ok"] else "a 5%/s cruise or slower"))
+    settle = TL.settle_before_move(tl, kinds=cam.get("settle_kinds"))
+    if settle:
+        journal.lint("settle-before-move", False, stage="motion", unit=s["id"], severity="warn", grammar="A49",
+                     phase="preflight", evidence={"violations": settle,
+                                                  "fix": "hold at least 1.0 s (1.5 s for text, a face or a person) "
+                                                         "before the next leg"})
+    stops0 = tl["stops"][0] if tl["stops"] else {}
+    continues = stops0.get("match") == "prev" or (s.get("transition_in") or {}).get("type") == "dissolve"
+    mv = TL.min_move_after_cut(tl, continues_across_cut=continues)
+    if not mv["ok"]:
+        journal.lint("min-move-after-cut", False, stage="motion", unit=s["id"], severity="warn", grammar="A49",
+                     phase="preflight", evidence=dict(mv, fix="settle before the cut, or carry the move across it "
+                                                               "with match: \"prev\" or a dissolve"))
+    verdict = (cam.get("subject") or {}).get("last")
+    if verdict is not None:
+        comp = TL.end_pose_composition(verdict)
+        if comp["borderline"]:
+            journal.lint("end-pose-composition", True, stage="motion", unit=s["id"], severity="review",
+                         grammar="A49", phase="preflight",
+                         evidence={"axes": comp["borderline_axes"], "verdict": comp["verdict"],
+                                   "check": "a composition within half a bin of the golden band's edge: reported, "
+                                            "never flipped"})
+        lead = TL.lead_room_check(verdict)
+        if lead["applies"] and not lead["ok"]:
+            journal.lint("lead-room", False, stage="motion", unit=s["id"], severity="warn", grammar="A49",
+                         phase="preflight", evidence=dict(lead, fix="give the subject at least as much room ahead "
+                                                                     "as behind, on the axis it faces"))
+    if not text_spans:
+        return
+    wins = TL.frame_windows(tl, fps)
+    sub = cam.get("subject") or {}
+    if sub.get("box") is not None:
+        res = TL.subject_under_text(wins, sub["box"], size, text_spans=text_spans, is_face=sub.get("kind") == "face",
+                                    must_show=False)
+        if not res["ok"]:
+            journal.lint("subject-under-text", False, stage="motion", unit=s["id"], severity="warn", grammar="A49",
+                         phase="preflight", evidence={"must_show": None, **res})
+    for r in must_show_rois:
+        box = T.roi_box(r)
+        if box is None:
+            continue
+        res = TL.subject_under_text(wins, box, size, text_spans=text_spans, is_face=r.get("kind") == "face",
+                                    must_show=True)
+        if res["block"]:
+            lint("subject-under-text", False, unit=s["id"], stage="motion", grammar="A49",
+                 evidence={"must_show": r.get("name"), **res,
+                           "fix": "a must_show region is covered by a text zone while it is up: re-time or move "
+                                  "the text, or free the region (a written camera path is refused as written; an "
+                                  "engine path already tried to steer clear of it and could not)"})
+        elif not res["ok"]:
+            journal.lint("subject-under-text", False, stage="motion", unit=s["id"], severity="warn", grammar="A49",
+                         phase="preflight", evidence={"must_show": r.get("name"), **res})
 
 
 def cine_lints(lint, journal: Journal, s: dict, cam: dict, fps: float = FPS) -> None:
@@ -2053,6 +2156,39 @@ def fit_voices(play: dict, film: Path, journal: Journal, gap: float = VOICE_GAP_
     return play
 
 
+def text_zone_timeline(play: dict, texts: list[dict]) -> list[tuple[float, float, tuple]]:
+    """A49 (``subject-under-text``, section 4): every lower third's and
+    subtitle cue's (start_s, end_s, house zone, frame fractions) in
+    absolute film seconds, read from the same source (``texts``, the
+    screenplay's own ``text`` elements; ``play["subtitle_source"]``) the
+    on-screen-text pass reads later in this function, so steering and the
+    lint never drift from what the film actually shows. A lower third's
+    span is clipped the same way it is drawn (``motion.lower_third_span``,
+    A16). Subtitles count here whether or not they are burned
+    (``burn_subtitles``): soft captions are the web player's own
+    on-screen text over the same ``SUB`` band, so a must_show region is
+    checked against them either way. The glyph (``ZONES["GLYPH"]``) is not
+    listed: it is on every frame (A31/A42) and is handled separately."""
+    out = []
+    for t in texts:
+        if t.get("kind") == "lower_third":
+            try:
+                shown = M.lower_third_span(float(t["start_s"]), float(t["end_s"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            out.append((shown[0], shown[1], M.ZONES["LT"]))
+    for c in play.get("subtitle_source") or []:
+        if not isinstance(c, dict):
+            continue
+        try:
+            a, b = float(c["start_s"]), float(c["end_s"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if b > a:
+            out.append((a, b, M.ZONES["SUB"]))
+    return out
+
+
 def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Journal, play: dict | None = None,
                write_overlays: bool = True) -> dict:
     play = play if play is not None else json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
@@ -2314,6 +2450,10 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     cine_schema_lints(lint, journal, stills, lambda x: T.shot_words(words_src or [], x["start_s"], x["end_s"]))
     if lint_fail:
         raise Refused("lint failed: " + "; ".join(lint_fail))
+    # A49 (cinematography ticket #4): every lower third's and subtitle cue's on-screen span, read once (the same
+    # source the on-screen-text pass below reads), so the camera can steer a must_show region clear of one while
+    # it is up, and subject-under-text can block what steering could not clear
+    zone_timeline = text_zone_timeline(play, texts)
     for si, s in enumerate(shots):
         if s["kind"] in ("archive_still", "drawn") and s.get("_item", {}).get("_path"):
             if s["kind"] == "drawn" and s.get("camera") is None:
@@ -2326,13 +2466,24 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             s["_fill_max_upscale"] = (settings["fill_max_upscale"] if "fill_max_upscale" in settings_stated
                                       else STILL_MAX_UPSCALE)
             words = T.shot_words(words_src or [], s["start_s"], s["end_s"])
-            cam = still_camera(s, size, W, H, words=words, fps=fps)
-            cam = engine_cover(s, cam, size, W, H, words, journal, fps=fps)
+            item = s.get("_item") or {}
+            must_show_rois = T.must_show_regions(item)
+            shot_a, shot_b = float(s["start_s"]), float(s["start_s"]) + float(s["_dur"])
+            active_zones = [zone for (a, b, zone) in zone_timeline if a < shot_b and b > shot_a]
+            avoid = [(T.roi_box(r), zone) for r in must_show_rois for zone in active_zones] if (
+                must_show_rois and active_zones) else None
+            cam = still_camera(s, size, W, H, words=words, fps=fps, avoid=avoid)
+            cam = engine_cover(s, cam, size, W, H, words, journal, fps=fps, avoid=avoid)
             s["_cam"] = cam
             fill_lints(lint, journal, s, cam)
             ml_upscale_lint(lint, s)
             if cam["preset"] == TOUR or cam.get("a41"):
-                tour_lints(lint, journal, s, cam, size, W, H, fps=fps)
+                sp = tour_lints(lint, journal, s, cam, size, W, H, fps=fps)
+                text_spans = [{"zone": "glyph", "box": M.ZONES["GLYPH"], "t0": 0.0, "t1": float(s["_dur"])}]
+                text_spans += [{"zone": "text", "box": zone, "t0": max(0.0, a - shot_a),
+                               "t1": min(float(s["_dur"]), b - shot_a)} for a, b, zone in zone_timeline
+                              if a < shot_b and b > shot_a]
+                a49_tour_lints(lint, journal, s, cam, size, fps, sp, text_spans, must_show_rois)
                 if cam["preset"] == OV.FIND:
                     lint("still-zoom-limit", cam["z_rel_max"] <= cam["scan_zmax"] + 1e-9, unit=s["id"], stage="motion",
                          grammar="7.2, A32", evidence={"preset": OV.FIND, "z_max": round(cam["z_rel_max"], 4),
