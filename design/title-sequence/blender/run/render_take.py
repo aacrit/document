@@ -38,6 +38,8 @@ def build(window, rec, fps, calib, out, res=""):
         args += ["--calib", "1"]
     if res:
         args += ["--res", res]
+    if os.environ.get("RUN_END_FRAME"):
+        args += ["--end", os.environ["RUN_END_FRAME"]]
     # building the scene is a heavy step too: under the lock, with the machine checked
     while True:
         RR.wait_clear()

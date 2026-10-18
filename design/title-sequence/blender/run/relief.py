@@ -363,12 +363,34 @@ def compose(write=True):
                 "sheet": name, "ledger": s["ledger"], "tex": s["tex"], "size": [W, H], "centre": list(s["centre"]),
                 "psi": s["psi"], "texel": TEXEL, "shape": list(d["rel"].shape), "rows": "row 0 at +v (the scan's top)",
                 "extents": [list(c) for c in B.corners(s["centre"][0], s["centre"][1], W, H, s["psi"])],
-                "thickness": s["t"], "layer": s["layer"], "relief_min": float(d["rel"].min()),
+                "thickness": s["t"], "layer": s["layer"], "margin_rgb_linear": margin_colour(name),
+                "relief_min": float(d["rel"].min()),
                 "relief_max": float(d["rel"].max()), "parts": d["parts"], "top_max": float(d["top"].max()),
                 "units": "metres"}, indent=1), encoding="utf-8")
         np.savez_compressed(OUT / "world.npz", top=top, sid=sid, x0=WORLD["x0"], y0=WORLD["y0"], texel=TEXEL,
                             surfaces=np.array(SURFACE_IDS))
     return top, sid, sheets
+
+
+def margin_colour(name):
+    """The median colour (linear) of the scan's opaque pixels within 3% of its outline (or its border band): the
+    plain fibre colour of the sheet's thickness faces and backing, the method run_scene.CLAY uses."""
+    from PIL import Image
+    from scipy.ndimage import binary_erosion
+    s = B.SHEETS[name]
+    alpha = bool(s.get("alpha"))
+    im = Image.open(TEX / f"{s['tex']}{'.png' if alpha else '.jpg'}").convert("RGBA")
+    im.thumbnail((600, 600))
+    a = np.asarray(im, np.float32) / 255.0
+    k = max(2, int(0.03 * max(a.shape[:2])))
+    if alpha:
+        m = a[..., 3] > 0.5
+        ring = m & ~binary_erosion(m, iterations=k)
+    else:
+        ring = np.zeros(a.shape[:2], bool)
+        ring[:k, :] = ring[-k:, :] = ring[:, :k] = ring[:, -k:] = True
+    rgb = np.median(a[..., :3][ring], axis=0)
+    return [float(((c + 0.055) / 1.055) ** 2.4 if c > 0.04045 else c / 12.92) for c in rgb]
 
 
 def main():

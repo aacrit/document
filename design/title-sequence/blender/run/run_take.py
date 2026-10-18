@@ -764,7 +764,7 @@ def build():
     # the sheets: displaced meshes with thickness, from relief.py's EXRs; the scans only
     for nm, s in B.SHEETS.items():
         alpha = bool(s.get("alpha"))
-        rgb = scan_margin_colour(s["tex"], alpha)
+        rgb = tuple(json.loads((RELIEF / f"{nm}.json").read_text(encoding="utf-8"))["margin_rgb_linear"])
         side = fibre(nm, rgb)
         if s.get("backing"):
             top = m_scan_on_backing(nm, s["tex"], rgb)
