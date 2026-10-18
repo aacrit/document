@@ -14,6 +14,7 @@ from studio.engine import motion as M
 from studio.engine import overlays as OV
 from studio.engine import render as R
 from studio.engine import tour as T
+from studio.engine import tourlint as TL
 
 W, H = 640, 360
 A = W / H
@@ -299,6 +300,35 @@ def test_no_leg_outruns_the_speed_guides():
         cam, s = cam_for({"people": False, "roi": [subject(0.4, 0.85, 0.2, 0.1)]}, PORTRAIT, dur=dur)
         wins = R.still_windows(cam, s, PORTRAIT, W, H)
         assert T.speed_report(wins)["ok"], dur
+
+
+# --------------------------------------------------------------------------
+# A49 (cinematography ticket #4): the default pass settles before its first move
+# --------------------------------------------------------------------------
+
+def test_the_pass_settles_before_its_first_move_when_there_is_room():
+    cam, _ = cam_for({"people": False, "roi": [subject(0.1, 0.1, 0.1, 0.1)]}, L43, dur=20.0)
+    tl = cam["tour"]
+    first_move = next(g for g in tl["segments"] if g["kind"] == "move")
+    assert first_move["t0"] >= T.MIN_OPEN_HOLD_S - 1e-6
+
+
+def test_a_matched_opening_is_never_held_artificially():
+    # a move already running across the cut (match: "prev"): A49's hold is never inserted
+    cam, _ = cam_for({"people": False, "roi": [subject(0.1, 0.1, 0.1, 0.1)]}, L43, dur=20.0,
+                     _match_screen=[0.9, 0.9])
+    tl = cam["tour"]
+    assert tl["segments"][0]["t0"] <= 1e-6
+
+
+def test_the_hold_never_steals_time_from_a_tight_arrival():
+    # a shot too short for both the leg's own minimum time and a 0.5 s hold: no hold is forced, and the pass
+    # still keeps to the speed guides (A47's own priority, reach the subject in time, wins, as it always has)
+    cam, s = cam_for({"people": False, "roi": [subject(0.1, 0.1, 0.1, 0.1)]}, L43, dur=0.6)
+    tl = cam["tour"]
+    assert tl["stops"][0].get("hold", 0.0) < T.MIN_OPEN_HOLD_S - 1e-6
+    wins = R.still_windows(cam, s, L43, W, H)
+    assert T.speed_report(wins)["ok"]
 
 
 # --------------------------------------------------------------------------
@@ -759,3 +789,87 @@ def test_the_aimed_breath_keeps_the_plain_breath_or_gives_way_to_the_sweep():
     cam, _ = cam_for(far, NEAR, dur=8.0)
     assert cam["subject"]["whole_mode"] == "sweep"
     assert T.aimed_breath(GOES, A, [(0, 0, 0.2, 0.99)], True) is None      # a region taller than the window
+
+
+# --------------------------------------------------------------------------
+# A49 (cinematography ticket #4, reviewer's re-review): the engine never
+# refuses itself for subject-under-text, and a steer that only ducks a
+# refusal while still warning has moved the wrong way: it must minimise the
+# overlap, taking a pose under the lint's own warn share when one exists.
+# The reviewer's own probe: a "caption" must_show box (x 0.05, y 0.758,
+# w 0.336, h 0.071) on FX-STILL-A (1500 x 1050), under a lower third widened
+# to cover the whole shot. A written path is the one case that still blocks
+# (render.a49_tour_lints); every engine path (HOLD, PUSH, declared
+# whole: true, the plain default) must plan without a Refused, keep the
+# region whole in frame (A7/A41, never traded for clearing it of text), and
+# read under 10% overlap on every frame the text is up (this geometry has
+# room: the fill window can travel about 0.40 of the picture vertically).
+# --------------------------------------------------------------------------
+
+CAPTION_SIZE = (1500, 1050)                             # make_media.STILLS["FX-STILL-A"]
+CAPTION_BOX = {"x": 0.05, "y": 0.758, "w": 0.336, "h": 0.071, "name": "caption", "must_show": True, "kind": "place"}
+LT_OVER_WHOLE_SHOT = {"zone": "LT", "id": "T-fixture", "box": M.ZONES["LT"], "t0": 0.0, "t1": 4.0}
+
+
+def _engine_text_cam(item, size, dur, preset):
+    s = dict({"id": "X", "kind": "archive_still", "_dur": dur, "start_s": 0.0, "_item": item, "preset": preset})
+    must_show = T.must_show_regions(item)
+    avoid = [(T.roi_box(r), LT_OVER_WHOLE_SHOT["box"]) for r in must_show]
+    cam = R.still_camera(s, size, W, H, words=[], fps=24.0, avoid=avoid)
+    cam = R.engine_cover(s, cam, size, W, H, [], None, fps=24.0, avoid=avoid, text_spans=[LT_OVER_WHOLE_SHOT])
+    return cam, s, must_show
+
+
+def _caption_overlap(cam, s, size, must_show):
+    """(whole_in_frame, max_overlap) for the first must_show region, or
+    (False, 1.0) when there is no tour at all to measure."""
+    tl = cam.get("tour")
+    if not tl or not must_show:
+        return False, 1.0
+    wins = TL.frame_windows(tl, 24.0)
+    box = T.roi_box(must_show[0])
+    whole = not T.must_show([w for _, w in wins], s["_item"], size)
+    res = TL.subject_under_text(wins, box, size, text_spans=[LT_OVER_WHOLE_SHOT], must_show=True)
+    return whole, res["max_overlap"]
+
+
+@pytest.mark.parametrize("label,preset,declare_whole", [
+    ("HOLD", "HOLD", False), ("PUSH", "PUSH", False), ("whole-true", "HOLD", True), ("default", None, False),
+])
+def test_an_engine_path_is_never_refused_for_a_must_show_box_under_a_lower_third(label, preset, declare_whole):
+    item = {"people": False, "class": "place", "roi": [dict(CAPTION_BOX)]}
+    if declare_whole:
+        item["whole"] = True
+    cam, s, must_show = _engine_text_cam(item, CAPTION_SIZE, 4.0, preset)
+    assert cam.get("tour") is not None                   # the engine always has somewhere to go (ruling 2)
+    whole, overlap = _caption_overlap(cam, s, CAPTION_SIZE, must_show)
+    assert whole                                          # A7/A41: never traded away for clearing the text
+    assert overlap < M.CINE["under_text_share"]           # a clear pose exists here: the steer must find it
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_property_an_engine_path_with_a_must_show_box_under_text_is_never_refused(seed):
+    rng = random.Random(seed)
+    size = rng.choice([GOES, L43, L32, NEAR, (1920, 1080), (1000, 750)])
+    w, h = rng.uniform(0.03, 0.4), rng.uniform(0.02, 0.25)
+    must_show = {"name": "caption", "x": rng.uniform(0, 1 - w), "y": rng.uniform(0, 1 - h), "w": w, "h": h,
+                "must_show": True, "kind": rng.choice(["place", "text", "object"]), "source": "human"}
+    item = {"people": "none", "class": rng.choice(["document", "place", "object"]), "roi": [must_show]}
+    if rng.random() < 0.3:
+        item["whole"] = True
+    preset = rng.choice([None, "HOLD", "PUSH", "PULL", "DRIFT", "TILT", "FILL"])
+    dur = rng.uniform(2.5, 20.0)
+    zone_name, zone_box = rng.choice([("LT", M.ZONES["LT"]), ("SUB", M.ZONES["SUB"])])
+    span = {"zone": zone_name, "id": "cue-1", "box": zone_box, "t0": 0.0, "t1": dur}   # up for the whole shot: worst case
+    s = dict({"id": "X", "kind": "archive_still", "_dur": dur, "start_s": 0.0, "_item": item, "preset": preset})
+    avoid = [(T.roi_box(must_show), zone_box)]
+    cam = R.still_camera(s, size, W, H, words=[], fps=24.0, avoid=avoid)           # must not raise
+    cam = R.engine_cover(s, cam, size, W, H, [], None, fps=24.0, avoid=avoid, text_spans=[span])  # never refuses
+    sub = cam.get("subject") or {}
+    if sub.get("avoid_clear") is True:
+        # the engine's own signal that it cleared the box at the warn share: the measured overlap must agree
+        tl = cam.get("tour")
+        if tl is not None:
+            wins = TL.frame_windows(tl, 24.0)
+            r = TL.subject_under_text(wins, T.roi_box(must_show), size, text_spans=[span], must_show=True)
+            assert r["max_overlap"] < M.CINE["under_text_share"]

@@ -78,54 +78,21 @@ FG = M.PALETTE["bone"]
 
 # House numbers this tool overlays (EBU R95 / SMPTE ST 2046-1, and the
 # groundwork brief's thirds/phi/placement bands); none of these block.
-THIRDS = (1 / 3, 2 / 3)
-PHI = (0.382, 0.618)
-ACTION_SAFE = 0.035
-GRAPHICS_SAFE = 0.05
+# `motion.CINE` is the single source (cinematography ticket #4 moved these out of this file, so the lint
+# module, studio/engine/tourlint.py, reads the same numbers rather than keeping its own copy).
+THIRDS = M.CINE["thirds"]
+PHI = (M.CINE["phi"], 1.0 - M.CINE["phi"])
+ACTION_SAFE = M.CINE["action_safe"]
+GRAPHICS_SAFE = M.CINE["graphics_safe"]
 FRAMED_SHARE = M.CINE["framed_share"]        # 0.5: a box this much inside the window counts as framed
-UNDER_TEXT_SHARE = 0.10                      # groundwork `subject-under-text` guide
-WHOLE_SHARE, DETAIL_SHARE = 0.8, 0.4         # groundwork doctrine 2.2: WHOLE >= 0.8, DETAIL <= 0.4 of the picture
+UNDER_TEXT_SHARE = M.CINE["under_text_share"]  # groundwork `subject-under-text` guide
+WHOLE_SHARE, DETAIL_SHARE = M.CINE["whole_share"], M.CINE["detail_share"]  # doctrine 2.2
 
 
-def _lt_zone_frac() -> tuple[float, float, float, float]:
-    """An approximate lower-third box (fractions of the frame), from
-    ``motion.LT``'s own row heights and gaps: the single source, no new
-    numbers. A guide, not the exact text layout (``motion.lower_third_layout``
-    draws that)."""
-    LT = M.LT
-    h = (LT["gap_flag"] + LT["name"] * LT["lh_name"] + LT["gap_role"] + LT["role"] * LT["lh_role"]
-         + LT["gap_rule"] + LT["rule_h"] + LT["source"] * LT["lh_source"]) / 100.0
-    y1 = LT["bottom"] / 100.0
-    x0 = LT["x"] / 100.0
-    return (x0, max(0.0, y1 - h), x0 + LT["max_w"] / 100.0, y1)
-
-
-def _sub_zone_frac() -> tuple[float, float, float, float]:
-    """The subtitle band (fractions of the frame), from ``motion.SUB``: up to
-    2 lines (GRAMMAR 10), centred, ``max_w`` wide."""
-    SUB = M.SUB
-    h = 2 * SUB["size"] * SUB["lh"] / 100.0
-    y1 = SUB["bottom"] / 100.0
-    w = SUB["max_w"] / 100.0
-    return ((1 - w) / 2.0, max(0.0, y1 - h), (1 + w) / 2.0, y1)
-
-
-def _wm_zone_frac() -> tuple[float, float, float, float]:
-    """The watermark box (fractions of the frame), from ``motion.WM``: a
-    square ``box`` % of H, inset ``right`` % of W and ``top`` % of H; every
-    delivery is 16:9 (A41), so its width share is its height share * 9/16."""
-    WM = M.WM
-    box_h = WM["box"] / 100.0
-    box_w = box_h * 9.0 / 16.0
-    x1 = 1.0 - WM["right"] / 100.0
-    y0 = WM["top"] / 100.0
-    return (x1 - box_w, y0, x1, y0 + box_h)
-
-
-ZONES = {
-    "LT": _lt_zone_frac(), "SUB": _sub_zone_frac(), "WM": _wm_zone_frac(),
-    "MARK": tuple(M.MARK_ZONE), "GLYPH": tuple(M.MARK_GLYPH_ZONE),
-}
+# The house zone map (LT, SUB, WM, MARK, GLYPH): `motion.ZONES` is the single source (cinematography ticket #4
+# moved the boxes there, out of this file, so render.build_plan's own steering and tour lints read the same
+# numbers this preview tool draws).
+ZONES = M.ZONES
 
 # --------------------------------------------------------------------------
 # Geometry: the plan's camera window, projected to frame space.
