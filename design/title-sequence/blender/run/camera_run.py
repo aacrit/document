@@ -186,7 +186,7 @@ def eye_from(target, D, pitch_deg, yaw_deg):
 
 
 EXEMPT = (130, 330)                         # beats 2-3 as laid (papyrus and hinge): the founder's exemption
-EXEMPT_CAP = 0.40                           # m/s there (enough to keep the lead marble in frame)
+EXEMPT_PX = 40.0                            # px a frame there (ruling 2026-10-18: no whip; the frame widens instead)
 WIDE_D = 3.40                               # the full top-down at f935: the 2.2 m table with 5% margins each side
 TABLE_C = (1.10, 0.50)
 
@@ -274,8 +274,8 @@ def plan(prefix_poses, layout, tail=None, t_end=None, dt=1 / 240):
         return float(np.interp(fd, xs_, ys_))
     EX = (EXEMPT[0], W(EXEMPT[1]))
     # ---- the crane (frame, distance, pitch down, yaw, f-stop): section 5
-    CR_ = [(167, D_l, pitch_l, yaw_l, 4.0), (230, 0.34, 32.0, yaw_l - 8, 4.0), (300, 0.50, 40.0, yaw_l - 19, 4.5),
-           (340, 0.60, 45.0, yaw_l - 19, 4.5), (352, 0.60, 45.0, yaw_l - 12, 4.5), (400, 0.50, 50.0, yaw_l, 5.0),
+    CR_ = [(167, D_l, pitch_l, yaw_l, 4.0), (230, 0.34, 32.0, yaw_l, 4.0), (300, 0.50, 40.0, yaw_l, 4.5),
+           (340, 0.60, 45.0, yaw_l, 4.5), (352, 0.60, 45.0, yaw_l, 4.5), (400, 0.50, 50.0, yaw_l, 5.0),
            (430, 1.00, 60.0, 75.0, 5.0), (500, 1.10, 60.0, 85.0, 5.6), (532, 1.25, 82.0, 90.0, 5.6),
            (700, 1.50, 89.0, 90.0, 5.6), (724, 1.50, 89.0, 90.0, 5.6), (760, 1.20, 89.0, 90.0, 5.6),
            (852, 1.60, 89.0, 90.0, 8.0), (935, WIDE_D, 89.0, 90.0, 8.0)]
@@ -302,7 +302,7 @@ def plan(prefix_poses, layout, tail=None, t_end=None, dt=1 / 240):
         anchors.append((W(430), W(500), tuple(np.array(g["origin"]) + u * 0.10)))
     b_xy = np.array([st["brass"]["x"], st["brass"]["y"]]) if st.get("brass", {}).get("x") else np.array(B.BRASS["at"])
     for i, f in enumerate(fr):
-        ex = bump(f, EX[0] + 37, EX[1], 18.0)                       # tracking the lead itself on beats 2-3
+        ex = bump(f, 167 + 18, EX[1], 18.0)                       # tracking the lead itself on beats 2-3
         if ex > 0:
             want[i] = want[i] * (1 - ex) + lm[i] * ex
         for fa, fb, c in anchors:
@@ -348,18 +348,26 @@ def plan(prefix_poses, layout, tail=None, t_end=None, dt=1 / 240):
                 locked[i] = True
                 phase[i] = "descend" if f < f_close else "close"
                 D[i] = WIDE_D + (fw_end / KW - WIDE_D) * smoothstep((f - f_desc) / dsc) if f < f_close else fw_end / KW
-    # ---- smooth, then the pan guide (exempt on beats 2-3), measured at the focus plane
+    # ---- smooth, then the pan guide, measured at the focus plane. On beats 2-3 (the exemption) the follow is capped at
+    # 40 px a frame, eased; where the marble would outrun it the crane rises (the frame widens) so the marble stays in
+    # the frame's middle 70%: solved by three passes of follow, measure the lag, widen
     smooth = gauss(want, ts, 0.35)
     smooth[locked] = want[locked]
-    fw = KW * D
-    fh = KH * D / np.maximum(np.sin(np.radians(pitch)), 0.2)
-    cap_x = CAP_X_PX * FPS / 1920 * fw
-    cap_y = CAP_Y_PX * FPS / 1080 * fh
-    ex = np.array([bump(f, EX[0] + 37, EX[1], 18.0) for f in fr])
-    cap_x = cap_x * (1 - ex) + EXEMPT_CAP * ex
-    cap_y = cap_y * (1 - ex) + EXEMPT_CAP * ex
-    ease = 0.8 * (1 - ex) + 0.45 * ex
-    tgt = limit(smooth, ts, cap_x, cap_y, locked=locked, ease_s=ease)
+    ex = np.array([bump(f, 167 + 18, EX[1], 18.0) for f in fr])
+    ease = 0.8 * (1 - ex) + 0.6 * ex
+    D0 = D.copy()
+    for _ in range(4):
+        fw = KW * D
+        fh = KH * D / np.maximum(np.sin(np.radians(pitch)), 0.2)
+        cap_x = (CAP_X_PX * (1 - ex) + EXEMPT_PX * ex) * FPS / 1920 * fw
+        cap_y = (CAP_Y_PX * (1 - ex) + EXEMPT_PX * 9 / 16 * ex) * FPS / 1080 * fh
+        tgt = limit(smooth, ts, cap_x, cap_y, locked=locked, ease_s=ease)
+        lag = np.linalg.norm(lm - tgt, axis=1)
+        need = np.where(fr > 167, lag / (0.30 * KW), 0.0)
+        need = gauss(np.maximum(need, D0)[:, None], ts, 0.5)[:, 0]
+        wid = np.array([smoothstep((f - 167) / 10.0) for f in fr])
+        wid = np.where(fr < EX[1] + 18, wid, ex)
+        D = np.where(wid > 0, np.maximum(D0, need) * wid + D0 * (1 - wid), D0)
     rows = []
     for i, t in enumerate(ts):
         f = fr[i]

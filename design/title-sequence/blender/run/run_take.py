@@ -380,7 +380,7 @@ def iris_lamp():
         vals[axis] = val
         hi = nt.nodes.new("ShaderNodeMath")
         hi.operation = "MULTIPLY"
-        hi.inputs[1].default_value = 1.02
+        hi.inputs[1].default_value = 1.35          # a soft iris: the pool falls off like a reading lamp's
         nt.links.new(val.outputs[0], hi.inputs[0])
         mr = nt.nodes.new("ShaderNodeMapRange")
         mr.clamp = True
@@ -881,7 +881,7 @@ def build():
         # the iris: from the latch's open pool to 1.4 times the frame's footprint on beats 2-8; in the tail it follows
         # the frame, then closes to 5 mm inside the record
         fw, fh = CR.KW * Dd, CR.KH * Dd
-        ia, ib = 1.4 * fw / 2 / dist, 1.4 * fh / 2 / dist
+        ia, ib = 2.0 * fw / 2 / dist, 2.0 * fh / 2 / dist
         if fd < 167:
             ia = ib = 50.0
         elif fd < 230:

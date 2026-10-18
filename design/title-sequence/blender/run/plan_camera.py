@@ -95,7 +95,9 @@ def main():
     br = lay["stations"].get("brass", {})
     f_settle = (int(br.get("frame_land", 866)), min(int(br.get("frame_slap", 926)) + 6, 935))
     meas = {"pan": pan, "guide_violations": guide_met(pan),
-            "lead_in_frame_beats_2_3": in_frame_share(pre, P["lead"], 167, 330), "turns": ck.get("turns")}
+            "lead_in_frame_beats_2_3": in_frame_share(pre, P["lead"], 180, 330),
+            "lead_in_frame_note": "from f180: the approved latch lets the marble leave frame right at f167; the crane rises to catch it",
+            "turns": ck.get("turns")}
     if not a.until_frame:
         meas["brass_in_frame_settle"] = in_frame_share(pre, P.get("brass", []), *f_settle)
         meas["table_margins_f935"] = table_margins(pre, 935)

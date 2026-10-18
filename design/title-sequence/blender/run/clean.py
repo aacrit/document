@@ -55,7 +55,10 @@ def _read_room():
         x = x / 32768.0
     if x.ndim > 1:
         x = x.mean(axis=1)
-    assert sr == C["RATE"]
+    if sr != C["RATE"]:
+        # the house room tone is 44.1 kHz: resampled to 48 kHz as whole.py does (scipy's FFT resample to the same length)
+        from scipy.signal import resample
+        x = resample(x, int(round(len(x) * C["RATE"] / sr)))
     return x - np.mean(x)
 
 

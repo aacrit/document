@@ -149,19 +149,54 @@ def handover(audio, T, fps):
             "room": "clean.room_bed(n, 'the-run'): the film's take continues it at join_sample, butt-joined"}
 
 
+def assemble_stretch(a, fpsv, W, H):
+    """The working stretch only (milestone A, reduced): black until the lamp comes up (f36), then the prefix's frames,
+    the DRAWN mark with its own A42 label from the open, the watermark; encoded with the review mix."""
+    fps = fpsv[0] / fpsv[1]
+    fonts = M.Fonts()
+    shots = [{"start": 0.0, "cls": "DRAWN", "label": "Drawn · from period records"}]
+    pre = Path(a.prefix)
+    out_dir = Path(a.keep) if a.keep else pre.parent / f"comp-stretch-{W}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    n = a.end_frame + 1
+    for f in range(n):
+        t = f / fps
+        if t < 36 / 24 - 1e-9:
+            pic = Image.new("RGB", (W, H), (0, 0, 0))
+        else:
+            pic = Image.open(pre / f"{f:04d}.png").convert("RGB")
+            if pic.size != (W, H):
+                pic = pic.resize((W, H), Image.LANCZOS)
+        img = M.watermark(pic, t, start=0.0, card_spans=[], fonts=fonts)
+        img = M.mark_frame(img, t, shots, fonts)
+        img.convert("RGB").save(out_dir / f"{f:04d}.png", compress_level=1)
+    rate = f"{fpsv[0]}/{fpsv[1]}"
+    cmd = ["ffmpeg", "-y", "-v", "error", "-framerate", rate, "-i", str(out_dir / "%04d.png")]
+    if a.audio:
+        cmd += ["-i", a.audio, "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-shortest"]
+    cmd += ["-c:v", "libx264", "-preset", "slow", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-r", rate,
+            a.mp4]
+    subprocess.run(cmd, check=True)
+    print("ASSEMBLED " + json.dumps({"frames": n, "fps": a.fps, "mp4": a.mp4, "marks": [{"frame": 0, "cls": "DRAWN"}]}))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--record", default="C20-METAR-0851")
     ap.add_argument("--fps", default="24")
     ap.add_argument("--size", default="640x360")
     ap.add_argument("--prefix", required=True)
-    ap.add_argument("--tail", required=True)
+    ap.add_argument("--tail", default="")
     ap.add_argument("--audio")
     ap.add_argument("--mp4")
     ap.add_argument("--keep", help="write the composited PNGs here")
     ap.add_argument("--master", help="lossless FFV1 .mkv at this path")
+    ap.add_argument("--end-frame", type=int, default=0, help="the working stretch only (no tail)")
     a = ap.parse_args()
     fpsv = fps_of(a.fps)
+    if a.end_frame:
+        W, H = (int(x) for x in a.size.split("x"))
+        return assemble_stretch(a, fpsv, W, H)
     fps = fpsv[0] / fpsv[1]
     W, H = (int(x) for x in a.size.split("x"))
     rec = a.record
