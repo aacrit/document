@@ -83,6 +83,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--films", default="C20-METAR-0851,S-130,S-16928")
     ap.add_argument("--until-frame", type=int, default=0, help="the working stretch only (milestone A, reduced)")
+    ap.add_argument("--whole", action="store_true", help="one film: plan the camera once over prefix and tail")
     a = ap.parse_args()
     f_end = a.until_frame or 935
     bake = json.loads((SIM / "run-bake.json").read_text(encoding="utf-8"))
@@ -90,6 +91,7 @@ def main():
     P = bake["poses"]
     t_pre = B.PREFIX_FRAMES / B.FPS
     pre = CR.plan(P, lay, t_end=(f_end + 12) / 24 if a.until_frame else t_pre + 0.5)
+    f_end = min(f_end, B.PREFIX_FRAMES - 1)
     pan = pan_report(pre, f_end)
     ck = lay.get("checks", {})
     br = lay["stations"].get("brass", {})
@@ -100,7 +102,7 @@ def main():
             "turns": ck.get("turns")}
     if not a.until_frame:
         meas["brass_in_frame_settle"] = in_frame_share(pre, P.get("brass", []), *f_settle)
-        meas["table_margins_f935"] = table_margins(pre, 935)
+        meas["table_margins_f935"] = table_margins(pre, B.PREFIX_FRAMES - 1)
         meas["wide_ok"] = all(v >= 0.05 for v in meas["table_margins_f935"].values())
     shares = {}
     for name, f0, f1 in CR.BEATS[2:]:
@@ -129,17 +131,23 @@ def main():
         t_end = (B.PREFIX_FRAMES + fa + fd + fc) / B.FPS + 0.5
         rows = CR.plan(P, lay, tail={"poses": tb["poses"], "record": tb["meta"]["record"], "windows": F["tail"]},
                        t_end=t_end)
-        # the prefix is shared: up to f935 the rows are the prefix's own
-        out = [r for r in pre if r["t"] < t_pre] + [r for r in rows if r["t"] >= t_pre]
-        extra = [("13 find", 936, 935 + fa), ("14 descend", 936 + fa, 935 + fa + fd),
-                 ("15 close", 936 + fa + fd, 935 + fa + fd + fc)]
-        tpan = pan_report(out, 935 + fa + fd + fc, extra=extra)
+        if a.whole:
+            # one film, one camera over the whole shot (the animatic): no seam at the prefix's end
+            out = rows
+            (SIM / "camera-prefix.json").write_text(json.dumps({"rows": rows, "measures": meas}), encoding="utf-8")
+        else:
+            # the prefix is shared: up to its end the rows are the prefix's own
+            out = [r for r in pre if r["t"] < t_pre] + [r for r in rows if r["t"] >= t_pre]
+        P0 = B.PREFIX_FRAMES
+        extra = [("13 find", P0, P0 - 1 + fa), ("14 descend", P0 + fa, P0 - 1 + fa + fd),
+                 ("15 close", P0 + fa + fd, P0 - 1 + fa + fd + fc)]
+        tpan = pan_report(out, P0 - 1 + fa + fd + fc, extra=extra)
         tpan = {k: [b for b in v if b["beat"][:2] in ("13", "14", "15")] for k, v in tpan.items()}
-        last = 935 + fa + fd + fc
+        last = P0 - 1 + fa + fd + fc
         tm = {"pan": tpan, "guide_violations": guide_met(tpan, exempt=("14 descend", "15 close")),
               "record_fills_close_end": record_fills(out, last, tb["meta"]["record"]),
               "marbles_in_frame_find": in_frame_share(out, P["lead"] + [r for r in tb["poses"]["lead"] if r[0] > t_pre],
-                                                      936, 935 + fa)}
+                                                      P0, P0 - 1 + fa)}
         (SIM / f"camera-{rec}.json").write_text(json.dumps({"rows": out, "measures": tm}), encoding="utf-8")
         print("TAIL", rec, json.dumps({k: v for k, v in tm.items() if k != "pan"}), json.dumps(tpan["24"]))
 

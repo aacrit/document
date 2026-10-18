@@ -266,7 +266,7 @@ def plan(prefix_poses, layout, tail=None, t_end=None, dt=1 / 240):
         pts.append((342.0, float(turns["U1"]["frame"])))
     if st.get("galley", {}).get("t_quad1"):
         pts.append((432.0, float(st["galley"]["t_quad1"]) * FPS))
-    pts.append((935.0, 935.0))
+    pts.append((935.0, float(B.PREFIX_FRAMES - 1)))
     pts = [p for i, p in enumerate(pts) if i == 0 or (p[0] > pts[i - 1][0] and p[1] > pts[i - 1][1])]
     xs_, ys_ = [p[0] for p in pts], [p[1] for p in pts]
 
@@ -333,20 +333,22 @@ def plan(prefix_poses, layout, tail=None, t_end=None, dt=1 / 240):
         a_, dsc, c_, d_, tour_ = tail["windows"]
         rec = tail["record"]
         end_c, fw_end = close_pose(rec)
-        f_find, f_desc, f_close = 936, 936 + a_, 936 + a_ + dsc
+        P0 = B.PREFIX_FRAMES
+        f_find, f_desc, f_close = P0, P0 + a_, P0 + a_ + dsc
         for i, f in enumerate(fr):
             if f < f_find:
                 continue
             pitch[i], fstop[i] = 89.0, 8.0
-            yaw[i] = 90.0 + (rec_yaw(rec) - 90.0) * smoothstep((f - f_desc) / dsc)
+            # the crane's head turns to read the record upright while the frame is wide (the find), not in the descent
+            yaw[i] = 90.0 + (rec_yaw(rec) - 90.0) * smoothstep((f - f_find - 12) / max(a_ - 18, 1))
             if f < f_desc:
                 phase[i] = "find"
                 D[i] = WIDE_D
-                u = smoothstep((f - (f_find + 24)) / max(a_ - 30, 1))
+                u = smoothstep((f - f_find) / max(a_ - 6, 1))
                 want[i] = np.array(TABLE_C) + (end_c - np.array(TABLE_C)) * u
             else:
                 want[i] = end_c
-                locked[i] = True
+                locked[i] = f >= f_close                    # the centre is held only once the close begins
                 phase[i] = "descend" if f < f_close else "close"
                 D[i] = WIDE_D + (fw_end / KW - WIDE_D) * smoothstep((f - f_desc) / dsc) if f < f_close else fw_end / KW
     # ---- smooth, then the pan guide, measured at the focus plane. On beats 2-3 (the exemption) the follow is capped at
@@ -363,7 +365,21 @@ def plan(prefix_poses, layout, tail=None, t_end=None, dt=1 / 240):
         # the exempt cap on the move's magnitude: each axis 1/sqrt(2) of it, so a diagonal stays within 40 px
         cap_x = (CAP_X_PX * (1 - ex) + EXEMPT_PX / 1.4142 * ex) * FPS / 1920 * fw
         cap_y = (CAP_Y_PX * (1 - ex) + EXEMPT_PX / 1.4142 * ex) * FPS / 1920 * fw
+        # the tail's find and descent: up to 20 px a frame (a review item: the guide's 11 cannot carry the wide's
+        # centre from the table's middle to the record inside the find's window)
+        tl = np.array([p_ in ("find", "descend") for p_ in phase])
+        cap_x = np.where(tl, 20.0 * FPS / 1920 * fw, cap_x)
+        cap_y = np.where(tl, 20.0 * 9 / 16 * FPS / 1080 * fh, cap_y)
         tgt = limit(smooth, ts, cap_x, cap_y, locked=locked, ease_s=ease)
+    if tail:
+        # the tail: one eased crane move from where the wide stands to the record over the find (a smoothstep: it
+        # starts and arrives at rest, peak about 15 px a frame at 3.4 m), then the centre holds through the descent
+        P0 = B.PREFIX_FRAMES
+        i0 = int(np.searchsorted(fr, P0))
+        A0 = tgt[i0].copy()
+        for i in range(i0, len(ts)):
+            u = smoothstep((fr[i] - P0) / max(tail["windows"][0], 1))
+            tgt[i] = A0 + (end_c - A0) * u
         lag = np.linalg.norm(lm - tgt, axis=1)
         need = np.where(fr > 167, lag / (0.30 * KW), 0.0)
         need = gauss(np.maximum(need, D0)[:, None], ts, 0.5)[:, 0]

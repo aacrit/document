@@ -34,13 +34,13 @@ MASS_PAIR = RHO_PAIR * 4.0 / 3.0 * math.pi * R ** 3
 
 TABLE = {"size": (2.2, 1.0), "top": 0.04, "boards": 4, "board_w": 0.25, "chamfer": 0.003, "breadboard": 0.07,
          "height": 0.75}
-FALL_DEG = 0.85                             # the one tuning knob: the floor out of level along +x, nothing shimmed
+FALL_DEG = 0.95                             # the one tuning knob: the floor out of level along +x, nothing shimmed
                                             # (founder 2026-10-18: slower, by physics: from 1.0 toward 0.8)
 FALL_RANGE = (0.8, 1.3)
 
 # rolling resistance as a ratio (MuJoCo's rolling friction is this times R), per surface (M1's coefficients)
 RR = {"oak": 0.004, "papyrus": 0.0078, "vellum": 0.0052, "parchment": 0.0050, "leaf": 0.006, "washi": 0.0070,
-      "tape": 0.0065, "card": 0.0065, "page": 0.0065, "chart": 0.0065, "felt": 0.035, "brass": 0.001, "bronze": 0.001,
+      "tape": 0.0065, "card": 0.0065, "page": 0.0065, "chart": 0.0065, "felt": 0.065, "brass": 0.001, "bronze": 0.001,
       "film": 0.006}
 
 # ------------------------------------------------------------------------------------------------ the latch
@@ -170,8 +170,10 @@ KHIPU = {"cord_r": 0.0011, "knot_r": 0.0024, "knots": 7, "span": ((0.93, 0.18), 
 QUAD = (0.000794, 0.00635, 0.01015)
 # the galley on its line (as the roll-out lays it); a loaded brass galley presses the papers under it flat: no cockle
 # within half_w of its line, fading over 3 cm (relief.py)
-GALLEY = {"from": (1.048, 0.397), "to": (1.079, 0.645), "mouth_deg_to_leg": 4.0, "on": "leaf", "mouth_widen": 0.004,
-          "press_half_w": 0.06}
+GALLEY = {"from": (1.008, 0.375), "to": (1.171, 0.565), "mouth_deg_to_leg": 0.0, "on": "leaf", "mouth_widen": 0.004,
+          "press_half_w": 0.06, "static": True}
+# option (2), pre-approved 2026-10-18: the galley stands still on the leaf beside the path (its row standing, the
+# composition kept); the coin row takes the strike; the glass pair rests in the money tray
 REEL_REG = {"r": 0.032, "h": 0.012, "hub_r": 0.006, "hub_h": 0.012, "mass": 0.012, "damp": 2.0e-6, "fric": 1.5e-6,
             "at": (1.52, 0.40)}
 REEL_FILM = {"r": 0.045, "h": 0.010, "hub_r": 0.008, "hub_h": 0.012, "mass": 0.022, "damp": 3.0e-6, "fric": 2.0e-6,
@@ -227,10 +229,15 @@ LOCKUP_FRAMES = 120
 
 
 def record_size(rec):
-    """The record's (along x, along y) size on the table: laid across, its shorter side along x."""
+    """The record's (along x, along y) size on the table and whether it lies upright (its image's width along x, read
+    with the frame's up along +y). S-130 (portrait) upright is its long side along y; S-16928 is turned so its long side
+    lies along y (ruling 2026-10-18); C20-METAR-0851 (16:9) lies upright, its width along x (it fits before the table's
+    end, and a top-down camera keeps +y up, so a turned 16:9 record could not fill the frame upright)."""
     F = FILMS[rec]
     w, h = F["width_m"], F["width_m"] * F["img"][1] / F["img"][0]
-    return (min(w, h), max(w, h)), (w < h)        # (size, upright: the image's width runs along x)
+    if rec == "S-16928":
+        return (h, w), False
+    return (w, h), True
 
 
 def felt_x0(rec):
@@ -366,7 +373,7 @@ FOLDED = {
     "chart": (2, 2, (0, 0)),
 }
 V41_SHEETS = {
-    "ino": {"centre": (1.52, 0.47), "psi": -8.0},          # 0.50 x 0.29 folded; its lifted edge and its crease stand
+    "ino": {"centre": (1.45, 0.47), "psi": 20.0},          # its centre fold (the crease) runs from the tray's rim at -70          # 0.50 x 0.29 folded; its lifted edge and its crease stand
     "page": {"centre": (1.47, 0.16), "psi": 4.0},          # under Piri Reis's corner (older over newer)
     "chart": {"centre": (1.76, 0.27), "psi": 90.0},        # 0.34 x 0.50 folded; the rolled near edge (U3)
 }
@@ -409,8 +416,8 @@ def _apply_v41():
     c, a = ino["centre"], math.radians(ino["psi"] + 90.0)
     hh = ino["size"][1] / 2 - 0.02
     ino["crease"] = {"from": (c[0] + hh * math.cos(a), c[1] + hh * math.sin(a)),
-                     "to": (c[0] - hh * math.cos(a), c[1] - hh * math.sin(a)), "depth": 0.002, "half_w": 0.025}
-    ino["edges"] = [{"edge": "+v", "crest": 0.004, "run": 0.03}]
+                     "to": (c[0] - hh * math.cos(a), c[1] - hh * math.sin(a)), "depth": 0.001, "half_w": 0.025}
+    ino["edges"] = []                                   # it lies folded and flat; no lifted edge (U2 is not forced)
     ino["cockle"] = {"amp": 0.0008, "lam": 0.15, "deg": ino["psi"] + 90.0, "through": c}
     ch = SHEETS["chart"]
     ch["edges"] = [{"edge": "-u", "crest": 0.020, "run": 0.06}]
@@ -424,3 +431,6 @@ def _apply_v41():
 
 if V41:
     _apply_v41()
+    # the physical run reaches the dark at about f420 (U2 and U3 not forced): the shared prefix ends at f480, after
+    # the brass strike, as the lead reaches the dark (f433; option A, 2026-10-18); no time is remapped
+    PREFIX_FRAMES = 432

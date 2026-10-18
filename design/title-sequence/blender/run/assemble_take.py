@@ -162,7 +162,8 @@ def assemble_stretch(a, fpsv, W, H):
     for f in range(n):
         t = f / fps
         if True:                                   # one take from f0: no black open (founder, physics only)
-            pic = Image.open(pre / f"{f:04d}.png").convert("RGB")
+            src_dir = pre if (not a.tail or f < B.PREFIX_FRAMES) else Path(a.tail)
+            pic = Image.open(src_dir / f"{f:04d}.png").convert("RGB")
             if pic.size != (W, H):
                 pic = pic.resize((W, H), Image.LANCZOS)
         img = M.watermark(pic, t, start=0.0, card_spans=[], fonts=fonts)

@@ -94,12 +94,12 @@ def build(rec: str, end_frame: int = 0):
     dur = (end_frame + 1) / B.FPS if end_frame else B.total_frames(rec) / B.FPS
     bus = FO.Bus(dur + 2.0)
     tail_ev = SIM / f"run-tail-{rec}-events.jsonl"
-    ev = E.read_jsonl(SIM / "run-events.jsonl") + (E.read_jsonl(tail_ev) if tail_ev.exists() and not end_frame else [])
+    ev = E.read_jsonl(SIM / "run-events.jsonl") + (E.read_jsonl(tail_ev) if tail_ev.exists() else [])
     ev = [e for e in ev if not end_frame or e["t_s"] * B.FPS <= end_frame]
     ev = FO.dedupe(sorted([e for e in ev if e["v_n"] >= 0.010], key=lambda e: e["t_s"]))
     bake = json.loads((SIM / "run-bake.json").read_text(encoding="utf-8"))
     tp = SIM / f"run-tail-{rec}-bake.json"
-    tail = json.loads(tp.read_text(encoding="utf-8")) if tp.exists() and not end_frame else {"meta": {}, "poses": {}}
+    tail = json.loads(tp.read_text(encoding="utf-8")) if tp.exists() else {"meta": {}, "poses": {}}
     lay = json.loads((SIM / "run-layout.json").read_text(encoding="utf-8"))
     t_pre = B.PREFIX_FRAMES / B.FPS
     poses = {n: bake["poses"][n] + [r for r in tail["poses"].get(n, []) if r[0] > t_pre] for n in ("lead", "pair1", "pair2")}

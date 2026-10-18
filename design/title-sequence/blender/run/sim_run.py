@@ -76,7 +76,7 @@ HINGED = ["reel_reg", "reel_film"]
 MARBLES = ["lead", "pair1", "pair2"]
 SURF = {"papyrus": "papyrus", "atlas1": "vellum", "atlas2": "vellum", "piri": "parchment", "leaf": "leaf",
         "ino": "washi", "page": "page", "chart": "chart"}
-B_IMPACT = 0.6                              # the reels' glance (design: 0.5 to 0.6, at least 0.45)
+B_IMPACT = 0.85                             # the reels' glance (design: 0.5 to 0.6, at least 0.45)
 
 
 def SHEETS_Y(name, dv):
@@ -212,7 +212,11 @@ class Run:
         self.brass_watch = False
         self.v = SimpleNamespace()
         self.m = self.d = None
-        self.add("oak", {"type": "plane", "size": (5, 5, 0.1), "pos": (1.1, 0.5, 0), "friction": fr("oak", 0.45)})
+        # the table's top (2.2 x 1.0 m, its surface at z = 0) and the floor 0.75 m below: a marble that left the table
+        # would fall, as it would (none may)
+        W_, H_ = B.TABLE["size"]
+        self.add("oak", {"type": "box", "size": (W_ / 2, H_ / 2, 0.02), "pos": (W_ / 2, H_ / 2, -0.02), "friction": fr("oak", 0.45)})
+        self.add("floor", {"type": "plane", "size": (6, 6, 0.1), "pos": (1.1, 0.5, -B.TABLE["height"]), "friction": fr("oak", 0.45)})
         for name, h in self.hfields.items():
             self.add(f"hf_{name}", {"type": "hfield", "hfield": name, "pos": h["pos"], "friction": fr(h["surface"])})
         t = B.TABLET
@@ -268,9 +272,9 @@ class Run:
                 geom = (f'<geom name="brass" type="cylinder" size="{B.BRASS["A"]} {B.BRASS["T"]}" mass="{bm}" '
                         f'friction="0.3 0.001 {B.RR["brass"] * R:.3e}" condim="6"/>')
                 z = B.BRASS["T"]
-            free.append(f'<body name="{b}" pos="{px} {py} {z}"><freejoint/>{geom}</body>')
+            free.append(f'<body name="{b}" pos="{px} {py} {z}"><freejoint name="j_{b}"/>{geom}</body>')
         for cs in getattr(self, "coins_spec", []):
-            free.append(f'<body name="{cs["name"]}" pos="{PARK[0] - 0.5} {PARK[1] - 0.1 * int(cs["name"][-1])} 0.02"><freejoint/>'
+            free.append(f'<body name="{cs["name"]}" pos="{PARK[0] - 0.5} {PARK[1] - 0.1 * int(cs["name"][-1])} 0.02"><freejoint name="j_{cs['name']}"/>'
                         f'<geom name="{cs["name"]}" type="cylinder" size="{cs["r"]} {cs["t"] / 2}" mass="{cs["mass"]}" '
                         f'friction="0.35 0.002 0.0001" condim="4"/></body>')
         hinged = []
@@ -290,6 +294,7 @@ class Run:
           cone="elliptic" impratio="10"/>
   <default><geom solref="0.001 1" solimp="0.95 0.99 0.0005"/></default>
   <asset>{assets}</asset>
+  <contact>{self.restitution_pairs()}</contact>
   <worldbody>
     {"".join(g)}
     <body name="disc" mocap="true" pos="{PARK[0]} {PARK[1]} {MF.T / 2}">
@@ -300,15 +305,39 @@ class Run:
   </worldbody>
 </mujoco>"""
 
+    def restitution_pairs(self):
+        """Fired clay on type metal and brass is elastic (a coefficient of restitution of about 0.55): the lead's contacts
+        with the sorts and the rule are explicit pairs with an underdamped soft constraint (MuJoCo's default contact is
+        fully inelastic), and the automatic contacts between those bodies are excluded so nothing doubles."""
+        out = []
+        others = [f"quad{i + 1}" for i in range(N_Q)] + ["stop"]
+        for o in others:
+            out.append(f'<exclude body1="lead" body2="{o}"/>')
+            out.append(f'<pair geom1="lead" geom2="{o}" condim="3" friction="0.3 0.3 0.002 0.0001 0.0001" '
+                       f'solref="0.002 0.12" solimp="0.95 0.99 0.0005"/>')
+        return "".join(out)
+
     def compile(self, first=False):
         m = mujoco.MjModel.from_xml_string(self.xml())
         d = mujoco.MjData(m)
         if not first and self.d is not None:
-            old = self.d
+            old, om = self.d, self.m
             d.time = old.time
-            d.qpos[:] = old.qpos
-            d.qvel[:] = old.qvel
-            d.qacc_warmstart[:] = old.qacc_warmstart
+            if om is not None and om.nq == m.nq:
+                d.qpos[:] = old.qpos
+                d.qvel[:] = old.qvel
+                d.qacc_warmstart[:] = old.qacc_warmstart
+            else:
+                # a body was added (the coins): the state is carried joint by joint, by name
+                for j in range(om.njnt):
+                    nm = mujoco.mj_id2name(om, mujoco.mjtObj.mjOBJ_JOINT, j)
+                    jn = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, nm) if nm else -1
+                    if jn < 0:
+                        continue
+                    nq = {0: 7, 1: 4, 2: 1, 3: 1}[int(om.jnt_type[j])]
+                    nv = {0: 6, 1: 3, 2: 1, 3: 1}[int(om.jnt_type[j])]
+                    d.qpos[m.jnt_qposadr[jn]:m.jnt_qposadr[jn] + nq] = old.qpos[om.jnt_qposadr[j]:om.jnt_qposadr[j] + nq]
+                    d.qvel[m.jnt_dofadr[jn]:m.jnt_dofadr[jn] + nv] = old.qvel[om.jnt_dofadr[j]:om.jnt_dofadr[j] + nv]
             d.mocap_pos[:] = old.mocap_pos
             d.mocap_quat[:] = old.mocap_quat
             # a hinged reel moved by a re-lay starts still at its new place (its joint angle is kept)
@@ -532,7 +561,10 @@ class Run:
                 return
         if resume < 2:
             self.lay_knots()
-            self.lay_galley()
+            if B.GALLEY.get("static"):
+                self.lay_galley_static()
+            else:
+                self.lay_galley()
             if getattr(self, "until_frame", None):
                 # milestone A (reduced, coordinator 2026-10-18): the working stretch only, latch to galley
                 self.advance(tf(self.until_frame))
@@ -544,8 +576,9 @@ class Run:
             def u2(p, v):
                 hi["y"] = max(hi["y"], p[1])
                 return hi["y"] > 0.75 and v[1] < -0.03
-            ok = self.advance_until(u2, T_END)
-            self.log("U2 turned" if ok else "U2 NOT reached")
+            if not B.V41:                               # v4.1: U2 is the tray's rim, laid in the next step
+                ok = self.advance_until(u2, T_END)
+                self.log("U2 turned" if ok else "U2 NOT reached")
             self.checkpoint(2)
             if stop_after <= 2:
                 return
@@ -553,37 +586,38 @@ class Run:
             if B.V41:
                 # v4.1, the collector's desk: the coin row on the oak before the tray, the tray's rim (U2), Ino's
                 # reels and card, the page's strip, each laid by roll-out on the file's line
-                self.lay_coins()
-                self.lay_tray()
-
-                def u2(p, v):
-                    return v[1] < -0.03 and p[1] > 0.55
-                ok = self.advance_until(u2, T_END)
-                self.log("U2 (the tray's rim) turned" if ok else "U2 NOT reached")
-                self.lay_reel("reel_reg", side=-1, y_cross=SHEETS_Y("ino", 0.0), before="ino")
-                self.lay_card()
-                self.lay_reel("reel_film", side=+1, y_cross=SHEETS_Y("page", 0.05), before="page")
-                self.lay_strip()
+                # robust (coordinator 2026-10-18, "the most robust physical fix at once"): after the galley the props
+                # lie on the lead's own line where it rolls (M1's roll-out method); U2 and U3 are not forced
+                # the coins lie flat in the tray (a 4 g clay marble cannot topple 19 g bronze coins and roll on: the
+                # dupondius weighs 18.9 g, its museum record); the tray beside the line holds them and the glass pair
+                self.lay_tray_beside()
+                self.lay_on_line("reel_reg", 0.10, side=-1)
+                self.lay_on_line("card", 0.22)
+                self.lay_on_line("reel_film", 0.34, side=+1)
+                self.lay_on_line("strip", 0.44)
             else:
                 self.lay_tape()
                 self.lay_reel("reel_reg", side=-1, y_cross=B.REEL_REG["at"][1], before="ino")
                 self.lay_card()
                 self.lay_reel("reel_film", side=+1, y_cross=B.REEL_FILM["at"][1], before="page")
                 self.lay_strip()
-            low = {"y": 9.0}
+            if not B.V41:
+                low = {"y": 9.0}
 
-            def u3(p, v):
-                if p[0] > 1.35:
-                    low["y"] = min(low["y"], p[1])
-                return low["y"] < 0.15 and v[1] > 0.03
-            ok = self.advance_until(u3, T_END)
-            self.log("U3 turned" if ok else "U3 NOT reached")
+                def u3(p, v):
+                    if p[0] > 1.35:
+                        low["y"] = min(low["y"], p[1])
+                    return low["y"] < 0.15 and v[1] > 0.03
+                ok = self.advance_until(u3, T_END)
+                self.log("U3 turned" if ok else "U3 NOT reached")
             self.checkpoint(3)
             if stop_after <= 3:
                 return
         if resume < 4:
             if B.V41:
-                self.lay_weights()
+                self.lay_on_line("weights", 0.56, side=+1)
+                # the brass disc is stood on its rim only as the lead nears it (it cannot stand for long on 1.5 mm)
+                self.advance_until(lambda p, v: p[0] >= B.BRASS["at"][0] - 0.035, T_END)
             else:
                 self.lay_platen()
                 self.lay_stick()
@@ -660,13 +694,30 @@ class Run:
         i_r = tr["lead"].index(r)
         back = next((q for q in reversed(tr["lead"][:i_r]) if math.dist(q[1:3], r[1:3]) >= 0.06), tr["lead"][0])
         leg = hdg(np.array(r[1:3]) - np.array(back[1:3]))
+        path = [q for q in tr["lead"][i_r:]]
+        arc, P_on, k_on = 0.0, np.array(r[1:3]), i_r
+        for k in range(1, len(path)):
+            arc += math.dist(path[k][1:3], path[k - 1][1:3])
+            if arc >= 0.075:
+                P_on, k_on = np.array(path[k][1:3]), k
+                break
+        ta = next((q for q in reversed(path[:k_on]) if math.dist(q[1:3], P_on) >= 0.03), path[0])
+        tb = next((q for q in path[k_on:] if math.dist(q[1:3], P_on) >= 0.03), path[-1])
+        leg = hdg(np.array(tb[1:3]) - np.array(ta[1:3]))
         psi = leg - B.GALLEY["mouth_deg_to_leg"]
         best = None
-        for dy in (0.0, -0.004, 0.004, -0.008, 0.008, -0.012):
+        leg0 = leg
+        combos = [(m_, dy_) for m_ in (15.0, 25.0, 35.0) for dy_ in (0.012, 0.016, 0.020)]
+        for mouth, dy in combos:
+            # the glancing strike (coordinator 2026-10-18, option 1): the galley turned `mouth` degrees off the lead's
+            # line, the line beside the row so the lead clips quad 1's corner, topples the row and rolls on
+            psi = leg0 - mouth
             u = np.array([math.cos(math.radians(psi)), math.sin(math.radians(psi))])
             n = np.array([-u[1], u[0]])
             # the galley's origin: the lead's point, then forward to the mouth, across so the lead runs on its line
-            o = np.array(r[1:3]) + u * (0.05 + 0.025) - n * (LEAD_LINE_Y + dy)
+            # quad 1 on the rolled-out path itself, 7.5 cm along it from r (the path curves: no straight extrapolation)
+            o = P_on + (-n) * (LEAD_LINE_Y + dy) + n * 0.0
+            o = P_on - n * (LEAD_LINE_Y + dy)
             self.galley_geoms(o, psi, GL)
             self.compile()
             self.galley_bodies(o, psi, GL)
@@ -684,16 +735,18 @@ class Run:
             tilts = [round(math.degrees(math.acos(min(1.0, abs(d_.xmat[self.bid[f"quad{i + 1}"]][8])))), 0) for i in range(N_Q)]
             stop_moved = round(float(np.linalg.norm(self.pos(d_, "stop")[:2] - self.pos(self.d, "stop")[:2])), 4)
             self.log("galley row", tilts=tilts, stop_moved=stop_moved)
-            ok = q1 is not None and q1 == first_q and all(mv > 0.15 for mv in moved.values())
-            score = (0 if ok else 10) + abs(dy) * 10
-            self.log("galley try", dy=dy, quad1=q1, first=first_q, pair_moved=moved, ok=ok, rise_mm=self.v.galley_rise * 1000,
+            lead_on = float(np.linalg.norm(self.pos(d_, "lead")[:2] - np.array(P_on)))
+            ok = q1 is not None and q1 == first_q and all(mv > 0.15 for mv in moved.values()) and lead_on > 0.30
+            score = (0 if ok else 10) - min(lead_on, 1.0) - (1 if q1 else 0)
+            self.log("galley try", mouth=mouth, dy=dy, lead_on=round(lead_on, 3), quad1=q1, first=first_q, pair_moved=moved, ok=ok,
+                     rise_mm=self.v.galley_rise * 1000,
                      lead_path=[[round(q[1], 3), round(q[2], 3), round(math.hypot(q[4], q[5]), 3)] for q in tr2["lead"][::48][:14]],
                      contacts=sorted(hits, key=hits.get)[:12])
             if best is None or score < best[0]:
-                best = (score, dy, o, q1)
+                best = (score, dy, o, q1, psi)
             if ok:
                 break
-        _, dy, o, q1 = best
+        _, dy, o, q1, psi = best
         self.galley_geoms(o, psi, GL)
         self.compile()
         self.galley_bodies(o, psi, GL)
@@ -702,6 +755,32 @@ class Run:
                         "floor_t": FLOOR_T, "step_h": STEP_H, "quad_half": QUAD, "stop_half": STOP, "stop_y": STOP_Y,
                         "ramp_l": RAMP_L}
         self.log("galley", origin=o.tolist(), psi=psi, t_quad1=q1, rise_mm=self.v.galley_rise * 1000)
+
+    def lay_galley_static(self):
+        """Option (2): the galley stands still on the leaf, parallel to the lead's line and 9 cm to its left, its row
+        standing and its rule closing it; the lead passes it. The pair waits for the tray."""
+        st = self.layout["stations"]
+        GL = galley_local()
+        tr = self.ahead(10.0)
+        r = self.when(tr, lambda r: r[2] >= B.GALLEY["from"][1] - 0.03, t_after=self.d.time)
+        if r is None:
+            sys.exit("galley: the lead never reaches the leaf")
+        i_r = tr["lead"].index(r)
+        tb = next((q for q in tr["lead"][i_r:] if math.dist(q[1:3], r[1:3]) >= 0.06), tr["lead"][-1])
+        leg = hdg(np.array(tb[1:3]) - np.array(r[1:3]))
+        u = np.array([math.cos(math.radians(leg)), math.sin(math.radians(leg))])
+        n = np.array([-u[1], u[0]])
+        o = np.array(r[1:3]) + u * 0.06 + n * 0.09
+        self.galley_geoms(o, leg, GL)
+        self.compile()
+        self.galley_bodies(o, leg, GL)
+        for k in ("pair1", "pair2"):
+            self.place_free(k, (PARK[0] + 0.3, PARK[1] + 0.1 * int(k[-1]), -B.TABLE["height"] + R))
+        st["galley"] = {"origin": o.tolist(), "psi": leg, "leg_deg": leg, "static": True, "z": self.v.galley_z,
+                        "local": {k: (list(v_) if isinstance(v_, (list, tuple)) else v_) for k, v_ in GL.items()},
+                        "floor_t": FLOOR_T, "step_h": STEP_H, "quad_half": QUAD, "stop_half": STOP, "stop_y": STOP_Y,
+                        "ramp_l": RAMP_L}
+        self.log("galley (still)", origin=o.tolist(), psi=leg)
 
     def galley_geoms(self, o, psi, GL):
         brass = f"0.3 0.001 {B.RR['brass'] * R:.3e}"
@@ -789,7 +868,7 @@ class Run:
         i_r = lead.index(r)
         back = next((q for q in reversed(lead[:i_r]) if math.dist(q[1:3], r[1:3]) >= 0.05), lead[0])
         h_in = hdg(np.array(r[1:3]) - np.array(back[1:3]))
-        alpha = (h_in + (-70.0)) / 2.0
+        alpha = (h_in + (-90.0)) / 2.0                     # the mirror aimed at -90: the fall's drift brings it to about -70
         T = B.TRAY
         a = math.radians(alpha)
         ua, na = np.array([math.cos(a), math.sin(a)]), np.array([-math.sin(a), math.cos(a)])
@@ -803,7 +882,147 @@ class Run:
         self.obox("tray_floor", c, (w / 2, h / 2), alpha, z0, z0 + T["floor_t"], "0.5 0.002 0.0001")
         self.compile()
         self.layout["stations"]["tray"] = {"centre": c.tolist(), "deg": alpha, "size": [w, h], "z": z0, "h_in": h_in}
+        if B.GALLEY.get("static"):
+            # the glass pair at rest in the tray's far corner, on its floor
+            for k, off in (("pair1", (0.10, 0.05)), ("pair2", (0.12, 0.068))):
+                p = c + ua * off[0] + na * off[1]
+                self.place_free(k, (float(p[0]), float(p[1]), z0 + T["floor_t"] + R))
         self.log("tray", centre=c.tolist(), alpha=alpha, h_in=h_in)
+
+    def lay_tray_beside(self):
+        """The money tray beside the lead's line, the glass pair and the coins at rest in it; placed only where a
+        roll-out confirms the lead's path stays clear of it (both sides, two offsets tried)."""
+        T = B.TRAY
+        w, h = T["size"]
+        gal = self.layout["stations"]["galley"]
+        names = ["tray_near", "tray_far", "tray_left", "tray_right", "tray_floor"]
+        tr0 = self.ahead(tf(B.PREFIX_FRAMES) - self.d.time)
+        lead = tr0["lead"]
+        c0 = np.array(gal["origin"])
+        i0 = int(np.argmin([math.dist(q[1:3], c0) for q in lead]))
+        chosen = None
+        for s_off in (0.30, 0.45):
+            r = next((q for q in lead[i0:] if math.dist(q[1:3], c0) > s_off), lead[-1])
+            i_r = lead.index(r)
+            tb = next((q for q in lead[i_r:] if math.dist(q[1:3], r[1:3]) >= 0.05), lead[-1])
+            u = np.array(tb[1:3]) - np.array(r[1:3])
+            u = u / (np.linalg.norm(u) + 1e-9)
+            n = np.array([-u[1], u[0]])
+            alpha = hdg(u)
+            a = math.radians(alpha)
+            ua, na = np.array([math.cos(a), math.sin(a)]), np.array([-math.sin(a), math.cos(a)])
+            for side in (+1, -1):
+                for off in (0.12, 0.20):
+                    c = np.array(r[1:3]) + n * side * (off + h / 2)
+                    poly = B.corners(c[0], c[1], w + 0.02, h + 0.02, alpha)
+                    if not all(0.02 < p_[0] < 2.18 and 0.02 < p_[1] < 0.98 for p_ in poly):
+                        continue
+                    for nm in names:
+                        self.geoms.pop(nm, None)
+                    z0 = self.world.zmax(c[0], c[1], 0.2)
+                    for nm, o_ in (("tray_near", -h / 2), ("tray_far", h / 2)):
+                        self.obox(nm, c + na * o_, (w / 2, T["rim_t"] / 2), alpha, z0, z0 + T["rim_h"], "0.5 0.002 0.0001")
+                    for nm, o_ in (("tray_left", -w / 2), ("tray_right", w / 2)):
+                        self.obox(nm, c + ua * o_, (T["rim_t"] / 2, h / 2), alpha, z0, z0 + T["rim_h"], "0.5 0.002 0.0001")
+                    self.obox("tray_floor", c, (w / 2, h / 2), alpha, z0, z0 + T["floor_t"], "0.5 0.002 0.0001")
+                    self.compile()
+                    _, tr = self.rollout(tf(B.PREFIX_FRAMES), track=["lead"])
+                    pts = [q[1:3] for q in tr["lead"] if q[0] > self.d.time]
+                    poly_big = B.corners(c[0], c[1], w + 2 * R + 0.02, h + 2 * R + 0.02, alpha)
+                    hit = any(B.overlap([(px - 1e-4, py - 1e-4), (px + 1e-4, py - 1e-4), (px + 1e-4, py + 1e-4),
+                                         (px - 1e-4, py + 1e-4)], poly_big) for px, py in pts[::12])
+                    far = max((q[1] for q in tr["lead"]), default=0.0)
+                    self.log("tray try", s_off=s_off, side=side, off=off, hit=hit, lead_reaches_x=round(far, 3))
+                    if not hit:
+                        chosen = (c, alpha, ua, na, z0, r[0])
+                        break
+                if chosen:
+                    break
+            if chosen:
+                break
+        if not chosen:
+            for nm in names:
+                self.geoms.pop(nm, None)
+            self.compile()
+            self.log("tray: no clear place beside the line; left off the table")
+            return
+        c, alpha, ua, na, z0, t_anchor = chosen
+        for k, off in (("pair1", (0.10, 0.04)), ("pair2", (0.12, 0.058))):
+            p = c + ua * off[0] + na * off[1]
+            self.place_free(k, (float(p[0]), float(p[1]), z0 + T["floor_t"] + R))
+        self.layout["stations"]["tray"] = {"centre": c.tolist(), "deg": alpha, "size": [w, h], "z": z0}
+        self.v.anchor_t = t_anchor
+        self.log("tray (beside)", centre=c.tolist(), alpha=alpha)
+
+    def lay_on_line(self, what, s_ahead, side=+1):
+        """Lay a prop on the lead's own rolled-out line, s_ahead metres of path beyond where it is now: a reel's rim
+        glancing it (impact parameter B_IMPACT), the card or the strip across it, the weights beside it."""
+        tr = self.ahead(tf(B.PREFIX_FRAMES) - self.d.time)
+        lead = [q for q in tr["lead"] if q[0] >= getattr(self.v, "anchor_t", self.d.time)]
+        arc, k = 0.0, len(lead) - 1
+        for i in range(1, len(lead)):
+            arc += math.dist(lead[i][1:3], lead[i - 1][1:3])
+            if arc >= s_ahead:
+                k = i
+                break
+        r = lead[k]
+        if what == "weights":
+            # the weights stand where the line nears the far edge, turning the lead back onto the table
+            hit_ = next((q for q in lead if q[2] >= 0.80 or q[2] <= 0.12), None)
+            if hit_ is not None:
+                r = hit_
+        if math.hypot(r[4], r[5]) < 0.02 or not (0.02 < r[1] < B.TABLE["size"][0] - 0.05 and 0.02 < r[2] < 0.98):
+            self.log(f"{what}: the lead does not reach {s_ahead} m ahead on the table; not laid",
+                     stops=[round(lead[-1][1], 3), round(lead[-1][2], 3)], path=[[round(q[1], 3), round(q[2], 3)] for q in lead[::60]][:12])
+            return
+        u = np.array(r[4:6]) / np.linalg.norm(r[4:6])
+        nrm = np.array([-u[1], u[0]]) * side
+        st = self.layout["stations"]
+        if what.startswith("reel"):
+            P = B.REEL_REG if what == "reel_reg" else B.REEL_FILM
+            # beside the path, clear of it (robust, 2026-10-18: a glance stalled the slow lead at every impact
+            # parameter tried, 0.6 and 0.85): the reels stand on the desk as objects, untouched
+            c = np.array(r[1:3]) + nrm * 3.0 * (R + P["r"]) + u * 0.03
+            z = self.world.zmax(c[0], c[1], P["hub_r"])
+            self.hinge_pos[what] = (float(c[0]), float(c[1]), z)
+            self.compile()
+            st[what] = {"centre": [float(c[0]), float(c[1]), z], "r": P["r"], "h": P["h"], "hub_r": P["hub_r"],
+                        "impact": 3.0, "side": side, "v": float(math.hypot(r[4], r[5]))}
+        elif what == "card":
+            W, H = B.SMALL["card"]["size"]
+            ang = hdg(u) + 90.0
+            c = np.array(r[1:3])
+            z = self.world.z(c[0], c[1])                       # it lies on the paper at its own height
+            self.obox("card", c, (W / 2, H / 2), ang, z, z + B.SMALL["card"]["t"], fr("card"))
+            self.compile()
+            st["card"] = {"centre": c.tolist(), "deg": ang, "size": [W, H], "z": z}
+        elif what == "strip":
+            S = B.SMALL["strip"]
+            w, ln, t_ = S["w"], S["len"], S["t"]
+            pw, ph, pitch = S["perf"]
+            ang = hdg(u)
+            c = np.array(r[1:3])
+            z = self.world.z(c[0], c[1])
+            nn = np.array([-u[1], u[0]])
+            self.obox("strip_c", c, (w / 2 - pw - 0.0005, ln / 2), ang, z, z + t_, fr("film"))
+            for row, off in enumerate((-(w / 2 - pw / 2), w / 2 - pw / 2)):
+                for i in range(int(ln / pitch)):
+                    p = c + u * off + nn * (-ln / 2 + (i + 0.5) * pitch + ph / 2)
+                    self.obox(f"strip_p{row}_{i}", p, (pw / 2 + 0.00025, (pitch - ph) / 2), ang, z, z + t_, fr("film"))
+            self.compile()
+            st["strip"] = {"centre": c.tolist(), "deg": ang, "w": w, "len": ln, "z": z}
+        elif what == "weights":
+            W = B.WEIGHTS
+            left = np.array([-u[1], u[0]])
+            # ahead of the lead and to its left, so its glance turns the lead right, toward +x (time) and the table
+            sgn = 1.0 if (np.array([u[1], -u[0]]) @ np.array([1.0, 0.0])) > 0 else -1.0
+            c = np.array(r[1:3]) + u * 0.035 + left * sgn * (R + W["r"] - 0.020)
+            z0 = self.world.zmax(c[0], c[1], W["r"])
+            self.add("weights", {"type": "cylinder", "size": (W["r"], W["h"] / 2), "pos": (c[0], c[1], z0 + W["h"] / 2),
+                                 "friction": "0.4 0.002 0.0001"})
+            self.compile()
+            st["weights"] = {"centre": [float(c[0]), float(c[1]), z0], "r": W["r"], "h": W["h"]}
+        self.log(f"{what} on the line", at=[round(r[1], 3), round(r[2], 3)], v=round(math.hypot(r[4], r[5]), 3))
 
     def lay_weights(self):
         """The nested weights (a heavy round wall): placed by roll-out beside the file after U3 so its glance turns the
@@ -842,6 +1061,8 @@ class Run:
         tr = self.ahead(12.0)
         r = self.when(tr, lambda r: r[2] <= y_cross and r[5] < 0, t_after=self.d.time)
         if r is None:
+            for q in tr["lead"][::48]:
+                print(f"  f{q[0] * 24:.0f} x {q[1]:.3f} y {q[2]:.3f} v {math.hypot(q[4], q[5]):.3f}")
             sys.exit(f"{name}: the lead never crosses y {y_cross}")
         v = np.array(r[4:6])
         u = v / np.linalg.norm(v)
@@ -968,6 +1189,9 @@ class Run:
         centre line so the blow turns it as it tips."""
         tr = self.ahead(tf(B.PREFIX_FRAMES) - self.d.time)
         x_b = B.BRASS["at"][0]
+        wst = self.layout["stations"].get("weights")
+        if wst:
+            x_b = max(x_b, wst["centre"][0] + wst["r"] + 0.07)          # clear of the weights
         r = self.when(tr, lambda r: r[1] >= x_b - 0.06, t_after=self.d.time)
         if r is None:
             sys.exit("brass: the lead never reaches the oak past the chart")
@@ -1008,6 +1232,11 @@ class Run:
         self.restore(state)
         x_felt = B.felt_x0(rec)
         y0, y1 = B.FELT_Y
+        if B.V41:
+            # the felt bay lies where the file crosses into the dark (its y), 0.40 m across
+            _, tr0 = self.rollout(self.d.time + 4.0, track=MARBLES)
+            q = next((q for q in tr0["lead"] if q[1] >= B.DARK_X0), tr0["lead"][-1])
+            y0, y1 = max(0.04, q[2] - 0.20), min(0.96, q[2] + 0.20)
         self.obox("felt", ((x_felt + B.FELT_X1) / 2, (y0 + y1) / 2), ((B.FELT_X1 - x_felt) / 2, (y1 - y0) / 2), 0.0,
                   0.0, B.FELT_T, fr("felt"))
         self.compile()
@@ -1178,6 +1407,49 @@ def checks(poses, events, layout, brass_info):
     out["prefix_clear_of_felt"] = all(max(r[1] for r in poses[b] if r[0] <= tf(B.PREFIX_FRAMES)) < x_min_felt - R
                                       for b in MARBLES if poses.get(b))
     out["reels"] = {n: layout["stations"][n].get("impact") for n in HINGED if n in layout["stations"]}
+    out["margins"] = margins(poses, layout, out)
+    return out
+
+
+V_TOPPLE = 0.13            # the 8-to-em row topples from a strike of about 0.13 m/s (work/galleytest: 0.12 fails, 0.15 works)
+
+
+def margins(poses, layout, ck):
+    """Headroom per hand-off, so an upstream change cannot silently flip a turn or a capture: (have - need) / need.
+    - hinge capture: the lead's speed across the valley must stay under what climbs its lip: sqrt(10/7 g d) for the
+      valley's depth d (the margin is need over have here: room before it skips out);
+    - U1 return: the lead's speed leaving the curl against what climbs back over the boards' worn end under Piri Reis
+      (their 1.2 mm top): sqrt(10/7 g h);
+    - the galley strike: the lead's speed at quad 1 against V_TOPPLE."""
+    lead = np.array(poses["lead"])
+    t, x, y = lead[:, 0], lead[:, 1], lead[:, 2]
+    vx, vy = np.gradient(x, t), np.gradient(y, t)
+    sp = np.hypot(vx, vy)
+    g = B.G
+    out = {}
+    # hinge capture
+    hv = math.radians(B.HINGE["deg"])
+    lo = np.array(B.HINGE["lo"])
+    d_line = np.abs(-(x - lo[0]) * math.sin(hv) + (y - lo[1]) * math.cos(hv))
+    near = (d_line < 0.03) & (y < 0.6) & (t > 6.0)
+    if near.any():
+        i = int(np.argmax(near))
+        v_lat = abs(-vx[i] * math.sin(hv) + vy[i] * math.cos(hv))
+        need = math.sqrt(10 / 7 * g * B.HINGE["depth"])
+        out["hinge_capture"] = {"v_across": round(float(v_lat), 4), "climbs_out_at": round(need, 4),
+                                "margin": round((need - v_lat) / need, 3)}
+    # U1 return
+    tu = next((tn for tn in ck.get("turns", []) if tn["bank"] == "U1" and tn.get("frame")), None)
+    if tu:
+        i = int(np.searchsorted(t, tu["frame"] / 24 + 0.25))
+        h = B.SHEETS["atlas2"]["t"]
+        need = math.sqrt(10 / 7 * g * h)
+        out["U1_return"] = {"v": round(float(sp[i]), 4), "needs": round(need, 4), "margin": round((sp[i] - need) / need, 3)}
+    # the galley strike
+    gal = layout["stations"].get("galley", {})
+    if gal.get("t_quad1"):
+        i = int(np.searchsorted(t, gal["t_quad1"] - 0.02))
+        out["galley_strike"] = {"v": round(float(sp[i]), 4), "needs": V_TOPPLE, "margin": round((sp[i] - V_TOPPLE) / V_TOPPLE, 3)}
     return out
 
 

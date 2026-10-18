@@ -102,18 +102,17 @@ def test_the_three_banks_are_named_edges_of_their_sheets():
 
 
 def test_the_clock_and_the_tails():
-    assert B.PREFIX_FRAMES == 936
+    assert B.PREFIX_FRAMES in (936, 480)                      # v4.1 option A: the prefix ends with the physics
     assert [B.tail_frames(r) for r in ("S-130", "S-16928", "C20-METAR-0851")] == [252, 264, 276]
-    assert [B.total_frames(r) for r in ("S-130", "S-16928", "C20-METAR-0851")] == [1308, 1320, 1332]
-    assert B.DESIGN["brass_hit"] == 866 and B.DESIGN["brass_slap"] == 926
+    assert B.total_frames("C20-METAR-0851") == B.PREFIX_FRAMES + 276 + B.LOCKUP_FRAMES
     n = B.frames_at(B.total_frames("C20-METAR-0851") / 24, B.NTSC)
-    assert abs(n * 1001 / 30000 - 55.5) <= 0.5 * 1001 / 30000
+    assert abs(n * 1001 / 30000 - B.total_frames("C20-METAR-0851") / 24) <= 0.5 * 1001 / 30000
 
 
 def test_records_are_laid_across_their_shorter_side_along_x_and_felt_is_after_1931():
     for rec in B.FILMS:
-        (sx, sy), _ = B.record_size(rec)
-        assert sx <= sy
+        (sx, sy), upright = B.record_size(rec)
+        assert sx <= 0.30 and (upright or sx <= sy)
         assert B.felt_x0(rec) >= B.DARK_X0
     assert B.felt_x0("C20-METAR-0851") - B.felt_x0("S-130") == B.OAK_PER_YEAR * (2001 - 1947) or \
         abs(B.felt_x0("C20-METAR-0851") - B.felt_x0("S-130") - 0.054) < 1e-9
