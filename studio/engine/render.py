@@ -84,6 +84,7 @@ from studio.engine import policy as POL
 from studio.engine import score as SC
 from studio.engine import titles as TS
 from studio.engine import tour as T
+from studio.engine import moves as MV
 from studio.engine import tourlint as TL
 from studio.engine import vision as VIS
 from studio.engine import voicing as VO
@@ -251,7 +252,7 @@ PRESET_ZMAX = {"HOLD": 1.0, "PUSH": 1.12, "PULL": 1.12, "DRIFT": 1.15, "TILT": 1
 FILL = "FILL"
 TOUR = "TOUR"                       # A41: a still's camera is a path of stops (studio/engine/tour.py)
 COVERABLE = ("HOLD", "PUSH", "PULL", "DRIFT", "TILT", "DETAIL", "FILL", "DEFAULT",
-            *T.RICH_MACROS)          # A41: not authored paths; ticket #10's READ, PORTRAIT, SURVEY (A54) too
+            *T.RICH_MACROS, *MV.MOVES)   # A41: not authored paths; A54's macros and the chooser's moves too
 FILL_MAX_UPSCALE = 1.6
 FILL_ASPECT_TOL = 0.01              # narrower than 16:9 by more than 1% (a 1.77 transfer is 16:9)
 FILL_SAFE = (0.04, 0.05, 0.96, 0.75)   # the focus at the end framing: inside the marks' insets, above the lower thirds
@@ -271,7 +272,7 @@ LT_SUFFIXES = ("  ·  read by a computer voice", "  ·  original recording")
 EM_DASH = "—"
 
 _HERE = Path(__file__).resolve().parent
-ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py", "score.py", "overlays.py", "georef.py", "clips.py", "voicing.py", "titles.py", "tour.py", "bracket.py"))).hexdigest()[:12]
+ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py", "score.py", "overlays.py", "georef.py", "clips.py", "voicing.py", "titles.py", "tour.py", "bracket.py", "moves.py"))).hexdigest()[:12]
 ENGINE_MODEL = {"name": "studio.engine.render", "version": f"{ENGINE_VERSION}+{ENGINE_HASH}"}
 
 
@@ -863,6 +864,9 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
     roi_by_name = {p["name"]: dict(p["entry"], kind="person") for p in persons
                    if p["src"] == "people" and p["name"] is not None}
     roi_by_name.update({r.get("name"): r for r in roi})
+    # A54 (founder ruling 2026-10-18): the face cap lifted to the DETAIL limit for one bound or public-role person
+    persons, face_detail = T.lift_face_caps(item, persons, img_size, aspect, zcap,
+                                            no_zoom=shot.get("no_zoom") is True)
     zmax = max(1.0, zcap)
     if shot.get("face"):
         zmax = min(zmax, 1.3)                 # 7.2: a face is never pushed past z 1.3, creep included
@@ -873,20 +877,77 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
     no_zoom = shot.get("no_zoom") is True
     subject = None
 
-    def subject_pass(*, whole: bool = False, focus=None):
-        """A47: the default pass, ending on the subject."""
+    def subject_pass(*, whole: bool = False, focus=None, detail: bool = False, roi_=None):
+        """A47: the default pass, ending on the subject (A54 EXPLAIN: ``detail``, a real DETAIL end)."""
         nonlocal subject
         need = whole or T.people_of(item, kind=shot.get("kind", "archive_still"))["unlocated"] > 0
         # a ledger's own whole: true is a declaration (doctrine 1); the rulebook's is its fallback (A45)
         declared = item.get("whole") is True and "whole" not in ((shot.get("_vision") or {}).get("from_rulebook")
                                                                 or [])
-        st, subject = T.subject_plan(shot, item, roi, persons, words or [], img_size, aspect, dur, t0, zmax,
-                                     need_whole=need, focus=focus, match_screen=shot.get("_match_screen"),
-                                     declared_whole=declared, hold_on=hold_on, hz=fps or FPS, avoid=avoid)
+        st, subject = T.subject_plan(shot, item, roi if roi_ is None else roi_, persons, words or [], img_size,
+                                     aspect, dur, t0, zmax, need_whole=need, focus=focus,
+                                     match_screen=shot.get("_match_screen"), declared_whole=declared,
+                                     hold_on=hold_on, hz=fps or FPS, avoid=avoid, detail=detail)
         return st
+
+    def draw_move(move: dict):
+        """A54: the chooser's move (``moves.choose_film``) as stops; None when the still lacks what it needs
+        (the caller takes the A47 pass, journaled)."""
+        mv, var = move["move"], move.get("variant")
+        declared = item.get("whole") is True and "whole" not in ((shot.get("_vision") or {}).get("from_rulebook")
+                                                                  or [])
+        record = T.is_record(item)
+        target = next((r for r in roi if r.get("name") == move.get("target")), None) if move.get("target") else None
+        subj = T.resolve_subject(roi, shot.get("focus"), declared_whole=declared)
+        if target is not None:
+            subj = {"src": "subject", "box": T.roi_box(target), "kind": target.get("kind"), "facing": None,
+                    "name": target.get("name")}
+        if subj.get("box") is None and persons:
+            big = max(persons, key=lambda q: T._area(q["box"]))             # a crowd's front figure or group
+            subj = {"src": "subject", "box": big["box"], "kind": "group", "facing": None, "name": big.get("name")}
+        facing = T.subject_facing(subj, persons)
+        zl = max(1.0, zmax)
+        if subj.get("kind") in T.PERSON_KINDS or subj.get("kind") == "group":
+            zl = min(zl, T.face_cap_of(persons))
+        if mv == "WHOLE":
+            return subject_pass(), "DEFAULT", None
+        if mv == "EXPLAIN":
+            roi_ = None
+            if target is not None:
+                roi_ = [r for r in roi if r.get("name") != "subject"] + [dict(target, name="subject")]
+            return subject_pass(detail=True, roi_=roi_), "EXPLAIN", None
+        if mv == "REVEAL":
+            st, why = T.reveal_stops(subj, img_size, aspect, dur, zl, record=record, facing=facing, avoid=avoid)
+            return st, "REVEAL", why
+        if mv == "PAN":
+            zc = T.field_const_z(img_size, aspect, zcap)
+            if persons:
+                zc = min(zc, T.face_cap_of(persons))
+            arrive = None
+            if subj.get("box") is not None:
+                arrive, _, _ = T.subject_arrival(shot, item, subj, persons, words or [], t0, dur, T.settle_for(subj))
+            st, why = T.pan_stops(subj, img_size, aspect, dur, zc, record=record, near=var == "near",
+                                  facing=facing, arrive=arrive)
+            return st, "PAN", why
+        if mv in T.RICH_MACROS:
+            sh = dict(shot, roi=target.get("name")) if (mv == "READ" and target is not None) else shot
+            st, why = T.rich_macro_stops(mv, sh, item, roi, persons, words or [], dur, img_size, aspect, zmax,
+                                         variant=var)
+            return st, mv, why
+        return None, mv, f"unknown move {mv!r}"
     if camera is not None and shot.get("preset") is not None:
         problems.append("a shot takes a camera path or a preset, not both")
-    if camera is not None:
+    move = shot.get("_move")
+    if move is not None and camera is None and preset in (TOUR, "HOLD"):
+        stops, macro, why = draw_move(move)
+        if stops is None:
+            shot["_move_why"] = {"move": move["move"], "reason": why}
+            stops, macro = subject_pass(detail=move.get("end") == "detail"), "DEFAULT"
+        if no_zoom:
+            z0 = stops[0]["z"]
+            for st in stops:                  # no_zoom's truth: one scale, whatever the move
+                st["z"] = z0 if macro == "PAN" else 1.0
+    elif camera is not None:
         if camera == "tour" or (isinstance(camera, dict) and "tour" in camera):
             only = camera.get("tour") if isinstance(camera, dict) else None
             stops = T.tour_stops(roi, words or [], t0, dur, img_size, aspect, zmax, only=only)
@@ -975,8 +1036,35 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
             "covering": covering, "cover": (("whole" if cover is True else cover) if covering else None),
             "capped": any(st.get("capped") for st in stops), "subject": subject, "settle_kinds": settle_kinds,
             "rich_macro_why": shot.get("_rich_macro_why"),   # ticket #10 (A54): None unless a rich macro fell back
+            "move": shot.get("_move"), "move_why": shot.get("_move_why"), "face_detail": face_detail,
             "cine": {"persons": persons, "regions": roi_by_name, "ignored": eff["ignored"], "reframed": reframed,
                      "pulled": pulled, "merged": merged}}
+
+
+def choose_moves(journal: Journal | None, shots: list[dict]) -> list[dict | None]:
+    """A54 (the move chooser): every still the screenplay leaves to the engine gets its move from its own
+    sidecar and ledger (``moves.choose_film``: the grammar table, then the variety rule, film-wide in shot
+    order, deterministic), stored on the shot (``_move``) for ``still_camera`` to draw. Each choice is
+    journaled with its reason."""
+    stills = [s for s in shots if s["kind"] in ("archive_still", "drawn") and s.get("_item", {}).get("_path")]
+    rows = []
+    for s in stills:
+        with Image.open(s["_item"]["_path"]) as im:
+            size = im.size
+        rows.append({"id": s["id"], "chapter": s.get("_part"), "shot": s, "item": s.get("_item") or {}, "size": size})
+    choices = MV.choose_film(rows)
+    for s, m in zip(stills, choices):
+        s.pop("_move", None)
+        s.pop("_move_why", None)
+        if m is None:
+            continue
+        s["_move"] = m
+        if journal is not None:
+            journal.decision("motion", f"{s['id']}: {m['move']}{'/' + m['variant'] if m.get('variant') else ''}",
+                             m["why"] + (f"; variety: {m['variety']} (was {m['was']})" if m.get("variety") else ""),
+                             unit=s["id"], evidence={k: m.get(k) for k in ("move", "variant", "end", "direction",
+                                                                           "authored", "variety", "was", "target")})
+    return choices
 
 
 def degenerate_merge(stops: list[dict], shot: dict, item: dict, dur: float, size, aspect: float, zmax: float, *,
@@ -1049,7 +1137,7 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
 
     def missed_must_show(c, w):
         # A47: the engine's own pass (the default, or a cover) never leaves a must_show region unseen
-        return T.must_show(w, item, size) if c.get("subject") is not None else []
+        return T.must_show(w, item, size) if (c.get("subject") is not None or c.get("macro") in MV.MOVES) else []
     # A45: a region the rulebook found (source: auto) does not make a preset or the default the author's path; only a
     # person's region or must_show does
     roi = item.get("roi")
@@ -1059,7 +1147,10 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
     # HOLD, the preset that only says "stay", takes the A47 subject pass; only a written camera path or a deliberate
     # move preset (PUSH, PULL, DRIFT, TILT, DETAIL, FILL) stays the author's
     leads = macro == "HOLD" and has_subject_region(item)
-    authored = (bool(human_roi or item.get("must_show")) and not leads) or macro in ("TOUR", "DEFAULT")
+    # A54: the chooser's move is the engine's deliberate choice, like the default pass: guarded, never swapped
+    # for showing less than the whole picture
+    authored = ((bool(human_roi or item.get("must_show")) and not leads) or macro in ("TOUR", "DEFAULT")
+                or (macro in MV.MOVES or macro in T.RICH_MACROS) and s.get("_move") is not None)
     if item.get("whole") is True and macro != "DEFAULT" and macro != "TOUR" and pc["ok"]:
         # A47 and A48: a still the ledger declares whole holds at the fill, its breath a drift (aimed at what
         # must be seen), never a preset's push, whoever named its regions
@@ -1688,9 +1779,12 @@ def cine_lints(lint, journal: Journal, s: dict, cam: dict, fps: float = FPS) -> 
     bad = T.face_cap_check(tl, cine["persons"], hz=fps)       # every frame at the master rate (A44), and the stops
     lint("face-cap-live", not bad, unit=s["id"], stage="motion", grammar="7.2, A43",
          evidence={"face_zmax": M.CINE["face_zmax"], "people": [p["name"] for p in cine["persons"]],
+                   "caps": {str(p["name"]): round(p.get("cap", M.CINE["face_zmax"]), 4) for p in cine["persons"]},
+                   "face_detail": cam.get("face_detail"),
                    "over": bad[:5], "fix": None if not bad else
-                   "a face or a person is never pushed past z 1.3: pull the stop back (leave z out and the engine "
-                   "caps it), or frame what is beside them"})
+                   "a face or a person is never pushed past its cap (z 1.3; A54's DETAIL limit for one person the "
+                   "caption binds or the item's own text names in a public role): pull the stop back (leave z out "
+                   "and the engine caps it), or frame what is beside them"})
     ident = T.anchor_identity_check(tl, s.get("_item") or {}, cine["regions"], cine["persons"])
     lint("anchor-identity", not ident, unit=s["id"], stage="motion", grammar="A41, A43",
          evidence={"stops": ident, "fix": None if not ident else (
@@ -2777,6 +2871,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     # source the on-screen-text pass below reads), so the camera can steer a must_show region clear of one while
     # it is up, and subject-under-text can block what steering could not clear
     zone_timeline = text_zone_timeline(play, texts)
+    choose_moves(journal, shots)          # A54: the move chooser, film-wide in shot order, before any camera
     for si, s in enumerate(shots):
         if s["kind"] in ("archive_still", "drawn") and s.get("_item", {}).get("_path"):
             if s["kind"] == "drawn" and s.get("camera") is None:

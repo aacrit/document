@@ -84,8 +84,8 @@ def test_a_long_hold_keeps_creeping_and_a_short_one_may_rest():
     assert fs[-1]["z"] / fs[0]["z"] == pytest.approx(1 + M.TOUR["creep_scale_per_s"] * 6.0, rel=1e-6)
     tl = T.build([{"t": 0.0, "z": 1.0, "x": 0.5, "y": 0.5}], 1.2, (1920, 1080), A, 2.0)
     assert [g["kind"] for g in tl["segments"]] == ["creep"]              # A54: a still's own edges always creep
-    tl = T.build([{"t": 0.0, "z": 1.0, "x": 0.3, "y": 0.5}, {"t": 2.0, "z": 1.0, "x": 0.5, "y": 0.5, "hold": 1.2},
-                  {"t": 4.0, "z": 1.0, "x": 0.7, "y": 0.5}], 6.0, LANDSCAPE43, A, 2.0)
+    tl = T.build([{"t": 0.0, "z": 1.3, "x": 0.3, "y": 0.5}, {"t": 2.0, "z": 1.3, "x": 0.5, "y": 0.5, "hold": 1.2},
+                  {"t": 4.0, "z": 1.3, "x": 0.7, "y": 0.5}], 6.0, LANDSCAPE43, A, 2.0)
     assert [g["kind"] for g in tl["segments"]][:2] == ["move", "hold"]  # a short hold between legs may rest
     # a stop held in the middle of a path creeps too, then the next move starts from where it crept to
     tl = T.build([{"t": 0.0, "z": 1.0, "x": 0.5, "y": 0.5, "hold": 3.0}, {"t": 5.0, "z": 1.3, "x": 0.3, "y": 0.5}],

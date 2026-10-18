@@ -623,7 +623,7 @@ def _portrait_facing(face: dict, persons: list[dict]) -> str | None:
 
 
 def _portrait_stops(item: dict, persons: list[dict], dur: float, size, aspect: float,
-                    zmax: float) -> tuple[list[dict] | None, str | None]:
+                    zmax: float, variant: str | None = None) -> tuple[list[dict] | None, str | None]:
     """PORTRAIT (doctrine 3.9, A54): open on the face (A43's z 1.3 cap,
     golden placement with lead room by facing, ``end_pose``), hold at
     least the face settle (1.5 s), then pull to the fill (z 1, the house's
@@ -634,13 +634,22 @@ def _portrait_stops(item: dict, persons: list[dict], dur: float, size, aspect: f
     if face is None:
         return None, "no located person: the ledger locates nobody to open on"
     facing = _portrait_facing(face, persons)
-    zlim = min(max(1.0, zmax), M.CINE["face_zmax"])
+    zlim = min(max(1.0, zmax), face_cap_of(persons))
     open_pose = end_pose({"box": face["box"], "kind": "face"}, size, aspect, zlim, record=False, facing=facing)
     open_hold, fill_settle = M.CINE["settle_read_s"], M.CINE["settle_s"]
     pull_t = dur - fill_settle
     if pull_t < open_hold + EPS:
         return None, (f"too short: the open ({open_hold:g} s) and the pull with its settle ({fill_settle:g} s) "
                       f"need more than the shot's {dur:.1f} s")
+    if variant == "explain":
+        # A54: the reverse (explain), the whole first and in onto the face, landing the face settle before the cut
+        push_t = dur - open_hold
+        s0 = {"t": 0.0, "z": 1.0, "x": 0.5, "y": 0.5, "from": "PORTRAIT: the fill"}
+        s1 = dict(open_pose, t=round(push_t, 3), keep=(tuple(face["box"]),), keep_strict=True,
+                  **{"from": "PORTRAIT: in onto the face"})
+        if push_t < fill_settle + leg_min_s(s0, s1, size, aspect) - EPS:
+            return None, f"too short: the push onto the face and its settle need more than the shot's {dur:.1f} s"
+        return [s0, s1], None
     s0 = dict(open_pose, t=0.0, hold=open_hold, **{"from": "PORTRAIT: the face"})
     s1 = {"t": round(pull_t, 3), "z": 1.0, "x": 0.5, "y": 0.5, "from": "PORTRAIT: pull to the fill"}
     return [s0, s1], None
@@ -668,7 +677,8 @@ def _survey_order(cands: list[dict]) -> list[dict]:
 
 
 def _survey_stops(item: dict, roi: list[dict], dur: float, size, aspect: float,
-                  zmax: float) -> tuple[list[dict] | None, str | None]:
+                  zmax: float, variant: str | None = None,
+                  persons: list[dict] | None = None) -> tuple[list[dict] | None, str | None]:
     """SURVEY (doctrine 3.9, A54): visits up to ``SURVEY_MAX_STOPS`` regions
     of interest in reading order (``_survey_order``), each framed whole
     with a margin (``roi_stop``) and held its own settle (A47's
@@ -677,6 +687,17 @@ def _survey_stops(item: dict, roi: list[dict], dur: float, size, aspect: float,
     cut. A picture with fewer than two regions of interest has nothing to
     survey (the fallback)."""
     cands = _survey_order(_survey_candidates(roi))
+    if len(cands) < 2 and persons:
+        # A54: a crowd's located people stand in for regions of interest (a face inside its figure is one person)
+        boxes = sorted((q["box"] for q in persons), key=_area, reverse=True)
+        kept: list = []
+        for b in boxes:
+            if not any(_inside_share(b, k) >= CINE["nest_share"] for k in kept):
+                kept.append(b)
+        cands = _survey_order([{"name": f"person-{k + 1}", "kind": "person", "x": b[0], "y": b[1],
+                                "w": b[2] - b[0], "h": b[3] - b[1]} for k, b in enumerate(kept)])
+    if variant == "reverse":
+        cands = list(reversed(cands))                  # A54's variety: the survey runs the other way
     if len(cands) < 2:
         return None, f"too few regions of interest: SURVEY visits at least 2, this picture names {len(cands)}"
     picked = cands[:SURVEY_MAX_STOPS]
@@ -699,7 +720,8 @@ def _survey_stops(item: dict, roi: list[dict], dur: float, size, aspect: float,
 
 
 def rich_macro_stops(preset: str, shot: dict, item: dict, roi: list[dict], persons: list[dict], words: list[dict],
-                     dur: float, size, aspect: float, zmax: float) -> tuple[list[dict] | None, str | None]:
+                     dur: float, size, aspect: float, zmax: float,
+                     variant: str | None = None) -> tuple[list[dict] | None, str | None]:
     """READ, PORTRAIT and SURVEY (cinematography ticket #10, A54): the
     dispatcher ``render.still_camera`` calls for a preset in
     ``RICH_MACROS``. Returns (stops, why): ``stops`` is None exactly when
@@ -709,10 +731,76 @@ def rich_macro_stops(preset: str, shot: dict, item: dict, roi: list[dict], perso
     if preset == "READ":
         return _read_stops(shot, roi, words, dur, size, aspect, zmax)
     if preset == "PORTRAIT":
-        return _portrait_stops(item, persons, dur, size, aspect, zmax)
+        return _portrait_stops(item, persons, dur, size, aspect, zmax, variant=variant)
     if preset == "SURVEY":
-        return _survey_stops(item, roi, dur, size, aspect, zmax)
+        return _survey_stops(item, roi, dur, size, aspect, zmax, variant=variant, persons=persons)
     raise ValueError(f"not a rich macro: {preset!r}")
+
+
+def field_const_z(size, aspect: float, zcap: float) -> float:
+    """A54: the one scale a ``no_zoom`` PAN keeps, the window showing
+    ``CINE['field_const_share']`` (0.6, FIELD) of the picture where the
+    softness cap allows, else as near as it does (z 1 at the least)."""
+    fw, fh = fill_window(size, aspect)
+    z = math.sqrt(fw * fh / (float(size[0]) * float(size[1])) / CINE["field_const_share"])
+    return max(1.0, min(z, max(1.0, zcap)))
+
+
+def reveal_stops(subj: dict, size, aspect: float, dur: float, zlim: float, *, record: bool,
+                 facing: str | None = None, avoid=None) -> tuple[list[dict] | None, str | None]:
+    """A54 REVEAL: open on the subject at DETAIL (a window showing at most
+    ``CINE['detail_share']`` of the picture where ``zlim``, the softness and
+    face caps, allows), held its settle, then pull to the whole
+    (``whole_pose``), landing at least the plain settle before the cut."""
+    if subj.get("box") is None:
+        return None, "no subject to open on"
+    pose = end_pose(subj, size, aspect, zlim, record=record, facing=facing, avoid=avoid,
+                    z_min=min(zlim, detail_z(size, aspect)))
+    whole = whole_pose(size, aspect, record, avoid=avoid)
+    hold, land = settle_for(subj), CINE["settle_s"]
+    s0 = dict(pose, t=0.0, hold=hold, placed="engine", **{"from": "REVEAL: the detail"})
+    s0.pop("avoid_clear", None)
+    s1 = dict(whole, t=round(dur - land, 3), placed="engine", breath=True, **{"from": "REVEAL: the whole"})
+    s1.pop("avoid_clear", None)
+    if dur - land - hold < leg_min_s(s0, s1, size, aspect) - EPS:
+        return None, f"too short: the detail, the pull and the settle need more than the shot's {dur:.1f} s"
+    return [s0, s1], None
+
+
+def pan_stops(subj: dict, size, aspect: float, dur: float, z: float, *, record: bool, near: bool = False,
+              facing: str | None = None, arrive: float | None = None) -> tuple[list[dict] | None, str | None]:
+    """A54 PAN (``no_zoom``): a pan or tilt at one scale ``z`` from the far
+    end of the travel (``near``: the near end) to the subject, landing the
+    settle before the cut (or at ``arrive``, the narration's cue), then
+    drifting; the scale never changes (no_zoom's truth)."""
+    if subj.get("box") is None:
+        return None, "no subject to pan to"
+    pose = end_pose(subj, size, aspect, z, record=record, facing=facing, z_min=z)
+    pose = settle(dict(pose, z=z), size, aspect)
+    iw, ih = float(size[0]), float(size[1])
+    x0, y0, x1, y1 = window(size, aspect, z, 0.5, 0.5)
+    room = {"x": iw - (x1 - x0), "y": ih - (y1 - y0)}
+    ax = "x" if room["x"] >= room["y"] else "y"
+    if room[ax] < 0.5:
+        return None, "no room to pan at this scale"
+    ends = [settle(dict(pose, **{ax: v}), size, aspect) for v in (0.0, 1.0)]
+    far = max(ends, key=lambda e: abs(e[ax] - pose[ax]))
+    nearest = min(ends, key=lambda e: abs(e[ax] - pose[ax]))
+    start = nearest if near else far
+    if _same(start, pose):
+        return None, "the subject sits at that end: nothing to pan"
+    settle_s = settle_for(subj)
+    latest = dur - settle_s
+    t1 = latest if arrive is None else min(max(arrive, 0.0), latest)
+    s0 = dict(start, t=0.0, placed="engine", **{"from": f"PAN: the {'near' if near else 'far'} end"})
+    s1 = dict(pose, t=round(t1, 3), placed="engine", breath=True, keep=(tuple(subj["box"]),),
+              **{"from": "PAN: the subject"})
+    if t1 < leg_min_s(s0, s1, size, aspect) - EPS:
+        t1 = min(latest, leg_min_s(s0, s1, size, aspect))
+        s1["t"] = round(t1, 3)
+        if t1 < leg_min_s(s0, s1, size, aspect) - EPS:
+            return None, f"too short to pan at the speed guides in {dur:.1f} s"
+    return [s0, s1], None
 
 
 # --------------------------------------------------------------------------
@@ -978,7 +1066,7 @@ def _eyes(subj: dict) -> float | None:
 
 
 def end_pose(subj: dict, size, aspect: float, zlim: float, *, record: bool, facing: str | None = None,
-             no_zoom: bool = False, avoid: list[tuple] | None = None) -> dict:
+             no_zoom: bool = False, avoid: list[tuple] | None = None, z_min: float | None = None) -> dict:
     """The subject stop (A47): as deep as the subject allows and never past
     ``zlim`` (the softness cap, and the face cap for people; z 1 under
     ``no_zoom``: drift only), the window inside the picture, composed by
@@ -1029,6 +1117,8 @@ def end_pose(subj: dict, size, aspect: float, zlim: float, *, record: bool, faci
         if bh > 0:
             zs.append(fh * share / bh)
         z = max(1.0, min(zs))
+        if z_min is not None:
+            z = max(z, min(z_min, max(1.0, zlim)))     # A54: a DETAIL end goes past the subject's own fit
     ww, wh = fw / z, fh / z
     eye = _eyes(subj)
 
@@ -1498,7 +1588,7 @@ def subject_arrival(shot: dict, item: dict, subj: dict, persons: list[dict], wor
 def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], words: list[dict], size,
                  aspect: float, dur: float, t0: float, zmax: float, *, need_whole: bool, focus=None,
                  match_screen=None, declared_whole: bool = False, hold_on=(), hz: float = 24.0,
-                 avoid: list[tuple] | None = None) -> tuple[list[dict], dict]:
+                 avoid: list[tuple] | None = None, detail: bool = False) -> tuple[list[dict], dict]:
     """A47's default for a still: the subject (``resolve_subject``), its end
     pose composed by class (``end_pose``), when it arrives
     (``subject_arrival``), and the pass that ends on it (``subject_stops``).
@@ -1524,11 +1614,18 @@ def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], w
     zlim = max(1.0, zmax)
     people_kind = subj.get("kind") in PERSON_KINDS or subj.get("kind") == "group"
     if people_kind:
-        zlim = min(zlim, CINE["face_zmax"])
-    pose = end_pose(subj, size, aspect, zlim, record=record, facing=facing, no_zoom=no_zoom, avoid=avoid)
-    if pose["z"] > CINE["face_zmax"] + EPS and persons and framed_persons(pose, persons, size, aspect):
-        pose = end_pose(subj, size, aspect, CINE["face_zmax"], record=record, facing=facing, no_zoom=no_zoom,
-                        avoid=avoid)
+        zlim = min(zlim, face_cap_of(persons))
+    z_min = None
+    if detail and not no_zoom and subj["box"] is not None:
+        # A54 (EXPLAIN): the subject's stop is a real DETAIL, a window showing at most CINE detail_share of the
+        # picture, as deep as the softness cap (and the face cap) allows; measured, never promised
+        z_min = min(zlim, detail_z(size, aspect))
+    pose = end_pose(subj, size, aspect, zlim, record=record, facing=facing, no_zoom=no_zoom, avoid=avoid, z_min=z_min)
+    framed = framed_persons(pose, persons, size, aspect) if persons else []
+    if framed and pose["z"] > face_cap_of(framed) + EPS:
+        cap = face_cap_of(framed)
+        pose = end_pose(subj, size, aspect, cap, record=record, facing=facing, no_zoom=no_zoom,
+                        avoid=avoid, z_min=None if z_min is None else min(z_min, cap))
     whole = subj["src"] == "whole"
     settle_s = settle_for(subj)
     arrive, sp, why = subject_arrival(shot, item, subj, persons, words, t0, dur, settle_s)
@@ -2102,6 +2199,108 @@ def located_persons(persons: list[dict]) -> int:
     return len(kept)
 
 
+# A54 (founder ruling 2026-10-18, the face cap): z 1.3 stays the cap for every face, except one person the
+# caption binds (A43) or one located adult the item's own text names in a public role (this list, versioned:
+# never inferred from the picture), who may go to the DETAIL limit (``detail_limit_z``) inside the softness cap
+PUBLIC_ROLE_WORDS_VERSION = 1
+PUBLIC_ROLE_WORDS = ("firefighter", "firefighters", "fireman", "firemen", "officer", "officers", "police",
+                     "policeman", "policemen", "policewoman", "official", "officials", "president", "mayor",
+                     "senator", "governor", "soldier", "soldiers", "crew", "guardsman", "guardsmen", "trooper",
+                     "troopers", "paramedic", "paramedics", "rescuer", "rescuers")
+PUBLIC_ROLE_FIELDS = ("caption", "title", "nara_title", "people", "_people_words", "seen")
+
+
+def face_cap_of(persons: list[dict]) -> float:
+    """The face cap over a set of located persons: the lowest of their own
+    caps (``lift_face_caps`` sets ``cap``; z 1.3 for anyone it did not lift)."""
+    return min([float(q.get("cap", CINE["face_zmax"])) for q in persons] or [CINE["face_zmax"]])
+
+
+def detail_z(size, aspect: float) -> float:
+    """The zoom at which the window shows ``CINE['detail_share']`` (0.4) of
+    the picture: the DETAIL band's own edge (doctrine 2.2)."""
+    fw, fh = fill_window(size, aspect)
+    return max(1.0, math.sqrt(fw * fh / (float(size[0]) * float(size[1])) / CINE["detail_share"]))
+
+
+def detail_limit_z(size, aspect: float, zcap: float) -> float:
+    """A54's lifted face cap: the zoom at which the window still shows
+    ``CINE['face_detail_share']`` (0.25) of the picture, inside the softness
+    cap ``zcap``, and never under the plain face cap."""
+    fw, fh = fill_window(size, aspect)
+    z = math.sqrt(fw * fh / (float(size[0]) * float(size[1])) / CINE["face_detail_share"])
+    return max(CINE["face_zmax"], min(z, max(1.0, zcap)))
+
+
+def public_role(item: dict) -> str | None:
+    """The public-role word the item's own text gives (``PUBLIC_ROLE_FIELDS``,
+    whole words, any case), or None. Read from the ledger's words only,
+    never from the picture (founder guard, 2026-10-18)."""
+    have: set[str] = set()
+    for f in PUBLIC_ROLE_FIELDS:
+        v = item.get(f)
+        if isinstance(v, list):
+            v = " ".join(str(e.get("name") or "") if isinstance(e, dict) else str(e) for e in v)
+        if isinstance(v, str):
+            have |= set(_norm_words(v))
+    return next((w for w in PUBLIC_ROLE_WORDS if w in have), None)
+
+
+def _is_minor(item: dict, persons: list[dict]) -> bool:
+    if item.get("minor") is True:
+        return True
+    for q in persons:
+        e = q.get("entry") or {}
+        age = e.get("age")
+        if e.get("minor") is True or (isinstance(age, (int, float)) and not isinstance(age, bool) and age < 18):
+            return True
+    return False
+
+
+def lift_face_caps(item: dict, persons: list[dict], size, aspect: float, zcap: float, *, no_zoom: bool = False,
+                   mode: str | None = None) -> tuple[list[dict], dict]:
+    """A54's face cap (founder ruling 2026-10-18; ``CINE['face_detail']``):
+    under ``"proposal"`` (the ruling) the one located person of a still may
+    go to the DETAIL limit (``detail_limit_z``) when (a) the caption binds
+    them by A43's own rule (``binding_check``: exactly one person named and
+    located), or (b) the item's own text names a public role
+    (``public_role``). Kept at z 1.3: ``"strict"``, a crowd (two or more
+    located people), a ``no_zoom`` still, a minor (``minor: true``, or an
+    ``age`` under 18), and an item marked ``dignity: true`` (a human's flag,
+    never the rulebook's). Returns (persons, each with ``cap``, and info)."""
+    mode = mode or CINE["face_detail"]
+    base = CINE["face_zmax"]
+    out = [dict(q, cap=base) for q in persons]
+    info = {"mode": mode, "cap": base, "lifted": None, "why": None}
+    n = located_persons(persons)
+    kept = ("strict: every face keeps z 1.3" if mode != "proposal" else
+            "nobody located" if n == 0 else
+            f"a crowd: {n} located people" if n > 1 else
+            "no_zoom" if no_zoom else
+            "dignity: true" if item.get("dignity") is True else
+            "a minor" if _is_minor(item, persons) else None)
+    if kept is None:
+        bound = None
+        names = item.get("caption_names")
+        cands = [names[0]] if isinstance(names, list) and len(names) == 1 and isinstance(names[0], str) else []
+        cands += [str(q["name"]) for q in persons if q.get("name") and not GENERIC_NAME.match(str(q["name"]))]
+        region = next((q.get("entry") for q in persons if q.get("entry")), None)
+        for nm in cands:
+            if not binding_check(item, nm.split(), region, persons):
+                bound = nm
+                break
+        role = public_role(item)
+        if bound is not None or role is not None:
+            cap = detail_limit_z(size, aspect, zcap)
+            out = [dict(q, cap=cap) for q in out]
+            info.update(cap=round(cap, 4), lifted=(f"bound to {bound!r} (A43)" if bound is not None else
+                                                    f"a public role in the item's own text: {role!r}"))
+            return out, info
+        kept = "neither bound to a caption name nor named in a public role by the item's own text"
+    info["why"] = kept
+    return out, info
+
+
 def framed_persons(p: dict, persons: list[dict], size, aspect: float) -> list[dict]:
     """The people a framing {z, x, y} frames: at least ``CINE['framed_share']``
     of the box inside its window."""
@@ -2117,12 +2316,12 @@ def cap_faces(stops: list[dict], persons: list[dict], size, aspect: float) -> li
     engine placed (a region's stop, a macro, the default) is pulled back to it.
     A depth the screenplay wrote (``z``) is left as written, for the lint to
     refuse. Returns the stops, each marked ``face_cap`` where it applies."""
-    cap = CINE["face_zmax"]
     out = []
     for st in stops:
         st = dict(st)
         hit = framed_persons(settle(st, size, aspect), persons, size, aspect) if persons else []
         if hit:
+            cap = face_cap_of(hit)
             st["face_cap"] = cap
             st["framed_people"] = [q["name"] for q in hit]
             if st["z"] > cap + EPS and not st.get("z_authored"):
@@ -2142,7 +2341,7 @@ def face_cap_check(tl: dict, persons: list[dict], hz: float | None = None) -> li
     that do not, each with the stops it lies between."""
     if not persons:
         return []
-    cap = CINE["face_zmax"]
+    cap = min(face_cap_of([q]) for q in persons)          # A54: a lifted cap is per person (``lift_face_caps``)
     size, aspect = tl["size"], tl["aspect"]
     pts = [(st["t"], st) for st in tl["stops"]] + list(samples(tl, hz))
     for g in tl["segments"]:
@@ -2153,10 +2352,10 @@ def face_cap_check(tl: dict, persons: list[dict], hz: float | None = None) -> li
             continue
         hit = framed_persons(p, persons, size, aspect)
         key = round(t, 3)
-        if hit and key not in seen_:
+        if hit and p["z"] > face_cap_of(hit) + 1e-9 and key not in seen_:
             seen_.add(key)
             bad.append({"t": round(t, 3), "z": round(p["z"], 4), "people": [q["name"] for q in hit],
-                        "stops": _stops_around(tl, t)})
+                        "cap": round(face_cap_of(hit), 4), "stops": _stops_around(tl, t)})
     return bad
 
 
@@ -2189,17 +2388,21 @@ def enforce_face_cap(stops: list[dict], persons: list[dict], dur: float, size, a
     engine-placed stops around it back to ``CINE['face_zmax']`` and build
     again. A depth a person wrote is left as written, for the lint. Returns
     (stops, what was pulled back)."""
-    cap = CINE["face_zmax"]
     pulled = []
     for _ in range(len(stops) + 2):
         tl = build(stops, dur, size, aspect, zmax, no_zoom=no_zoom)
         bad = face_cap_check(tl, persons, hz)        # hz: the film's master rate (A44); None: TOUR sample_hz
-        idx = sorted({i for v in bad for i in v["stops"]
-                      if tl["stops"][i]["z"] > cap + EPS and not tl["stops"][i].get("z_authored")})
+        caps: dict[int, float] = {}
+        for v in bad:
+            for i in v["stops"]:
+                caps[i] = min(caps.get(i, math.inf), v["cap"])
+        idx = sorted(i for i, c in caps.items()
+                     if tl["stops"][i]["z"] > c + EPS and not tl["stops"][i].get("z_authored"))
         if not idx:
             break
         stops = [dict(st) for st in stops]
         for i in idx:
+            cap = caps[i]
             stops[i].update(z=cap, face_cap=cap, capped="face")
             pulled.append({"stop": stops[i].get("from"), "t": round(stops[i]["t"], 3),
                            "why": f"a move or a hold on it frames a face or a person past z {cap:g}"})
