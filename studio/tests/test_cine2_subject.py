@@ -467,7 +467,7 @@ def test_a_reversal_for_unlocated_people_only_is_journaled(tmp_path):
 
 def test_cue_and_label_synonyms_and_the_recorded_answers():
     from studio.engine import rulebook as RB
-    assert RB.RULEBOOK_VERSION == "7"
+    assert RB.RULEBOOK_VERSION == "8"
     smoke = {"regions": [{"kind": "object", "label": "smoke", "x": 0.55, "y": 0.3, "w": 0.3, "h": 0.25}]}
     sub, why = RB.vl_subject("place", smoke, {"title": "From orbit", "people": "none"}, ["plume"])
     assert sub is not None and "plume" in why
@@ -693,13 +693,16 @@ def test_an_aerial_whole_never_sweeps_rising():
     assert T.item_schema({"aerial": "yes"})[0] and not T.item_schema({"aerial": True})[0]
 
 
-def test_a_vl_region_that_is_the_whole_picture_is_never_the_subject():
+def test_a_vl_region_that_is_a_band_or_the_whole_picture_is_never_the_subject():
     from studio.engine import rulebook as RB
     vl = {"regions": [{"kind": "place", "label": "water", "x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0},
-                      {"kind": "object", "label": "smoke trail", "x": 0.0, "y": 0.0, "w": 0.95, "h": 0.92}]}
+                      {"kind": "object", "label": "smoke trail", "x": 0.0, "y": 0.0, "w": 0.95, "h": 0.92},
+                      # Real World 3.5's "cloud": the sky band across the picture, 0.75 of it (rulebook 8)
+                      {"kind": "object", "label": "smoke cloud", "x": 0.0, "y": 0.028, "w": 1.0, "h": 0.75}]}
+    assert RB.VL_MAX_AREA == 0.70
     assert RB.vl_subject("place", vl, {"title": "Smoke over the water"}, ["plume"])[0] is None
-    vl["regions"].append({"kind": "object", "label": "smoke", "x": 0.0, "y": 0.0, "w": 1.0, "h": 0.85})
-    assert RB.vl_subject("place", vl, {"title": "x"}, ["plume"])[0]["h"] == 0.85     # wide but not the whole
+    vl["regions"].append({"kind": "object", "label": "smoke", "x": 0.0, "y": 0.0, "w": 1.0, "h": 0.69})
+    assert RB.vl_subject("place", vl, {"title": "x"}, ["plume"])[0]["h"] == 0.69      # wide, under the area
 
 
 def test_car_van_and_vehicle_are_one_word():
@@ -708,3 +711,51 @@ def test_car_van_and_vehicle_are_one_word():
     sub, why = RB.vl_subject("object", rec["vl"], rec["item"], rec["cues"])
     assert sub["label"] == "van" and "car" in why
     assert RB.match_words("a smashed car") == RB.match_words("smashed vehicle")
+
+
+# --------------------------------------------------------------------------
+# A48: a whole hold's breath aimed at what must be seen (Real World 3.7, GOES-8)
+# --------------------------------------------------------------------------
+
+GOES = (1287, 748)                                           # the 16:9 window is 1287 x 724: rows 0 to 731 never fit
+GOES_ITEM = {"people": "none", "class": "document", "whole": True,
+             "compose": "centred:a satellite record with its own caption and inset, shown as composed",
+             "roi": [{"name": "caption", "kind": "text", "x": 0.12, "y": 0.882, "w": 0.73, "h": 0.096,
+                      "source": "human", "must_show": True},
+                     {"name": "ny-inset", "kind": "place", "x": 0, "y": 0, "w": 0.21, "h": 0.31,
+                      "source": "human", "must_show": True}]}
+
+
+@pytest.mark.parametrize("preset", [None, "HOLD", "PUSH"])
+def test_a_whole_hold_aims_its_breath_so_each_must_show_region_is_whole_at_some_point(preset):
+    shot = {"preset": preset} if preset else {}
+    cam, s = engine(GOES_ITEM, GOES, dur=8.0, fps=NTSC, **shot)
+    assert cam["subject"]["src"] == "whole" and cam["subject"]["whole_mode"] == "hold"
+    wins = [w for _, w in R.still_windows(cam, s, GOES, W, H, hz=NTSC)]
+    assert T.must_show(wins, GOES_ITEM, GOES) == []                         # each whole at some frame
+    fs = all_frames(cam, 8.0, NTSC)
+    assert all(f["z"] == pytest.approx(1.0) for f in fs) and not T.reversals(cam["tour"])
+    ys = [f["y"] for f in fs]
+    assert ys == sorted(ys) and ys[-1] > ys[0]                              # top to bottom: the inset read first
+    def whole_in(box, f):
+        a0, b0, a1, b1 = T.window(GOES, A, f["z"], f["x"], f["y"])
+        return b0 <= box[1] * GOES[1] + 1e-6 and b1 >= (box[1] + box[3]) * GOES[1] - 1e-6
+    inset, caption = (0, 0, 0.21, 0.31), (0.12, 0.882, 0.73, 0.096)
+    assert whole_in(inset, fs[0]) and whole_in(caption, fs[-1])
+    # one breath at most: the drift is under whole_creep_max of the window
+    assert (ys[-1] - ys[0]) * GOES[1] <= (M.TOUR["whole_creep_max"] - 1) * T.fill_window(GOES, A)[1] + 1e-6
+
+
+def test_the_aimed_breath_keeps_the_plain_breath_or_gives_way_to_the_sweep():
+    # one window holds them all: the plain breath (one stop, a drift)
+    near = dict(GOES_ITEM, roi=[dict(GOES_ITEM["roi"][1], y=0.2)])
+    cam, _ = cam_for(near, GOES, dur=8.0)
+    assert len(cam["tour"]["stops"]) == 1 and cam["subject"]["whole_mode"] == "hold"
+    # regions farther apart than one breath: the hold becomes the (c) sweep end to end
+    assert T.aimed_breath(NEAR, A, [(0, 0, 0.2, 0.1), (0, 0.9, 0.2, 1.0)], True) is None
+    far = {"people": "none", "class": "place", "whole": True,
+           "roi": [{"name": "a", "x": 0, "y": 0, "w": 0.2, "h": 0.1, "source": "human", "must_show": True},
+                   {"name": "b", "x": 0, "y": 0.9, "w": 0.2, "h": 0.1, "source": "human", "must_show": True}]}
+    cam, _ = cam_for(far, NEAR, dur=8.0)
+    assert cam["subject"]["whole_mode"] == "sweep"
+    assert T.aimed_breath(GOES, A, [(0, 0, 0.2, 0.99)], True) is None      # a region taller than the window

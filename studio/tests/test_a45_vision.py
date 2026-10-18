@@ -564,6 +564,7 @@ def test_vl_v2_never_asks_for_or_keeps_a_person():
     # neighbour stays (a coast guard boat, a police car: the rulebook never reads a VL region as a person)
     raw = json.dumps({"regions": [
         {"label": "Firefighters", "kind": "object", "box": [0, 0, 100, 100]},
+        {"label": "medics at the ambulance", "kind": "object", "box": [0, 0, 100, 100]},
         {"label": "people on sidewalk", "kind": "place", "box": [0, 0, 100, 100]},
         {"label": "man's face", "kind": "object", "box": [0, 0, 100, 100]},
         {"label": "crew", "kind": "object", "box": [0, 0, 100, 100]},
@@ -573,6 +574,7 @@ def test_vl_v2_never_asks_for_or_keeps_a_person():
     n = V.vl_normalize(raw, 1000, 800)
     assert [r["label"] for r in n["regions"]] == ["police car", "u.s. coast guard"]
     assert V.vl_person_like("Onlookers") and V.vl_person_like("a woman") and not V.vl_person_like("smoke plume")
+    assert V.vl_person_like("Two Officials") and not V.vl_person_like("pilot boat")
     # the prompt, the normalization, the size floor and num_predict are in the cache key: a change re-measures
     key = V.vl_model_key()
     assert f":n{V.VL_NORM_VERSION}:" in key and V.VL_NORM_VERSION == "2" and ":px802816:" in key and ":np600:" in key
@@ -659,10 +661,56 @@ def test_plan_reads_a_cached_vl_answer_with_the_shot_s_cue_and_never_calls_the_v
     sc = V.read_sidecar(V.sidecar_path(film / "stills-ledger.json"))
     sc["vl"][f"{V.sha256_file(path)}|{V.vl_model_key()}"] = {"class": "place", "model": V.vl_model_key(), "regions": [
         {"kind": "place", "label": "radio tower", "x": 0.6, "y": 0.1, "w": 0.1, "h": 0.5}]}
+    sc["vl_header"] = V.vl_header(None, V.manifest()["vl"]["ollama"])
     V.write_sidecar(V.sidecar_path(film / "stills-ledger.json"), sc)
     plan, j = _plan(film)
     it = _shot(plan, "S3")["_item"]
     assert it["roi"][0]["name"] == "subject" and it["roi"][0]["x"] == 0.6 and it["roi"][0]["model"] == V.vl_model_key()
+    assert not [e for e in J.read(j.path) if e["kind"] == "lint" and "vl_stale" in (e.get("evidence") or {})]
+
+
+@pytest.mark.parametrize("ollama", ["0.39.0", None])
+def test_vl_answers_from_another_ollama_are_stale_and_never_read(film, monkeypatch, ollama):
+    # A48: vl_size's floor and the determinism proof hold for the pinned Ollama; the cache key does not carry the
+    # version, so the sidecar header's recorded version is checked on read: another (or none) is a reviewer item
+    def never(*a, **k):
+        raise AssertionError("a plan must never call the VL")
+    monkeypatch.setattr(V, "VL", never)
+    monkeypatch.setattr(V, "CPU", never)
+    assert V.manifest()["vl"]["ollama"] == "0.40.4"
+    _item(film, "FX-STILL-A", lambda i: i.update(people="none visible", title="A test picture"))
+    _edit(film, lambda p: next(s for q in p["parts"] for s in q["shots"] if s["id"] == "S3").update(subject_at="tower"))
+    _seed(film, "FX-STILL-A", meas([], size=(1500, 1050)))
+    path = film / "stills" / "FX-STILL-A.png"
+    sc = V.read_sidecar(V.sidecar_path(film / "stills-ledger.json"))
+    sc["vl"][f"{V.sha256_file(path)}|{V.vl_model_key()}"] = {"model": V.vl_model_key(), "regions": [
+        {"kind": "place", "label": "radio tower", "x": 0.6, "y": 0.1, "w": 0.1, "h": 0.5}]}
+    if ollama:
+        sc["vl_header"] = V.vl_header(None, ollama)
+    V.write_sidecar(V.sidecar_path(film / "stills-ledger.json"), sc)
+    plan, j = _plan(film)
+    it = _shot(plan, "S3")["_item"]
+    assert not any(r.get("model") == V.vl_model_key() for r in it.get("roi") or [])
+    rv = [e for e in J.read(j.path) if e["kind"] == "lint" and e.get("rule") == "vision-cache"]
+    assert rv and rv[0]["severity"] == "review" and rv[0]["evidence"]["vl_stale"] == ["FX-STILL-A"]
+
+
+def test_a_person_label_in_the_cache_is_never_a_subject():
+    # rulebook 8: read at use, whatever the sidecar holds (an old cache, or a label normalization let through)
+    for label in ("two officials", "medics at the ambulance", "troops on the deck", "refugees on the road",
+                  "vaccinators", "a doctor", "nurses", "a group of medics", "firefighters and trucks"):
+        assert RB.vl_person_like(label), label
+        vl = {"regions": [{"kind": "object", "label": label, "x": 0.3, "y": 0.3, "w": 0.2, "h": 0.2}]}
+        cue = label.split()[-1]
+        assert RB.vl_subject("place", vl, {"title": label}, [cue])[0] is None, label
+        assert V.vl_normalize(json.dumps({"regions": [{"label": label, "kind": "object", "box": [1, 1, 50, 50]}]}),
+                              100, 100)["regions"] == [], label
+    for label in ("police car", "pilot boat", "u.s. coast guard", "coast guard boat", "firefighter helmet",
+                  "fire truck", "statue of liberty"):
+        assert not RB.vl_person_like(label), label
+    vl = {"regions": [{"kind": "object", "label": "pilot boat", "x": 0.3, "y": 0.3, "w": 0.2, "h": 0.2}]}
+    assert RB.vl_subject("place", vl, {"title": "A pilot boat"}, [])[0]["label"] == "pilot boat"
+    assert RB.PERSON_NOUNS <= RB.VL_PERSON_WORDS
 
 
 def test_the_vl_cli_refuses_when_another_job_holds_the_heavy_lock(tmp_path, monkeypatch):

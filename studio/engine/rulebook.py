@@ -28,13 +28,15 @@ import re
 
 from studio.engine import motion as M
 
-RULEBOOK_VERSION = "7"     # 2: a bare title is one name; 3: a run is a place by its first or last word only;
+RULEBOOK_VERSION = "8"     # 2: a bare title is one name; 3: a run is a place by its first or last word only;
                            # 4: a VL place or object region named by a cue or the caption is the subject
                            # 5: people words that are only names count one person per name
                            # 6: a cue and a VL label match through SYNONYMS (plume and smoke, A47)
                            # 7: a still seen from above (AERIAL) is marked ``aerial`` and never sweeps rising;
-                           #    a VL region that is the whole picture (VL_MAX_SIDE) is never the subject; car, van and
+                           #    a VL region that is the whole picture is never the subject; car, van and
                            #    vehicle are one word (SYNONYMS)
+                           # 8: a VL label that names people (vl_person_like, read at use, whatever the cache holds) is
+                           #    never a candidate; a VL box of 0.70 of the picture's area or more is never the subject
 CLASSES = ("person", "crowd", "place", "document", "map", "painting", "object")
 RECORDS = ("document", "map", "painting", "object")       # composed centred: the picture is a record
 FLOOR = M.CINE["auto_confidence_floor"]                   # a box under it is not a subject (A43)
@@ -437,7 +439,23 @@ def subject(cls: str, people: list[dict], meas: dict, unlocated: int) -> tuple[d
 VL_KINDS_USED = ("place", "object", "text")          # the VL never creates or names a person
 VL_CONFIDENCE = 0.8          # a VL region the ledger's own words name; above the floor, under a strong detection
 VL_MIN_SIDE = 0.01           # a box thinner than this share of the picture is malformed, never a subject
-VL_MAX_SIDE = 0.9            # a box this share of the picture's width and height or more is the whole: no subject
+VL_MAX_AREA = 0.70           # a box this share of the picture's area or more is a band or the whole: no subject
+# A VL label whose head noun names a person, people or a face (rulebook 8): the rulebook's own people nouns, and more.
+# The head is the last word of each part of the label (split at "and", commas and prepositions; "a group of medics"
+# reads past the collective), so a thing named with a person word in front of it stays a thing: a police car, a pilot
+# boat, a coast guard (the singular "guard" is left out for it), a firefighter's helmet.
+VL_PERSON_WORDS = frozenset(PERSON_NOUNS | {
+    "persons", "kid", "kids", "adult", "adults", "human", "humans", "face", "faces", "silhouette", "silhouettes",
+    "crowds", "audience", "spectator", "spectators", "bystander", "bystanders", "passerby", "passersby",
+    "fireman", "firemen", "responder", "responders", "lady", "ladies", "gentleman", "gentlemen", "guy", "guys",
+    "victim", "victims", "photographer", "photographers", "reporter", "reporters", "journalist", "journalists",
+    "sailor", "sailors", "someone", "somebody", "individual", "individuals", "couple", "group",
+    "troops", "marine", "marines", "agent", "agents", "paramedic", "paramedics", "pilot", "pilots", "mourner",
+    "mourners", "protester", "protesters", "guards", "worshipper", "worshippers", "nun", "nuns", "priest", "priests",
+})
+_VL_SPLIT = {"and", "&", "at", "on", "in", "with", "by", "near", "beside", "behind", "under", "over", "inside",
+             "outside", "around", "next", "from", "to", "for", "holding", "wearing", "carrying", "standing",
+             "sitting", "walking", "running", "in front"}
 STOP = {"the", "a", "an", "of", "and", "from", "over", "in", "on", "at", "to", "with", "by", "for", "into", "its",
         "his", "her", "their", "seen", "view", "toward", "towards", "after", "before", "near", "one", "two"}
 
@@ -455,6 +473,37 @@ SYNONYMS = (
 _SYN = {w: g[0] for g in SYNONYMS for w in g}
 
 
+def vl_person_like(label: str) -> bool:
+    """Rulebook 8: the label names a person, people or a face. Each part of
+    the label (split at "and", commas and the words in ``_VL_SPLIT``) is
+    read by its head noun, its last word; "X of Y" reads Y when X is a
+    collective or a number ("a group of medics", "two of the crew"). A part
+    whose head is in ``VL_PERSON_WORDS`` makes the label a person's."""
+    t = str(label or "").lower().replace("'s ", " 's ").replace("’s ", " 's ").replace(",", " , ")
+    words = [w.strip(_EDGE) for w in t.replace("-", " ").split()]
+    parts, cur = [], []
+    for w in words:
+        if w in _VL_SPLIT or w == ",":
+            parts.append(cur)
+            cur = []
+        elif w == "'s":                       # a possessive: the owner is not the head ("a man's face" is a face)
+            cur = []
+        else:
+            cur.append(w)
+    parts.append(cur)
+    for part in parts:
+        part = [w for w in part if w]
+        if "of" in part:
+            k = part.index("of")
+            if k == 0 or part[k - 1] in COLLECTIVE or part[k - 1] in NUMBERS or part[k - 1] in VL_PERSON_WORDS:
+                part = part[k + 1:]
+            else:
+                part = part[:k]
+        if part and part[-1] in VL_PERSON_WORDS:
+            return True
+    return False
+
+
 def match_words(text: str) -> set[str]:
     """``content_words`` with each synonym group read as its first word."""
     return {_SYN.get(w, w) for w in content_words(text)}
@@ -470,9 +519,11 @@ def vl_subject(cls: str, vl: dict | None, item: dict, cues) -> tuple[dict | None
     the first region (cue matches first, then the VL's canonical order) whose
     label shares a content word with a ``subject_at`` cue of a shot showing
     it, else with the item's own caption or title. A person or group region
-    is never used (people come from MediaPipe alone), a degenerate box
-    never, and a box that is the whole picture (``VL_MAX_SIDE``) never: it
-    singles nothing out. None when nothing matches (the still stays whole)."""
+    is never used (people come from MediaPipe alone), nor a label that
+    names people (``vl_person_like``, read here whatever the cache holds, so
+    an old sidecar never leaks one), a degenerate box never, and a box of
+    ``VL_MAX_AREA`` of the picture or more never: it is a band of sky or the
+    whole and singles nothing out. None when nothing matches (the still stays whole)."""
     if not vl or cls in ("person", "crowd"):
         return None, "no VL region for this class" if vl else "no VL measurement"
     cue_w = {w for c in cues or () for w in match_words(c)}
@@ -480,7 +531,7 @@ def vl_subject(cls: str, vl: dict | None, item: dict, cues) -> tuple[dict | None
     best = None
     for k, g in enumerate(vl.get("regions") or []):
         if g.get("kind") not in VL_KINDS_USED or g["w"] < VL_MIN_SIDE or g["h"] < VL_MIN_SIDE or (
-                g["w"] >= VL_MAX_SIDE and g["h"] >= VL_MAX_SIDE):
+                g["w"] * g["h"] >= VL_MAX_AREA - 1e-9) or vl_person_like(g.get("label")):
             continue
         lw = match_words(g.get("label"))
         rank = 0 if lw & cue_w else (1 if lw & cap_w else None)

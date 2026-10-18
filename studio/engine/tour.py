@@ -875,6 +875,42 @@ def must_see(item: dict) -> dict:
     return {"boxes": boxes, "unlocated": 0, "known": pe["known"]} if boxes else {}
 
 
+def aimed_breath(size, aspect: float, boxes, record: bool, aerial: bool = False) -> tuple[dict, dict] | None:
+    """A ``whole`` hold whose one window cannot hold every located person and
+    ``must_show`` region together (``boxes``, picture fractions): its drift,
+    at z 1 along the axis the fill travels, is aimed so each is whole at some
+    point. The drift is the shortest one that reaches every box's span of
+    window positions, opened on the one read first (``whole_sweep``'s order:
+    top to bottom for a record or a picture seen from above, left to right
+    on a wide picture, rising otherwise) and ended with the other, no longer
+    than one breath (``whole_creep_max`` of the window). Returns (first, last)
+    or None (a box larger than the window, or a drift longer than a breath:
+    the hold becomes the sweep)."""
+    ax = long_axis(size, aspect)
+    if ax is None or not boxes:
+        return None
+    k = 0 if ax == "x" else 1
+    side = float(size[k])
+    win = fill_window(size, aspect)[k]
+    lo_c, hi_c = win / 2.0, side - win / 2.0
+    spans = []
+    for b in boxes:
+        a0, a1 = float(b[k]) * side, float(b[k + 2]) * side
+        if a1 - a0 > win + 1e-6:
+            return None
+        spans.append((max(lo_c, a1 - win / 2.0), min(hi_c, a0 + win / 2.0)))
+    lo, hi = min(sp[1] for sp in spans), max(sp[0] for sp in spans)
+    if hi <= lo + 1e-9:
+        return None                               # one window holds them all: the plain breath
+    if hi - lo > (TOUR["whole_creep_max"] - 1.0) * win + 1e-9:
+        return None
+    lo, hi = max(lo_c, lo - 1.0), min(hi_c, hi + 1.0)     # a pixel past each tight end: whole on a frame, not a float
+    a, b = (lo, hi) if (ax == "x" or record or aerial) else (hi, lo)
+    first = settle({"z": 1.0, "x": 0.5, "y": 0.5, ax: a / side}, size, aspect)
+    last = settle({"z": 1.0, "x": 0.5, "y": 0.5, ax: b / side}, size, aspect)
+    return first, last
+
+
 def whole_sweep(size, aspect: float, record: bool, toward=None, aerial: bool = False) -> tuple[dict, dict] | None:
     """A ``whole`` still its fill cannot show (``whole_hold_min_shown``): one
     sweep end to end, never coming back. Rising (bottom to top) for a person,
@@ -964,6 +1000,7 @@ def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], w
     if waypoints:
         need_whole = True
     mode = None
+    aimed = None
     if whole:
         iw, ih = float(size[0]), float(size[1])
         fw, fh = fill_window(size, aspect)
@@ -973,7 +1010,10 @@ def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], w
         elif seeing:
             win = window(size, aspect, pose["z"], pose["x"], pose["y"])
             if not people_check([win], seeing, size)["ok"]:
-                mode = "sweep"
+                aimed = (None if match_screen is not None else
+                         aimed_breath(size, aspect, [q["box"] for q in seeing["boxes"]], record,
+                                      aerial=item.get("aerial") is True))
+                mode = "sweep" if aimed is None else "hold"
         sw = (whole_sweep(size, aspect, record, toward=shot.get("_end_toward"), aerial=item.get("aerial") is True)
               if mode == "sweep" else None)
         if sw is not None:
@@ -1011,7 +1051,16 @@ def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], w
                                        zs=(1.0,) if no_zoom else (1.0, pose["z"]))
         start = dict(start, placed="engine", match="prev")
     opens = None
-    if whole and mode == "hold" and start is None and not waypoints:
+    if whole and aimed is not None and start is None and not waypoints:
+        # A48: the breath aimed between must_show regions (or located people) no one window holds together: it
+        # opens on the one read first and ends with the other, a drift at z 1 eased over the whole shot
+        first = dict(pose, **aimed[0], t=0.0, breath=False)
+        first["from"] = "A47: the subject (whole, the breath aimed at what must be seen)"
+        last = dict(pose, **aimed[1], t=dur, breath=False)
+        last["from"] = first["from"]
+        stops, timing = [first, last], {"arrive_s": 0.0, "why": "whole: held from the cut, its one breath a drift "
+                                        "aimed so every must_show region and located person is whole at some point"}
+    elif whole and mode == "hold" and start is None and not waypoints:
         stops, timing = [dict(pose, t=0.0)], {"arrive_s": 0.0, "why": "whole: held from the cut, one breath (a "
                                               "drift) and no other move"}
     elif whole and mode == "sweep":

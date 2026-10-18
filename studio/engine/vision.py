@@ -322,21 +322,6 @@ VL_PROMPT_VERSION = "2"   # 2: up to VL_MAX_REGIONS distinct visible things, tig
 VL_GRID = decimal.Decimal("0.005")       # boxes snap to half a percent of the picture, rounded half-even
 VL_MAX_REGIONS = 8
 VL_KINDS = ("place", "object", "text")   # the VL is never asked for, and never kept for, a person (A45)
-# A label naming a person, people or a face is dropped whatever kind it came with: people come from MediaPipe alone.
-# Words that also name things (a coast guard, a police car, a group of trees, a pilot boat) are left out: the rulebook
-# never reads a VL region as a person (rulebook.VL_KINDS_USED), so a thing kept by them does no harm.
-VL_PERSON_WORDS = frozenset((
-    "person", "persons", "people", "man", "men", "woman", "women", "child", "children", "kid", "kids", "boy", "boys",
-    "girl", "girls", "baby", "adult", "adults", "human", "humans", "face", "faces", "figure", "figures",
-    "silhouette", "silhouettes", "crowd", "crowds", "audience", "onlooker", "onlookers", "spectator", "spectators",
-    "pedestrian", "pedestrians", "bystander", "bystanders", "passerby", "passersby", "firefighter", "firefighters",
-    "fireman", "firemen", "rescuer", "rescuers", "responder", "responders", "worker", "workers", "officer",
-    "officers", "policeman", "policemen", "soldier", "soldiers", "crew", "driver", "drivers", "student", "students",
-    "pupil", "pupils", "teacher", "president", "family", "couple", "lady", "ladies", "gentleman", "gentlemen",
-    "guy", "guys", "victim", "victims", "survivor", "survivors", "volunteer", "volunteers", "photographer",
-    "reporter", "reporters", "journalist", "journalists", "sailor", "sailors", "someone", "somebody", "individual",
-    "individuals",
-))
 VL_SCHEMA = {"type": "object", "properties": {
     "regions": {"type": "array", "maxItems": VL_MAX_REGIONS, "items": {"type": "object", "properties": {
         "label": {"type": "string"}, "kind": {"type": "string", "enum": list(VL_KINDS)},
@@ -407,9 +392,10 @@ def _snap(v: float) -> float:
 
 
 def vl_person_like(label: str) -> bool:
-    """A label that names a person, people or a face (``VL_PERSON_WORDS``)."""
-    ws = {w.strip(RB._EDGE).lower() for w in str(label or "").replace("-", " ").replace("'", " ").split()}
-    return bool(ws & VL_PERSON_WORDS)
+    """A label that names a person, people or a face: the rulebook's own
+    test (``rulebook.vl_person_like``), applied here too so a person's label
+    is never cached; the rulebook applies it again when it reads the cache."""
+    return RB.vl_person_like(label)
 
 
 def vl_normalize(raw: str, w: int, h: int) -> dict:
@@ -452,6 +438,9 @@ class VL:
             self.ollama = json.loads(urllib.request.urlopen(host + "/api/version", timeout=10).read())["version"]
         except OSError as e:
             raise MissingModel(f"Ollama is not answering at {host} ({e})") from e
+        if self.ollama != self.vl["ollama"]:
+            raise MissingModel(f"Ollama {self.ollama} is not the pinned {self.vl['ollama']} (vl_size's floor and the "
+                               f"answers were proved on it)")
         dig = next((m["digest"] for m in tags.get("models", []) if m["name"] == self.vl["name"]), None)
         if dig != self.vl["digest"]:
             raise MissingModel(f"{self.vl['name']} digest {str(dig)[:12]} is not the pinned {self.vl['digest'][:12]}")
@@ -599,12 +588,25 @@ class Measurer:
         self.vlm: VL | None = None
         self.vl_why: str | None = None
         self.vl_measured: list[str] = []
+        self.vl_stale: list[str] = []
+
+    def vl_cache_valid(self, cache: dict) -> bool:
+        """The cached VL answers count only when the sidecar's header says they
+        were measured under the pinned Ollama version (A48: ``vl_size`` and the
+        determinism proof hold for it); else they are stale, never read."""
+        return (cache.get("vl_header") or {}).get("ollama") == self.man["vl"]["ollama"]
 
     def get_vl(self, cache: dict, sha: str, path) -> dict | None:
         """The cached VL answer, or (``--vl`` only) a cold measurement of it."""
         k = f"{sha}|{self.vl_key}"
         if k in cache["vl"]:
-            return cache["vl"][k]
+            if self.vl_cache_valid(cache):
+                return cache["vl"][k]
+            self.vl_stale.append(sha)
+            if not self.allow_vl:
+                return None
+            cache["vl"] = {}                  # measured again under the pinned version, never mixed
+            cache.pop("vl_header", None)
         if not self.allow_vl or self.vl_why:
             return None
         if self.vlm is None:
@@ -710,6 +712,16 @@ def plan_overlay(stills: list[dict], journal=None, lint=None) -> dict:
             s["_item"] = dict(rec["merged"], **priv)
             s["_vision"] = summary(rec)
     unmeasured = [r["id"] for r in recs if not r["measured"]]
+    shas = {r["sha256"]: r["id"] for r in recs}
+    stale = sorted({shas[h] for h in meas.vl_stale if h in shas})
+    if journal is not None and stale:
+        journal.decision("motion", f"A48: {len(stale)} still(s)' VL answers measured under another Ollama: not read",
+                         "the box frame and the determinism proof hold for the pinned version only",
+                         evidence={"stills": stale, "pinned": meas.man["vl"]["ollama"]})
+    if lint is not None and stale:
+        lint("vision-cache", False, severity="review", stage="motion", grammar="A48",
+             evidence={"vl_stale": stale, "pinned_ollama": meas.man["vl"]["ollama"],
+                       "fix": "run python -m studio.engine.vision <film> --write --vl under the pinned Ollama"})
     if journal is not None:
         journal.decision("motion", f"A45: {len(recs)} still(s) through rulebook {RB.RULEBOOK_VERSION} from the cache",
                          "founder ruling 2: automatic, deterministic subject finding; the human ledger's fields win",

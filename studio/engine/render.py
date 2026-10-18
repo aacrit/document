@@ -958,7 +958,18 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
     human_roi = [r for r in roi if isinstance(r, dict) and T.source_of(r) == "human"] if isinstance(roi, list) else roi
     authored = bool(human_roi or item.get("must_show")) or cam["macro"] in ("TOUR", "DEFAULT")
     macro = cam["macro"]
-    if pc["ok"] and not pc["whole_shown"] and not authored:
+    if item.get("whole") is True and macro != "DEFAULT" and macro != "TOUR" and pc["ok"]:
+        # A47 and A48: a still the ledger declares whole holds at the fill, its breath a drift (aimed at what
+        # must be seen), never a preset's push, whoever named its regions
+        cam = still_camera(s, size, W, H, words=words, cover="subject", fps=fps)
+        wins, pc = check(cam)
+        if journal is not None:
+            journal.decision("motion", f"{s['id']}: {macro} on a whole still made the A47 whole pass",
+                             "A47: a whole still holds at the fill with one drift, never a push; A48: the drift is "
+                             "aimed so every must_show region is whole at some point", unit=s["id"],
+                             evidence={"subject": (cam.get("subject") or {}).get("src"),
+                                       "whole_mode": (cam.get("subject") or {}).get("whole_mode")})
+    elif pc["ok"] and not pc["whole_shown"] and not authored:
         why = f"it shows {100 * T.coverage(wins, size):.0f}% of the picture"
         cam = still_camera(s, size, W, H, words=words, cover="subject", fps=fps)
         wins, pc = check(cam)
