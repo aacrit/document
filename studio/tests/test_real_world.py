@@ -135,6 +135,15 @@ def test_tara_is_chosen_by_voice_and_the_films_declared_shift():
     assert missing is None and "none has that shift" in why                      # the old -1 st key is gone
 
 
+def test_the_declared_shift_matches_the_stored_key_within_float_noise():
+    """pitch_shift_st is often a computed figure (12*log2(f_target/f_raw)), so an exact float match would miss its
+    own stored key by an epsilon; a declared shift 0.77 st off is still a different, unstored shift."""
+    close, why = R.load_narrator_profile({"engine": "orpheus", "voice": "tara", "pitch_shift_st": 0.7600000000001})
+    assert close is not None and close["voice"] == TARA_1ST and "orpheus:tara shifted +0.76 st" in why
+    far, why = R.load_narrator_profile({"engine": "orpheus", "voice": "tara", "pitch_shift_st": 0.77})
+    assert far is None and "none has that shift" in why
+
+
 def test_narrator_profile_from_takes_is_hermetic_and_keyed_by_voice(tmp_path):
     """A tiny synthetic take (a steady 170 Hz tone, well inside the voiced-pitch band) run through the engine's own
     ``narrator_profile_from_takes``, exactly as the committed Tara +0.76 st entry was made, with no network, no
@@ -156,17 +165,51 @@ def test_narrator_profile_from_takes_is_hermetic_and_keyed_by_voice(tmp_path):
     assert math.isclose(prof["baseline"]["f0_hz"], take["f0_hz"])    # a single take: baseline is that take
 
 
+def _take_with_a_real_noise_floor(path):
+    """Three "words" of a 170 Hz tone over real pauses that carry a steady broadband noise floor (about -52 dBFS,
+    far enough under speech for A19's own floor/pause measurement to find it): a pure, silence-backed tone would
+    let clean_voice no-op (no pause quiet enough to learn a floor from), which could hide a generator that skips
+    cleaning entirely. Returns the written path and its signal."""
+    rate = R.AUDIO_RATE
+    t = np.arange(int(3.0 * rate)) / rate
+    words = (t % 1.0) < 0.6
+    rng = np.random.default_rng(0)
+    floor = 0.0025 * rng.standard_normal(len(t)).astype(np.float32)
+    x = (np.where(words, 0.2 * np.sin(2 * np.pi * 170.0 * t), 0.0).astype(np.float32) + floor)
+    sf.write(str(path), x, rate)
+    return x
+
+
+def test_narrator_profile_from_takes_really_cleans_before_profiling(tmp_path):
+    """A pure tone lets clean_voice no-op, so it can't catch a generator that skips A19 entirely (the point of
+    this ticket's fix). This take has a real noise floor between words, so clean_voice measurably acts on it, and
+    the profile it feeds A14 must be the cleaned one, not the raw take's."""
+    wav = tmp_path / "take-with-floor.wav"
+    x = _take_with_a_real_noise_floor(wav)
+    text = "a line with three words and real pauses between them"
+
+    cleaned, rep = R.clean_voice(x.copy())
+    assert rep.get("cleaned") is True and not np.array_equal(cleaned, x)   # confirms this take exercises A19 for real
+
+    voice = {"engine": "orpheus", "voice": "tara", "pitch_shift_st": 0.76}
+    prof = R.narrator_profile_from_takes([(wav, text)], voice)
+    (take,) = prof["takes"].values()
+
+    g, _ = R.level_gain(x, R.DIALOGUE_LUFS)
+    uncleaned = R.voice_profile(x * 10 ** (g / 20), len(R.WORD_RE.findall(text)))
+    # the noise floor between words is bright; cleaning it away (not just levelling) moves the measured centroid
+    assert abs(take["centroid_hz"] - uncleaned["centroid_hz"]) > 50, (take["centroid_hz"], uncleaned["centroid_hz"])
+
+
 def test_narrator_profile_from_takes_matches_process_takes_own_measurement(tmp_path):
     """process_take runs A19's clean_voice before levelling, then profiles the cleaned, levelled take (A14) before
     any EQ (render.py's process_take). narrator_profile_from_takes must measure the reference the same way, or the
-    stored baseline is not comparable to what A14 judges a rendered narration line against. One synthetic take,
-    run through both paths, must come out identical."""
-    rate = R.AUDIO_RATE
-    t = np.arange(int(2.0 * rate)) / rate
-    tone = (0.2 * np.sin(2 * np.pi * 170.0 * t)).astype(np.float32)
-    wav = tmp_path / "synthetic-take.wav"
-    sf.write(str(wav), tone, rate)
-    text = "a short synthetic line for the test"
+    stored baseline is not comparable to what A14 judges a rendered narration line against. One synthetic take
+    with a real noise floor (so cleaning actually does something), run through both paths, must come out
+    identical."""
+    wav = tmp_path / "take-with-floor.wav"
+    _take_with_a_real_noise_floor(wav)
+    text = "a line with three words and real pauses between them"
 
     prof = R.narrator_profile_from_takes([(wav, text)], TARA_1ST)
     (take,) = prof["takes"].values()

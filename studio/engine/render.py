@@ -151,6 +151,7 @@ NARRATOR_GROUP_MIN = 2              # a group of one is a single line, which may
 NARRATOR_DRIFT_WARN_ST, NARRATOR_DRIFT_BLOCK_ST = 1.0, 2.0
 NARRATOR_DRIFT_WARN_CENTROID, NARRATOR_DRIFT_BLOCK_CENTROID = 0.15, 0.25
 NARRATOR_PROFILE = Path(__file__).resolve().parents[1] / "narrator-profile.json"   # optional anchor: the approved audition
+NARRATOR_SHIFT_TOL_ST = 0.005        # a declared shift within this of a stored variant's is the same shift (float noise)
 NEUTRALISE = "colour cast removed"  # A14: the alteration a neutralised colour cast is marked with
 NEUTRALISE_FILTER = "hue=s=0"       # chroma to neutral, luma kept, before scaling and pillarboxing
 VOICE_LIMIT_MARGIN_DB = 0.3         # the per-line limiter's ceiling sits this far under VOICE_TP
@@ -5403,7 +5404,10 @@ def load_narrator_profile(narrator_voice: dict | None, path: Path | None = None)
     unshifted profile; an undeclared voice is held to the unshifted one.
     A variant may also be another voice (a film's narrator chosen by the
     founder: Zoe for "Real World", 2026-10-16): the reference is the stored
-    entry whose engine, voice and shift all match the film's narrator."""
+    entry whose engine, voice and shift all match the film's narrator.
+    The shift match is within NARRATOR_SHIFT_TOL_ST (a declared shift may be
+    a computed figure, e.g. 12*log2(f_target/f_raw), that lands a float
+    epsilon from the stored key)."""
     path = NARRATOR_PROFILE if path is None else path
     if not path or not Path(path).exists():
         return None, f"no stored profile at {path}"
@@ -5421,7 +5425,7 @@ def load_narrator_profile(narrator_voice: dict | None, path: Path | None = None)
         return None, f"the narrator's pitch_shift_st {(narrator_voice or {}).get('pitch_shift_st')!r} is not a number"
     for cand in cands:
         cv = cand.get("voice") or {}
-        if key(cv) == want and _voice_shift(cv) == shift:
+        if key(cv) == want and abs(_voice_shift(cv) - shift) < NARRATOR_SHIFT_TOL_ST:
             return cand, f"drift reference {Path(path).name} ({_voice_name(cv)})"
     stored = ", ".join(_voice_name(c.get("voice") or {}) for c in cands)
     return None, (f"the film's narrator is {_voice_name(dict(want, pitch_shift_st=shift))}; the stored profiles are "
