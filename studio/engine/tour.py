@@ -632,8 +632,8 @@ def whole_pose(size, aspect: float, record: bool, avoid: list[tuple] | None = No
     ``avoid_clear`` is only set when ``avoid`` is given and is False only
     when no point along the travel reads under the warn share (no room: the
     caller falls back further, journaled, never refused)."""
-    iw, ih = float(size[0]), float(size[1])
-    fw, fh = fill_window(size, aspect)
+    ih = float(size[1])
+    fh = fill_window(size, aspect)[1]
     wgt = CINE["whole_weight_record"] if record else CINE["whole_weight"]
     ax = long_axis(size, aspect)
     p = {"z": 1.0, "x": 0.5, "y": 0.5}
@@ -641,29 +641,60 @@ def whole_pose(size, aspect: float, record: bool, avoid: list[tuple] | None = No
         p["y"] = (wgt * (ih - fh) + fh / 2.0) / ih
     if ax is None or not avoid:
         return p
+    return travel_search(size, aspect, wgt, avoid)
 
-    def at(w: float) -> dict:
-        q = {"z": 1.0, "x": 0.5, "y": 0.5}
-        if ax == "y":
-            q["y"] = (w * (ih - fh) + fh / 2.0) / ih
-        else:
-            q["x"] = (w * (iw - fw) + fw / 2.0) / iw
-        return q
+
+def _travel_at(size, aspect: float, w: float) -> dict:
+    """The fill (z 1) at weight ``w`` of its travel along the long axis (0 the
+    top or left end, 1 the bottom or right end)."""
+    iw, ih = float(size[0]), float(size[1])
+    fw, fh = fill_window(size, aspect)
+    q = {"z": 1.0, "x": 0.5, "y": 0.5}
+    if long_axis(size, aspect) == "y":
+        q["y"] = (w * (ih - fh) + fh / 2.0) / ih
+    else:
+        q["x"] = (w * (iw - fw) + fw / 2.0) / iw
+    return q
+
+
+def travel_weight(size, aspect: float, p: dict) -> float:
+    """``_travel_at``'s inverse: where a framing's centre sits along the fill's
+    travel, clamped to [0, 1]."""
+    ax = long_axis(size, aspect)
+    if ax is None:
+        return 0.5
+    full = float(size[0] if ax == "x" else size[1])
+    win = fill_window(size, aspect)[0 if ax == "x" else 1]
+    if full - win <= 1e-9:
+        return 0.5
+    return min(1.0, max(0.0, (float(p[ax]) * full - win / 2.0) / (full - win)))
+
+
+def travel_search(size, aspect: float, prefer: float, avoid: list[tuple], span=(0.0, 1.0)) -> dict:
+    """A49's ``whole`` search (``whole_pose``), shared with the subject pass's
+    opening (A52): the fill (z 1) along its travel, in 2.5% steps inside
+    ``span`` (weights), ordered by ``avoid_key``: a window every ``avoid`` box
+    fits first, then one that reads clear of the warn share, the closest to
+    ``prefer`` among those; failing that, the least overlap. Returns {z, x,
+    y, avoid_clear}."""
+    lo, hi = min(span), max(span)
+    cands = sorted({round(k / 40.0, 4) for k in range(41)} | {round(prefer, 4)}, key=lambda w: abs(w - prefer))
+    cands = [w for w in cands if lo - 1e-9 <= w <= hi + 1e-9 or w == round(prefer, 4)]
 
     def win_of(w: float) -> tuple:
-        q = at(w)
+        q = _travel_at(size, aspect, w)
         return window(size, aspect, q["z"], q["x"], q["y"])
 
-    candidates = sorted({round(k / 40.0, 4) for k in range(41)} | {round(wgt, 4)}, key=lambda w: abs(w - wgt))
-    best_w, best_overlap, best_key = wgt, avoid_overlap(size, win_of(wgt), avoid), None
-    for w in candidates:
+    best_w, best_overlap, best_key = prefer, avoid_overlap(size, win_of(prefer), avoid), None
+    for w in cands:
         win = win_of(w)
         ov = avoid_overlap(size, win, avoid)
-        key = avoid_key(ov, abs(w - wgt), fits=avoid_fits(size, win, avoid))
+        key = avoid_key(ov, abs(w - prefer), fits=avoid_fits(size, win, avoid))
         if best_key is None or key < best_key:
             best_key, best_w, best_overlap = key, w, ov
     best_fits = avoid_fits(size, win_of(best_w), avoid)
-    return dict(at(best_w), avoid_clear=best_fits and best_overlap < CINE["under_text_share"] - 1e-9)
+    return dict(_travel_at(size, aspect, best_w),
+                avoid_clear=best_fits and best_overlap < CINE["under_text_share"] - 1e-9)
 
 
 def _place(c: float, s: float, win: float, full: float, t: float) -> tuple[float, float]:
@@ -860,7 +891,7 @@ def leg_min_s(a: dict, b: dict, size, aspect: float) -> float:
 def subject_stops(size, aspect: float, dur: float, pose: dict, *, arrive: float, settle_s: float,
                   need_whole: bool = False, start: dict | None = None, breath: bool = False,
                   from_near: bool = False, waypoints=(), hz: float = 24.0,
-                  continues: bool = False) -> tuple[list[dict], dict]:
+                  continues: bool = False, open_avoid: list[tuple] | None = None) -> tuple[list[dict], dict]:
     """A47's default pass, ending on the subject: it opens at the end of the
     picture's long axis furthest from the subject (or, ``start``, where a
     ``match: prev`` puts the subject), sweeps once and lands on ``pose`` at
@@ -879,7 +910,12 @@ def subject_stops(size, aspect: float, dur: float, pose: dict, *, arrive: float,
     two frames is held whole in frame. The holds take at most half of the
     time before the arrival, each at least one frame at ``hz``; when even
     that does not fit, the arrival runs late, up to the cut (A7 first).
-    Returns (stops, timing), the stop times never going back."""
+    ``open_avoid`` (A52, A51's opening refined): the opening end is searched
+    as ``whole_pose`` searches the fill (``travel_search``), between that
+    end and the subject, so a ``must_show`` box or a face under a lower
+    third or subtitle already up is minimised from the first frame; the end
+    itself wins whenever it is already clear, and the sweep's direction is
+    never reversed. Returns (stops, timing), the stop times never going back."""
     ax = long_axis(size, aspect)
     pose = dict(pose, **settle(pose, size, aspect))
     pose.setdefault("from", "A47: the subject")
@@ -911,7 +947,19 @@ def subject_stops(size, aspect: float, dur: float, pose: dict, *, arrive: float,
                 for w in waypoints]
         pts.append({"z": 1.0, "x": 0.5, "y": 0.5, "from": "A47: the fill"})
     elif start is None:
-        pts.append(ends[1 if from_near else 0] if ends else {"z": 1.0, "x": 0.5, "y": 0.5, "from": "A47: the fill"})
+        opening = ends[1 if from_near else 0] if ends else {"z": 1.0, "x": 0.5, "y": 0.5, "from": "A47: the fill"}
+        if open_avoid and ends:
+            ew = travel_weight(size, aspect, opening)
+            q = travel_search(size, aspect, ew, open_avoid, span=(ew, travel_weight(size, aspect, pose)))
+            w0 = window(size, aspect, opening["z"], opening["x"], opening["y"])
+            w1 = window(size, aspect, q["z"], q["x"], q["y"])
+            if not _same(opening, q) and avoid_overlap(size, w1, open_avoid) < avoid_overlap(size, w0, open_avoid) - 1e-9:
+                timing["open_steered"] = {"from": round(opening[ax], 4), "to": round(q[ax], 4),
+                                          "overlap_from": round(avoid_overlap(size, w0, open_avoid), 4),
+                                          "overlap_to": round(avoid_overlap(size, w1, open_avoid), 4)}
+                opening = {"z": 1.0, "x": q["x"], "y": q["y"],
+                           "from": "A52: the opening, steered clear of live text along the travel"}
+        pts.append(opening)
     pts.append(pose)
     path = [pts[0]]
     for q in pts[1:]:
@@ -1347,13 +1395,18 @@ def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], w
         # freedom the pass already has (far end or near end), so a far-end sweep that carries a face under the
         # text while the near end's does not opens at the near end (the smaller move), never at the cost of a
         # person or a must_show region
+        # A52: each opening is first searched along the travel as whole_pose searches it (``open_avoid``), so a
+        # must_show box or a face under text already up is minimised from the first frame; the unsteered end
+        # follows, so steering never costs a person or a must_show region
         face_av = [a for a in avoid or [] if is_face_avoid(a)]
         tries = (False, True) if not need_whole and start is None and (seeing or face_av) else (False,)
+        steers = (True, False) if avoid and not need_whole and start is None else (False,)
         cands = []
-        for near in tries:
+        for near, steer in [(n, st) for n in tries for st in steers]:
             st_, tm_ = subject_stops(size, aspect, dur, pose, arrive=arrive, settle_s=settle_s,
                                      need_whole=need_whole, start=start, breath=True, from_near=near,
-                                     waypoints=waypoints, hz=hz, continues=continues)
+                                     waypoints=waypoints, hz=hz, continues=continues,
+                                     open_avoid=avoid if steer else None)
             if not (seeing or face_av) or need_whole:
                 cands.append((st_, tm_, near, True, True))
                 break
@@ -1370,7 +1423,7 @@ def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], w
             stops, timing, near = pick[0], pick[1], pick[2]
             if near:
                 opens = ("the near end: the far end's sweep would leave a person or a must_show region unseen"
-                         if not cands[0][3] else
+                         if not any(c[3] for c in cands if not c[2]) else
                          "the near end: the far end's sweep would carry a face under live text (A51)")
         else:
             # A47 and A7: no single sweep ending on the subject shows every located person and must_show region

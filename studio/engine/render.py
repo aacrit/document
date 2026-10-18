@@ -1601,7 +1601,12 @@ def a49_tour_lints(lint, journal: Journal, s: dict, cam: dict, size, fps: float,
         return
     wins = TL.frame_windows(tl, fps)
     sub = cam.get("subject") or {}
-    if sub.get("box") is not None:
+    # A52: a subject that is itself a must_show region is reported once, by the must_show check below (or by
+    # engine_cover's reviewer item), never twice with the same overlap
+    sub_is_must = sub.get("box") is not None and any(
+        T.roi_box(r) is not None and all(abs(a - b) <= 1e-3 for a, b in zip(T.roi_box(r), sub["box"]))
+        for r in must_show_rois)
+    if sub.get("box") is not None and not sub_is_must:
         res = TL.subject_under_text(wins, sub["box"], size, text_spans=text_spans, is_face=sub.get("kind") == "face",
                                     must_show=False)
         if not res["ok"]:
