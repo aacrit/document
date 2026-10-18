@@ -573,7 +573,8 @@ def test_vl_regions_never_make_a_person_and_a_cue_beats_the_caption():
     ("3.6", "place", ("object", "smoke plume")),     # the plume over Lower Manhattan (no_zoom: drift only)
     ("5.7", "object", ("object", "damaged car")),    # the police car in the debris
     ("5.9ba", "place", ("object", "boat")),          # the Hocking crossing; its crew still unlocated, so shown whole
-    ("1.4", "place", None), ("2.8", "place", None), ("3.7", "map", None),
+    # rulebook 6 (A47): "the south tower" in 1.4's title finds the VL's "building" through the synonym table
+    ("1.4", "place", ("place", "building")), ("2.8", "place", None), ("3.7", "map", None),
     ("4.2", "person", ("person", None)),             # people: MediaPipe alone, the VL is not read
 ])
 def test_the_rulebook_on_recorded_vl_answers(shot, cls, subject):

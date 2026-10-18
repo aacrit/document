@@ -772,17 +772,24 @@ def whole_camera(shot: dict, img_size, W: int, H: int, *, preset: str = "HOLD") 
             "z_max": z_end, "fit_scale": s, "z_rel_max": 1.0, "creep_z": z_end, "opens_whole": True}
 
 
-def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words=None, cover: bool = False,
-                 cap: float | None = None, fps: float | None = None) -> dict:
+def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words=None, cover=False,
+                 cap: float | None = None, fps: float | None = None, hold_on=()) -> dict:
     """The still's camera (A41, TOUR): a path of stops in picture coordinates
     (studio/engine/tour.py) that fills 16:9 on every frame, drawn by
     ``overlays.framing_at``. The path is the shot's ``camera`` (a list of
     stops, ``"tour"`` or ``{"tour": [names]}``: the ledger's regions visited
     as the narration names them), else its preset as a macro, else the
-    default tour. ``cover`` swaps a preset or the default for a pass that
-    shows the whole picture (a FILL then settles on its focus, a DETAIL on its
-    region): the plan asks for it when the path would leave part of the
-    picture, or a person, unseen. A still the
+    default, which ends on the subject (A47, ``tour.subject_plan``: the
+    ledger's ``subject``, else the shot's ``focus``, else the whole picture;
+    the whole picture swept first when a person the ledger has not located
+    needs it). ``cover`` swaps a preset or the default for that pass:
+    ``"subject"`` when the preset would leave part of the picture unseen,
+    ``"whole"`` (or True) when a person would go unseen, so the pass shows
+    the whole picture before it settles on the subject (a FILL's focus, a
+    DETAIL's region, when the ledger names no subject); ``hold_on`` (boxes)
+    holds that pass on each of them. Under ``no_zoom`` a preset that zooms
+    (PUSH, PULL, DRIFT, TILT, DETAIL) keeps its moves at z 1: drift only. A
+    still the
     softness cap cannot fill states ``fill_exception`` and is held whole (A7).
     FIND (A32) keeps its own camera, held at the fill. ``words`` are the
     narration's words over the shot (tour.shot_words), for ``at`` anchors."""
@@ -828,6 +835,20 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
     camera = shot.get("camera")
     macro = None
     covering = False
+    no_zoom = shot.get("no_zoom") is True
+    subject = None
+
+    def subject_pass(*, whole: bool = False, focus=None):
+        """A47: the default pass, ending on the subject."""
+        nonlocal subject
+        need = whole or T.people_of(item, kind=shot.get("kind", "archive_still"))["unlocated"] > 0
+        # a ledger's own whole: true is a declaration (doctrine 1); the rulebook's is its fallback (A45)
+        declared = item.get("whole") is True and "whole" not in ((shot.get("_vision") or {}).get("from_rulebook")
+                                                                or [])
+        st, subject = T.subject_plan(shot, item, roi, persons, words or [], img_size, aspect, dur, t0, zmax,
+                                     need_whole=need, focus=focus, match_screen=shot.get("_match_screen"),
+                                     declared_whole=declared, hold_on=hold_on, hz=fps or FPS)
+        return st
     if camera is not None and shot.get("preset") is not None:
         problems.append("a shot takes a camera path or a preset, not both")
     if camera is not None:
@@ -836,34 +857,36 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
             stops = T.tour_stops(roi, words or [], t0, dur, img_size, aspect, zmax, only=only)
             macro = "TOUR"
             if stops is None:
-                stops, macro = T.default_stops(img_size, aspect, dur, str(shot.get("direction", "")).lower(),
-                                               zmax=zmax), "DEFAULT"
+                stops, macro = subject_pass(), "DEFAULT"
         else:
             stops, probs = T.parse_path(camera, dur, words or [], t0, roi_by_name, img_size, aspect, zmax)
             problems += probs
             macro = "PATH"
             if not stops:
-                stops = T.default_stops(img_size, aspect, dur, zmax=zmax)
+                stops = subject_pass()
     elif preset in T.MACROS:
         macro = preset
         stops = T.macro_stops(preset, shot, dur)
         clamped = [st for st in stops if st["z"] > zmax + 1e-9]
         for st in clamped:                    # a preset stops at the softness cap, as FILL did (A34): never softer
             st["z"], st["capped"] = zmax, True
+        if no_zoom:
+            for st in stops:                  # A47 (founder ruling): a no_zoom still only drifts, whatever its preset
+                st["z"] = 1.0
     elif preset == TOUR:
         macro = "DEFAULT"
-        stops = T.default_stops(img_size, aspect, dur, str(shot.get("direction", "")).lower(), zmax=zmax)
+        stops = subject_pass()
     else:
         raise Refused(f"shot {shot['id']}: unknown preset {preset!r} (GRAMMAR 7.2, A41)")
     asked = stops                             # still-zoom-limit judges the preset as written, before any cover
     if cover and (macro in COVERABLE or macro == "TOUR"):
         region = shot.get("region") or {}
-        focus = (shot.get("focus") if macro == "FILL" else
-                 [float(region.get("x", 0.5)), float(region.get("y", 0.5))] if macro == "DETAIL" else None)
-        stops = T.covering_stops(img_size, aspect, dur, focus, zmax=zmax)
+        focus = ([float(region.get("x", 0.5)), float(region.get("y", 0.5))] if macro == "DETAIL" and region
+                 else None)
+        # A47: the cover ends on the subject too; "whole" (or True) sweeps the whole picture first (A7)
+        stops = subject_pass(whole=cover is True or cover == "whole", focus=focus)
         covering = True
     # A43 face-cap-live: a stop that frames a face or a person never goes past z 1.3, creep included
-    no_zoom = shot.get("no_zoom") is True
     stops = T.cap_faces(stops, persons, img_size, aspect)
     # A43 (founder ruling 2): the engine's own output is never refused. A stop it placed on a person that may not
     # bind the name it is timed to is re-framed to the group or the whole; a move it made across a face past the
@@ -878,46 +901,142 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
     tl = T.build(stops, dur, img_size, aspect, zmax, no_zoom=no_zoom)
     frame_path = [T.to_frame(st, img_size, W, H) for st in tl["stops"]]
     zf = max(W / fw, H / fh)
+    if subject is not None:
+        # A47: what the pass ended on, as drawn (after the face cap and any re-framing): the subject stop and the
+        # last frame, composed or not, and where the subject sits on the screen at the cut (match: prev)
+        subj = subject.pop("subj")
+        last = T.at(tl, dur)
+        subject.update(stop=T.compose_verdict(tl["stops"][-1], subj, img_size, aspect, record=subject["record"],
+                                              facing=subject["facing"]),
+                       last=T.compose_verdict(last, subj, img_size, aspect, record=subject["record"],
+                                              facing=subject["facing"]),
+                       screen=[round(v, 4) for v in T.screen_of(tl, subject["point"])],
+                       first={k: round(tl["stops"][0][k], 4) for k in ("x", "y", "z")},
+                       end={k: round(tl["stops"][-1][k], 4) for k in ("x", "y", "z")},
+                       last_frame={k: round(last[k], 4) for k in ("x", "y", "z")},
+                       reversals=T.reversals(tl))
+        subject["point"] = [round(v, 4) for v in subject["point"]]
     return {"path": frame_path, "clamp": "image", "fill_ok": True, "preset": TOUR, "macro": macro, "open_s": 0.0,
             "z_max": zf * tl["z_max"], "fit_scale": s, "z_rel_max": max(max(1.0, float(st["z"])) for st in asked),
             "tour": tl, "W": W, "H": H, "opens_whole": False, "problems": problems, "zcap": zcap, "cap": cap,
-            "covering": covering, "capped": any(st.get("capped") for st in stops),
+            "covering": covering, "cover": (("whole" if cover is True else cover) if covering else None),
+            "capped": any(st.get("capped") for st in stops), "subject": subject,
             "cine": {"persons": persons, "regions": roi_by_name, "ignored": eff["ignored"], "reframed": reframed,
                      "pulled": pulled}}
 
 
 def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journal | None, fps: float = FPS) -> dict:
-    """A41 and A43: a path the engine made (a preset, the default, or the
-    ``tour`` resolver's visits, re-framed or not) can never fail tour-people.
-    Its windows are checked against every person in the picture (A7 over the
-    path); one that misses anyone becomes a covering pass of the whole
-    picture, journaled. A preset or the default that leaves part of the
-    picture unseen is covered too, unless the ledger names what the picture
-    is about (roi, must_show): then the path is the author's, and a reviewer
-    item. A path a person wrote (``camera`` stops) is never changed here."""
+    """A41, A43 and A47: a path the engine made (a preset, the default, or
+    the ``tour`` resolver's visits, re-framed or not) can never fail
+    tour-people. Its windows are checked against every person in the picture
+    (A7 over the path); one that misses anyone becomes a covering pass: it
+    shows the whole picture, then settles on the subject (A47), journaled. A
+    preset that leaves part of the picture unseen becomes the default pass,
+    which ends on the subject (A47; it was a covering pass of the whole under
+    A41), unless the ledger names what the picture is about (a person's
+    roi, must_show): then the path is the author's, and a reviewer item. The
+    default pass itself is never widened for coverage alone: what it leaves
+    unseen is the subject's choice (``tour-partial``). A path a person wrote
+    (``camera`` stops) is never changed here."""
     if cam.get("preset") != TOUR or not (cam.get("macro") in COVERABLE or cam.get("macro") == "TOUR"):
         return cam
     item = s["_item"]
     people = T.people_of(item, kind=s["kind"])
-    wins = [w for _, w in still_windows(cam, s, size, W, H, hz=fps)]       # every frame at the master rate (A44)
-    pc = T.people_check(wins, people, size)
+
+    def check(c):
+        wins = [w for _, w in still_windows(c, s, size, W, H, hz=fps)]     # every frame at the master rate (A44)
+        return wins, T.people_check(wins, people, size)
+
+    wins, pc = check(cam)
+
+    def missed_must_show(c, w):
+        # A47: the engine's own pass (the default, or a cover) never leaves a must_show region unseen
+        return T.must_show(w, item, size) if c.get("subject") is not None else []
     # A45: a region the rulebook found (source: auto) does not make a preset or the default the author's path; only a
     # person's region or must_show does
     roi = item.get("roi")
     human_roi = [r for r in roi if isinstance(r, dict) and T.source_of(r) == "human"] if isinstance(roi, list) else roi
-    authored = bool(human_roi or item.get("must_show")) or cam["macro"] == "TOUR"
-    why = ("a person would go unseen" if not pc["ok"] else
-           None if pc["whole_shown"] or authored else
-           f"it shows {100 * T.coverage(wins, size):.0f}% of the picture")
-    if not why:
-        return cam
+    authored = bool(human_roi or item.get("must_show")) or cam["macro"] in ("TOUR", "DEFAULT")
     macro = cam["macro"]
-    cam = still_camera(s, size, W, H, words=words, cover=True, fps=fps)
+    if pc["ok"] and not pc["whole_shown"] and not authored:
+        why = f"it shows {100 * T.coverage(wins, size):.0f}% of the picture"
+        cam = still_camera(s, size, W, H, words=words, cover="subject", fps=fps)
+        wins, pc = check(cam)
+        if journal is not None and pc["ok"]:
+            journal.decision("motion", f"{s['id']}: {macro} made the default pass, ending on the subject",
+                             f"A41 and A47: as written {why}; the default pass ends on what the picture is about",
+                             unit=s["id"], evidence={"people": people, "kind": s["kind"],
+                                                     "subject": (cam.get("subject") or {}).get("src")})
+    ms = missed_must_show(cam, wins)
+    if pc["ok"] and not ms:
+        return cam
+    missed = pc["missed"]
+    cam = still_camera(s, size, W, H, words=words, cover="whole", fps=fps)
+    wins, pc = check(cam)
+    held = []
+    if not pc["ok"] or missed_must_show(cam, wins):
+        # a person (or a must_show region) the sweep passes between two frames: the pass holds on each one whole
+        names = set(missed_must_show(cam, wins))
+        held = [p["box"] for p in people["boxes"] if not T.seen(wins, p["box"], size)]
+        held += [T.roi_box(r) for r in item.get("roi") or [] if isinstance(r, dict) and r.get("name") in names]
+        cam = still_camera(s, size, W, H, words=words, cover="whole", fps=fps, hold_on=held)
+        wins, pc = check(cam)                 # the held pass, checked again (tour-people judges it as drawn)
     if journal is not None:
-        journal.decision("motion", f"{s['id']}: {macro} made a covering pass of the whole picture",
-                         f"A41 and A7: as written {why}; full visibility comes from touring the whole surface",
-                         unit=s["id"], evidence={"people": people, "kind": s["kind"], "missed": pc["missed"]})
+        journal.decision("motion", f"{s['id']}: {macro} made a covering pass of the whole picture, ending on the "
+                         "subject", "A41, A7 and A47: as written a person or a must_show region would go unseen; "
+                         "the pass shows the whole picture" + (", holding on each it would pass between frames"
+                                                                if held else "") + ", then settles on the subject",
+                         unit=s["id"], evidence={"people": people, "kind": s["kind"], "missed": missed,
+                                                 "must_show_missed": ms, "held_on": len(held),
+                                                 "now_shows_everyone": pc["ok"]})
     return cam
+
+
+def next_subject(nxt: dict | None):
+    """A47: where the next shot's subject sits in its own picture (fractions),
+    when that shot is a still joined by a cut that says ``match: "prev"``;
+    a ``whole`` still that sweeps ends on that side. None otherwise."""
+    if not nxt or nxt.get("kind") not in ("archive_still", "drawn") or nxt.get("match") != "prev":
+        return None
+    if (nxt.get("transition_in") or {}).get("type", "cut") != "cut":
+        return None
+    item = nxt.get("_item") or {}
+    subj = T.resolve_subject(T.effective_regions(item)["roi"], nxt.get("focus"))
+    if subj["box"] is None:
+        return None
+    b = subj["box"]
+    return [(b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0]
+
+
+def match_prev(journal: Journal | None, s: dict, prev: dict | None) -> None:
+    """A47: a still that says ``match: "prev"`` (on the shot, or on its first
+    stop) opens with its subject where the previous shot left its own on the
+    screen, across a cut (``_match_screen``, read by ``tour.subject_plan``).
+    A dissolve waits for #9, and a previous shot with no subject (a clip, a
+    card, an authored path) gives no position: both are warnings, and the
+    still opens as the default does."""
+    cam0 = s.get("camera")
+    asked = s.get("match") == "prev" or (isinstance(cam0, list) and cam0 and isinstance(cam0[0], dict)
+                                         and cam0[0].get("match") == "prev")
+    s.pop("_match_screen", None)
+    if not asked:
+        return
+    tr = (s.get("transition_in") or {}).get("type", "cut")
+    pc = (prev or {}).get("_cam") or {}
+    screen = (pc.get("subject") or {}).get("screen")
+    why = None
+    if tr != "cut":
+        why = f"a {tr} joins it to the shot before: a match across a dissolve is #9's"
+    elif screen is None:
+        why = "the shot before leaves no subject on the screen (not a still, or an authored path)"
+    elif isinstance(cam0, list):
+        why = "an authored camera path places its own first stop"
+    if why is None:
+        s["_match_screen"] = list(screen)
+    if journal is not None:
+        journal.lint("cine-match", why is None, stage="motion", unit=s["id"], severity="warn", grammar="A47",
+                     phase="preflight", evidence={"prev": (prev or {}).get("id"), "transition": tr,
+                                                  "screen": screen, "why": why})
 
 
 def narrower_than_frame(aspect: float, W: int = 1920, H: int = 1080) -> bool:
@@ -1161,6 +1280,47 @@ def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int,
                                                   "check": "the path never shows the whole picture: what it leaves "
                                                            "out is the author's choice (A41: full visibility comes "
                                                            "from touring the whole surface)"})
+    subject_lints(journal, s, cam, people)
+
+
+def subject_lints(journal: Journal, s: dict, cam: dict, people: dict) -> None:
+    """A47 at plan time (guidance, never a block): the pass the engine drew
+    ends on the subject, journaled with its source (``subject``, ``focus`` or
+    ``whole``), its first and last stops, when it arrives and the end pose's
+    composition. ``in-shot-reversal`` (a warning): a path that sweeps and
+    comes back on a picture whose people are all located; the reversal is a
+    symptom of not knowing where they are (when a person the ledger has not
+    located needs the whole picture shown, the guard needs it, and it is
+    journaled instead)."""
+    sub = cam.get("subject")
+    tl = cam.get("tour")
+    if sub is not None:
+        journal.decision("motion", f"{s['id']}: ends on the subject ({sub['src']}, {sub['last']['verdict']})",
+                         "A47: the camera ends on the subject, settled before the cut", unit=s["id"],
+                         evidence={k: sub.get(k) for k in ("src", "kind", "box", "compose", "facing", "no_zoom",
+                                                            "settle_s", "need_whole", "timing", "match_error",
+                                                            "first", "end", "last_frame", "stop", "last",
+                                                            "screen")})
+    if sub is not None and sub.get("focus_ignored"):
+        journal.lint("cine-whole-focus", False, stage="motion", unit=s["id"], severity="warn", grammar="A47",
+                     phase="preflight", evidence={"focus": s.get("focus"), "fix": "the ledger declares whole: true, "
+                                                  "which wins over the shot's focus: drop one of them"})
+    if not tl:
+        return
+    rev = T.reversals(tl)
+    if not rev or not (people["boxes"] or people["unlocated"]):
+        return
+    if people["unlocated"]:
+        journal.decision("motion", f"{s['id']}: the pass comes back on itself to show the whole picture",
+                         "A7 and A47: a person the ledger has not located needs the whole picture shown, so the "
+                         "pass sweeps both ends before it settles on the subject", unit=s["id"],
+                         evidence={"reversals": rev, "unlocated": people["unlocated"]})
+        return
+    journal.lint("in-shot-reversal", False, stage="motion", unit=s["id"], severity="warn", grammar="A47",
+                 phase="preflight", evidence={"reversals": rev, "located": len(people["boxes"]),
+                                              "macro": cam.get("macro"), "fix": "every person here is located: "
+                                              "end on the subject in one sweep (a path that passes over each of "
+                                              "them), or cut between two stills"})
 
 
 def cine_lints(lint, journal: Journal, s: dict, cam: dict, fps: float = FPS) -> None:
@@ -2132,7 +2292,8 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     # shot, the resampler (A5), fill_ok for the reviewer.
     words_src = None
     stills = [s for s in shots if s["kind"] in ("archive_still", "drawn") and s.get("_item", {}).get("_path")]
-    if any(x.get("camera") is not None or x.get("subject_at") is not None for x in stills):
+    if stills:
+        # A41 anchors, and A47: the default pass lands its subject by the shot's last line (or its subject_at)
         words_src = tour_lines(play, film)
     # A45 (founder ruling 2): the rulebook's fields under the human ledger's, from the cache only (a render never infers;
     # a miss is planned under the A41 default, journaled, with a reviewer item; never refused)
@@ -2141,10 +2302,12 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     cine_schema_lints(lint, journal, stills, lambda x: T.shot_words(words_src or [], x["start_s"], x["end_s"]))
     if lint_fail:
         raise Refused("lint failed: " + "; ".join(lint_fail))
-    for s in shots:
+    for si, s in enumerate(shots):
         if s["kind"] in ("archive_still", "drawn") and s.get("_item", {}).get("_path"):
             if s["kind"] == "drawn" and s.get("camera") is None:
                 s.setdefault("preset", "HOLD")
+            match_prev(journal, s, shots[si - 1] if si > 0 else None)
+            s["_end_toward"] = next_subject(shots[si + 1] if si + 1 < len(shots) else None)
             with Image.open(s["_item"]["_path"]) as im:
                 size = im.size
             # A41 (founder, 2026-10-17): a still may go to 3.0x unless the film states its own fill_max_upscale

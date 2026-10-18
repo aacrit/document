@@ -28,9 +28,10 @@ import re
 
 from studio.engine import motion as M
 
-RULEBOOK_VERSION = "5"     # 2: a bare title is one name; 3: a run is a place by its first or last word only;
+RULEBOOK_VERSION = "6"     # 2: a bare title is one name; 3: a run is a place by its first or last word only;
                            # 4: a VL place or object region named by a cue or the caption is the subject
                            # 5: people words that are only names count one person per name
+                           # 6: a cue and a VL label match through SYNONYMS (plume and smoke, A47)
 CLASSES = ("person", "crowd", "place", "document", "map", "painting", "object")
 RECORDS = ("document", "map", "painting", "object")       # composed centred: the picture is a record
 FLOOR = M.CINE["auto_confidence_floor"]                   # a box under it is not a subject (A43)
@@ -437,6 +438,22 @@ STOP = {"the", "a", "an", "of", "and", "from", "over", "in", "on", "at", "to", "
         "his", "her", "their", "seen", "view", "toward", "towards", "after", "before", "near", "one", "two"}
 
 
+# A47 (WG-3, Real World C0: the cue "plume", the VL's label "smoke"): words a cue and a VL label share by meaning.
+# Each group is one word for matching; short, versioned with the rulebook, never a person's word.
+SYNONYMS = (
+    ("plume", "smoke"),
+    ("tower", "towers", "building", "buildings", "skyscraper", "skyscrapers"),
+    ("ship", "ships", "vessel", "vessels", "boat", "boats"),
+    ("statue", "monument"),
+)
+_SYN = {w: g[0] for g in SYNONYMS for w in g}
+
+
+def match_words(text: str) -> set[str]:
+    """``content_words`` with each synonym group read as its first word."""
+    return {_SYN.get(w, w) for w in content_words(text)}
+
+
 def content_words(text: str) -> list[str]:
     ws = [w.strip(_EDGE).lower() for w in str(text or "").replace("-", " ").split()]
     return [w for w in ws if len(w) >= 3 and w.isalpha() and w not in STOP]
@@ -451,13 +468,13 @@ def vl_subject(cls: str, vl: dict | None, item: dict, cues) -> tuple[dict | None
     never. None when nothing matches (the still stays whole)."""
     if not vl or cls in ("person", "crowd"):
         return None, "no VL region for this class" if vl else "no VL measurement"
-    cue_w = {w for c in cues or () for w in content_words(c)}
-    cap_w = set(content_words(item.get("caption") or item.get("title") or ""))
+    cue_w = {w for c in cues or () for w in match_words(c)}
+    cap_w = match_words(item.get("caption") or item.get("title") or "")
     best = None
     for k, g in enumerate(vl.get("regions") or []):
         if g.get("kind") not in VL_KINDS_USED or g["w"] < VL_MIN_SIDE or g["h"] < VL_MIN_SIDE:
             continue
-        lw = set(content_words(g.get("label")))
+        lw = match_words(g.get("label"))
         rank = 0 if lw & cue_w else (1 if lw & cap_w else None)
         if rank is not None and (best is None or (rank, k) < best[0]):
             best = ((rank, k), g, sorted(lw & (cue_w if rank == 0 else cap_w)))
