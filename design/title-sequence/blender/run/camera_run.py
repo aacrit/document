@@ -236,7 +236,7 @@ def plan(prefix_poses, layout, tail=None, t_end=None, dt=1 / 240):
     import bench as B
     st = layout["stations"]
     turns = {t_["bank"]: t_ for t_ in (layout.get("checks") or {}).get("turns", []) if t_.get("frame")}
-    t0 = 1.4
+    t0 = 0.0                                   # one take from f0 (no black, no lamp-up)
     if t_end is None:
         t_end = (935 + 1) / FPS
     ts = np.arange(t0, t_end + 1e-9, dt)
@@ -274,8 +274,9 @@ def plan(prefix_poses, layout, tail=None, t_end=None, dt=1 / 240):
         return float(np.interp(fd, xs_, ys_))
     EX = (EXEMPT[0], W(EXEMPT[1]))
     # ---- the crane (frame, distance, pitch down, yaw, f-stop): section 5
-    CR_ = [(167, D_l, pitch_l, yaw_l, 4.0), (230, 0.34, 32.0, yaw_l, 4.0), (300, 0.50, 40.0, yaw_l, 4.5),
-           (340, 0.60, 45.0, yaw_l, 4.5), (352, 0.60, 45.0, yaw_l, 4.5), (400, 0.50, 50.0, yaw_l, 5.0),
+    CR_ = [(167, D_l, pitch_l, yaw_l, 4.0), (200, 0.30, 30.0, yaw_l, 5.6), (230, 0.34, 32.0, yaw_l, 5.6),
+           (300, 0.50, 40.0, yaw_l, 5.6), (340, 0.60, 45.0, yaw_l, 5.6), (352, 0.60, 45.0, yaw_l, 5.6),
+           (400, 0.50, 50.0, yaw_l, 5.6),
            (430, 1.00, 60.0, 75.0, 5.0), (500, 1.10, 60.0, 85.0, 5.6), (532, 1.25, 82.0, 90.0, 5.6),
            (700, 1.50, 89.0, 90.0, 5.6), (724, 1.50, 89.0, 90.0, 5.6), (760, 1.20, 89.0, 90.0, 5.6),
            (852, 1.60, 89.0, 90.0, 8.0), (935, WIDE_D, 89.0, 90.0, 8.0)]
@@ -359,8 +360,9 @@ def plan(prefix_poses, layout, tail=None, t_end=None, dt=1 / 240):
     for _ in range(4):
         fw = KW * D
         fh = KH * D / np.maximum(np.sin(np.radians(pitch)), 0.2)
-        cap_x = (CAP_X_PX * (1 - ex) + EXEMPT_PX * ex) * FPS / 1920 * fw
-        cap_y = (CAP_Y_PX * (1 - ex) + EXEMPT_PX * 9 / 16 * ex) * FPS / 1080 * fh
+        # the exempt cap on the move's magnitude: each axis 1/sqrt(2) of it, so a diagonal stays within 40 px
+        cap_x = (CAP_X_PX * (1 - ex) + EXEMPT_PX / 1.4142 * ex) * FPS / 1920 * fw
+        cap_y = (CAP_Y_PX * (1 - ex) + EXEMPT_PX / 1.4142 * ex) * FPS / 1920 * fw
         tgt = limit(smooth, ts, cap_x, cap_y, locked=locked, ease_s=ease)
         lag = np.linalg.norm(lm - tgt, axis=1)
         need = np.where(fr > 167, lag / (0.30 * KW), 0.0)

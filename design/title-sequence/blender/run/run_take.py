@@ -36,6 +36,10 @@ import run_scene as RS  # noqa: E402
 import sheetfit as SF  # noqa: E402
 
 SIM = Path("D:/document-media/title-sequence/run/sim/v4")
+# the lamp: a bone spot (4300 K) on a stand at the table's near side, raking the sheets from the near left at about
+# 50 degrees so their edges throw contact shadows; its cone covers the table to the record with a soft falloff
+LAMP = {"pos": (0.95, -0.85, 1.55), "aim": (1.15, 0.50, 0.0), "energy": 170.0, "cone_deg": 80.0, "blend": 0.45,
+        "soft": 0.04}
 RELIEF = Path("D:/document-media/title-sequence/run/relief")
 
 
@@ -555,11 +559,20 @@ def m_scan_on_backing(name, image, backing_rgb):
     t = RS._n(nt, "ShaderNodeTexImage")
     t.image = RS.tex(image)
     t.interpolation = "Cubic"
+    # the backing: linen, the pinned CC0 photo-scan (C-03) at its real size (0.27 m)
+    co = RS._n(nt, "ShaderNodeTexCoord")
+    mp = RS._n(nt, "ShaderNodeMapping")
+    mp.inputs["Scale"].default_value = (1 / 0.27, 1 / 0.27, 1)
+    nt.links.new(co.outputs["Object"], mp.inputs["Vector"])
+    lin = RS._n(nt, "ShaderNodeTexImage")
+    lin.image = RS.tex("C-03_diff")
+    nt.links.new(mp.outputs["Vector"], lin.inputs["Vector"])
     mix = RS._n(nt, "ShaderNodeMix")
     mix.data_type = "RGBA"
     nt.links.new(t.outputs["Alpha"], mix.inputs[0])
-    mix.inputs[6].default_value = backing_rgb + (1.0,)
+    nt.links.new(lin.outputs["Color"], mix.inputs[6])
     nt.links.new(t.outputs["Color"], mix.inputs[7])
+    _ = backing_rgb
     nt.links.new(mix.outputs[2], b.inputs["Base Color"])
     b.inputs["Roughness"].default_value = 0.75
     b.inputs["Sheen Weight"].default_value = 0.2
@@ -737,7 +750,7 @@ def build():
         t0 = t_prefix_end
         t1 = (B.PREFIX_FRAMES + sum(F["tail"][:3])) / B.FPS
     else:
-        t0, t1 = 36 / B.FPS, (int(A["end"]) + 1) / B.FPS if A["end"] else t_prefix_end
+        t0, t1 = 0.0, (int(A["end"]) + 1) / B.FPS if A["end"] else t_prefix_end
     f0 = int(math.ceil(frame_of(t0) - 1e-6))
     f1 = int(math.ceil(frame_of(t1) - 1e-6)) - 1
     RS.FPS = 24
@@ -755,7 +768,7 @@ def build():
     RS.tablet_faces(tab)
 
     global BRASS_M, STEEL_M
-    BRASS_M = m_worn("brass (worn)", (0.62, 0.44, 0.18), 0.28, (0.24, 0.20, 0.10))
+    BRASS_M = m_worn("brass (worn)", (0.62, 0.44, 0.18), 0.42, (0.24, 0.20, 0.10))
     bronze = m_worn("bronze (worn)", (0.50, 0.30, 0.15), 0.32, (0.16, 0.20, 0.13), scratch=0.4)
     STEEL_M = m_worn("steel spool", (0.42, 0.42, 0.44), 0.35, (0.16, 0.15, 0.14), scratch=0.3)
     type_metal = m_worn("type metal", (0.42, 0.42, 0.43), 0.38, (0.20, 0.20, 0.21), scratch=0.25)
@@ -851,64 +864,25 @@ def build():
     eyes, tgts, focus, fst = [], [], [], []
     rec_g = geoms.get("record")
     a_, dsc, c_ = F["tail"][0], F["tail"][1], F["tail"][2]
+    # one physical lamp, fixed over the table's near side, constant (founder, 2026-10-18: no lamp cues); exposure is the
+    # camera's (expose.py meters each frame and keys the film exposure)
+    lp, aim = Vector(LAMP["pos"]), Vector(LAMP["aim"])
+    lamp.location = lp
+    lamp.rotation_quaternion = (aim - lp).to_track_quat("-Z", "Y")
+    lamp.data.energy = LAMP["energy"]
+    lamp.data.spot_size = math.radians(LAMP["cone_deg"])
+    lamp.data.spot_blend = LAMP["blend"]
+    lamp.data.shadow_soft_size = LAMP["soft"]
+    for key in ("X", "Y"):
+        iris[key].outputs[0].default_value = 50.0
+    iris["dark_x"].outputs[0].default_value = 99.0
+    card.hide_render = True
     for f in frames:
         r = CR.at(cam_rows, f / FPS)
         eyes.append(Vector(r["eye"]))
         tgts.append(Vector(r["target"]))
         focus.append(r["focus"])
         fst.append(r["fstop"])
-        T = Vector(r["target"])
-        Dd, yaw = r["D"], r["yaw"]
-        fd = f / FPS * B.FPS                                     # the design's frame (24 fps) for this instant
-        # on the arm: the latch's approved offset (behind the camera's left shoulder, 2.45 D) close in; at height the lamp
-        # rides beside the camera at 30 degrees off its axis, so relief and edges still throw shadows
-        ya = math.radians(yaw - 90.0)
-        def rot(v):
-            return Vector((v[0] * math.cos(ya) - v[1] * math.sin(ya), v[0] * math.sin(ya) + v[1] * math.cos(ya), v[2]))
-        near = T + rot((-0.96, -1.31, 1.83)) * Dd
-        far = Vector(r["eye"]) + rot((-0.45 * Dd, -0.35 * Dd, 0.05))
-        k = CR.smoothstep((Dd - 0.6) / 0.6)
-        lp = near.lerp(far, k)
-        lamp.location = lp
-        lamp.rotation_quaternion = (T - lp).to_track_quat("-Z", "Y")
-        dist = (T - lp).length
-        # the dimmer rides with the distance squared so the exposure holds
-        energy = 9.0 * (dist / 0.55) ** 2
-        lamp.data.energy = energy * CR.smoothstep((fd - 36) / 12.0)
-        lamp.keyframe_insert("location", frame=f)
-        lamp.keyframe_insert("rotation_quaternion", frame=f)
-        lamp.data.keyframe_insert("energy", frame=f)
-        # the iris: from the latch's open pool to 1.4 times the frame's footprint on beats 2-8; in the tail it follows
-        # the frame, then closes to 5 mm inside the record
-        fw, fh = CR.KW * Dd, CR.KH * Dd
-        ia, ib = 2.0 * fw / 2 / dist, 2.0 * fh / 2 / dist
-        if fd < 167:
-            ia = ib = 50.0
-        elif fd < 230:
-            u = CR.smoothstep((fd - 167) / 63.0)
-            ia, ib = 50.0 + (ia - 50.0) * u, 50.0 + (ib - 50.0) * u
-        dark = B.DARK_X0
-        if window == "tail" and rec_g is not None:
-            f_find = B.PREFIX_FRAMES
-            dark = B.DARK_X0 + (B.TABLE["size"][0] + 0.3 - B.DARK_X0) * CR.smoothstep((fd - f_find - 12) / (a_ - 12))
-            fc0 = B.PREFIX_FRAMES + a_ + dsc
-            if fd >= fc0:
-                u = CR.smoothstep((fd - fc0) / c_)
-                h = lp.z - rec_g["pos"][2]
-                ia_end = (rec_g["size"][0] - 0.005) / h
-                ib_end = (rec_g["size"][1] - 0.005) / h
-                ia, ib = ia + (ia_end - ia) * u, ib + (ib_end - ib) * u
-        iris["X"].outputs[0].default_value = ia
-        iris["Y"].outputs[0].default_value = ib
-        iris["lamp_x"].outputs[0].default_value = lp.x
-        iris["lamp_z"].outputs[0].default_value = lp.z
-        iris["dark_x"].outputs[0].default_value = dark
-        for key in ("X", "Y", "lamp_x", "lamp_z", "dark_x"):
-            iris[key].outputs[0].keyframe_insert("default_value", frame=f)
-        card.location = T + rot((0.55, -0.35, 0.30)) * min(Dd, 1.0)
-        card.rotation_quaternion = (T - card.location).to_track_quat("Z", "Y")
-        card.keyframe_insert("location", frame=f)
-        card.keyframe_insert("rotation_quaternion", frame=f)
     RS.key_cam(cam, frames, eyes, tgts, focus, 4.0)
     for f, s_ in zip(frames, fst):
         cam.data.dof.aperture_fstop = s_
@@ -934,8 +908,10 @@ def main():
     out = A["out"] or f"D:/document-media/title-sequence/run/blend/take-{A['window']}.blend"
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=out, compress=False)
+    assert not sc.cycles.use_denoising and not sc.cycles.use_preview_denoising, "no denoiser (founder ruling)"
     print("RUN-BUILD " + json.dumps({"window": A["window"], "record": A["record"], "fps": A["fps"], "frames": [f0, f1],
-                                     "blend": out, "images": sorted(RS.IMAGES), "build_s": round(time.time() - t0, 1)}))
+                                     "blend": out, "images": sorted(RS.IMAGES), "build_s": round(time.time() - t0, 1),
+                                     "denoise": bool(sc.cycles.use_denoising), "renderer": RS.renderer_line(sc)}))
 
 
 if __name__ == "__main__":

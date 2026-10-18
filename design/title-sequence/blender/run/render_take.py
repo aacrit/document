@@ -27,6 +27,7 @@ import bench as B  # noqa: E402
 import render_run as RR  # noqa: E402
 
 MEDIA = RR.MEDIA
+REPO_RUN = RR.REPO / "design/title-sequence/blender"
 CHUNK = 160
 PAUSE_S = 45
 
@@ -59,6 +60,32 @@ def build(window, rec, fps, calib, out, res=""):
     info = json.loads(m.group(1))
     RR.log(event="built", window=window, record=rec, fps=fps, blend=str(out), info=info)
     return info
+
+
+def expose(blend, f0, f1, tag):
+    """The camera's auto-exposure (meter_expose.py), a Blender job under the lock: keys the take's film exposure."""
+    mdir = MEDIA / "frames" / tag / "meter"
+    curve = MEDIA / "masters" / tag / "exposure-curve.json"
+    curve.parent.mkdir(parents=True, exist_ok=True)
+    while True:
+        RR.wait_clear()
+        ok, why = RR.machine_ok()
+        if ok:
+            break
+        print(f"waiting on the machine: {why}", flush=True)
+        time.sleep(180)
+    RR.MY_LOCK.write_text(json.dumps({"group": "WG-4", "job": "The Run (meter)", "pid": os.getpid()}), encoding="utf-8")
+    try:
+        r = subprocess.run([RR.BL, "--background", str(blend), "--python", str(REPO_RUN / "gpu.py"), "--python",
+                            str(HERE / "meter_expose.py"), "--", str(f0), str(f1), str(mdir), str(curve)],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", env=RR.d_env())
+    finally:
+        RR.MY_LOCK.unlink(missing_ok=True)
+    m = re.search(r"^EXPOSURE (.*)$", r.stdout, re.M)
+    if not m:
+        sys.exit("meter failed: " + r.stdout[-3000:] + " " + r.stderr[-2000:])
+    RR.log(event="exposure", tag=tag, **json.loads(m.group(1)))
+    return json.loads(m.group(1))
 
 
 def render_chunks(blend, out_dir, f0, f1, label):

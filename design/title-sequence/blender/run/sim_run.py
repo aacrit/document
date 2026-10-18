@@ -243,7 +243,8 @@ class Run:
         for i, b in enumerate(FREE):
             px, py = PARK[0] - 0.06 * i, PARK[1]
             if b in MARBLES:
-                geom = f'<geom name="{b}" type="sphere" size="{R}" mass="{B.MASS}" friction="0.4 0.0002 1e-7" condim="6"/>'
+                mass = B.MASS if b == "lead" else B.MASS_PAIR
+                geom = f'<geom name="{b}" type="sphere" size="{R}" mass="{mass}" friction="0.4 0.0002 1e-7" condim="6"/>'
                 z = R
             elif b.startswith("quad"):
                 geom = (f'<geom name="{b}" type="box" size="{QUAD[0]} {QUAD[1]} {QUAD[2]}" mass="{QM}" '
@@ -319,6 +320,16 @@ class Run:
         """The approved 2.5 degree fall by the disc, along the release heading, to the papyrus's edge: the extra over
         the table's own fall, on the marbles inside the zone."""
         d.xfrc_applied[:] = 0
+        # local falls (bench.FALL_ZONES): the extra over the table's own fall, smoothly to the zone's edge
+        for z in B.FALL_ZONES:
+            c = np.array(z["centre"])
+            extra = math.sin(math.radians(z["deg"])) - math.sin(math.radians(self.fall))
+            for b in FREE:
+                i = self.bid[b]
+                rr = float(np.linalg.norm(d.xpos[i][:2] - c))
+                if rr < z["r"]:
+                    w = 1.0 if rr < 0.7 * z["r"] else (z["r"] - rr) / (0.3 * z["r"])
+                    d.xfrc_applied[i, 0] += self.mass[b] * B.G * extra * w
         dz = np.array(B.LATCH["disc"])
         for b in MARBLES:
             i = self.bid[b]
@@ -328,7 +339,7 @@ class Run:
                 mg = self.mass[b] * B.G
                 f = mg * math.sin(math.radians(B.LATCH["fall_deg"])) * self.hd
                 f -= mg * math.sin(math.radians(self.fall)) * np.array([1.0, 0.0])
-                d.xfrc_applied[i, 0:2] = f
+                d.xfrc_applied[i, 0:2] += f
 
     def disc_pose(self, t):
         p = MF.pose(t)
@@ -636,6 +647,9 @@ class Run:
             q1 = hits.get("lead|quad1")
             first_q = min((t for p, t in hits.items() if p.startswith("lead|quad")), default=None)
             moved = {b: float(np.linalg.norm(self.pos(d_, b)[:2] - self.pos(self.d, b)[:2])) for b in ("pair1", "pair2")}
+            tilts = [round(math.degrees(math.acos(min(1.0, abs(d_.xmat[self.bid[f"quad{i + 1}"]][8])))), 0) for i in range(N_Q)]
+            stop_moved = round(float(np.linalg.norm(self.pos(d_, "stop")[:2] - self.pos(self.d, "stop")[:2])), 4)
+            self.log("galley row", tilts=tilts, stop_moved=stop_moved)
             ok = q1 is not None and q1 == first_q and all(mv > 0.15 for mv in moved.values())
             score = (0 if ok else 10) + abs(dy) * 10
             self.log("galley try", dy=dy, quad1=q1, first=first_q, pair_moved=moved, ok=ok, rise_mm=self.v.galley_rise * 1000,
@@ -1090,15 +1104,15 @@ def main():
         run.poses["brass"] = [r for r in run.poses["brass"] if r[0] < run.brass_hand["t"]] + \
             [r for r in brass_rows if r[0] <= tf(B.PREFIX_FRAMES)]
         st.setdefault("brass", {}).update(brass_info)
-    # the bronze disc and the waiting marble before the simulation starts (f34 to f60): analytic
+    # the bronze disc and the waiting marble before the simulation starts (f0 to f60): analytic (one take from f0)
     pre = []
-    for k in range(int((T0 - 1.4) * 240)):
-        t = 1.4 + k / 240
+    for k in range(int(T0 * 240)):
+        t = k / 240
         c, q = run.disc_pose(t)
         pre.append([round(t, 6), *[float(v) for v in c], *[float(v) for v in q]])
     run.poses["disc"] = pre + run.poses["disc"]
     lx, ly = B.latch_to_table((-(MF.A + R + 0.0004), 0.0))
-    run.poses["lead"] = [[round(1.4 + k / 240, 6), lx, ly, R, 1.0, 0.0, 0.0, 0.0] for k in range(int((T0 - 1.4) * 240))] + run.poses["lead"]
+    run.poses["lead"] = [[round(k / 240, 6), lx, ly, R, 1.0, 0.0, 0.0, 0.0] for k in range(int(T0 * 240))] + run.poses["lead"]
     OUT.mkdir(parents=True, exist_ok=True)
     E.write_jsonl(run.contacts, OUT / "run-contacts-1khz.jsonl")
     ev = E.events(run.contacts)

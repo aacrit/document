@@ -158,6 +158,59 @@
    "height": 4096,
    "ai": false,
    "licence_evidence": "D:\\document-media\\title-sequence\\chart\\evidence\\C-02.polyhaven-info.json (api.polyhaven.com/info/oak_wood_planks, read 2026-10-17); https://polyhaven.com/license"
+  },
+  {
+   "id": "C-03",
+   "use": "texture",
+   "beats": [
+    2
+   ],
+   "title": "Poly Haven, Rough Linen (photographed by colormass, processed by Rico Cilliers)",
+   "date": "scanned surface (modern photograph of plain linen)",
+   "content_date": "form",
+   "module_date": "form",
+   "holder": "Poly Haven",
+   "basis_object": "form: plain linen, the backing the Turin papyrus's fragments are mounted on (v4 design section 3; coordinator 2026-10-18: a real-looking backing, not flat tan)",
+   "class": "texture",
+   "licence": "CC0",
+   "basis": "Poly Haven licence page: every asset is CC0; api.polyhaven.com/info/rough_linen read 2026-10-18",
+   "credit": "colormass and Rico Cilliers, Poly Haven (CC0)",
+   "source_page": "https://polyhaven.com/a/rough_linen",
+   "maps": {
+    "diff": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/rough_linen/rough_linen_diff_2k.jpg",
+    "nor_gl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/rough_linen/rough_linen_nor_gl_2k.jpg",
+    "rough": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/rough_linen/rough_linen_rough_2k.jpg"
+   },
+   "ext": ".jpg",
+   "people_on_screen": false,
+   "size_m": [
+    0.2707,
+    0.2713
+   ],
+   "original": "D:/document-media/title-sequence/chart/originals/C-03_diff.jpg",
+   "bytes": 3607181,
+   "sha256": "e71016e08dfebea1dd4e8a2a675e3b617a889a782af782f1abb795906f4db1b4",
+   "files": {
+    "diff": {
+     "original": "D:/document-media/title-sequence/chart/originals/C-03_diff.jpg",
+     "bytes": 3607181,
+     "sha256": "e71016e08dfebea1dd4e8a2a675e3b617a889a782af782f1abb795906f4db1b4"
+    },
+    "nor_gl": {
+     "original": "D:/document-media/title-sequence/chart/originals/C-03_nor_gl.jpg",
+     "bytes": 3849356,
+     "sha256": "c5733ad50cfe0f90c546f3d4076590c1c78a4fd1a83c967cc9c92dc8175b99e6"
+    },
+    "rough": {
+     "original": "D:/document-media/title-sequence/chart/originals/C-03_rough.jpg",
+     "bytes": 4655974,
+     "sha256": "48400d48fa203882bf5d984d5beb2f95edb1550309924601c018f2c4f3f80731"
+    }
+   },
+   "width": 2048,
+   "height": 2048,
+   "ai": false,
+   "licence_evidence": "D:/document-media/title-sequence/chart/evidence/C-03.polyhaven-info.json (api.polyhaven.com/info/rough_linen, read 2026-10-18); https://polyhaven.com/license"
   }
  ]
 }

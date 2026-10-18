@@ -161,9 +161,7 @@ def assemble_stretch(a, fpsv, W, H):
     n = a.end_frame + 1
     for f in range(n):
         t = f / fps
-        if t < 36 / 24 - 1e-9:
-            pic = Image.new("RGB", (W, H), (0, 0, 0))
-        else:
+        if True:                                   # one take from f0: no black open (founder, physics only)
             pic = Image.open(pre / f"{f:04d}.png").convert("RGB")
             if pic.size != (W, H):
                 pic = pic.resize((W, H), Image.LANCZOS)
@@ -177,7 +175,8 @@ def assemble_stretch(a, fpsv, W, H):
     cmd += ["-c:v", "libx264", "-preset", "slow", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-r", rate,
             a.mp4]
     subprocess.run(cmd, check=True)
-    print("ASSEMBLED " + json.dumps({"frames": n, "fps": a.fps, "mp4": a.mp4, "marks": [{"frame": 0, "cls": "DRAWN"}]}))
+    print("ASSEMBLED " + json.dumps({"frames": n, "fps": a.fps, "mp4": a.mp4, "marks": [{"frame": 0, "cls": "DRAWN"}],
+                                     "denoise": False, "renderer": a.renderer}))
 
 
 def main():
@@ -192,6 +191,7 @@ def main():
     ap.add_argument("--keep", help="write the composited PNGs here")
     ap.add_argument("--master", help="lossless FFV1 .mkv at this path")
     ap.add_argument("--end-frame", type=int, default=0, help="the working stretch only (no tail)")
+    ap.add_argument("--renderer", default="", help="the build's renderer line (RUN-BUILD), for the master item")
     a = ap.parse_args()
     fpsv = fps_of(a.fps)
     if a.end_frame:
@@ -215,7 +215,8 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     last3d = None
     f_dis0 = int(np.ceil(T["dis0"] * fps - 1e-6))
-    info = {"crop_close_end": [round(v, 1) for v in c0], "crop_final": [round(v, 1) for v in c1], "frames": n,
+    info = {"denoise": False, "renderer": a.renderer,
+            "crop_close_end": [round(v, 1) for v in c0], "crop_final": [round(v, 1) for v in c1], "frames": n,
             "fps": a.fps, "marks": [], "record_frames": None, "dip": None, "lockup_frame": None}
     for f in range(n):
         t = f / fps

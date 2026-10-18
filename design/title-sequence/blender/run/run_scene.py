@@ -547,6 +547,17 @@ def build_galley():
     return {"camera": {"lens_mm": 50, "fstop": 4.0, "height_m": hz, "pitch_deg": 40, "yaw_deg": 16}, "leaf_edge_x": le}
 
 
+CALIB_SPP = 128
+
+
+def renderer_line(sc) -> str:
+    """The master item's `renderer` field (WG-2's no-denoise lint): engine, device, sampling, threshold, clamp, denoiser."""
+    cy = sc.cycles
+    return (f"Blender {bpy.app.version_string} Cycles (OptiX), adaptive sampling {cy.samples} spp, noise threshold "
+            f"{cy.adaptive_threshold}, clamp direct {cy.sample_clamp_direct or 'off'} indirect {cy.sample_clamp_indirect}, "
+            f"no denoiser")
+
+
 def render_settings(sc):
     p = PROFILE
     calib = bool(ARGS["calib"])
@@ -557,14 +568,16 @@ def render_settings(sc):
     sc.render.engine = "CYCLES"
     cy = sc.cycles
     cy.device = "GPU"
-    cy.samples = 48 if calib else p["samples"]
+    # NO denoiser of any kind (founder, 2026-10-18: no AI pixels; OIDN and OptiX are machine-learned): adaptive sampling,
+    # high samples and a light clamp instead; the viewport's denoise off as well. tests/test_no_denoise.py holds this.
+    cy.samples = CALIB_SPP if calib else p["samples"]
     cy.use_adaptive_sampling = True
-    cy.adaptive_threshold = p["noise_threshold"]
+    cy.adaptive_threshold = 0.03 if calib else p["noise_threshold"]
     cy.adaptive_min_samples = min(p["min_samples"], cy.samples)
-    cy.use_denoising = True
-    cy.denoiser = "OPENIMAGEDENOISE"
-    cy.denoising_input_passes = "RGB_ALBEDO_NORMAL"
-    cy.denoising_use_gpu = True
+    cy.use_denoising = False
+    cy.use_preview_denoising = False
+    cy.sample_clamp_direct = 0.0
+    sc.render.use_compositing = False
     cy.max_bounces, cy.diffuse_bounces, cy.glossy_bounces = 8, 3, 4
     cy.caustics_reflective = cy.caustics_refractive = False
     cy.sample_clamp_indirect = 5.0

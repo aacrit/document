@@ -22,12 +22,20 @@ G = 9.81
 R = 0.008                                   # clay marble radius (16 mm)
 RHO_CLAY = 1900.0
 MASS = RHO_CLAY * 4.0 / 3.0 * math.pi * R ** 3
+# the galley's pair: clear glass marbles of the same 16 mm (founder, 2026-10-18: the clay lead is the obvious
+# protagonist; the two it sets going are visibly a different real material). Steel bearing balls (7850 kg/m3) were
+# tried: four times the clay's mass, the falling sorts cannot push them off the lip (sim, f300-f520). Glass at its real
+# density (2500 kg/m3) keeps the release.
+RHO_PAIR = 2500.0
+PAIR_MATERIAL = "glass"
+MASS_PAIR = RHO_PAIR * 4.0 / 3.0 * math.pi * R ** 3
 
 # ------------------------------------------------------------------------------------------------ the table
 
 TABLE = {"size": (2.2, 1.0), "top": 0.04, "boards": 4, "board_w": 0.25, "chamfer": 0.003, "breadboard": 0.07,
          "height": 0.75}
-FALL_DEG = 1.0                              # the one tuning knob: the floor out of level along +x, nothing shimmed
+FALL_DEG = 0.85                             # the one tuning knob: the floor out of level along +x, nothing shimmed
+                                            # (founder 2026-10-18: slower, by physics: from 1.0 toward 0.8)
 FALL_RANGE = (0.8, 1.3)
 
 # rolling resistance as a ratio (MuJoCo's rolling friction is this times R), per surface (M1's coefficients)
@@ -99,12 +107,12 @@ SHEETS = {
                 "layer": 10,  # dried papyrus cups across its width: its cockle is one trough, 3 mm deep, crest to crest across the strip
                 "cockle": {"amp": 0.003, "lam": _PAP_L * 1481 / 8192, "deg": LATCH["release_line"]["deg"], "through": _PAP_C},
                 "edges": [{"edge": "+u", "crest": 0.002, "run": 0.03}], "corners": {}},
-    "atlas1": {"ledger": "T-03", "tex": "T-03_board1", "date": 1375, "surface": "vellum", "board": 0.0015,
-               "size": (_ATLAS_W, _ATLAS_H), "psi": math.degrees(math.atan2(_N2[1], _N2[0])), "t": 0.0017,
+    "atlas1": {"ledger": "T-03", "tex": "T-03_board1", "date": 1375, "surface": "vellum", "board": 0.0010,
+               "size": (_ATLAS_W, _ATLAS_H), "psi": math.degrees(math.atan2(_N2[1], _N2[0])), "t": 0.0012,
                "centre": (_HMID[0] - (_ATLAS_W + HINGE["gap"]) / 2 * _N2[0], _HMID[1] - (_ATLAS_W + HINGE["gap"]) / 2 * _N2[1]),
                "layer": 8, "cockle": None, "edges": [], "corners": {}},
-    "atlas2": {"ledger": "T-03", "tex": "T-03_board2", "date": 1375, "surface": "vellum", "board": 0.0015,
-               "size": (_ATLAS_W, _ATLAS_H), "psi": math.degrees(math.atan2(_N2[1], _N2[0])), "t": 0.0017,
+    "atlas2": {"ledger": "T-03", "tex": "T-03_board2", "date": 1375, "surface": "vellum", "board": 0.0010,
+               "size": (_ATLAS_W, _ATLAS_H), "psi": math.degrees(math.atan2(_N2[1], _N2[0])), "t": 0.0012,
                "centre": (_HMID[0] + (_ATLAS_W + HINGE["gap"]) / 2 * _N2[0], _HMID[1] + (_ATLAS_W + HINGE["gap"]) / 2 * _N2[1]),
                "layer": 4, "cockle": None, "edges": [], "corners": {}},
     "piri": {"ledger": "T-04", "tex": "T-04_keyed", "alpha": True, "date": 1513, "surface": "parchment",
@@ -168,6 +176,9 @@ REEL_REG = {"r": 0.032, "h": 0.012, "hub_r": 0.006, "hub_h": 0.012, "mass": 0.01
             "at": (1.52, 0.40)}
 REEL_FILM = {"r": 0.045, "h": 0.010, "hub_r": 0.008, "hub_h": 0.012, "mass": 0.022, "damp": 3.0e-6, "fric": 2.0e-6,
              "at": (1.46, 0.18)}
+# a local steeper fall (within the fall's range), the table's own sag under the galley (founder 2026-10-18: if the
+# slower run starves the galley's strike, a slightly steeper local approach): (centre, radius, fall degrees along +x)
+FALL_ZONES = [{"name": "galley", "centre": (1.15, 0.50), "r": 0.16, "deg": 1.3}]
 IMPACT_MIN = 0.45                           # the reels' glance: impact parameter (in units of R + r) at least this
 PLATEN = {"r": 0.020, "len": 0.30, "from": (1.60, 0.10), "to": (1.76, 0.35), "pinned": True}
 # The lattice is 0.80 x 0.74 m of sticks (the keyed photograph is lattice edge to edge) and cannot lie in the plan's
