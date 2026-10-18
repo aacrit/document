@@ -37,8 +37,9 @@ export interface Shot {
   fill_ok: boolean | null;
   /** A41: the reason a still is held whole at its own shape (it cannot fill); undefined in a sources.json made before A41. */
   fill_exception?: string | null;
-  /** A50: true when a still under a fill exception moved in to one detail and back out to the whole. */
-  fill_detail?: boolean;
+  /** A50: how far a still under a fill exception moved in before going back out to the whole, by the measured share
+   * of the picture its deepest frame showed: "detail" (40% or less) or "field" (closer on one part); absent when it only crept. */
+  fill_detail?: "detail" | "field";
   /** GRAMMAR A46: the automatic black floor, when one was applied to this still (a flat level, non-material). */
   levels: { black_in: number; black_out: number } | null;
   in_s: number | null;
@@ -179,7 +180,7 @@ function parseShot(x: unknown, i: number, fps: number): Shot {
     preset: str(x.preset),
     fill_ok: typeof x.fill_ok === "boolean" ? x.fill_ok : null,
     ...("fill_exception" in x ? { fill_exception: str(x.fill_exception) } : {}),
-    ...(x.fill_detail === true ? { fill_detail: true } : {}),
+    ...(x.fill_detail === "detail" || x.fill_detail === "field" ? { fill_detail: x.fill_detail } : {}),
     levels: parseLevels(x.levels),
     in_s: num(x.in_s),
     out_s: num(x.out_s),
@@ -800,7 +801,9 @@ export const BLACK_FLOOR_COPY =
 
 /** How the camera showed a still (A41): held whole under a fill exception, or filling the screen as it tours. */
 export function stillCamera(shot: Shot): string {
-  if (shot.fill_exception && shot.fill_detail) return "Shown whole at its own shape; the camera moves in to one detail, then back out to the whole.";
+  // A50: the words follow the measured share (studio/engine/bracket.py sources_scale): a detail only at 40% or less
+  if (shot.fill_exception && shot.fill_detail === "detail") return "Shown whole at its own shape; the camera moves in to one detail, then back out to the whole.";
+  if (shot.fill_exception && shot.fill_detail === "field") return "Shown whole at its own shape; the camera moves in closer on one part of it, then back out to the whole.";
   if (shot.fill_exception) return "Shown whole at its own shape, then the camera creeps slowly inside it.";
   if (shot.fill_exception === null && shot.fill_ok === true) return "Filled to the screen, the camera moves across it, never past the picture's own edges.";
   // a sources.json made before A41 (no fill_exception key): its presets moved over the whole picture

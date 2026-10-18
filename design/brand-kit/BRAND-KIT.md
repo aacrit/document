@@ -494,11 +494,11 @@ A still shown whole under `fill_exception` may move in to one DETAIL inside its 
 |---|---|
 | The whole, opening | at least 1.0 s (`CINE settle_s`); on a long hold, a third of the spare time. Past 1.5 s it breathes in at 1.5%/s, never past 1.06 and never past a third of the push's own depth (log) |
 | The push and the pull | the rostrum curve, z geometric; each leg no faster than the 7-second rule (a point crosses the frame in 7 s or more, counted in the detail's own window) and the 5%/s zoom cruise; on a long hold each takes a sixth of the spare time |
-| The detail | its region framed whole with a 1.25 margin, never past the 3x softness cap on the 1080p master (z at most 3 / the master's fit scale), never past z 1.3 of the whole when it frames a face or a person; it must show under 80% of the picture (z over 1 / sqrt(0.8) = 1.118), else it is no detail. Its scale is reported: DETAIL at 40% of the picture or less, else FIELD |
+| The detail | its region framed whole with a 1.25 margin, never past the 3x softness cap on the 1080p master (z at most 3 / the master's fit scale), never past z 1.3 of the whole when it frames a face or a person; a push under z 1.25 (`BRACKET_MIN_Z`: a stop showing more than 64% of the picture) would not read, so the shot keeps whole + creep. Named by what its deepest frame shows: DETAIL at 40% of the picture or less, else FIELD ("closer on one part of it" on the Sources page) |
 | The hold | at least 1.5 s; text at reading pace, 1.25 s a line when the region states `lines`, else 3.0 s; held through a cue's last word; a third of the spare time on a long hold. Past 1.5 s it creeps in, never past 6%, the cap or the depth that keeps its region whole (2% inside each side) |
 | Arrival | before a `subject_at` cue (or a written stop's `at`) by the A43 lead: 0.5 s, 1.0 s on estimated words when the detail is a person the cue names (and binds) |
 | The whole, closing | the pull lands on z 1 at least 1.0 s before the cut |
-| Too short | whole 1.0 + push + hold + pull + 1.0 s: a shot shorter keeps whole + creep (1.5%/s to 1.06; over 42 to 54 s that is 0.11 to 0.14%/s, one breath, one way, eased), journaled with the reason |
+| Too short | a push to 1.25 takes about 5.5 s each way at the 5%/s cruise (eased), so the bracket needs about 15 s at the least and lands on long holds, not on 8 to 12 s shots. Whole 1.0 + push + hold + pull + 1.0 s: a shot shorter keeps whole + creep (1.5%/s to 1.06; over 42 to 54 s that is 0.11 to 0.14%/s, one breath, one way, eased), journaled with the reason |
 
 ## 15. The series titles: `void document · As It Was` (2026-10-17; GRAMMAR A40)
 

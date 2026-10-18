@@ -277,12 +277,14 @@ def plan(shot: dict, item: dict, size, W: int, H: int, *, words=(), t0: float = 
         z_d = face
     if z_d < B["min_detail_z"] - EPS:
         share = 1.0 / max(z_d, 1.0) ** 2
-        why = (f"no room for a detail: the cap allows z {zc:.3f} of the whole ({master_scale(size):.2f}x on the "
-               f"master already), so the deepest stop still shows {share:.0%} of the picture (a WHOLE)"
+        why = (f"push under {B['min_detail_z']:g} would not read: no room under the cap, which allows z {zc:.3f} of "
+               f"the whole ({master_scale(size):.2f}x on the master already), so the deepest stop still shows "
+               f"{share:.0%} of the picture"
                if zc < z_fit else
-               f"the region is nearly the whole picture: framing it shows {share:.0%} of it (a WHOLE)")
+               f"push under {B['min_detail_z']:g} would not read: the region is nearly the whole picture, framing "
+               f"it shows {share:.0%} of it")
         if authored:
-            return _no("a written path", [f"the stop is no detail: {why}"])
+            return _no("a written path", [f"the stop is too shallow: {why}"])
         return _no(why)
     # A49 steering: where the detail sits, among the placements that keep its region whole
     u, v = clamp_centre(u, v, z_d)
@@ -401,3 +403,23 @@ def plan(shot: dict, item: dict, size, W: int, H: int, *, words=(), t0: float = 
               "pull_s": round(q, 3), "whole_again_s": round(t4, 3), "end_s": round(dur - t4, 3), "anchor": anchor}
     return {"ok": True, "why": src_why, "problems": [], "segments": segs, "path": [whole0, f_det, dict(whole0)],
             "detail": detail, "timing": timing, "z_max": z_hold, "z_open": z_open, "z_limit": limit}
+
+
+# --------------------------------------------------------------------------
+# What the record says (the Sources page pairs its words with these, by the measured share)
+# --------------------------------------------------------------------------
+
+
+def sources_scale(cam: dict):
+    """sources.json's ``fill_detail``: None off a fill exception, False when the still only crept, else the
+    bracket's measured scale: "detail" when its deepest frame shows ``CINE detail_share`` (40%) of the picture
+    or less, "field" when it shows more (closer on one part, not a detail)."""
+    if cam.get("fill_exception") is None:
+        return None
+    br = cam.get("bracket")
+    return br["detail"]["scale"] if br else False
+
+
+def copy_phrase(cam: dict) -> str:
+    """The journal's words for the move, true to the measured share."""
+    return "to one detail" if sources_scale(cam) == "detail" else "closer on one part of it"

@@ -1938,11 +1938,12 @@ CINE = dict(face_zmax=1.3, framed_share=0.5, auto_confidence_floor=0.5, anchor_e
 #   zoom_cruise       the zoom cruise guide, 5% a second (A49 zoom-speed)
 #   open_creep_share  the opening's creep takes at most this share of the push's own depth (log), so the push,
 #                     not the breath, is the move; never past TOUR whole_creep_max either
-#   min_detail_z      a stop shallower than this still shows CINE whole_share (0.8) of the picture or more: it is no
-#                     detail, so the shot keeps whole + creep (1 / sqrt(0.8))
+#   min_detail_z      BRACKET_MIN_Z: a push shallower than this would not read as a move (a stop showing more than
+#                     64% of the picture), so the shot keeps whole + creep (reviewer, 2026-10-17; founder to confirm)
+BRACKET_MIN_Z = 1.25
 BRACKET = dict(open_s=CINE["settle_s"], end_s=CINE["settle_s"], hold_s=CINE["settle_read_s"], read_line_s=1.25,
                read_default_s=3.0, margin=1.25, cross_s=7.0, zoom_cruise=0.05, open_creep_share=1 / 3,
-               min_detail_z=1.0 / math.sqrt(CINE["whole_share"]))
+               min_detail_z=BRACKET_MIN_Z)
 
 
 def still_view(size, L: Layout, *, z: float = 1.0, cx: float = 0.5, cy: float = 0.5, clamp: str = "frame"):

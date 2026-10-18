@@ -372,7 +372,13 @@ def _long_s5(play, extra=30.0):
 def test_the_plan_draws_the_bracket_lints_it_and_sources_say_so(film):
     _edit(film, _long_s5)
     sub = {"name": "subject", "x": 0.3, "y": 0.3, "w": 0.3, "h": 0.2, "kind": "object", "source": "human"}
-    _edit(film, lambda d: next(i for i in d["items"] if i["id"] == "FX-STILL-C").update(roi=[sub]),
+    # a taller synthetic portrait (the fill would still pass 3x: 4.8x), so the cap leaves room for a push past 1.25
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (400, 700), (90, 80, 70))
+    ImageDraw.Draw(img).rectangle((120, 210, 240, 350), fill=(200, 190, 170))
+    img.save(film / "stills" / "FX-STILL-C.png")
+    _edit(film, lambda d: next(i for i in d["items"] if i["id"] == "FX-STILL-C").update(roi=[sub], width=400,
+                                                                                         height=700),
           name="stills-ledger.json")
     plan, j = _plan(film, "cine12-long")
     evs = J.read(j.path)
@@ -384,6 +390,37 @@ def test_the_plan_draws_the_bracket_lints_it_and_sources_say_so(film):
                for e in evs)
     doc = R.sources_doc(plan, j, {})
     row = next(x for x in doc["shots"] if x["id"] == "S5")
-    assert row["fill_detail"] is True and row["fill_exception"]
+    assert row["fill_detail"] in ("detail", "field") and row["fill_exception"]
+    assert row["fill_detail"] == s5["_cam"]["bracket"]["detail"]["scale"]
     other = next(x for x in doc["shots"] if x["id"] == "S4")
     assert other["fill_detail"] is False
+
+
+def test_a_push_under_1_25_would_not_read_and_keeps_whole_and_creep():
+    """Reviewer, 2026-10-17 (founder to confirm): a stop showing more than 64% of the picture is no move."""
+    assert M.BRACKET["min_detail_z"] == M.BRACKET_MIN_Z == 1.25
+    size = (611, 404)                                                  # Partition O4: the cap allows z 1.122
+    tiny = dict(TEXT, x=0.45, y=0.45, w=0.05, h=0.05)
+    cam = R.still_camera(shot_of({"people": False, "roi": [tiny]}, 50.0), size, W, H)
+    assert cam.get("bracket") is None and "push under 1.25 would not read" in cam["bracket_why"]
+    big = dict(TEXT, x=0.1, y=0.1, w=0.7, h=0.7)                       # framing it needs z 1.14: too shallow
+    cam = R.still_camera(shot_of({"people": False, "roi": [big]}, 50.0), (420, 560), W, H)
+    assert cam.get("bracket") is None and "would not read" in cam["bracket_why"]
+    wrote = R.still_camera(shot_of({"people": False}, 50.0, camera=[{"x": 0.5, "y": 0.4, "z": 1.2}]), (420, 560), W, H)
+    assert any("too shallow" in p for p in wrote["problems"])
+
+
+@pytest.mark.parametrize("size,w", [((420, 560), 0.25), ((420, 560), 0.6), ((578, 800), 0.2), ((416, 672), 0.3),
+                                    ((530, 742), 0.5), ((539, 408), 0.2)])
+def test_the_record_names_a_detail_only_when_the_deepest_frame_shows_40_percent_or_less(size, w):
+    sub = dict(TEXT, x=0.5 - w / 2, y=0.4 - w / 2, w=w, h=w, kind="object")
+    cam = R.still_camera(shot_of({"people": False, "roi": [sub]}, 50.0), size, W, H)
+    if cam.get("bracket") is None:
+        assert BR.sources_scale(cam) is False
+        return
+    shown = min((s[2] - s[0]) * (s[3] - s[1]) / (size[0] * size[1]) for _, _, s, _ in windows(cam, size, 50.0, 8.0))
+    scale = BR.sources_scale(cam)
+    assert scale == ("detail" if shown <= M.CINE["detail_share"] + 1e-6 else "field")
+    assert (BR.copy_phrase(cam) == "to one detail") == (scale == "detail")
+    assert shown <= 1 / M.BRACKET_MIN_Z ** 2 + 1e-6                     # every bracket shows 64% or less at its deepest
+    assert BR.sources_scale({"fill_exception": None}) is None

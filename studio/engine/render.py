@@ -1681,8 +1681,9 @@ def fill_exception_lints(lint, journal: Journal, s: dict, cam: dict, size, W: in
                      f"A41: the fill would magnify the source {fill_up:.2f}x on the 1080p master, over {cap:g}x; "
                      "held whole (A7)", unit=s["id"], evidence={"master_fill_upscale": round(fill_up, 4), "max_upscale": cap})
     journal.lint("tour-exception-review", True, stage="motion", unit=s["id"], severity="review", grammar="A41, A50",
-                 phase="preflight", evidence={"check": ("the still is shown whole, pillarboxed, under its stated "
-                                                        "exception, moves in to one detail and back out to the whole"
+                 phase="preflight", evidence={"check": (f"the still is shown whole, pillarboxed, under its stated "
+                                                        f"exception, moves in {BR.copy_phrase(cam)} and back out to "
+                                                        "the whole"
                                                         if br else "the still is held whole, pillarboxed, under its "
                                                         "stated exception"), "fill_exception": exc})
     # A50 (founder ruling 3): one DETAIL inside the whole, or why the shot keeps whole + creep
@@ -2682,7 +2683,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                 journal.lint("fill-ok", True, stage="motion", unit=s["id"], severity="review", grammar="A7, A41", phase="preflight",
                              evidence={"fill_ok": cam["fill_ok"], "preset": cam["preset"], "macro": cam.get("macro"),
                                        "check": ("Every person in the photograph is inside the frame at some point in this shot."
-                                                 if cam["fill_ok"] else "Shown whole under a fill exception, then one detail and back to the whole (A41, A50)."
+                                                 if cam["fill_ok"] else f"Shown whole under a fill exception, then moves in {BR.copy_phrase(cam)} and back to the whole (A41, A50)."
                                                  if cam.get("bracket") else "Held whole under a fill exception (A41).")})
             if s.get("fill_ok") is False and cam["preset"] == TOUR:
                 journal.decision("motion", f"{s['id']}: fill_ok: false no longer holds a still whole",
@@ -7432,8 +7433,9 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             "preset": (s.get("_cam") or {}).get("preset"), "fill_ok": (s.get("_cam") or {}).get("fill_ok"),
             "fill": (s.get("_cam") or {}).get("fill"),
             "fill_exception": (s.get("_cam") or {}).get("fill_exception"),     # A41: held whole, the Sources page says so
-            # A50: the camera moved in to one detail and back out to the whole (the Sources page says so)
-            "fill_detail": bool((s.get("_cam") or {}).get("bracket")) if (s.get("_cam") or {}).get("fill_exception") else None,
+            # A50: what the bracket showed, by its measured share: "detail" (40% of the picture or less), "field"
+            # (closer on one part), false when the still only crept; None off a fill exception
+            "fill_detail": BR.sources_scale(s.get("_cam") or {}),
             "in_s": s.get("in_s"), "out_s": s.get("out_s"),
             "resampler": s.get("_resampler"), "conform": (s.get("_video") or {}).get("conform"),
             "levels": s.get("_levels"),          # A46: the black floor applied (non-material), or the stated opt-out
