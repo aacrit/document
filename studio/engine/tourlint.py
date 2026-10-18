@@ -174,6 +174,16 @@ def min_move_after_cut(tl: dict, *, min_s: float = MIN_MOVE_AFTER_CUT_S, continu
     return {"ok": ok, "move_t0": round(first_move["t0"], 3), "min_s": min_s}
 
 
+def degenerate_stops(tl: dict) -> dict:
+    """``degenerate-stops`` (guidance, A49 refined): two consecutive stops closer than the settle minimum
+    (1.0 s) whose windows are near-equal (centres within 0.5% of the frame, depths within 1%:
+    ``tour.degenerate_pairs``), on any path. The engine merges its own (``tour.merge_degenerate``) where every
+    truth guarantee holds, so a pair here is a written ``camera`` path's, or one the merge had to keep."""
+    pairs = T.degenerate_pairs(tl["stops"], tl["size"], tl["aspect"])
+    return {"ok": not pairs, "pairs": pairs, "gap_s": T.DEGENERATE_GAP_S, "centre": T.DEGENERATE_CENTRE,
+            "z": T.DEGENERATE_Z}
+
+
 # --------------------------------------------------------------------------
 # end-pose-composition (Ratio's band table and borderline logic), lead-room
 # --------------------------------------------------------------------------
@@ -414,6 +424,9 @@ def check_still(s: dict, cam: dict, size, *, fps: float, text_spans: Sequence[di
     out["min_move"] = min_move_after_cut(tl, continues_across_cut=continues_across_cut)
     if not out["min_move"]["ok"]:
         warnings.append("min-move-after-cut")
+    out["degenerate"] = degenerate_stops(tl)
+    if not out["degenerate"]["ok"]:
+        warnings.append("degenerate-stops")
 
     sub = cam.get("subject") or {}
     verdict = sub.get("last")
