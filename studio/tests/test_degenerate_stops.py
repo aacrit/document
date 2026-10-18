@@ -78,7 +78,8 @@ def test_the_engine_pair_merges_to_the_earlier_stop_with_no_micro_hold():
     assert [s["t"] for s in out] == [0.0, 4.508, 6.233]
     assert merged == [{"t": [4.508, 4.608], "kept": 4.508, "dropped": "A47: the near end", "why": "the earlier"}]
     tl = T.build(out, DUR, SIZE, ASPECT, 2.0)
-    assert [g["kind"] for g in tl["segments"]][:3] == ["hold", "move", "move"]       # no 0.1 s hold between legs
+    # no 0.1 s hold between legs; A54: the opening creeps along the first leg (never from rest)
+    assert [g["kind"] for g in tl["segments"]][:3] == ["creep", "move", "move"]
     assert TL.degenerate_stops(tl)["ok"]
 
 

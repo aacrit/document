@@ -74,8 +74,11 @@ def test_the_bracket_opens_and_ends_whole_with_one_push_and_one_pull():
     assert tm["hold_s"] >= M.BRACKET["read_default_s"] - 1e-6     # text with no line count: 3 s
     # the whole at the start is held, never moved before the settle; the whole at the end is the picture itself
     assert all(f["z"] <= M.TOUR["whole_creep_max"] + 1e-9 for t, f in fs if t <= tm["open_s"])
-    assert all(f == {"z": 1.0, "x": 0.5, "y": 0.5} or f["z"] == pytest.approx(1.0)
-               for t, f in fs if t >= tm["whole_again_s"])
+    # A54: the pull slows to a creep just short of the whole and creeps out onto it at the cut (never a dead stop)
+    end = [f["z"] for t, f in fs if t >= tm["whole_again_s"]]
+    assert all(1.0 - 1e-9 <= z <= M.TOUR["whole_creep_max"] + 1e-9 for z in end)
+    assert all(b <= a + 1e-12 for a, b in zip(end, end[1:]))
+    assert BR.at(cam["bracket"]["segments"], 40.0) == {"z": 1.0, "x": 0.5, "y": 0.5}
     # every frame is inside the picture's own pillarboxed shape: never a pixel beyond the source
     for _, f, src, dst in windows(cam, size, 40.0):
         assert src[0] >= -0.5 and src[1] >= -0.5 and src[2] <= size[0] + 0.5 and src[3] <= size[1] + 0.5
@@ -276,7 +279,7 @@ def test_people_and_must_show_are_whole_at_some_point_for_random_small_pictures(
         if cam.get("bracket") is not None:
             made += 1
             assert wins[0][1] == {"z": 1.0, "x": 0.5, "y": 0.5}
-            assert wins[-1][1]["z"] == pytest.approx(1.0)
+            assert BR.at(cam["bracket"]["segments"], dur)["z"] == pytest.approx(1.0)
             assert runs([f["z"] for _, f, _, _ in wins]) == [1, -1]
     assert made >= 3                                                     # the property ran on real brackets
 

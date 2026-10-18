@@ -1594,15 +1594,16 @@ def a49_tour_lints(lint, journal: Journal, s: dict, cam: dict, size, fps: float,
     if settle:
         journal.lint("settle-before-move", False, stage="motion", unit=s["id"], severity="warn", grammar="A49",
                      phase="preflight", evidence={"violations": settle,
-                                                  "fix": "hold at least 1.0 s (1.5 s for text, a face or a person) "
-                                                         "before the next leg"})
+                                                  "fix": "slow to a creep at least 1.0 s (1.5 s for text, a face "
+                                                         "or a person) before the next leg (A54)"})
     stops0 = tl["stops"][0] if tl["stops"] else {}
     continues = stops0.get("match") == "prev" or (s.get("transition_in") or {}).get("type") == "dissolve"
-    mv = TL.min_move_after_cut(tl, continues_across_cut=continues)
+    mv = TL.min_move_after_cut(tl, continues_across_cut=continues, hz=fps)
     if not mv["ok"]:
         journal.lint("min-move-after-cut", False, stage="motion", unit=s["id"], severity="warn", grammar="A49",
-                     phase="preflight", evidence=dict(mv, fix="settle before the cut, or carry the move across it "
-                                                               "with match: \"prev\" or a dissolve"))
+                     phase="preflight", evidence=dict(mv, fix="never from rest: leave the cut already moving at "
+                                                               "the creep (A54), or carry the move across it with "
+                                                               "match: \"prev\" or a dissolve"))
     deg = TL.degenerate_stops(tl)
     if not deg["ok"]:
         journal.lint("degenerate-stops", False, stage="motion", unit=s["id"], severity="warn", grammar="A49 refined",

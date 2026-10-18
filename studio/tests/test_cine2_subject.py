@@ -304,14 +304,18 @@ def test_no_leg_outruns_the_speed_guides():
 
 
 # --------------------------------------------------------------------------
-# A49 (cinematography ticket #4): the default pass settles before its first move
+# A54 (entering mid-move) replaced A49's opening settle: the pass leaves the cut already moving
 # --------------------------------------------------------------------------
 
-def test_the_pass_settles_before_its_first_move_when_there_is_room():
+def test_the_pass_enters_already_moving_at_the_creep():
     cam, _ = cam_for({"people": False, "roi": [subject(0.1, 0.1, 0.1, 0.1)]}, L43, dur=20.0)
     tl = cam["tour"]
-    first_move = next(g for g in tl["segments"] if g["kind"] == "move")
-    assert first_move["t0"] >= T.MIN_OPEN_HOLD_S - 1e-6
+    g0 = tl["segments"][0]
+    assert g0["kind"] == "move" and g0["t0"] <= 1e-9 and g0["v0"] > 0.0
+    a, b = T.at(tl, 0.0), T.at(tl, 1 / 24)
+    assert any(abs(a[k] - b[k]) > 1e-9 for k in ("x", "y", "z"))
+    # it leaves at the creep, never a dead stop at the cut
+    assert tl["segments"][-1]["v1"] > 0.0
 
 
 def test_a_matched_opening_is_never_held_artificially():
@@ -327,7 +331,7 @@ def test_the_hold_never_steals_time_from_a_tight_arrival():
     # still keeps to the speed guides (A47's own priority, reach the subject in time, wins, as it always has)
     cam, s = cam_for({"people": False, "roi": [subject(0.1, 0.1, 0.1, 0.1)]}, L43, dur=0.6)
     tl = cam["tour"]
-    assert tl["stops"][0].get("hold", 0.0) < T.MIN_OPEN_HOLD_S - 1e-6
+    assert tl["stops"][0].get("hold", 0.0) <= 1e-9
     wins = R.still_windows(cam, s, L43, W, H)
     assert T.speed_report(wins)["ok"]
 
