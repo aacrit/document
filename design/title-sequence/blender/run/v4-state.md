@@ -10,3 +10,10 @@ The Run v4, state at the pause (2026-10-18; paused for Real World's score work)
 1. **Beats 2-3 follow:** cap the exempt follow at about 40 px a frame (about 3.5 times the still guide), eased in and out. Where the marble outruns that, widen the frame for the stretch instead of whipping, keeping the marble in frame. Log the peak px a frame in the master's review items. The 189 px a frame whip is not approved.
 2. **S-130 and S-16928:** lay them with the long side along y (or scale the felt bay) at real size. The table's end and the A7 pose rule win; never shrink a record.
 3. **First deliverable on resume:** the 480p animatic of the working stretch (latch to galley), sent to the coordinator.
+
+## Founder ruling, 2026-10-18 (binding): physics only, one shot
+"All changes are physics only in the title. No transitions, fading, nothing. One single shot following the marble; everything else behaves according to physics. A light breeze to keep things alive can be an addition if it's not a heavy lift."
+- **The record beat:** the 24-frame dissolve is GONE. The camera descends in-camera onto the film's record, lying physically on the felt (the real scan as a sheet with relief), until it fills the A7 pose (record_pose, A7 ≤ 6.0, edge strips ≤ 12, a 0.5 s hold).
+- **Light and cuts:** no fades, no hidden cuts, no time remaps. The lamp stays constant unless something physical moves it. The iris "closing onto the record" and the lamp "finding" cues are OUT, so record legibility must come from constant light.
+- **Breeze:** a gentle MuJoCo wind on light bodies only (the khipu cord, the 35 mm strip, the Morse tape), and only where cheap. Skip it if it needs cloth for the sheets or perturbs a hand-off, and say so.
+- **Open, waiting on the coordinator:** does the lockup (dip to `void document · As It Was`) stay after the shot, as a separate card outside the title shot? Until answered, build the shot to end on the record pose.
