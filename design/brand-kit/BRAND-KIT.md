@@ -143,6 +143,7 @@ Hooke's law with viscous damping, solved in closed form, so every frame is a fun
 |---|---|---|
 | Lower third | flag and rule at 0 (`stamp`); name +4 fr, role +8, source +12 (`settle`, rise 0.8% of height); settled by frame 23 | last 12 fr, ease-in-quad, all together; rule shrinks to its anchor |
 | Mark plate | hard swap on the cut frame; class change: 4-frame linear crossfade | with the cut |
+| Provenance label (A42, section 12a) | grows leftward out of the glyph on `whisper` (a reveal, the opacity rising with it); holds 2.0 s | folds back into the glyph over 0.75 s on `let_go`; grows again 40 s later within a long shot |
 | Chapter card | dip to black (12 fr or more) first; number and title rise 0.6% of height on `arrive`; the centred rule (6% of width) grows from its middle on `drift` from +0.10 s; the dates on `settle` from +0.25 s | 10 fr (0.4 s) ease-in-quad fade, then a cut |
 | Record-is-silent card | no movement: line 1 fades in over 18 fr (0.75 s, ease-out-sine); the Searched line follows 8 fr later | both fade over 18 fr, ease-in-sine; at least 4 s on screen |
 | Title card | the title on `arrive` (rise 0.6% of height); `void document` on `settle` 0.4 s later | 16 fr (0.67 s) ease-in-quad; 5 s on screen |
@@ -337,6 +338,20 @@ The YouTube branding watermark (section 3, "On YouTube") is withdrawn: YouTube d
 | Rate | at most one surfacing per 15 s of film, over the film (n at most the duration over 15 s, rounded up), and at most 4 in any 60 s; a guide, not a rule (GRAMMAR A39 refined): the `label-rate` lint counts them, reports them per minute and the busiest minute, and past either cap journals a warning and a reviewer item; it never refuses |
 | Empty AI label | refused at plan time (`ai-label`) |
 
+### 12a. The dot speaks (2026-10-17, founder; GRAMMAR A42)
+
+The founder: "the dot (class glyph, bottom right) is the only source indicator. Its label grows out of the dot, lingers, then folds back into it. On a long clip it animates again after an interval." What now wins over section 12's In and Out rows and its "A label that has gone does not come back": the label is part of the dot. It grows leftward out of the glyph (a reveal anchored at the glyph, its opacity rising with it), holds, and folds back into the glyph, the mirror of the grow; the glyph never moves. Within a shot that carries a label, the label grows again once 40 s have passed since its class and year last surfaced, wherever that was (the clock runs across cards and shots that showed the glyph alone), but only when its whole grow, hold and fold ends at least 1 s before the shot's cut, and never on a cut that repeats class and year (it grows 1 s into the shot instead). Founder ruling, 2026-10-17, confirming the re-grow as built: it applies to any long shot, stills too, and the 40 s clock runs across cuts that keep class and year. When it first surfaces (section 12's Behaviour rows), the AI-GENERATED label (full and up for the whole shot, never folding), the CARD ring (no label), the glyph's crossfade on a class change, its size, position, shadow and opacity are unchanged. The site's player draws no tag of its own over the film (release/2026.10.17-2): the dot is the only source indicator in the picture. `motion.LABEL` holds the numbers; `motion.label_reveal` and `label_repeats` draw them.
+
+| | Value |
+|---|---|
+| Grow | out of the glyph, leftward, on `whisper` (section 6): 0.357 s; the reveal's soft edge is 0.35 em; never wider than the words |
+| Linger | 2.0 s (`LABEL.hold`) |
+| Fold | back into the glyph over 0.75 s on `let_go` (`LABEL.exit`), the reveal and the opacity together |
+| Whole label | 3.11 s from the start of the grow to the end of the fold |
+| Repeat | 40 s after the last surfacing of the class and year (`LABEL.repeat_s`), inside a labelled shot, if the whole label ends 1 s (`LABEL.repeat_tail`) before the cut; never on a same-class cut frame (1 s in instead); counted by the `label-rate` guide |
+
+Do: let a long clip or a held still remind the viewer where it came from, once every 40 s. Don't: move the glyph; let the label slide in from elsewhere; bring the label up at a cut that repeats class and year; fold the AI-GENERATED label.
+
 ### The key card: "What the marks mean"
 
 A card (`card: mark_key`, CARD, true black, `text: []`) that teaches the glyphs once. The engine draws it from the plan and the class table, never from typed words or colours: the glyph (`GLYPH_SHAPE`, `MARK_HUE`) and words (`KEY_WORD`) of each class the film's shots use, and only those (`key_classes`, CoS 2026-10-11: a class shown in the key could imply the film has it), in the order Archive, Reconstructed, Our own titles and cards (the CARD ring, shown whenever the film has a card, which it always does), Drawn, AI-generated, so each pair that shares a hue (the two bones, the two blues) sits side by side and differs by shape. The ring's words say whose the frame is, not what it shows, because a card's own words already say that. The plan's key classes are required: a key with none is refused, never filled with a default. A film with no AI-GENERATED shot gets one more line beneath the rows, `No picture in this film is AI-generated.` (`KEY_NO_AI`), derived from the plan; adding an AI-GENERATED shot removes the line and adds the class.
@@ -413,6 +428,44 @@ The founder: "take the user through the artifact as needed, but use the full res
 
 Do: write regions of interest once per image (`roi`) and let `tour` visit each as the narration names it; keep moves continuing across a cut, or land the cut on a stop. Don't: pillarbox a still because it is a document or a painting (tour it); push a face past z 1.3; state `fill_exception` on a picture that can fill.
 
+### 14b. Framing truth, authored or automatic (2026-10-17, founder ruling 2; GRAMMAR A43)
+
+`motion.CINE` holds the numbers. A face cap no longer waits for a flag: it comes from the ledger's boxes.
+
+| Rule | Numbers |
+|---|---|
+| Face cap | any framing (a stop, its creep, a move) that shows half or more of a face or person box: z at most 1.3; less than half in frame is not capped |
+| A name on a face, measured words | the camera arrives between 0.8 s before and 0.25 s after the name's onset |
+| A name on a face, estimated words | the camera arrives at least 1.0 s before the name and stays until it ends |
+| The engine's own person stop | arrives 0.5 s early on measured words, 1.0 s on estimated ones, held through the name; one that may not bind is re-framed to the group (if it fits one window) or the fill about that person; an engine path that would miss anyone becomes a covering pass |
+| Machine boxes | `source: auto` under confidence 0.5 is set aside: the person counts as unlocated and the whole picture is toured |
+| One person | a face inside its figure (80% of the face box inside) is one person, for the binding rule |
+
+### 14c. The camera ends on the subject (2026-10-17, cinematography pass ticket #2; GRAMMAR A47)
+
+The tilt to the bottom edge is retired. A still's default pass opens at the end of the picture furthest from its subject, sweeps once and ends on it: the ledger's `subject`, else the shot's `focus`, else the whole picture. `motion.CINE` holds the numbers; `studio/engine/tour.py` draws it.
+
+| Beat | Numbers |
+|---|---|
+| Arrive | before the `subject_at` cue's onset: 0.5 s (measured words, or estimated ones); 1.0 s on estimated words when the subject is a person the cue names, held through the name. With no `subject_at`, settled before the shot's last line ends; with no narration, settled before the cut |
+| Settle | the subject's stop is reached at least 1.0 s before the cut; 1.5 s for text, a face or a person |
+| Pace | each leg within A41's guides: a third of the frame a second, 15% scale a second; a pass with too little time opens nearer the subject |
+| Golden | person, crowd, place: the subject's centre at phi, 0.382 or 0.618 of the window (thirds, 1/3 and 2/3, the fallback), inside the band 0.30 to 0.44 or 0.56 to 0.70 on each axis with room; the subject whole, 2% inside the frame |
+| Facing | left or right: placed behind the centre, room ahead at least the room behind |
+| Eyes | 12% down a person box, 40% down a face box, as near the upper third as the band allows |
+| Centred | document, map, painting, object (`compose: centred:<reason>`): the subject's centre within 0.06 of the middle where there is room |
+| Depth | as deep as the placement allows; the 3x softness cap; a face or person at most z 1.3; z 1 under `no_zoom` |
+| Whole | founder ruling (c), `WHOLE_HOLD_MIN_SHOWN` 0.90: when the fill shows 90% or more of the picture (and everyone and every `must_show` region), the fill, z 1, at 0.38 of the window's travel from the top (person, crowd, place) or 0.5 (records), a wide picture centred across; under 90%, one sweep end to end, never back: rising for person, crowd, place; top to bottom for records; left to right for wide pictures; toward the next shot's subject when it says `match: "prev"` |
+| Whole breath | a drift inside the fill (1% a second, at most 6% of the window), never a push; a picture of the frame's own shape, with no room to drift, breathes in to at most 1.06 |
+| Breath | the hold on the subject creeps once: 1.5% scale a second, at most 6% in all (1.06), so 0.1 to 0.15% a second over 40 to 60 s; one way, a push or a drift (1% a second, at most 6% of the window), never a pull; never past the depth that keeps the subject whole; the drift keeps the subject, and for a person or group every located person it frames, in frame |
+| `no_zoom` | every stop at z 1; every creep a drift; a zooming preset keeps only its moves; no push layered on a slow pass |
+| Reversal | none where every person is located: the far end, or the near end when only it shows them all and every `must_show` region; both ends (each held 0.1 s) and back only for a person the ledger has not located, or when no single sweep shows everyone (`in-shot-reversal` warns on the second) |
+| Held | a person or `must_show` region a covering sweep would pass between two frames: held whole in frame for 0.3 s on the way |
+| Synonyms | rulebook 6, cue to VL label: plume, smoke; tower, building, skyscraper; ship, vessel, boat; statue, monument |
+| Match | `match: "prev"` across a cut: the subject opens where the previous still left its own on the screen |
+
+Do: let the subject decide the direction; let a whole picture breathe. Don't: end on the floor of the picture because the geometry ran out; sweep and come back when you know where the people are; push a burning tower.
+
 ## 15. The series titles: `void document · As It Was` (2026-10-17; GRAMMAR A40)
 
 The founder: "a cinematic ... intro ... after the hook of each video like it's a documentary episode." The series titles are the archive machine (`design/title-sequence/`: 12 beats, 57.0 s, G2 approved 2026-10-16), rendered once per film with that film's own record, and played by the engine as they are.
@@ -429,3 +482,32 @@ The founder: "a cinematic ... intro ... after the hook of each video like it's a
 | AI | none: the master's provenance states `ai: false` for every input, so the film's mark key keeps "No picture in this film is AI-generated." One AI pixel would make the whole sequence AI-GENERATED, labelled for all its seconds in every film |
 
 Do: keep the record the film's own (an item of its ledgers, held whole); state in the master's ledger item what it already carries. Don't: draw a second mark, label or watermark over a burned master; let narration, a lower third or a subtitle run over it; dissolve into or out of it; let the master's own dip show anything on its black hold.
+
+## 16. Legible on a phone (2026-10-17, founder; cinematography pass, ticket 8)
+
+The house's small screen is a landscape phone, the 16:9 frame about 693 px wide. A portrait phone shows a thumbnail. Every text a viewer must read renders at 7 px or more there. The glyphs are marks, not text, and stay as section 12 sets them. The rows below supersede section 4's source size and section 12's label sizes. Exception, for now: the map renderer's note, legend and source text (1.5% to 1.75%, 5.8 to 6.8 px) is reported under the floor and follows in a maps ticket.
+
+| | Value | 1080p | 693 px phone |
+|---|---|---|---|
+| Label type (12) | Inter 400 at **2.0%** of height (was 1.6%); opacity, shadow, whisper, hold, fold and repeat unchanged (12a) | 22 px | 7.8 px |
+| Lower third source (4) | Inter 400 at **2.2%** of height (was 1.8%), at 0.62 | 24 px | 8.6 px |
+| AI-GENERATED label (12) | Inter 400 at **2.3%** of height (was 1.85%), at 0.72, its heavier shadow unchanged: a truth label stays the larger (founder, 2026-10-17) | 25 px | 9.0 px |
+| `phone-legibility` | every must-read size the engine draws (`motion.must_read_text`, plus the map renderer's label and sizes) measured at 693 px: guidance, a warning and a reviewer item, never a refusal | | |
+
+Do: size any new text from this floor up. Don't: shrink text under it to make room; move a line or wrap it instead.
+
+## 17. The master frame rate (2026-10-17, founder ruling 1 (c); GRAMMAR A44)
+
+A film masters at 24 fps or at 30000/1001 (29.97): stated in `settings.master_fps`, else the native rate of the majority of its clip runtime (a tie or no clips: 24). Every number in this kit given in seconds keeps its seconds; a number given in frames "at 24 fps" is that many seconds, so at 29.97 it is about a quarter more frames. The ones that change, at 29.97:
+
+| | at 24 | at 29.97 |
+|---|---|---|
+| Dip to black at 0.5 s | hold 2 frames (0.083 s), fades 0.208 s each | hold 2 frames (0.067 s), fades 0.217 s each; the cut frame and its neighbours black |
+| Cross-class dip, at least | 12 frames (0.5 s) | 15 frames (0.5 s) |
+| The glyph's class crossfade | 4 frames (0.167 s) | 5 frames (0.167 s) |
+| Watermark fade either side of a CARD | 12 frames (0.5 s) | 15 frames (0.5 s) |
+| Lower third stagger | 4 frames (0.167 s) | 5 frames (0.167 s) |
+| The dot's grow (`whisper`), hold, fold, repeat | 0.357 s, 2.0 s, 0.75 s, 40 s | unchanged |
+| Series titles (section 15) | the 24 master, 1:1 | the 30000/1001 master, 1:1, when the title declares one; else the 24 master's frames repeated about one in four (declared) |
+
+The 720p web encode keeps the master's rate with a 2 s keyframe interval (48 frames at 24, 60 at 29.97).

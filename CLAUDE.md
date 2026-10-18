@@ -89,11 +89,13 @@ See `CHARTER.md` for its surfaces and kill dates, and `contract.yaml` for what
   lint-workflows, lint-design, lint-docs, lint-events, gate-selftest). Must pass before
   any merge. studio-test runs pytest on `studio/tests` and needs Python 3.12 with
   numpy, pillow, soundfile, pytest and fonttools, plus ffmpeg (`DOCUMENT_PYTHON` picks the interpreter).
-- `python -m studio.engine.render <film dir>`: render a screenplay v2 to a 1080p24 master;
+- `python -m studio.engine.render <film dir>`: render a screenplay v2 to a 1080p master at the film's rate (24, or 30000/1001: GRAMMAR A44);
   every run is journaled (`studio/engine/journal.py`), issues go to `docs/ENGINE-LOG.md`. Cut spans of long reels go to
   `<film>/cache/spans`, or to `DOCUMENT_SPANS_CACHE` when set (keep them off a near-full system disk).
 - `python -m studio.engine.score <film dir> [--wavs <dir>]`: the house score standard (GRAMMAR A29) checked offline on the
   film's cue WAVs as its screenplay places them, with no mix rendered; `--wavs` swaps in a re-scored set of cues.
+- `python -m studio.engine.levels --check <film dir> [--json <file>]`: GRAMMAR A46's automatic black floor read-only on a
+  film's screenplay and ledgers, with no plan: which stills are floored, which opt out, and the grade-jump warnings.
 - `python -m studio.engine.voicing measure <film dir>... [--write]`: each reader voice's EQ (GRAMMAR A38 refined), measured
   on its takes in those films; `--write` rebuilds the house table `studio/reader-eq.json` (never edited by hand).
 - `python -m studio.engine.clips check <film dir>`: GRAMMAR A33 (clip integrity) read-only on a screenplay; `natural-out`,
@@ -101,6 +103,8 @@ See `CHARTER.md` for its surfaces and kill dates, and `contract.yaml` for what
   (sidecars in `<film>/cache/bounds/`), and `lipsync` measures a talking-head clip's `av_offset_ms` (`--write` records it).
 - `python -m studio.engine.captions <render dir>`: write the English captions (captions-en.vtt) from the
   render's resolved screenplay (`studio/engine/captions.py`); they go to R2 with the film, poster and sources.json.
+- `python -m studio.engine.sheets <film dir> [--out <dir>] [--chapter <id>] [--skip-sound-lints]`: grid-overlay
+  contact sheets (no render), one PNG per chapter with the camera's own window, zones and ROI boxes per stop.
 - `node scripts/release-film.mjs <render dir>/master.mp4 [--trailer <file>] [--out <dir>] [--dry-run]`: the post-render
   release in order (--sources-only, 720p web encode, poster and publish packet, captions check, R2 upload with
   sources.json last, hashes); `--dry-run` prints every command and runs none. The trailer is optional (none declared,

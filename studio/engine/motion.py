@@ -323,7 +323,9 @@ LT = dict(                 # lower third (A16: quieter than the G2 kit in size, 
     max_w=56.0,            # % of W
     rule_len=5.0,          # % of W (was 7.5)
     rule_h=0.14,           # % of H (1.5 px at 1080p; was 0.19)
-    flag=2.0, name=3.3, role=2.1, source=1.8,        # font sizes, % of H (were 4.4, 2.8, 2.3)
+    # font sizes, % of H (were 4.4, 2.8, 2.3). The source line was 1.8 (7.0 px on a 693 px landscape phone, at the
+    # floor): 2.2 since the cinematography pass (founder, 2026-10-17), so it reads at 8.6 px (PHONE)
+    flag=2.0, name=3.3, role=2.1, source=2.2,
     lh_flag=1.4, lh_name=1.1, lh_role=1.3, lh_source=1.3,
     gap_flag=0.5, gap_rule=0.6, gap_name=0.5, gap_role=0.4,   # % of H
     # Flagged (partisan-source) form: the flag stays the first and largest line, set in
@@ -341,29 +343,38 @@ LT = dict(                 # lower third (A16: quieter than the G2 kit in size, 
 )
 # A16's lower third is on screen for at most its arrival, LT.hold and its departure, whatever the screenplay's end.
 LT_MAX_S = 3 * LT["stagger"] + WHISPER.settle_time() + LT["hold"] + LT["exit"]
-# A16: the provenance label and the class glyph. The label ("Archive · 1947") surfaces on `whisper`, holds and is
-# let go; the glyph (a small mark in the class hue) stays on every frame. A31 (R2, founder 2026-10-11): bottom right,
-# smaller and fainter, and the label surfaces only when the class or the year changes (BRAND-KIT 12).
+# A16: the provenance label and the class glyph. The glyph (a small mark in the class hue) stays on every frame.
+# A31 (R2, founder 2026-10-11): bottom right, smaller and fainter, and the label surfaces only when the class or the
+# year changes (BRAND-KIT 12). A42 (founder, 2026-10-17: "the dot is the only source indicator. Its label grows out
+# of the dot, lingers, then folds back into it. On a long clip it animates again after an interval"): the label grows
+# leftward out of the glyph (a reveal anchored at the glyph, on `whisper`, its opacity rising with it), holds
+# LABEL.hold, folds back into the glyph over LABEL.exit (the mirror, on let_go), and within one shot that keeps its
+# class and year it grows again LABEL.repeat_s after the last surfacing (BRAND-KIT 12a).
 LABEL = dict(
     right=4.0,             # % of W from the frame's right edge to the glyph box's right edge (the watermark's right inset)
     bottom=5.0,            # % of H from the frame's bottom edge to the glyph box's bottom edge (the watermark's top inset)
     glyph=0.85,            # % of H, the glyph's diameter (9 px at 1080p, 6 at 720p), never under 4 px
     glyph_min_px=4,
-    size=1.6,              # % of H, the label's text (17 px at 1080p, 12 at 720p; A16 was 1.85, the G2 plate 3.1)
+    size=2.0,              # % of H, the label's text (22 px at 1080p, 7.8 on a 693 px landscape phone; 1.6 until the
+                           # cinematography pass, founder 2026-10-17: 6.2 px there, under PHONE's floor; A16 was 1.85)
     gap=0.55,              # em of the label's size between the text and the glyph
     alpha=0.6,             # the label text's opacity (A16 was 0.72; the G2 plate's text was opaque on a 60% scrim)
-    drift=0.25,            # em: the text surfaces this far toward the glyph (to the right of its rest) as it arrives
+    feather=0.35,          # em: the soft edge of the reveal (A42), so the fold reads as a fold, not a wipe's hard line
     shadow=0.42,           # alpha of the soft black shadow under the text and around the glyph (no box)
     blur=0.11,             # % of H, the shadow's blur radius
     halo=0.12,             # % of H, the dark contact ring around the glyph (at least 1 px)
     hold=2.0,              # s the label holds after it has surfaced (A16 was 3.0)
-    exit=0.75,             # s, its departure (let_go)
+    exit=0.75,             # s, its fold back into the glyph (let_go)
+    repeat_s=40.0,         # s (A42): within one shot of one class and year the label grows again this long after it last did
+    repeat_tail=1.0,       # s (A42): a repeat folds at least this long before the shot's cut, or it is not made
     fade=4 / 24,           # s, the glyph's linear crossfade when the class changes (GRAMMAR 4.1, 4 frames)
 )
 LABEL_MAX_S = WHISPER.settle_time() + LABEL["hold"] + LABEL["exit"]
 # A31 (CoS 2026-10-11): the AI-GENERATED label is a truth label, up for the whole shot; it keeps A16's size and
 # opacity so it stays readable at the new, smaller corner.
-LABEL_AI = dict(size=1.85, alpha=0.72,
+# Cinematography pass (2026-10-17): the other labels grew from 1.6 to 2.0, so this one grows from 1.85 to 2.3 and stays
+# the larger, as A31 meant it (a truth label is never the smaller of the two)
+LABEL_AI = dict(size=2.3, alpha=0.72,
                 # a heavier shadow (CoS 2026-10-11): darker, wider and denser than the others', so the words hold on a
                 # bright, busy ground at 720p; the other classes keep LABEL.shadow, LABEL.blur and a gain of 1.8
                 shadow=0.78, blur=0.16, gain=2.8)
@@ -401,6 +412,12 @@ SILENT = dict(size=4.0, lh=1.35, searched=2.6, max_w=76.0, fade=0.75, stagger=0.
               gap=1.2, safe_top=10.0, safe_bottom=90.0, min_scale=0.75, scale_step=0.05)
 TITLE = dict(size=7.0, wordmark=2.6, rise=0.6, exit=0.67, gap=2.2)
 CREDITS = dict(size=2.4, lh=1.5, heading=1.85, speed=5.2, fade_in=1.0, col_w=70.0)
+
+# Phone legibility (cinematography pass, founder 2026-10-17): the house's small screen is a landscape phone, the
+# 16:9 frame 693 px wide (a portrait phone shows a thumbnail). Every text a viewer must read renders at PHONE.min_px or
+# more there. The glyphs are marks, not text, and are not measured. Guidance (`phone-legibility`), never a refusal.
+PHONE = dict(width_px=693, min_px=7.0)
+
 
 # --------------------------------------------------------------------------
 # Drawing helpers (private). All return or mutate RGBA layers; composition is
@@ -802,6 +819,23 @@ def _glyph_layer(W: int, H: int, cls: str) -> Image.Image:
 LABEL_STAYS = {"AI-GENERATED"}       # A16 refined (CoS, T1e review): this label never fades; it stays the whole shot
 
 
+def label_reveal(t: float, start: float, cls: str | None = None) -> float:
+    """A42: how much of the label has grown out of the glyph (0..1, the
+    share of its width shown, anchored at the glyph): it grows on `whisper`
+    (clamped, so never wider than the label), holds, and folds back over
+    LABEL.exit on let_go, the mirror of the grow. An AI-GENERATED label is
+    whole from the cut frame and never folds (a truth label)."""
+    if t < start:
+        return 0.0
+    if cls in LABEL_STAYS:
+        return 1.0
+    u = t - start
+    if u >= LABEL_MAX_S:
+        return 0.0
+    grow = 1.0 if u >= WHISPER.settle_time() else clamp01(WHISPER.progress(u))
+    return grow * let_go(u, LABEL_MAX_S, LABEL["exit"])
+
+
 def label_alpha(t: float, start: float, cls: str | None = None) -> float:
     """The label's opacity factor (0..1) at ``t`` for a label that surfaced at
     ``start``: up on `whisper`, held LABEL.hold s, let go over LABEL.exit s;
@@ -833,6 +867,27 @@ def mark_key(shot: dict) -> tuple[str, str | None]:
     return shot["cls"], (str(y) if y not in (None, "") else None)
 
 
+def label_repeats(s: dict, last: float, *, at_cut: bool = False) -> list[float]:
+    """A42: the times within shot ``s`` (with an ``end``) that its label grows
+    again: due LABEL.repeat_s after the last surfacing of its class and year
+    (``last``, maybe shots and cards ago), never on or within
+    LABEL.repeat_tail after a cut that repeats them (``at_cut``: the shot did
+    not surface at its own cut; the label grows that long into the shot
+    instead), then every LABEL.repeat_s; each only when its whole grow, hold
+    and fold ends LABEL.repeat_tail before the shot's cut."""
+    end = s.get("end")
+    if end is None:
+        return []
+    r = last + LABEL["repeat_s"]
+    if at_cut:
+        r = max(r, s["start"] + LABEL["repeat_tail"])
+    out = []
+    while r + LABEL_MAX_S <= float(end) - LABEL["repeat_tail"] + 1e-9:
+        out.append(r)
+        r += LABEL["repeat_s"]
+    return out
+
+
 def label_plan(shots) -> list[dict]:
     """Per shot (``shots`` sorted by start): ``start``, when the label it
     shows surfaced (None: glyph only), and ``surfaces``, whether it surfaces
@@ -843,12 +898,17 @@ def label_plan(shots) -> list[dict]:
     the label already up runs on, its words swapped on the cut frame (within
     a class the swap is hard, BRAND-KIT 5), and lets go on its own time. An
     AI-GENERATED shot is labelled for the whole shot, from its cut frame,
-    whatever came before (A16 refined: the class is never hidden)."""
+    whatever came before (A16 refined: the class is never hidden). A42: a
+    shot that states its ``end`` also has ``repeats``, the times its label
+    grows again (``label_repeats``), counted from the last surfacing of its
+    class and year wherever that was, across cards and shots that showed the
+    glyph alone; ``times`` is ``start`` and the repeats."""
     out: list[dict] = []
     prev_key = None
+    last: dict = {}                              # A42: the last time each class and year's label grew
     for k, s in enumerate(shots):
         if s["cls"] == "CARD" or not s.get("label"):
-            out.append({"start": None, "surfaces": False})
+            out.append({"start": None, "surfaces": False, "repeats": [], "times": []})
             continue
         key = mark_key(s)
         surfaces = prev_key is None or key != prev_key
@@ -856,8 +916,16 @@ def label_plan(shots) -> list[dict]:
         if s["cls"] in LABEL_STAYS or surfaces:
             start = s["start"]
         elif k > 0 and out[k - 1]["start"] is not None and shots[k - 1]["cls"] != "CARD" and shots[k - 1].get("label"):
-            start = out[k - 1]["start"]          # the same class and year across a cut: the label runs on
-        out.append({"start": start, "surfaces": surfaces})
+            start = out[k - 1]["times"][-1]      # the same class and year across a cut: the label runs on
+        reps = []
+        if s["cls"] not in LABEL_STAYS:
+            since = s["start"] if surfaces else last.get(key, start)
+            if since is not None:
+                reps = label_repeats(s, since, at_cut=not surfaces)
+        times = ([start] if start is not None else []) + reps
+        if surfaces or reps:
+            last[key] = times[-1]
+        out.append({"start": start, "surfaces": surfaces, "repeats": reps, "times": times})
         prev_key = key
     return out
 
@@ -869,10 +937,22 @@ def label_starts(shots) -> list[float | None]:
     return [e["start"] for e in label_plan(shots)]
 
 
+def label_times(shots) -> list[list[float]]:
+    """Per shot, every time the label it shows grew (A42: the run-on or
+    surfacing start, then its repeats)."""
+    return [e["times"] for e in label_plan(shots)]
+
+
 def label_surfacings(shots) -> list[float]:
-    """The times a label surfaces in the film (A31), for the label-rate lint."""
+    """The times a label surfaces in the film (A31) and grows again (A42), for
+    the label-rate lint."""
     ss = sorted(shots, key=lambda s: s["start"])
-    return [s["start"] for s, e in zip(ss, label_plan(ss)) if e["surfaces"]]
+    out = []
+    for s, e in zip(ss, label_plan(ss)):
+        if e["surfaces"]:
+            out.append(s["start"])
+        out += e["repeats"]
+    return out
 
 
 def mark_state(t: float, shots) -> dict | None:
@@ -880,7 +960,7 @@ def mark_state(t: float, shots) -> dict | None:
     ``cls`` and ``label``. Returns the class, the outgoing class and the
     glyph's crossfade weight, and the label with its opacity factor."""
     ss = sorted(shots, key=lambda s: s["start"])
-    starts = label_starts(ss)
+    times = label_times(ss)
     cur = prev = None
     for k, s in enumerate(ss):
         if s["start"] <= t:
@@ -891,26 +971,43 @@ def mark_state(t: float, shots) -> dict | None:
     p = ss[prev] if prev is not None else None
     u = (t - s["start"]) / LABEL["fade"]
     mix = clamp01(u) if (p is not None and p["cls"] != s["cls"] and u < 1.0) else 1.0
-    la = label_alpha(t, starts[cur], s["cls"]) if starts[cur] is not None else 0.0
+    began = [u for u in times[cur] if u <= t + 1e-9]
+    start = began[-1] if began else (times[cur][0] if times[cur] else None)
+    la = label_alpha(t, start, s["cls"]) if start is not None else 0.0
+    rv = label_reveal(t, start, s["cls"]) if start is not None else 0.0
     return {"cls": s["cls"], "prev_cls": p["cls"] if p is not None else None, "mix": mix,
-            "label": s.get("label") or "", "label_alpha": la, "label_start": starts[cur]}
+            "label": s.get("label") or "", "label_alpha": la, "label_reveal": rv, "label_start": start}
 
 
 
-def _label_tile(L: Layout, text: str, alpha: float, dx: float, fonts: Fonts,
+def label_reveal_span(L: Layout, text: str, reveal: float, fonts: Fonts, cls: str | None = None) -> tuple[float, float]:
+    """A42: the span (x0, x1, px) of the label's words shown at ``reveal``:
+    anchored at the words' right end, next to the glyph, and ``reveal`` of
+    their width leftward; never wider than the words."""
+    size, _ = label_type(cls)
+    px = L.px(size)
+    w = _measure(text, _font(fonts.structure, px), _font(fonts.data, max(1, round(px * 0.94))))
+    right = label_right(L, cls)
+    return right - clamp01(reveal) * w, right
+
+
+def _label_tile(L: Layout, text: str, alpha: float, reveal: float, fonts: Fonts,
                 cls: str | None = None) -> tuple[Image.Image, tuple[int, int]]:
     """The label's words left of the glyph, set flush right against it (A31),
     near-white at LABEL.alpha over a soft black shadow (no box), numerals in
     the data face, drawn and blurred on a crop around the words only, and the
     frame pixel the crop lands on. The crop stops short of the glyph's tile,
-    so the label never touches a pixel the mark-coverage lint reads."""
+    so the label never touches a pixel the mark-coverage lint reads. A42:
+    only ``reveal`` of the words' width shows, grown out of the glyph leftward
+    (``label_reveal_span``, with a soft LABEL.feather edge to its left); at 1
+    it is the whole label, shadow included."""
     from PIL import ImageFilter
     size, opacity = label_type(cls)
     px = L.px(size)
     f_txt = _font(fonts.structure, px)
     f_num = _font(fonts.data, max(1, round(px * 0.94)))
     gx, _ = glyph_origin(L)
-    x = label_right(L, cls) - _measure(text, f_txt, f_num) + dx
+    x = label_right(L, cls) - _measure(text, f_txt, f_num)
     baseline = label_baseline(L, cls)
     sh_alpha, sh_blur, sh_gain = label_shadow(cls)
     radius = max(1.0, L.h(sh_blur))
@@ -928,6 +1025,14 @@ def _label_tile(L: Layout, text: str, alpha: float, dx: float, fonts: Fonts,
     out = Image.new("RGBA", words.size, (0, 0, 0, 0))
     out.putalpha(Image.fromarray(sh.astype(np.uint8)))
     out.alpha_composite(words)
+    if reveal < 1.0:
+        # the reveal, measured on the words (label_reveal_span): every pixel from its left edge to the glyph shows,
+        # and a soft ramp of LABEL.feather em leftward of the edge carries the words' shadow; nothing further left
+        edge, _ = label_reveal_span(L, text, reveal, fonts, cls)
+        feather = max(1.0, LABEL["feather"] * px)
+        m = np.clip((np.arange(out.width, dtype=np.float32) + x0 + 0.5 - (edge - feather)) / feather, 0.0, 1.0)[None, :]
+        a = np.asarray(out.getchannel("A"), dtype=np.float32) * m
+        out.putalpha(Image.fromarray(np.clip(a, 0, 255).astype(np.uint8)))
     return out, (x0, y0)
 
 
@@ -937,10 +1042,12 @@ def mark_frame(img: Image.Image, t: float, shots, fonts: Fonts) -> Image.Image:
     ``year``. The glyph is on every frame: a hard swap within a class, a
     4-frame linear crossfade when the class changes (both glyphs are opaque
     at the centre, so the pixel there is exactly the mix of the two hues).
-    The label surfaces only when the class or the year changes, drifting a
-    quarter em from the glyph to its rest, and is let go after about 2 s;
-    an AI-GENERATED label is full from the cut frame and stays. Only small
-    tiles are drawn and composited, never full-frame layers."""
+    The label surfaces only when the class or the year changes (A31): it
+    grows out of the glyph leftward, holds about 2 s and folds back into it
+    (A42), and grows again LABEL.repeat_s later within a long shot; an
+    AI-GENERATED label is full from the cut frame and stays. The glyph never
+    moves. Only small tiles are drawn and composited, never full-frame
+    layers."""
     out = _as_rgba(img)
     st = mark_state(t, shots)
     if st is None:
@@ -950,11 +1057,8 @@ def mark_frame(img: Image.Image, t: float, shots, fonts: Fonts) -> Image.Image:
     if st["mix"] < 1.0:
         tile = Image.blend(glyph_tile(L.W, L.H, st["prev_cls"])[0], tile, st["mix"])
     out.alpha_composite(tile, at)
-    if st["label_alpha"] > 0.0 and st["label"]:
-        u = t - st["label_start"]
-        arriving = st["cls"] not in LABEL_STAYS
-        dx = (1.0 - clamp01(WHISPER.progress(u))) * LABEL["drift"] * L.px(LABEL["size"]) if arriving else 0.0
-        words, wat = _label_tile(L, st["label"], st["label_alpha"], dx, fonts, st["cls"])
+    if st["label_alpha"] > 0.0 and st["label_reveal"] > 0.0 and st["label"]:
+        words, wat = _label_tile(L, st["label"], st["label_alpha"], st["label_reveal"], fonts, st["cls"])
         if words.width > 0:
             out.alpha_composite(words, wat)
     return out
@@ -1489,6 +1593,28 @@ KEY_HEADING = "What the marks mean"
 # The classes in key order: amber, the two bones (the dot and the card's ring) side by side, then the two cold blues
 # side by side, so each pair that shares a hue is compared by shape.
 KEY_CLASSES = tuple(GLYPH_SHAPE)
+
+
+def must_read_text() -> dict[str, float]:
+    """Every must-read text size the house draws, % of H, by element (the smallest a layout may step down to)."""
+    return {"lower third flag": LT["flag"], "lower third name": LT["name"], "lower third role": LT["role"],
+            "lower third source": LT["source"], "lower third flag (flagged)": LT["flag_f"],
+            "lower third name (flagged)": LT["name_f"], "provenance label": LABEL["size"],
+            "AI-generated label": LABEL_AI["size"], "subtitle": SUB["size"], "chapter title": CHAPTER["title"],
+            "chapter dates": CHAPTER["dates"], "statement card": SILENT["size"] * SILENT["min_scale"],
+            "statement card, searched": SILENT["searched"] * SILENT["min_scale"], "title": TITLE["size"],
+            "title wordmark": TITLE["wordmark"], "credits": CREDITS["size"], "credits heading": CREDITS["heading"],
+            "overlay": OVERLAY["size"], "mark key heading": KEY["heading"], "mark key word": KEY["word"]}
+
+
+def phone_legibility(width: int = 1920, height: int = 1080, extra: dict[str, float] | None = None) -> list[dict]:
+    """Each must-read text's rendered size on the landscape phone (PHONE), for a master of ``width`` x ``height``:
+    {element, pct_h, px, ok}. ``extra`` adds sizes drawn elsewhere (the map renderer's), % of H by element."""
+    scale = PHONE["width_px"] / float(width)
+    sizes = dict(must_read_text(), **(extra or {}))
+    return [{"element": k, "pct_h": round(v, 3), "px": round(v / 100.0 * height * scale, 2),
+             "ok": v / 100.0 * height * scale >= PHONE["min_px"] - 1e-9} for k, v in sizes.items()]
+
 KEY_WORD = dict(CLASS_WORD, CARD="Our own titles and cards")   # a card's own words say what it is; the key says whose
 # CoS 2026-10-11: a key shows only the classes the film uses; a film with no AI-GENERATED picture says so in a line
 # derived from the plan, because a key that showed the class could imply the film has it.
@@ -1712,6 +1838,41 @@ TOUR = dict(hold_creep_after_s=1.5, creep_scale_per_s=0.015, creep_drift_per_s=0
             zoom_guide_per_s=0.15, still_eps_per_s=0.03, sample_hz=8.0, curve="rostrum",
             still_max_upscale=3.0, whole_creep_max=1.06)
 
+# A43 (cinematography truth): the numbers the framing truth lints read (studio/engine/tour.py).
+#   face_zmax               a stop whose window frames a kind face|person region (or a located person) is never
+#                           pushed past this, creep included (7.2's face cap, now derived from the ledger)
+#   framed_share            a region counts as framed by a window when at least this share of its area is inside
+#   auto_confidence_floor   a machine box (source: auto) under this confidence is ignored for framing: the person
+#                           it marks counts as unlocated, so the still degrades toward the whole (founder ruling 2)
+#   anchor_early_s          on measured word timings a person stop bound to a name arrives no earlier than this
+#   anchor_late_s           ... and no later than this after the name's onset
+#   anchor_estimated_lead_s on estimated (character-share) timings it arrives at least this early and holds
+#                           through the name
+#   anchor_lead_s           how early the engine's own person stop arrives on measured timings (the schema's default)
+#   nest_share              a person box this much inside another (a face inside its figure) is the same person
+#   A47 (the camera ends on the subject; studio/engine/tour.py subject_stops, end_pose):
+#   settle_s                the subject stop is reached at least this long before the cut
+#   settle_read_s           ... this long when it is text, a face or a person (read, then cut)
+#   whole_weight            where a ``whole`` still holds along the axis its fill window can travel, as a share of
+#                           that travel from the top (or the left): upper-weighted for a person, crowd or place
+#   whole_weight_record     ... centred for a record (a document, map, painting or object, or compose centred:)
+#   golden_band             the band (and its mirror, 1 - band) the subject's centre sits in on each axis (golden)
+#   phi                     the first placement tried (0.382 and 0.618); thirds (1/3, 2/3) is the fallback
+#   compose_edge            the subject box stays this share of the window inside its edges at the end pose
+#   eye_person, eye_face    where the eyes sit in a person box and a face box, from the top (eyes near the upper third)
+#   centred_band            a subject centre within this of 0.5 reads as centred (the records' verdict)
+#   whole_hold_min_shown    WHOLE_HOLD_MIN_SHOWN: a ``whole`` still holds on its fill only when the fill shows at
+#                           least this share of the picture; under it the camera sweeps once end to end (A47; founder
+#                           ruling pending, default option (c) 0.90; 0 always holds, 1.01 always sweeps)
+#   waypoint_hold_s         a covering pass that would still miss a located person holds this long on them
+#   end_hold_s              a pass that must show the whole picture holds each end this long (a frame lands on it)
+WHOLE_HOLD_MIN_SHOWN = 0.90
+CINE = dict(face_zmax=1.3, framed_share=0.5, auto_confidence_floor=0.5, anchor_early_s=0.8, anchor_late_s=0.25,
+            anchor_estimated_lead_s=1.0, anchor_lead_s=0.5, nest_share=0.8,
+            settle_s=1.0, settle_read_s=1.5, whole_weight=0.38, whole_weight_record=0.5, golden_band=(0.30, 0.44),
+            phi=0.382, compose_edge=0.02, eye_person=0.12, eye_face=0.4, centred_band=0.06,
+            whole_hold_min_shown=WHOLE_HOLD_MIN_SHOWN, waypoint_hold_s=0.3, end_hold_s=0.1)
+
 
 def still_view(size, L: Layout, *, z: float = 1.0, cx: float = 0.5, cy: float = 0.5, clamp: str = "frame"):
     """Where a still lands for a camera at zoom z about the frame-space centre
@@ -1759,21 +1920,56 @@ def still_view(size, L: Layout, *, z: float = 1.0, cx: float = 0.5, cy: float = 
     return (a[0], a[1], b[0], b[1]), (0.0, 0.0, float(L.W), float(L.H))
 
 
+# How fit_still samples (cine ticket 1, 2026-10-17): a Lanczos resize of the fractional window, which
+# prefilters a reduction (no twinkle on halftones, engravings, hatching or type at a 2-3x stop) and has
+# no bicubic sub-pixel phase "breathing" on a creep. Part of every segment's cache key (render.shot_key):
+# change it whenever the sampling changes, so no cached frame of the old sampling is reused.
+RESAMPLE = "lanczos-box-1"
+
+
+def _sample_window(rgb: Image.Image, src, size) -> Image.Image:
+    """The image window ``src`` (x0, y0, x1, y1 in image pixels, fractional,
+    possibly reaching past the photograph) drawn into a ``size`` canvas with
+    filtered (Lanczos) sampling. A canvas pixel whose centre falls outside the
+    photograph is the letterbox field, as the bicubic transform's fill was."""
+    W, H = size
+    iw, ih = rgb.size
+    x0, y0, x1, y1 = (float(v) for v in src)
+    sx, sy = (x1 - x0) / W, (y1 - y0) / H
+
+    def span(a, s, n, lim):                 # canvas pixels [lo, hi) whose centres lie on the photograph
+        lo = max(0, math.ceil(-a / s - 0.5 - 1e-9))
+        hi = min(n, math.floor((lim - a) / s - 0.5 + 1e-9) + 1)
+        return lo, hi
+
+    X0, X1 = span(x0, sx, W, iw)
+    Y0, Y1 = span(y0, sy, H, ih)
+    if X1 <= X0 or Y1 <= Y0:
+        return Image.new("RGB", (W, H), PALETTE["letterbox"])
+    box = (min(max(x0 + X0 * sx, 0.0), iw), min(max(y0 + Y0 * sy, 0.0), ih),
+           min(max(x0 + X1 * sx, 0.0), iw), min(max(y0 + Y1 * sy, 0.0), ih))
+    pic = rgb.resize((X1 - X0, Y1 - Y0), Image.Resampling.LANCZOS, box=box)
+    if (X0, Y0, X1, Y1) == (0, 0, W, H):
+        return pic
+    out = Image.new("RGB", (W, H), PALETTE["letterbox"])
+    out.paste(pic, (X0, Y0))
+    return out
+
+
 def fit_still(still: Image.Image, L: Layout, *, z: float = 1.0, cx: float = 0.5, cy: float = 0.5,
               clamp: str = "frame") -> Image.Image:
     """Letterbox or pillarbox the photograph on the letterbox field, then take
-    the window (zoom z about centre cx, cy in 0..1) with bicubic sampling.
-    ``clamp`` is as ``still_view`` says."""
+    the window (zoom z about centre cx, cy in 0..1) with filtered sampling
+    (``RESAMPLE``: Lanczos over the fractional window, so a reduction is
+    prefiltered). ``clamp`` is as ``still_view`` says."""
     src, dst = still_view(still.size, L, z=z, cx=cx, cy=cy, clamp=clamp)
     rgb = still if still.mode == "RGB" else still.convert("RGB")
     if dst == (0.0, 0.0, float(L.W), float(L.H)):
-        return rgb.transform((L.W, L.H), Image.Transform.EXTENT, src,
-                             resample=Image.Resampling.BICUBIC, fillcolor=PALETTE["letterbox"])
+        return _sample_window(rgb, src, (L.W, L.H))
     x0, y0 = int(round(dst[0])), int(round(dst[1]))
     dw, dh = int(round(dst[2])) - x0, int(round(dst[3])) - y0
     out = Image.new("RGB", (L.W, L.H), PALETTE["letterbox"])
-    out.paste(rgb.transform((dw, dh), Image.Transform.EXTENT, src, resample=Image.Resampling.BICUBIC,
-                            fillcolor=PALETTE["letterbox"]), (x0, y0))
+    out.paste(_sample_window(rgb, src, (dw, dh)), (x0, y0))
     return out
 
 
