@@ -15,7 +15,7 @@ KEYS = {"use_denoising", "use_preview_denoising", "use_viewport_denoising"}
 
 
 def _assignments():
-    for p in sorted(RUN.glob("*.py")):
+    for p in sorted(RUN.parent.rglob("*.py")):          # every Blender builder of the title sequence, run/ and beyond
         tree = ast.parse(p.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign):
@@ -35,7 +35,7 @@ def test_the_render_settings_turn_both_denoisers_off():
     body = src[src.index("def render_settings"):]
     body = body[:body.index("\ndef ", 1)]
     assert "cy.use_denoising = False" in body and "cy.use_preview_denoising = False" in body
-    for p in RUN.glob("*.py"):
+    for p in RUN.parent.rglob("*.py"):
         s = p.read_text(encoding="utf-8")
         assert not re.search(r"denoiser\s*=\s*['\"](OPENIMAGEDENOISE|OPTIX)", s), p.name
 

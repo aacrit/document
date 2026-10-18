@@ -1658,11 +1658,9 @@ def render_settings(sc):
         cy.use_adaptive_sampling = True
         cy.adaptive_threshold = p["noise_threshold"]
         cy.adaptive_min_samples = p["min_samples"]
-        cy.use_denoising = True
-        cy.denoiser = "OPENIMAGEDENOISE"
-        cy.denoising_input_passes = "RGB_ALBEDO_NORMAL"
-        cy.denoising_prefilter = "ACCURATE"
-        cy.denoising_use_gpu = True
+        # no denoiser of any kind (founder, 2026-10-18: no AI pixels; OIDN is machine-learned)
+        cy.use_denoising = False
+        cy.use_preview_denoising = False
         cy.max_bounces, cy.diffuse_bounces, cy.glossy_bounces = 6, 3, 3
         cy.transmission_bounces, cy.volume_bounces, cy.transparent_max_bounces = 4, 1, 8
         cy.caustics_reflective = cy.caustics_refractive = False

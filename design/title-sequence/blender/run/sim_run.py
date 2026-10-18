@@ -57,11 +57,15 @@ PARK = (-3.0, -3.0)
 QUAD = B.QUAD
 QM = 10400 * 8 * QUAD[0] * QUAD[1] * QUAD[2]
 N_Q = 12
-GAPS = np.linspace(0.014, 0.008, N_Q)
+# the gaps quicken within the domino's working range (0.5 to 0.65 of the sorts' 20.3 mm height): at the slower run
+# (v4.1) the row stalled at sorts 11 and 12 where the gaps had shrunk to 8 mm (their tilts 26 to 80 degrees)
+GAPS = np.linspace(0.013, 0.0105, N_Q)
 FLOOR_T = 0.0005
 RAMP_L = 0.020 + B.GALLEY["mouth_widen"]
 STEP_H = 0.003
-STOP = (0.0012, 0.026, 0.01015)
+# the end stop: a real 2-point brass rule (0.7 mm), as compositors close a galley row, not a 2.4 mm block (21 g):
+# the thin sorts' row cannot carry the momentum to tip the block
+STOP = (0.00035, 0.026, 0.01015)
 STOP_M = 8400 * 8 * STOP[0] * STOP[1] * STOP[2]
 STOP_Y = 0.018
 PAIR_Y = (0.0175, 0.0345)

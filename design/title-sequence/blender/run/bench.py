@@ -351,3 +351,41 @@ PLAN = [
     {"beat": "dark", "object": "felt", "centre": (FELT_X1 - FELT[0] / 2, sum(FELT_Y) / 2), "psi": None, "heading_in": 0.0,
      "heading_out": 0.0, "cause": "the felt, then the record's edge"},
 ]
+
+
+# ------------------------------------------------------------------------------------------------ v4.1: the collector's desk
+# (founder 2026-10-18, approved plan layout/collectors-desk-plan.png). The tuned stretch stands (latch, papyrus, Atlas,
+# Piri Reis, khipu, galley on the leaf). After the galley the records lie scattered on bare oak, as a desk mid-work;
+# Ino's sheet and the Admiralty chart lie folded as such sheets are kept (their own fold grids), each showing one
+# panel of its scan; real objects of the study do the deflecting where a record does not. Sizes are real.
+V41 = True
+FOLDED = {
+    # name: (panels along u, panels along v, the panel shown (iu, iv) from the scan's top-left), the folded size follows
+    "ino": (2, 2, (1, 0)),
+    "chart": (2, 2, (0, 0)),
+}
+V41_SHEETS = {
+    "ino": {"centre": (1.50, 0.46), "psi": -8.0},          # 0.50 x 0.29 folded; its lifted edge and its crease stand
+    "page": {"centre": (1.55, 0.16), "psi": 4.0},
+    "chart": {"centre": (1.85, 0.27), "psi": 90.0},        # 0.34 x 0.50 folded; the rolled near edge (U3)
+}
+TRAY = {"centre": (1.53, 0.84), "size": (0.34, 0.22), "rim_h": 0.018, "rim_t": 0.008, "floor_t": 0.004,
+        "wood": "oak", "coins": 9, "coin_gap": 0.011, "note": "the money tray: its rim is a wall (U2); the coin row stands"
+        " on edge inside, toppled in sequence when the lead strikes the first"}
+COINS = [  # real CC0 scans (Musee Saint-Raymond, Toulouse; Sketchfab), sizes from the museum records
+    {"id": "FS-coin-dupondius-octavian", "uid": "48e52062e37d4a6194a36f76f6eb959f", "d": 0.029, "t": 0.0035, "metal": "bronze"},
+    {"id": "FS-coin-sesterce-trajan", "uid": "ba652714bc514e3888f94a606985f79e", "d": 0.034, "t": 0.004, "metal": "bronze"},
+    {"id": "FS-coin-denier-coelius-caldus", "uid": "1021c13dc0194732bbfe277cd5fb89a7", "d": 0.019, "t": 0.0018, "metal": "silver"},
+    {"id": "FS-coin-tetradrachm-alexander", "uid": "8a6b56fedf014ea8a63041b1e4e90016", "d": 0.026, "t": 0.004, "metal": "silver"},
+]
+JETON = {"uid": "65c81382399942a99ff8daeeb6bd160c", "d": 0.028, "t": 0.0015, "in": "tray"}
+SCALE = {"uid": "9c5c67abed6c48459267e5613bcc480f", "pan_centre": (1.53, 0.64), "pan_r": 0.060, "pan_h": 0.012,
+         "pan_z": 0.075, "spring_k": 40.0, "note": "Salter scales, late 19th c. (Timespan): the lead rolls up its ramp"
+         " (the pan's rim lip at the table, a 4 mm lip), the pan dips under its weight on the spring and tips it on"}
+WEIGHTS = {"uid": "999d8e9275d4404ab956e39ce57716a0", "centre": (1.79, 0.56), "r": 0.035, "h": 0.045,
+           "note": "a set of nested weights, Krakow, 17th c.: a heavy round wall the file glances toward the brass"}
+GLOBE = {"uid": "21f7d2b8d4c743c4a15fe7103460c186", "centre": (2.05, 0.84), "d": 0.30, "stand_h": 0.45,
+         "spin0_rad_s": 0.35, "bearing_c": 0.035,
+         "note": "Doppelmayr, Nuremberg 1728 (Jagiellonian Univ. Museum): already turning when the shot begins, its"
+         " spin decaying by bearing friction, analytic: w(t) = w0 exp(-c t); off the path, never touched"}
+SOURCES_NEED_TOKEN = "Sketchfab serves CC0 downloads only to a signed-in account: a free Sketchfab API token is needed"
