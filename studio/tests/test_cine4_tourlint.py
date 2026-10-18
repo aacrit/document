@@ -231,11 +231,15 @@ def test_subject_under_text_blocks_a_covered_must_show_region():
     assert r["block"] and r["max_overlap"] == pytest.approx(1.0)
 
 
-def test_subject_under_text_never_checks_a_face():
+def test_subject_under_text_checks_a_face_at_any_overlap():
+    # A51 (faces never) replaces A49's "a face is never checked": a face under a live lower third reads at any
+    # overlap, and a must_show face blocks there (test_cine_faces_subject.py has the rest)
     wins = [(1.0, FULL_WIN)]
     box = (0.05, 0.9, 0.2, 0.98)
+    r = TL.subject_under_text(wins, box, SIZE, text_spans=SPAN, is_face=True)
+    assert not r["ok"] and not r["block"]
     r = TL.subject_under_text(wins, box, SIZE, text_spans=SPAN, must_show=True, is_face=True)
-    assert r["ok"] and not r["block"]
+    assert not r["ok"] and r["block"]
 
 
 def test_subject_under_text_ignores_the_zone_once_it_is_gone():

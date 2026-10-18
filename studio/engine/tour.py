@@ -549,24 +549,48 @@ def avoid_overlap(size, window_px: tuple, avoid: list[tuple]) -> float:
     returns it). 0.0 when nothing in ``avoid`` is visible at this window.
     The one measurement ``end_pose``, ``whole_pose``, ``creep`` and
     ``aimed_breath`` all steer against, so "clear" means the same thing
-    everywhere."""
+    everywhere.
+
+    A51 ("faces never"): an entry may carry a third element, ``"face"``
+    (``face_avoid``): a located face, which reads as under the zone at any
+    overlap past ``CINE["face_under_text_share"]``. Such an entry counts as
+    the warn share plus its own share once it touches the zone, so every
+    caller's "clear" (under the warn share) means clear of every face too,
+    and among candidates that are not clear the least-covered face still
+    ranks first."""
     best = 0.0
-    for box, zone in avoid:
+    for a in avoid:
+        box, zone = a[0], a[1]
         fb = project_box(size, window_px, box)
         if fb is not None:
-            best = max(best, box_overlap_share(fb, zone))
+            share = box_overlap_share(fb, zone)
+            if is_face_avoid(a) and share > CINE["face_under_text_share"] + 1e-9:
+                share = CINE["under_text_share"] + share
+            best = max(best, share)
     return best
+
+
+def is_face_avoid(a: tuple) -> bool:
+    """A51: an ``avoid`` entry that is a located face (``face_avoid``)."""
+    return len(a) > 2 and a[2] == "face"
 
 
 def avoid_fits(size, window_px: tuple, avoid: list[tuple]) -> bool:
     """Whether every ``avoid`` box is whole inside ``window_px`` (A7/A41's
     own truth: a must_show region shown somewhere is never traded for
     clearing it of text), not merely visible in part. Steering never
-    chooses a window a box does not fit, whatever it clears."""
+    chooses a window a box does not fit, whatever it clears. A face entry
+    (A51) is never a fit requirement: a face is steered out from under the
+    text, never forced into the window (the people guards keep each person
+    shown, ``people_check``, and the subject stop keeps a framed person
+    whole, ``keep_strict``)."""
     iw, ih = float(size[0]), float(size[1])
     x0, y0, x1, y1 = window_px
     tol = 0.5
-    for box, _zone in avoid:
+    for a in avoid:
+        if is_face_avoid(a):
+            continue
+        box = a[0]
         bx0, by0, bx1, by1 = box[0] * iw, box[1] * ih, box[2] * iw, box[3] * ih
         if bx0 < x0 - tol or by0 < y0 - tol or bx1 > x1 + tol or by1 > y1 + tol:
             return False
@@ -1319,18 +1343,35 @@ def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], w
             "whole: one sweep from the match opening to the farther end, then a drift")
     else:
         stops = timing = None
-        tries = (False, True) if not need_whole and start is None and seeing else (False,)
+        # A51: a located face under a live text zone is steered like a must_show region; the opening is one more
+        # freedom the pass already has (far end or near end), so a far-end sweep that carries a face under the
+        # text while the near end's does not opens at the near end (the smaller move), never at the cost of a
+        # person or a must_show region
+        face_av = [a for a in avoid or [] if is_face_avoid(a)]
+        tries = (False, True) if not need_whole and start is None and (seeing or face_av) else (False,)
+        cands = []
         for near in tries:
-            stops, timing = subject_stops(size, aspect, dur, pose, arrive=arrive, settle_s=settle_s,
-                                          need_whole=need_whole, start=start, breath=True, from_near=near,
-                                          waypoints=waypoints, hz=hz, continues=continues)
-            if not seeing or need_whole:
+            st_, tm_ = subject_stops(size, aspect, dur, pose, arrive=arrive, settle_s=settle_s,
+                                     need_whole=need_whole, start=start, breath=True, from_near=near,
+                                     waypoints=waypoints, hz=hz, continues=continues)
+            if not (seeing or face_av) or need_whole:
+                cands.append((st_, tm_, near, True, True))
                 break
-            tl = build(stops, dur, size, aspect, zmax, no_zoom=no_zoom)
-            if people_check(windows_of(tl, hz), seeing, size)["ok"]:
-                if near:
-                    opens = "the near end: the far end's sweep would leave a person or a must_show region unseen"
+            tl = build(st_, dur, size, aspect, zmax, no_zoom=no_zoom)
+            wins = windows_of(tl, hz)
+            cov = not seeing or people_check(wins, seeing, size)["ok"]
+            clear = not face_av or all(avoid_overlap(size, w, face_av) < CINE["under_text_share"] - 1e-9
+                                       for w in wins)
+            cands.append((st_, tm_, near, cov, clear))
+            if cov and clear:
                 break
+        pick = (next((c for c in cands if c[3] and c[4]), None) or next((c for c in cands if c[3]), None))
+        if pick is not None:
+            stops, timing, near = pick[0], pick[1], pick[2]
+            if near:
+                opens = ("the near end: the far end's sweep would leave a person or a must_show region unseen"
+                         if not cands[0][3] else
+                         "the near end: the far end's sweep would carry a face under live text (A51)")
         else:
             # A47 and A7: no single sweep ending on the subject shows every located person and must_show region
             need_whole = True
@@ -1652,7 +1693,7 @@ FACINGS = ("left", "right", "camera", "away")
 SOURCES = ("auto", "human")
 SCALES = ("whole", "field", "detail")
 BOX = ("x", "y", "w", "h")
-PEOPLE_KEYS = set(BOX) | {"name", "facing", "source", "confidence", "model"}
+PEOPLE_KEYS = set(BOX) | {"name", "facing", "source", "confidence", "model", "face"}   # face: A51
 ROI_KEYS = set(BOX) | {"name", "kind", "facing", "source", "confidence", "model", "cue", "must_show", "person",
                        "lines"}     # lines: A50, a text region's line count (its reading pace)
 STOP_KEYS = {"t", "at", "line", "x", "y", "z", "hold", "roi", "scale", "lead_s", "match"}
@@ -2122,6 +2163,12 @@ def _entry_problems(e: dict, where: str, *, roi: bool) -> list[str]:
         probs.append(f"{where}: confidence is a number 0 to 1, not {c!r}")
     if e.get("name") is not None and not isinstance(e["name"], str):
         probs.append(f"{where}: name is a string")
+    if not roi and "face" in e:
+        # A51: the face found inside this figure ({x, y, w, h}, picture fractions; the rulebook's, or a person's)
+        if not isinstance(e["face"], dict) or roi_box(e["face"]) is None:
+            probs.append(f"{where}: face is a box {{x, y, w, h}} (the face inside this figure)")
+        else:
+            probs += _box_problems(e["face"], f"{where}.face")
     if roi:
         if not isinstance(e.get("name"), str) or not e["name"].strip():
             probs.append(f"{where}: a region needs a name (the rulebook's subject, person-1, ...; or the author's)")
@@ -2356,6 +2403,62 @@ def must_show(windows, item: dict, size) -> list[str]:
     """The ledger's ``must_show`` regions (``must_show_regions``) that the
     path never shows whole."""
     return [r.get("name") for r in must_show_regions(item) if not seen(windows, roi_box(r), size)]
+
+
+def face_boxes(item: dict) -> list[dict]:
+    """A51 (doctrine section 4, "faces never"): every located face in the
+    picture, as the camera may use it (``effective_regions``): a ``kind:
+    face`` region; else, for each located person (a ``people`` box, a
+    ``kind: person`` region or A41's ``person: true``), the face MediaPipe
+    found inside that figure (the rulebook's ``face`` on the entry), else
+    its head: the top ``CINE["head_share"]`` of the person's box. A person
+    whose box already holds a face region is not counted twice, nor is one
+    box listed under two names (a ``people`` entry and the ``subject`` the
+    rulebook made of it). Returns [{name, box (x0, y0, x1, y1), src: roi |
+    face | head, must_show}]; ``must_show`` is the region's own (a face
+    named in the ledger's ``must_show``)."""
+    eff = effective_regions(item)
+    names = item.get("must_show") if isinstance(item.get("must_show"), list) else []
+    out: list[dict] = []
+    seen_boxes: set = set()
+
+    def add(name, box, src, must):
+        key = tuple(round(v, 4) for v in box)
+        if key in seen_boxes:
+            return
+        seen_boxes.add(key)
+        out.append({"name": name, "box": box, "src": src, "must_show": must})
+
+    faces = [r for r in eff["roi"] if r.get("kind") == "face" and roi_box(r) is not None]
+    for r in faces:
+        add(r.get("name"), roi_box(r), "roi", r.get("must_show") is True or r.get("name") in names)
+    figures = [p for p in (eff["people"] if isinstance(eff["people"], list) else [])
+               if isinstance(p, dict) and roi_box(p) is not None]
+    figures += [r for r in eff["roi"] if is_person_region(r) and r.get("kind") != "face" and roi_box(r) is not None]
+    done: set = set()
+    for e in figures:
+        pb = roi_box(e)
+        key = tuple(round(v, 4) for v in pb)
+        if key in done:
+            continue
+        done.add(key)
+        if any(_inside_share(roi_box(f), pb) >= CINE["nest_share"] for f in faces):
+            continue
+        fb = roi_box(e["face"]) if isinstance(e.get("face"), dict) else None
+        if fb is not None:
+            add(e.get("name"), fb, "face", False)
+        else:
+            add(e.get("name"), (pb[0], pb[1], pb[2], pb[1] + (pb[3] - pb[1]) * CINE["head_share"]), "head", False)
+    return out
+
+
+def face_avoid(item: dict, zones) -> list[tuple]:
+    """A51: the ``avoid`` entries (``end_pose``, ``whole_pose``, ``creep``,
+    ``aimed_breath``) for every located face (``face_boxes``) against every
+    live text zone (frame fractions: the lower thirds and subtitle cues up
+    over the shot), each marked ``"face"`` so it reads at any overlap
+    (``avoid_overlap``) and is never a fit requirement (``avoid_fits``)."""
+    return [(f["box"], zone, "face") for f in face_boxes(item) for zone in zones]
 
 
 def speed_report(wins: list[tuple[float, tuple]]) -> dict:

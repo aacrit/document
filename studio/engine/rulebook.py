@@ -28,7 +28,7 @@ import re
 
 from studio.engine import motion as M
 
-RULEBOOK_VERSION = "8"     # 2: a bare title is one name; 3: a run is a place by its first or last word only;
+RULEBOOK_VERSION = "9"     # 2: a bare title is one name; 3: a run is a place by its first or last word only;
                            # 4: a VL place or object region named by a cue or the caption is the subject
                            # 5: people words that are only names count one person per name
                            # 6: a cue and a VL label match through SYNONYMS (plume and smoke, A47)
@@ -37,6 +37,8 @@ RULEBOOK_VERSION = "8"     # 2: a bare title is one name; 3: a run is a place by
                            #    vehicle are one word (SYNONYMS)
                            # 8: a VL label that names people (vl_person_like, read at use, whatever the cache holds) is
                            #    never a candidate; a VL box of 0.70 of the picture's area or more is never the subject
+                           # 9: a located figure carries the face MediaPipe found inside it (``face``, A51: faces are
+                           #    steered clear of live text)
 CLASSES = ("person", "crowd", "place", "document", "map", "painting", "object")
 RECORDS = ("document", "map", "painting", "object")       # composed centred: the picture is a record
 FLOOR = M.CINE["auto_confidence_floor"]                   # a box under it is not a subject (A43)
@@ -600,8 +602,10 @@ def fields(item: dict, meas: dict | None, model: str, vl: dict | None = None, cu
     auto = located(meas, model)
     faces = meas.get("faces") or []
     for e in auto:                       # a face inside the figure gives the facing the pose could not
+        f = next((f for f in faces if _face_in(f, [e])), None)
+        if f is not None:                # A51: and where the face is, so the camera keeps it clear of live text
+            e["face"] = {k: f[k] for k in ("x", "y", "w", "h")}
         if "facing" not in e:
-            f = next((f for f in faces if _face_in(f, [e])), None)
             fc = face_facing(f) if f else None
             if fc:
                 e["facing"] = fc

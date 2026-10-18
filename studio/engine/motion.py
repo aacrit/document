@@ -1914,6 +1914,9 @@ TOUR = dict(hold_creep_after_s=1.5, creep_scale_per_s=0.015, creep_drift_per_s=0
 #   under_text_share        `subject-under-text` (groundwork brief section 4): warns at this overlap share
 #   under_text_block_share  ... and blocks a `must_show` region (section 4): "covered" means this much or more
 #   whole_share, detail_share  doctrine 2.2: WHOLE shows this much of the picture or more, DETAIL this much or less
+#   face_under_text_share   A51 (doctrine section 4, "faces never"): a face reads as under live text (an active LT
+#                           or SUB zone) at any overlap past this share; 0.0 is "never"
+#   head_share              A51: a located person with no face box has its head in the top this share of its box
 WHOLE_HOLD_MIN_SHOWN = 0.90
 CINE = dict(face_zmax=1.3, framed_share=0.5, auto_confidence_floor=0.5, anchor_early_s=0.8, anchor_late_s=0.25,
             anchor_estimated_lead_s=1.0, anchor_lead_s=0.5, nest_share=0.8,
@@ -1921,7 +1924,8 @@ CINE = dict(face_zmax=1.3, framed_share=0.5, auto_confidence_floor=0.5, anchor_e
             phi=0.382, compose_edge=0.02, eye_person=0.12, eye_face=0.4, centred_band=0.06,
             whole_hold_min_shown=WHOLE_HOLD_MIN_SHOWN, waypoint_hold_s=0.3, end_hold_s=0.1,
             thirds=(1 / 3, 2 / 3), action_safe=0.035, graphics_safe=0.05, under_text_share=0.10,
-            under_text_block_share=0.90, whole_share=0.8, detail_share=0.4)
+            under_text_block_share=0.90, whole_share=0.8, detail_share=0.4,
+            face_under_text_share=0.0, head_share=0.22)
 
 # A50 (cinematography ticket #12; founder ruling 3, 2026-10-17: "Detail stop in a fill_exception shot: (b). One DETAIL
 # stop within 3x, bracketed by the whole picture at both ends"): a still held whole under fill_exception may move in
