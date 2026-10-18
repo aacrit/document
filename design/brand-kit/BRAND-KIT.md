@@ -466,6 +466,59 @@ The tilt to the bottom edge is retired. A still's default pass opens at the end 
 
 Do: let the subject decide the direction; let a whole picture breathe. Don't: end on the floor of the picture because the geometry ran out; sweep and come back when you know where the people are; push a burning tower.
 
+### 14d. Tour lints: guidance, and the one truth guard (2026-10-17, cinematography pass ticket #4; GRAMMAR A49)
+
+Seven more checks on a still's tour, live inside `render.build_plan` (`render.a49_tour_lints`, run after every still's camera is placed), all guidance (a warning and a reviewer item, never a refusal: the founder judges pacing and framing); one, `subject-under-text`, guards truth rather than taste, and even there the engine never refuses itself (founder ruling 2): only a written `camera` path blocks. `motion.ZONES` and `motion.CINE` hold the numbers and the house's text-zone boxes; `studio/engine/tourlint.py` reads them, and `studio/engine/sheets.py`'s own guide constants and zone boxes (thirds, phi, the safe-area insets, `under_text_share`, `under_text_block_share`, `whole_share` and `detail_share`) moved there too, so the lint module, the engine's own steering and the contact-sheet preview all read one source.
+
+| Check | Numbers |
+|---|---|
+| Pan speed | the 7-second rule: a point crosses the frame no faster than 11 px/frame horizontal, 6 vertical at 24p (9 and 5 at 29.97, derived from the plan's own fps); today's outer ceiling (a third of the frame a second) is unchanged in `render.tour_lints`'s `tour-speed`, and this warns only once that ceiling has already passed |
+| Zoom speed | a 5%/s cruise (today's 15%/s stays the outer ceiling, same rule) |
+| Settle before move | a stop settles the doctrine settle, 1.0 s (1.5 s for text, a face or a person, read from `cam["settle_kinds"]`, the stop's own named region), before the next leg, when the arrival time leaves room for it |
+| Move after a cut | a move starting within 0.5 s of a cut, unless it continues one already running across it (a `match: "prev"` opening or a dissolve). The engine itself (`tour.subject_stops`) now settles the doctrine settle at the cut frame before its first leg when there is room for it, else as much as fits down to a 0.5 s floor (never when the pass is matched or a dissolve continues it), so this and settle-before-move both fire rarely on an engine path; a written path is unchanged |
+| End-pose composition | A47's own `compose_verdict`, with a borderline flag within half a bin (0.01) of a band edge (0.30, 0.44, 0.56, 0.70): reported, never flipped to the band on the other side (ported from Ratio's rulebook, `rules.ts:36-51`) |
+| Lead room | A47's own `lead_room` and `room_behind`, surfaced as a named check: room ahead at least the room behind |
+| Direction monotony | more than 4 consecutive stills (a hold breaks the run) with the same dominant move vector |
+| Scale variety | every chapter of 5 or more stills carries a WHOLE (`whole_share` 0.8) and a DETAIL (`detail_share` 0.4) |
+| Wide before detail | no DETAIL on a picture not already shown WHOLE or FIELD earlier in the same showing, unless declared a reveal |
+| Phone legibility | reused from ticket #8's `motion.phone_legibility` (693 px landscape, 7 px floor); never drives framing or size |
+| Subject under text | overlap with the LT zone or the subtitle band (`render.text_zone_timeline`: the plan's own lower thirds and subtitle cues, soft or burned, named by zone and by the lower third's or the cue's own id) while either is up: `under_text_share` (10%) warns, and is also the steer's own target, not the block share — a steer that only ducks a refusal while still warning has moved the wrong way. A `must_show` region covered 90% or more (`under_text_block_share`) is steered to the least overlap instead of refused on any engine path: `end_pose`, `whole_pose` and `aimed_breath` each search the placements, the travel or the breath's range they already have for the one with the least overlap, never a box no longer whole in frame (A7/A41's coverage truth always wins), preferring the one closest to the planned pose among those already under the warn share; the hold's own creep scores a few other drift directions, and staying put, the same way; `engine_cover` escalates once more to the subject pass when a preset or the default still leaves it covered. Only when nothing found clears it does the engine journal a reviewer item, never a refusal. Only a written `camera` path blocks, as written (A43's own rule); a face is never checked (replaced on 2026-10-18 by A51, 14f: faces clear of live text) |
+
+`python -m studio.engine.tourlint --check <film dir>` is the same report, standalone and read-only, for a film not yet planned for a render: it plans in memory (`sheets.plan_stills`, ticket #3) and prints every toured still's warnings and any block; nothing is rendered and nothing is written into the film folder.
+
+### 14e. A detail inside the whole (2026-10-17, founder ruling 3 (b), cinematography pass ticket #12; GRAMMAR A50)
+
+A still shown whole under `fill_exception` may move in to one DETAIL inside its own pillarboxed shape and back out: whole, push, hold, pull, whole. `motion.BRACKET` holds the numbers; `studio/engine/bracket.py` draws it. z is the zoom of the whole (z 1 the whole picture at its native aspect), the frame space the exception already moved in.
+
+| Part | Numbers |
+|---|---|
+| The whole, opening | at least 1.0 s (`CINE settle_s`); on a long hold, a third of the spare time. Past 1.5 s it breathes in at 1.5%/s, never past 1.06 and never past a third of the push's own depth (log) |
+| The push and the pull | the rostrum curve, z geometric; each leg no faster than the 7-second rule (a point crosses the frame in 7 s or more, counted in the detail's own window) and the 5%/s zoom cruise; on a long hold each takes a sixth of the spare time |
+| The detail | its region framed whole with a 1.25 margin, never past the 3x softness cap on the 1080p master (z at most 3 / the master's fit scale), never past z 1.3 of the whole when it frames a face or a person; a push under z 1.25 (`BRACKET_MIN_Z`: a stop showing more than 64% of the picture) would not read, so the shot keeps whole + creep. Named by what its deepest frame shows: DETAIL at 40% of the picture or less, else FIELD ("closer on one part of it" on the Sources page) |
+| The hold | at least 1.5 s; text at reading pace, 1.25 s a line when the region states `lines`, else 3.0 s; held through a cue's last word; a third of the spare time on a long hold. Past 1.5 s it creeps in, never past 6%, the cap or the depth that keeps its region whole (2% inside each side) |
+| Arrival | before a `subject_at` cue (or a written stop's `at`) by the A43 lead: 0.5 s, 1.0 s on estimated words when the detail is a person the cue names (and binds) |
+| The whole, closing | the pull lands on z 1 at least 1.0 s before the cut |
+| Too short | a push to 1.25 takes about 5.5 s each way at the 5%/s cruise (eased), so the bracket needs about 15 s at the least and lands on long holds, not on 8 to 12 s shots. Whole 1.0 + push + hold + pull + 1.0 s: a shot shorter keeps whole + creep (1.5%/s to 1.06; over 42 to 54 s that is 0.11 to 0.14%/s, one breath, one way, eased), journaled with the reason |
+
+### 14f. A human subject leads; faces clear of text (2026-10-18, cinematography pass; GRAMMAR A51)
+
+| Part | Numbers |
+|---|---|
+| A subject under HOLD | a still with a `subject` region (a person's or the rulebook's) under HOLD, or no preset, takes the A47 subject pass; a written `camera` path and the move presets (PUSH, PULL, DRIFT, TILT, DETAIL, FILL) stay the author's; a `whole` still keeps its whole pass |
+| A face under live text | any overlap with a lower third or the subtitle band while it is up (`CINE["face_under_text_share"]` 0; the class glyph is not live text), where A49's subject and `must_show` guide is 10% |
+| Where a face is | a `kind: face` region; else the MediaPipe face inside a located figure (`face` on the entry, rulebook 9); else the top 22% of the figure's box (`CINE["head_share"]`) |
+| The steer | A49's own `avoid` search (end pose, whole travel, aimed breath, creep) plus the pass's opening (near end over far end), the smallest move that clears it, never a fit requirement for the face and never at the cost of a person or a `must_show` region |
+| What is left | a `face-under-text` reviewer item on an engine path; a warning on a written path; a `must_show` face under live text blocks a written path |
+
+### 14g. Rulebook 10: quoted text, two things, a vantage; the opening searched (2026-10-18; GRAMMAR A52)
+
+| Part | Numbers |
+|---|---|
+| Quoted text | quotes in the item's title, caption or `why`; a VL `text` label holding 60% of the quote's content words (`QUOTE_MATCH`); binds outright; the fallbacks only for a quote marked as lettering (a word before it or in the clause before a colon, "on the <thing>" after it, or `seen` holding its words) and never for speech or naming (a speech or naming word within 4 words before or 3 after); `seen` naming lettering elsewhere allows only the region on a named thing: the one text region labelled only as writing; else the one 80% inside a region the caption names (`INSIDE_SHARE`); grown by 0.2 of its own size each side (`TEXT_PAD`); a human region at IoU 0.5 or more (or holding 80% of it) wins |
+| Two things named | "X and the Y", "X with (the) Y behind": the event in Y (smoke, plume, fire, flames, debris, dust; never a crowd) is the caption's subject; none found: whole |
+| A monument as vantage | statue, monument, memorial, landmark, obelisk, pedestal, column, arch after "from", "seen from", "beside", "next to", "at", "at the foot of": never the subject |
+| The opening | the far or near end searched along the fill's travel in 2.5% steps toward the subject (`tour.travel_search`, `whole_pose`'s own search), the end kept when it is already clear |
+
 ## 15. The series titles: `void document · As It Was` (2026-10-17; GRAMMAR A40)
 
 The founder: "a cinematic ... intro ... after the hook of each video like it's a documentary episode." The series titles are the archive machine (`design/title-sequence/`: 12 beats, 57.0 s, G2 approved 2026-10-16), rendered once per film with that film's own record, and played by the engine as they are.

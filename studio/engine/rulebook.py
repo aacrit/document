@@ -28,7 +28,7 @@ import re
 
 from studio.engine import motion as M
 
-RULEBOOK_VERSION = "8"     # 2: a bare title is one name; 3: a run is a place by its first or last word only;
+RULEBOOK_VERSION = "10"    # 2: a bare title is one name; 3: a run is a place by its first or last word only;
                            # 4: a VL place or object region named by a cue or the caption is the subject
                            # 5: people words that are only names count one person per name
                            # 6: a cue and a VL label match through SYNONYMS (plume and smoke, A47)
@@ -37,6 +37,12 @@ RULEBOOK_VERSION = "8"     # 2: a bare title is one name; 3: a run is a place by
                            #    vehicle are one word (SYNONYMS)
                            # 8: a VL label that names people (vl_person_like, read at use, whatever the cache holds) is
                            #    never a candidate; a VL box of 0.70 of the picture's area or more is never the subject
+                           # 9: a located figure carries the face MediaPipe found inside it (``face``, A51: faces are
+                           #    steered clear of live text)
+                           # 10 (A52): text the item's own words quote is a must_show region (``quoted_must_show``); a
+                           #    caption naming two things prefers the event after "and the"/"with the" (smoke, a
+                           #    plume, fire); a monument the caption places the photographer at is the vantage,
+                           #    never the subject
 CLASSES = ("person", "crowd", "place", "document", "map", "painting", "object")
 RECORDS = ("document", "map", "painting", "object")       # composed centred: the picture is a record
 FLOOR = M.CINE["auto_confidence_floor"]                   # a box under it is not a subject (A43)
@@ -514,6 +520,254 @@ def content_words(text: str) -> list[str]:
     return [w for w in ws if len(w) >= 3 and w.isalpha() and w not in STOP]
 
 
+# --------------------------------------------------------------------------
+# Rulebook 10 (A52): quoted text, two things named, a monument as vantage
+# --------------------------------------------------------------------------
+
+# Quoted words in the item's own title, caption or ``why``: double quotes, curly quotes, or single quotes that are
+# not an apostrophe (no letter on the outside of either mark)
+QUOTES = re.compile(r"\"([^\"]+)\"|“([^”]+)”|‘([^’]+)’|(?<![\w])'([^']+)'(?![\w])")
+QUOTE_MATCH = 0.6            # a text region whose label holds this share of the quote's content words is the quote
+# A VL text label that says only "this is writing", not what it says: the quote falls back on where it is
+GENERIC_TEXT = frozenset({"text", "texts", "sign", "signs", "signage", "lettering", "letters", "letter", "word",
+                          "words", "writing", "inscription", "caption", "label", "labels", "banner", "motto",
+                          "slogan", "logo", "print", "printing", "script", "plate", "placard", "notice"})
+TEXT_PAD = 0.2               # a quoted text region grows by this share of its own size on each side: the VL boxes
+                             # the ink on a 0.005 grid, and the words are whole only with their first and last letter
+INSIDE_SHARE = 0.8           # a text region this share inside a region is on it ("on the police car")
+# The event a caption's second clause names ("X and the smoke over Y", "X with Y behind"): the picture is about it
+# (never a crowd: people are MediaPipe's alone, and a VL label naming them is never a candidate, rulebook 8)
+EVENT_WORDS = frozenset({"smoke", "plume", "fire", "fires", "flame", "flames", "debris", "dust"})
+_TWO_THINGS = (re.compile(r"^(?P<x>.+?)\s+(?:and|with)\s+the\s+(?P<y>[^,;:()]+)", re.I),
+               re.compile(r"^(?P<x>.+?)\s+with\s+(?P<y>[^,;:()]+?)\s+behind\b", re.I))
+# A monument the photographer stood at or beside is where the picture was made from, not what it shows
+MONUMENT_WORDS = frozenset({"statue", "monument", "memorial", "landmark", "obelisk", "pedestal", "column", "arch"})
+_VANTAGE = re.compile(r"(?<![\w-])(?:(?:seen|viewed|photographed|taken|shot) from|from|beside|next to|"
+                      r"at the foot of|at the base of|at)\s+(?:the\s+)?(?P<p>[^,;:()]+)", re.I)
+_VANTAGE_END = {"and", "with", "over", "toward", "towards", "as", "while", "after", "before", "in", "on", "into",
+                "across", "to", "under", "behind", "during"}
+BOXK = ("x", "y", "w", "h")
+# A quote is VISIBLE LETTERING (review, 2026-10-18) only when the item's own words say so: one of these right before it
+# ("a sign reading", "the words"), "on the <thing>" right after it, or the item's ``seen`` (what the editor saw in the
+# picture) naming lettering. Quoted speech is never written in the picture (A0): a speech word round the quote
+# forbids every fallback, so only a VL label that holds the words themselves can bind it.
+LETTERING_BEFORE = frozenset({"reading", "reads", "read", "lettered", "inscribed", "painted", "sign", "banner",
+                              "headline", "placard", "lettering", "inscription", "motto", "slogan", "poster",
+                              "plaque", "stencilled", "stenciled", "printed", "marked"})
+LETTERING_SEEN = re.compile(r"(?<![\w-])(?:lettered|lettering|inscribed|inscription|painted|reading|reads|sign|"
+                            r"signs|banner|headline|placard|motto|slogan|plaque|stencil(?:l)?ed|the words)(?![\w-])")
+_ON_THING = re.compile(r"^[\s,.;:]*on\s+(?:the|a|an|its|his|her|their)\s+\w+", re.I)
+SPEECH = frozenset({"said", "says", "say", "saying", "shouts", "shouted", "shout", "shouting", "told", "tells",
+                    "tell", "called", "calls", "call", "calling", "asked", "asks", "ask", "declared", "declares",
+                    "announced", "announces", "cried", "cries", "yelled", "yells", "replied", "replies", "spoke",
+                    "speaks", "speech", "remarks", "promised", "vowed", "warned", "added", "words",
+                    # naming is not lettering either ("named it", "knew it as", "dubbed")
+                    "named", "names", "naming", "dubbed", "nicknamed", "christened", "knew", "know", "known",
+                    "termed"})
+SPEECH_WINDOW = (4, 3)       # words before and after a quote searched for a speech word
+
+
+def quoted(item: dict) -> list[str]:
+    """The quoted passages in the item's own ``title``, ``caption`` and
+    ``why`` (each once, in that order)."""
+    out: list[str] = []
+    for k in ("title", "caption", "why"):
+        v = item.get(k)
+        for text in (v if isinstance(v, list) else [v]):
+            for m in QUOTES.finditer(str(text or "")):
+                q = next(g for g in m.groups() if g is not None).strip()
+                if q and q not in out:
+                    out.append(q)
+    return out
+
+
+def quote_marks(item: dict) -> list[tuple[str, str]]:
+    """Each quote (``quoted``'s order) with how the item's own words mark it:
+    ``"speech"`` (a ``SPEECH`` word within ``SPEECH_WINDOW`` of it; "the
+    words" alone is lettering, "the Mayor's words" speech), ``"lettering"``
+    (a ``LETTERING_BEFORE`` word right before it, or "on the <thing>" right
+    after it), or ``"unmarked"``. A quote marked twice keeps the stronger
+    mark: speech over lettering over unmarked."""
+    rank = {"unmarked": 0, "lettering": 1, "speech": 2}
+    marks: dict[str, str] = {}
+    for k in ("title", "caption", "why"):
+        v = item.get(k)
+        for text in (v if isinstance(v, list) else [v]):
+            text = str(text or "")
+            for m in QUOTES.finditer(text):
+                q = next(g for g in m.groups() if g is not None).strip()
+                if not q:
+                    continue
+                before = [w.strip(_EDGE).lower() for w in text[:m.start()].split()]
+                after = [w.strip(_EDGE).lower() for w in text[m.end():].split()]
+                before = [w for w in before if w]
+                near = before[-SPEECH_WINDOW[0]:] + [w for w in after if w][:SPEECH_WINDOW[1]]
+                the_words = len(before) >= 2 and before[-1] == "words" and before[-2] == "the"
+                # a marker in the clause right before a colon counts too ("The headline the next day: ...")
+                head = text[:m.start()].rstrip()
+                clause = []
+                if head.endswith(":"):
+                    clause = [w.strip(_EDGE).lower() for w in re.split(r"[,;:.!?]", head[:-1])[-1].split()]
+                if any(w in SPEECH for w in near + clause) and not (the_words and not any(
+                        w in SPEECH - {"words"} for w in near)):
+                    mark = "speech"
+                elif (before and before[-1] in LETTERING_BEFORE) or the_words or _ON_THING.match(text[m.end():]) or (
+                        any(w in LETTERING_BEFORE for w in clause)):
+                    mark = "lettering"
+                else:
+                    mark = "unmarked"
+                if q not in marks or rank[mark] > rank[marks[q]]:
+                    marks[q] = mark
+    return [(q, marks[q]) for q in quoted(item) if q in marks]
+
+
+def quote_visible(item: dict, q: str, mark: str) -> str | None:
+    """Which fallbacks a quote may take (re-review, 2026-10-18): ``None``
+    for speech or naming, or with no evidence it is lettering; ``"all"``
+    (the lone generic text region, or the one on a named thing) when the
+    item's words mark it as lettering beside it, or its ``seen`` holds the
+    quote's own words (``QUOTE_MATCH`` of them); ``"bearer"`` (only the
+    text region lying on a thing the caption or ``seen`` names, as 5.7's
+    motto lies on the car) when the only evidence is ``seen`` naming
+    lettering somewhere in the picture."""
+    if mark == "speech":
+        return None
+    if mark == "lettering":
+        return "all"
+    seen = str(item.get("seen") or "")
+    qw = set(content_words(q))
+    if qw and len(qw & set(content_words(seen))) / len(qw) >= QUOTE_MATCH - 1e-9:
+        return "all"
+    return "bearer" if LETTERING_SEEN.search(seen.lower()) is not None else None
+
+
+def _generic_text(label) -> bool:
+    ws = content_words(label)
+    return not ws or all(w in GENERIC_TEXT for w in ws)
+
+
+def _inside(a: dict, b: dict) -> float:
+    """The share of box ``a`` that lies inside box ``b``."""
+    ix = max(0.0, min(a["x"] + a["w"], b["x"] + b["w"]) - max(a["x"], b["x"]))
+    iy = max(0.0, min(a["y"] + a["h"], b["y"] + b["h"]) - max(a["y"], b["y"]))
+    return ix * iy / _area(a) if _area(a) > 0 else 0.0
+
+
+def iou(a: dict, b: dict) -> float:
+    """Intersection over union of two {x, y, w, h} boxes."""
+    ix = max(0.0, min(a["x"] + a["w"], b["x"] + b["w"]) - max(a["x"], b["x"]))
+    iy = max(0.0, min(a["y"] + a["h"], b["y"] + b["h"]) - max(a["y"], b["y"]))
+    u = _area(a) + _area(b) - ix * iy
+    return ix * iy / u if u > 0 else 0.0
+
+
+def _pad(g: dict, share: float) -> dict:
+    x0, y0 = max(0.0, g["x"] - share * g["w"]), max(0.0, g["y"] - share * g["h"])
+    x1, y1 = min(1.0, g["x"] + g["w"] * (1 + share)), min(1.0, g["y"] + g["h"] * (1 + share))
+    return {"x": round(x0, 4), "y": round(y0, 4), "w": round(x1 - x0, 4), "h": round(y1 - y0, 4)}
+
+
+def _usable(g: dict) -> bool:
+    """A VL box that can be a region: neither a sliver nor a band or the whole."""
+    return g["w"] >= VL_MIN_SIDE and g["h"] >= VL_MIN_SIDE and g["w"] * g["h"] < VL_MAX_AREA - 1e-9
+
+
+def quoted_must_show(vl: dict | None, item: dict) -> tuple[list[dict], str]:
+    """Rulebook 10 (A52): text the item's own words quote is in the picture
+    and must be read, so the VL ``text`` region that holds it becomes a
+    ``must_show`` region. For each quote (``quote_marks``): the text region
+    whose label holds at least ``QUOTE_MATCH`` of the quote's content words
+    (the most, then the VL's order) binds outright. The fallbacks apply only
+    to a quote the item's words mark as visible lettering (``quote_visible``;
+    never quoted speech): when the VL labels its text
+    regions only as writing ("text", "sign", "lettering"), the one such
+    region in the picture; else, of several, the one lying on the thing the
+    caption names (``INSIDE_SHARE`` of it inside a VL region whose label the
+    caption or title names: "a police car" and the lettering on its door).
+    None of these, or two that tie, and the quote finds no region (said in
+    the why; the A41 guards stand). Each region found grows by ``TEXT_PAD``
+    on each side, so its words are whole. Returns (regions as {x, y, w, h,
+    label}, why)."""
+    qs = quote_marks(item)
+    if not qs:
+        return [], "nothing quoted"
+    if not vl:
+        return [], f"{len(qs)} quote(s), no VL measurement"
+    regs = [g for g in vl.get("regions") or [] if _usable(g) and not vl_person_like(g.get("label"))]
+    texts = [g for g in regs if g.get("kind") == "text"]
+    generic = [g for g in texts if _generic_text(g.get("label"))]
+    cap_w = match_words(item.get("caption") or item.get("title") or "") | match_words(item.get("seen") or "")
+    bearers = [g for g in regs if g.get("kind") != "text" and match_words(g.get("label")) & cap_w]
+    out: list[dict] = []
+    whys: list[str] = []
+    for q, mark in qs:
+        qw = set(content_words(q))
+        if not qw:
+            continue
+        best = None
+        for k, g in enumerate(texts):
+            share = len(qw & set(content_words(g.get("label")))) / len(qw)
+            if share >= QUOTE_MATCH - 1e-9 and (best is None or (-share, k) < best[0]):
+                best = ((-share, k), g)
+        pick, how = (best[1], f"its label holds {-best[0][0]:.0%} of the quote's words") if best else (None, "")
+        visible = quote_visible(item, q, mark)
+        if pick is None and not visible:
+            whys.append(f"{q!r}: no text label holds its words, and the item's words do not mark it as lettering"
+                        + (" (quoted speech)" if mark == "speech" else ""))
+            continue
+        if pick is None and visible == "all" and len(generic) == 1:
+            pick, how = generic[0], "the one text region, labelled only as writing"
+        if pick is None and (len(generic) > 1 or visible == "bearer"):
+            on = [g for g in generic if any(_inside(g, b) >= INSIDE_SHARE - 1e-9 for b in bearers)]
+            if len(on) == 1:
+                b = next(b for b in bearers if _inside(on[0], b) >= INSIDE_SHARE - 1e-9)
+                pick, how = on[0], f"the one text region on the {b['label']!r} the item's words name"
+        if pick is None:
+            whys.append(f"{q!r}: no text region holds it")
+            continue
+        box = _pad(pick, TEXT_PAD)
+        if not any(all(abs(box[k] - o[k]) < 1e-9 for k in BOXK) for o in out):
+            out.append(dict(box, label=pick.get("label")))
+        whys.append(f"{q!r}: VL text region {pick.get('label')!r}, {how}")
+    return out, "; ".join(whys)
+
+
+def event_clause(item: dict) -> set[str]:
+    """Rulebook 10 (A52): when the caption (else the title) names two things,
+    "X and the Y" or "X with (the) Y behind", and the second clause names
+    an event (``EVENT_WORDS``: smoke, a plume, fire, debris, a crowd), the
+    event's match words; else empty."""
+    text = str(item.get("caption") or item.get("title") or "")
+    ev = {_SYN.get(w, w) for w in EVENT_WORDS}
+    for rx in _TWO_THINGS:
+        m = rx.search(text)
+        if m:
+            got = match_words(m.group("y")) & ev
+            if got:
+                return got
+    return set()
+
+
+def vantage_words(item: dict) -> set[str]:
+    """Rulebook 10 (A52): the match words of a monument the caption (or the
+    title) places the photographer at or beside ("from the Statue of
+    Liberty", "seen from", "beside", "at the foot of"): the phrase after one
+    of those words, up to a comma or a joining word, when it holds a
+    ``MONUMENT_WORDS`` word. A region it names is the vantage, never the
+    subject."""
+    out: set[str] = set()
+    for k in ("caption", "title"):
+        for m in _VANTAGE.finditer(str(item.get(k) or "")):
+            ws = []
+            for w in m.group("p").split():
+                if w.strip(_EDGE).lower() in _VANTAGE_END:
+                    break
+                ws.append(w)
+            if any(w.strip(_EDGE).lower() in MONUMENT_WORDS for w in ws):
+                out |= match_words(" ".join(ws))
+    return out
+
+
 def vl_subject(cls: str, vl: dict | None, item: dict, cues) -> tuple[dict | None, str]:
     """A VL region as the subject of a place, object, map or document still:
     the first region (cue matches first, then the VL's canonical order) whose
@@ -528,21 +782,33 @@ def vl_subject(cls: str, vl: dict | None, item: dict, cues) -> tuple[dict | None
         return None, "no VL region for this class" if vl else "no VL measurement"
     cue_w = {w for c in cues or () for w in match_words(c)}
     cap_w = match_words(item.get("caption") or item.get("title") or "")
-    best = None
+    # rulebook 10 (A52): two things named, the second an event: only the event's region is the caption's subject
+    ev_w = event_clause(item)
+    if ev_w:
+        cap_w = ev_w
+    van_w = vantage_words(item)
+    best, vantage = None, []
     for k, g in enumerate(vl.get("regions") or []):
         if g.get("kind") not in VL_KINDS_USED or g["w"] < VL_MIN_SIDE or g["h"] < VL_MIN_SIDE or (
                 g["w"] * g["h"] >= VL_MAX_AREA - 1e-9) or vl_person_like(g.get("label")):
             continue
         lw = match_words(g.get("label"))
+        if lw & van_w:                       # rulebook 10: the monument the photographer stood at is the vantage
+            vantage.append(g["label"])
+            continue
         rank = 0 if lw & cue_w else (1 if lw & cap_w else None)
         if rank is not None and (best is None or (rank, k) < best[0]):
             best = ((rank, k), g, sorted(lw & (cue_w if rank == 0 else cap_w)))
     if best is None:
-        return None, "no VL region's label is named by a cue or the caption"
+        return None, ("no VL region's label is named by a cue or the caption"
+                      + (f" (the event: {', '.join(sorted(ev_w))})" if ev_w else "")
+                      + (f"; the vantage set aside: {', '.join(vantage)}" if vantage else ""))
     (rank, _), g, words = best
+    named = "subject_at cue" if rank == 0 else ("caption's second clause, the event" if ev_w else "caption")
     return ({"x": g["x"], "y": g["y"], "w": g["w"], "h": g["h"], "kind": g["kind"], "confidence": VL_CONFIDENCE,
              "label": g["label"]},
-            f"VL region {g['label']!r} named by the {'subject_at cue' if rank == 0 else 'caption'} ({', '.join(words)})")
+            f"VL region {g['label']!r} named by the {named} ({', '.join(words)})"
+            + (f"; the vantage set aside: {', '.join(vantage)}" if vantage else ""))
 
 
 # --------------------------------------------------------------------------
@@ -600,8 +866,10 @@ def fields(item: dict, meas: dict | None, model: str, vl: dict | None = None, cu
     auto = located(meas, model)
     faces = meas.get("faces") or []
     for e in auto:                       # a face inside the figure gives the facing the pose could not
+        f = next((f for f in faces if _face_in(f, [e])), None)
+        if f is not None:                # A51: and where the face is, so the camera keeps it clear of live text
+            e["face"] = {k: f[k] for k in ("x", "y", "w", "h")}
         if "facing" not in e:
-            f = next((f for f in faces if _face_in(f, [e])), None)
             fc = face_facing(f) if f else None
             if fc:
                 e["facing"] = fc
@@ -630,6 +898,14 @@ def fields(item: dict, meas: dict | None, model: str, vl: dict | None = None, cu
         if sub.get("facing"):
             e["facing"] = sub["facing"]
         out["roi"] = [e]
+    # rulebook 10 (A52): text the item's own words quote is must_show, whatever the subject
+    quotes, qwhy = quoted_must_show(vl, item) if vl is not None else ([], "")
+    if qwhy and qwhy != "nothing quoted":
+        why["quoted"] = qwhy
+    for k, q in enumerate(quotes, 1):
+        out.setdefault("roi", []).append({"name": f"text-{k}", **{b: q[b] for b in BOXK}, "kind": "text",
+                                          "source": "auto", "confidence": VL_CONFIDENCE,
+                                          "model": vl_model or model, "must_show": True})
     out["compose"] = "golden" if cls in ("person", "crowd", "place") else f"centred:{cls}"
     return {"fields": out, "why": why}
 
@@ -678,7 +954,9 @@ def overlay(item: dict, auto: dict) -> tuple[dict, list[str]]:
     if item.get("whole") is True or human_roi:
         if human_roi is not None:
             names = {r.get("name") for r in human_roi}
-            extra = [r for r in auto.get("roi") or [] if r["name"] not in names and r["name"] != "subject"]
+            # rulebook 10: a region a human drew over the same place wins (one must_show, never two)
+            extra = [r for r in auto.get("roi") or [] if r["name"] not in names and r["name"] != "subject"
+                     and not _human_covers(r, human_roi)]
             if extra:
                 out["roi"] = human_roi + extra
                 used.append("roi")
@@ -686,7 +964,20 @@ def overlay(item: dict, auto: dict) -> tuple[dict, list[str]]:
     if auto.get("roi"):
         out["roi"] = list(auto["roi"])
         used.append("roi")
-    elif auto.get("whole") and "whole" not in item:
+    if auto.get("whole") and "whole" not in item:
         out["whole"] = True
         used.append("whole")
     return out, used
+
+
+def _human_covers(r: dict, human_roi: list[dict]) -> bool:
+    """Rulebook 10: a human region over the same place as a rulebook region
+    (``iou`` at least a half, or the rulebook's box ``INSIDE_SHARE`` inside
+    it)."""
+    if not all(isinstance(r.get(k), (int, float)) for k in BOXK):
+        return False
+    for h in human_roi:
+        if all(isinstance(h.get(k), (int, float)) for k in BOXK) and (
+                iou(r, h) >= 0.5 or _inside(r, h) >= INSIDE_SHARE - 1e-9):
+            return True
+    return False

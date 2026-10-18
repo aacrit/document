@@ -636,3 +636,22 @@ def test_a44_a_conform_never_asks_past_the_masters_last_frame():
     assert pat["source_frames"] == 1368 and pat["dropped"] == 0 and pat["repeated"] == 1709 - 1368
     assert CAD.source_index(1708, 24, CAD.NTSC, 1368) == 1367 and TS.source_frame(1708, 30000 / 1001, 24, 1368) == 1367
     assert max(CAD.source_indices(24, CAD.NTSC, 1709, 1368)) == 1367
+
+
+def test_a44_a_shots_span_masters_at_30000_1001_with_its_sound_cut_to_the_sample(strip):
+    """--shots on a 30000/1001 film: the span's frames at the master's exact rate, its sound the full mix's own
+    samples under them (frame k starts at sample round(k * 48000 * 1001 / 30000))."""
+    import soundfile as sf
+    plan = strip["plan"]
+    s = R.render(strip["film"], strip["out"], height=HEIGHT, workers=WORKERS, min_free_gb=1, encode_preset="veryfast",
+                 shots="S5..S6")
+    sp = R.shot_span(plan, "S5", "S6")
+    pr = R.probe_video(Path(s["master"]))
+    assert pr["r_frame_rate"] == "30000/1001" and R.count_frames(Path(s["master"])) == sp["frames"] == s["frames"]
+    assert sp["frames"] == round(sp["duration_s"] * Fraction(30000, 1001))
+    n0, n1 = R.span_samples(plan, sp["f0"], sp["f1"])
+    assert (n0, n1) == (round(Fraction(sp["f0"] * 48000 * 1001, 30000)), round(Fraction(sp["f1"] * 48000 * 1001, 30000)))
+    work = strip["out"] / "shots-S5-S6" / "work"
+    cut, _ = sf.read(str(work / "mix-shots-S5-S6.wav"), dtype="float32", always_2d=False)
+    full, _ = sf.read(str(work / "mix-norm.wav"), dtype="float32", always_2d=False)
+    assert len(cut) == n1 - n0 and np.array_equal(cut, full[n0:n1])

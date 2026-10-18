@@ -49,6 +49,13 @@ EPS = 1e-9
 SHOWN_STRIP = 0.005
 WHOLE = (0.0, 0.0, 1.0, 1.0)
 FRAME_ASPECT = 16 / 9                      # every delivery is 16:9 (render.RESOLUTIONS)
+# A49 (cinematography ticket #4, settle-before-move and min-move-after-cut): the default pass settles on the
+# cut frame before its first leg, the doctrine settle (1.0 s, 1.5 s for text, a face or a person) when the
+# arrival time leaves room for all of it, else as much as fits, down to this floor (``subject_stops``); never
+# when the pass opens matched to the shot before or continues one running across a dissolve (``start``,
+# ``continues``), or when there is no room at all, in which case A47's own priority (reach the subject in time)
+# wins, as it always has
+MIN_OPEN_HOLD_S = 0.5
 
 
 class TourError(ValueError):
@@ -110,6 +117,42 @@ def to_frame(f: dict, size, W: int, H: int) -> dict:
     ox, oy = (W - fw) / 2.0, (H - fh) / 2.0
     zf = max(W / fw, H / fh)
     return {"z": zf * f["z"], "x": (ox + f["x"] * fw) / W, "y": (oy + f["y"] * fh) / H}
+
+
+def project_box(size, window: tuple[float, float, float, float],
+                box_frac: tuple[float, float, float, float]) -> tuple[float, float, float, float] | None:
+    """A picture-fraction box (``roi_box``) projected through ``window``
+    (picture pixels, as this module's own ``window()`` returns it) into
+    frame fractions [0, 1], clipped to what is on screen during a TOUR
+    (every frame fills the output, so the window maps onto the whole
+    frame). None when none of the box is visible at this window.
+    Cinematography ticket #4: the single projection ``end_pose``'s steering
+    and ``tourlint.subject_under_text`` both read (the contact-sheet tool's
+    own, more general ``sheets.project_box`` handles an arbitrary cell
+    layout and stays separate)."""
+    iw, ih = float(size[0]), float(size[1])
+    x0, y0, x1, y1 = window
+    ww, wh = x1 - x0, y1 - y0
+    if ww <= 0 or wh <= 0:
+        return None
+    bx0, by0, bx1, by1 = box_frac[0] * iw, box_frac[1] * ih, box_frac[2] * iw, box_frac[3] * ih
+    fx0, fy0 = max(0.0, (bx0 - x0) / ww), max(0.0, (by0 - y0) / wh)
+    fx1, fy1 = min(1.0, (bx1 - x0) / ww), min(1.0, (by1 - y0) / wh)
+    if fx1 <= fx0 or fy1 <= fy0:
+        return None
+    return fx0, fy0, fx1, fy1
+
+
+def box_overlap_share(frame_box: tuple[float, float, float, float],
+                      zone_box: tuple[float, float, float, float]) -> float:
+    """The share of ``frame_box``'s own area that lies inside ``zone_box``
+    (both frame fractions). 0 when ``frame_box`` has no area."""
+    ax0, ay0, ax1, ay1 = frame_box
+    zx0, zy0, zx1, zy1 = zone_box
+    iw = max(0.0, min(ax1, zx1) - max(ax0, zx0))
+    ih = max(0.0, min(ay1, zy1) - max(ay0, zy0))
+    full = (ax1 - ax0) * (ay1 - ay0)
+    return (iw * ih) / full if full > 0 else 0.0
 
 
 # --------------------------------------------------------------------------
@@ -499,18 +542,159 @@ def settle_for(subj: dict) -> float:
     return CINE["settle_read_s"] if subj.get("kind") in READ_KINDS else CINE["settle_s"]
 
 
-def whole_pose(size, aspect: float, record: bool) -> dict:
+def avoid_overlap(size, window_px: tuple, avoid: list[tuple]) -> float:
+    """The worst overlap share (A49) any ``avoid`` box (picture fractions)
+    reaches against its own text zone (frame fractions), projected through
+    ``window_px`` (picture pixels, as this module's own ``window()``
+    returns it). 0.0 when nothing in ``avoid`` is visible at this window.
+    The one measurement ``end_pose``, ``whole_pose``, ``creep`` and
+    ``aimed_breath`` all steer against, so "clear" means the same thing
+    everywhere.
+
+    A51 ("faces never"): an entry may carry a third element, ``"face"``
+    (``face_avoid``): a located face, which reads as under the zone at any
+    overlap past ``CINE["face_under_text_share"]``. Such an entry counts as
+    the warn share plus its own share once it touches the zone, so every
+    caller's "clear" (under the warn share) means clear of every face too,
+    and among candidates that are not clear the least-covered face still
+    ranks first."""
+    best = 0.0
+    for a in avoid:
+        box, zone = a[0], a[1]
+        fb = project_box(size, window_px, box)
+        if fb is not None:
+            share = box_overlap_share(fb, zone)
+            if is_face_avoid(a) and share > CINE["face_under_text_share"] + 1e-9:
+                share = CINE["under_text_share"] + share
+            best = max(best, share)
+    return best
+
+
+def is_face_avoid(a: tuple) -> bool:
+    """A51: an ``avoid`` entry that is a located face (``face_avoid``)."""
+    return len(a) > 2 and a[2] == "face"
+
+
+def avoid_fits(size, window_px: tuple, avoid: list[tuple]) -> bool:
+    """Whether every ``avoid`` box is whole inside ``window_px`` (A7/A41's
+    own truth: a must_show region shown somewhere is never traded for
+    clearing it of text), not merely visible in part. Steering never
+    chooses a window a box does not fit, whatever it clears. A face entry
+    (A51) is never a fit requirement: a face is steered out from under the
+    text, never forced into the window (the people guards keep each person
+    shown, ``people_check``, and the subject stop keeps a framed person
+    whole, ``keep_strict``)."""
+    iw, ih = float(size[0]), float(size[1])
+    x0, y0, x1, y1 = window_px
+    tol = 0.5
+    for a in avoid:
+        if is_face_avoid(a):
+            continue
+        box = a[0]
+        bx0, by0, bx1, by1 = box[0] * iw, box[1] * ih, box[2] * iw, box[3] * ih
+        if bx0 < x0 - tol or by0 < y0 - tol or bx1 > x1 + tol or by1 > y1 + tol:
+            return False
+    return True
+
+
+def avoid_key(overlap: float, distance: float, fits: bool = True) -> tuple:
+    """A49: the sort key every avoid-aware search here orders its candidates
+    by: first, whether every ``avoid`` box still fits whole in the window
+    (``avoid_fits``: A7/A41's coverage truth always outranks clearing a
+    text zone, never the reverse); then whether this candidate already
+    reads clear at the lint's own warn share (``CINE["under_text_share"]``,
+    not the block share: the reviewer's own ruling is that a steer that
+    merely ducks a refusal while still warning has moved the wrong way);
+    among the clear candidates, the one closest to the planned pose
+    (``distance``, the search's own units, e.g. a weight or a seconds
+    offset) wins, so the steer moves no more than it has to; failing that,
+    the candidate with the least overlap wins, whatever its distance (the
+    reviewer item that follows names how close it came)."""
+    warn = CINE["under_text_share"]
+    clear = overlap < warn - 1e-9
+    return (not fits, not clear, distance if (fits and clear) else overlap)
+
+
+def whole_pose(size, aspect: float, record: bool, avoid: list[tuple] | None = None) -> dict:
     """``whole``: the fill (z 1), upper-weighted along the axis its window can
     travel (``CINE['whole_weight']`` of the travel from the top), centred for
     a record. A wide picture is centred across (it has no upper weight); a
-    picture of the frame's own shape is the fill."""
+    picture of the frame's own shape is the fill (no travel at all).
+
+    ``avoid`` (A49, ``subject-under-text`` steering): when the doctrine
+    weight's window still reads an overlap at or past the lint's own warn
+    share, this searches the whole travel (the only freedom a ``whole``
+    still has, in 2.5% steps) for the point with the least overlap, taking
+    the one closest to the doctrine weight among those that clear it
+    (``avoid_key``), so the engine never refuses itself here (ruling 2): a
+    still with no subject region still has somewhere to go, and the steer
+    never moves further than it has to. Returns {z, x, y[, avoid_clear]};
+    ``avoid_clear`` is only set when ``avoid`` is given and is False only
+    when no point along the travel reads under the warn share (no room: the
+    caller falls back further, journaled, never refused)."""
     ih = float(size[1])
-    _, fh = fill_window(size, aspect)
+    fh = fill_window(size, aspect)[1]
     wgt = CINE["whole_weight_record"] if record else CINE["whole_weight"]
+    ax = long_axis(size, aspect)
     p = {"z": 1.0, "x": 0.5, "y": 0.5}
-    if long_axis(size, aspect) == "y":
+    if ax == "y":
         p["y"] = (wgt * (ih - fh) + fh / 2.0) / ih
-    return p
+    if ax is None or not avoid:
+        return p
+    return travel_search(size, aspect, wgt, avoid)
+
+
+def _travel_at(size, aspect: float, w: float) -> dict:
+    """The fill (z 1) at weight ``w`` of its travel along the long axis (0 the
+    top or left end, 1 the bottom or right end)."""
+    iw, ih = float(size[0]), float(size[1])
+    fw, fh = fill_window(size, aspect)
+    q = {"z": 1.0, "x": 0.5, "y": 0.5}
+    if long_axis(size, aspect) == "y":
+        q["y"] = (w * (ih - fh) + fh / 2.0) / ih
+    else:
+        q["x"] = (w * (iw - fw) + fw / 2.0) / iw
+    return q
+
+
+def travel_weight(size, aspect: float, p: dict) -> float:
+    """``_travel_at``'s inverse: where a framing's centre sits along the fill's
+    travel, clamped to [0, 1]."""
+    ax = long_axis(size, aspect)
+    if ax is None:
+        return 0.5
+    full = float(size[0] if ax == "x" else size[1])
+    win = fill_window(size, aspect)[0 if ax == "x" else 1]
+    if full - win <= 1e-9:
+        return 0.5
+    return min(1.0, max(0.0, (float(p[ax]) * full - win / 2.0) / (full - win)))
+
+
+def travel_search(size, aspect: float, prefer: float, avoid: list[tuple], span=(0.0, 1.0)) -> dict:
+    """A49's ``whole`` search (``whole_pose``), shared with the subject pass's
+    opening (A52): the fill (z 1) along its travel, in 2.5% steps inside
+    ``span`` (weights), ordered by ``avoid_key``: a window every ``avoid`` box
+    fits first, then one that reads clear of the warn share, the closest to
+    ``prefer`` among those; failing that, the least overlap. Returns {z, x,
+    y, avoid_clear}."""
+    lo, hi = min(span), max(span)
+    cands = sorted({round(k / 40.0, 4) for k in range(41)} | {round(prefer, 4)}, key=lambda w: abs(w - prefer))
+    cands = [w for w in cands if lo - 1e-9 <= w <= hi + 1e-9 or w == round(prefer, 4)]
+
+    def win_of(w: float) -> tuple:
+        q = _travel_at(size, aspect, w)
+        return window(size, aspect, q["z"], q["x"], q["y"])
+
+    best_w, best_overlap, best_key = prefer, avoid_overlap(size, win_of(prefer), avoid), None
+    for w in cands:
+        win = win_of(w)
+        ov = avoid_overlap(size, win, avoid)
+        key = avoid_key(ov, abs(w - prefer), fits=avoid_fits(size, win, avoid))
+        if best_key is None or key < best_key:
+            best_key, best_w, best_overlap = key, w, ov
+    best_fits = avoid_fits(size, win_of(best_w), avoid)
+    return dict(_travel_at(size, aspect, best_w),
+                avoid_clear=best_fits and best_overlap < CINE["under_text_share"] - 1e-9)
 
 
 def _place(c: float, s: float, win: float, full: float, t: float) -> tuple[float, float]:
@@ -542,7 +726,7 @@ def _eyes(subj: dict) -> float | None:
 
 
 def end_pose(subj: dict, size, aspect: float, zlim: float, *, record: bool, facing: str | None = None,
-             no_zoom: bool = False) -> dict:
+             no_zoom: bool = False, avoid: list[tuple] | None = None) -> dict:
     """The subject stop (A47): as deep as the subject allows and never past
     ``zlim`` (the softness cap, and the face cap for people; z 1 under
     ``no_zoom``: drift only), the window inside the picture, composed by
@@ -551,9 +735,22 @@ def end_pose(subj: dict, size, aspect: float, zlim: float, *, record: bool, faci
     frame; a subject facing left or right sits on the side behind it, so the
     room ahead is the larger; a person's eyes sit nearest the upper third.
     Centred for a record. ``whole`` is the upper-weighted fill
-    (``whole_pose``). Returns {z, x, y}."""
+    (``whole_pose``).
+
+    ``avoid`` (A49, ``subject-under-text`` steering): ``[(box, zone), ...]``,
+    each a ``must_show`` region (picture fractions) and a house text zone
+    (frame fractions, ``motion.ZONES``) active while this still is shown.
+    Among the placements this function already tries, the one that leaves
+    every ``avoid`` box under ``CINE["under_text_block_share"]`` of its zone
+    wins first, ahead of the usual golden-band and eye-line scoring; this
+    never widens the search (no new placement is invented) and never moves
+    a path a person wrote (``parse_path`` never calls this with ``avoid``).
+    The chosen pose carries ``avoid_clear`` (bool) when ``avoid`` is given,
+    so the caller knows whether steering actually cleared it or every
+    candidate still covers something (A49: refuse only then, or when the
+    camera is a human's own). Returns {z, x, y[, avoid_clear]}."""
     if subj["box"] is None:
-        return whole_pose(size, aspect, record)
+        return whole_pose(size, aspect, record, avoid=avoid)
     iw, ih = float(size[0]), float(size[1])
     fw, fh = fill_window(size, aspect)
     x0, y0, x1, y1 = subj["box"]
@@ -582,6 +779,10 @@ def end_pose(subj: dict, size, aspect: float, zlim: float, *, record: bool, faci
         z = max(1.0, min(zs))
     ww, wh = fw / z, fh / z
     eye = _eyes(subj)
+
+    def win_at(ax_, ay_) -> tuple:
+        return (ax_, ay_, ax_ + ww, ay_ + wh)
+
     best = None
     for t_y in ty:
         for t_x in tx:
@@ -591,11 +792,23 @@ def end_pose(subj: dict, size, aspect: float, zlim: float, *, record: bool, faci
                 miss = 0
             else:
                 miss = int(not (_in_band(px) or ww >= iw - 0.5)) + int(not (_in_band(py) or wh >= ih - 0.5))
-            key = (miss, round(abs((eye * ih - ay_) / wh - 1 / 3), 6) if eye is not None else 0.0)
+            eye_dist = round(abs((eye * ih - ay_) / wh - 1 / 3), 6) if eye is not None else 0.0
+            win = win_at(ax_, ay_)
+            ov = avoid_overlap(size, win, avoid) if avoid else 0.0
+            fits = avoid_fits(size, win, avoid) if avoid else True
+            clear = ov < CINE["under_text_share"] - 1e-9
+            # A49: among the house's own golden-band/eye-line candidates, one that already reads clear of an
+            # active text zone (and still fits every avoid box whole, A7/A41's coverage truth) wins first (by
+            # the usual scoring, among those); only when none clears it does overlap itself decide (the
+            # reviewer item that follows names how close it came)
+            key = (not fits, not clear, miss if (fits and clear) else ov, eye_dist if (fits and clear) else 0.0)
             if best is None or key < best[0]:
-                best = (key, ax_, ay_)
-    _, ax_, ay_ = best
-    return {"z": z, "x": (ax_ + ww / 2.0) / iw, "y": (ay_ + wh / 2.0) / ih}
+                best = (key, ax_, ay_, ov, fits)
+    _, ax_, ay_, best_overlap, best_fits = best
+    pose = {"z": z, "x": (ax_ + ww / 2.0) / iw, "y": (ay_ + wh / 2.0) / ih}
+    if avoid:
+        pose["avoid_clear"] = best_fits and best_overlap < CINE["under_text_share"] - 1e-9
+    return pose
 
 
 def compose_verdict(p: dict, subj: dict, size, aspect: float, *, record: bool, facing: str | None = None) -> dict:
@@ -677,7 +890,8 @@ def leg_min_s(a: dict, b: dict, size, aspect: float) -> float:
 
 def subject_stops(size, aspect: float, dur: float, pose: dict, *, arrive: float, settle_s: float,
                   need_whole: bool = False, start: dict | None = None, breath: bool = False,
-                  from_near: bool = False, waypoints=(), hz: float = 24.0) -> tuple[list[dict], dict]:
+                  from_near: bool = False, waypoints=(), hz: float = 24.0,
+                  continues: bool = False, open_avoid: list[tuple] | None = None) -> tuple[list[dict], dict]:
     """A47's default pass, ending on the subject: it opens at the end of the
     picture's long axis furthest from the subject (or, ``start``, where a
     ``match: prev`` puts the subject), sweeps once and lands on ``pose`` at
@@ -696,7 +910,12 @@ def subject_stops(size, aspect: float, dur: float, pose: dict, *, arrive: float,
     two frames is held whole in frame. The holds take at most half of the
     time before the arrival, each at least one frame at ``hz``; when even
     that does not fit, the arrival runs late, up to the cut (A7 first).
-    Returns (stops, timing), the stop times never going back."""
+    ``open_avoid`` (A52, A51's opening refined): the opening end is searched
+    as ``whole_pose`` searches the fill (``travel_search``), between that
+    end and the subject, so a ``must_show`` box or a face under a lower
+    third or subtitle already up is minimised from the first frame; the end
+    itself wins whenever it is already clear, and the sweep's direction is
+    never reversed. Returns (stops, timing), the stop times never going back."""
     ax = long_axis(size, aspect)
     pose = dict(pose, **settle(pose, size, aspect))
     pose.setdefault("from", "A47: the subject")
@@ -728,7 +947,19 @@ def subject_stops(size, aspect: float, dur: float, pose: dict, *, arrive: float,
                 for w in waypoints]
         pts.append({"z": 1.0, "x": 0.5, "y": 0.5, "from": "A47: the fill"})
     elif start is None:
-        pts.append(ends[1 if from_near else 0] if ends else {"z": 1.0, "x": 0.5, "y": 0.5, "from": "A47: the fill"})
+        opening = ends[1 if from_near else 0] if ends else {"z": 1.0, "x": 0.5, "y": 0.5, "from": "A47: the fill"}
+        if open_avoid and ends:
+            ew = travel_weight(size, aspect, opening)
+            q = travel_search(size, aspect, ew, open_avoid, span=(ew, travel_weight(size, aspect, pose)))
+            w0 = window(size, aspect, opening["z"], opening["x"], opening["y"])
+            w1 = window(size, aspect, q["z"], q["x"], q["y"])
+            if not _same(opening, q) and avoid_overlap(size, w1, open_avoid) < avoid_overlap(size, w0, open_avoid) - 1e-9:
+                timing["open_steered"] = {"from": round(opening[ax], 4), "to": round(q[ax], 4),
+                                          "overlap_from": round(avoid_overlap(size, w0, open_avoid), 4),
+                                          "overlap_to": round(avoid_overlap(size, w1, open_avoid), 4)}
+                opening = {"z": 1.0, "x": q["x"], "y": q["y"],
+                           "from": "A52: the opening, steered clear of live text along the travel"}
+        pts.append(opening)
     pts.append(pose)
     path = [pts[0]]
     for q in pts[1:]:
@@ -793,6 +1024,17 @@ def subject_stops(size, aspect: float, dur: float, pose: dict, *, arrive: float,
     out[-1]["t"] = max(want, out[-2]["t"]) if len(out) > 1 else want
     for st in out:
         st.pop("_hold", None)
+    # A49 (settle-before-move, min-move-after-cut): settle on the cut frame before the first leg, the doctrine
+    # settle (``settle_s``: 1.0 s, 1.5 s for text, a face or a person) when the arrival time leaves room for all
+    # of it, else as much of it as fits, down to MIN_OPEN_HOLD_S (0.5 s, min-move-after-cut's own floor); never
+    # when the pass opens matched to the shot before or continues one running across a dissolve (``continues``),
+    # and never at the cost of the leg's own speed guide or the subject's arrival time, both kept exactly as A47
+    # already placed them
+    if start is None and not continues and len(out) >= 2 and out[0]["t"] <= EPS:
+        need_leg = leg_min_s(out[0], out[1], size, aspect)
+        room = out[1]["t"] - need_leg
+        if room >= MIN_OPEN_HOLD_S - 1e-6:
+            out[0]["hold"] = min(settle_s, room)
     timing["arrive_s"] = round(want, 3)
     return out, timing
 
@@ -875,7 +1117,8 @@ def must_see(item: dict) -> dict:
     return {"boxes": boxes, "unlocated": 0, "known": pe["known"]} if boxes else {}
 
 
-def aimed_breath(size, aspect: float, boxes, record: bool, aerial: bool = False) -> tuple[dict, dict] | None:
+def aimed_breath(size, aspect: float, boxes, record: bool, aerial: bool = False,
+                 avoid: list[tuple] | None = None) -> tuple[dict, dict] | None:
     """A ``whole`` hold whose one window cannot hold every located person and
     ``must_show`` region together (``boxes``, picture fractions): its drift,
     at z 1 along the axis the fill travels, is aimed so each is whole at some
@@ -885,7 +1128,14 @@ def aimed_breath(size, aspect: float, boxes, record: bool, aerial: bool = False)
     on a wide picture, rising otherwise) and ended with the other, no longer
     than one breath (``whole_creep_max`` of the window). Returns (first, last)
     or None (a box larger than the window, or a drift longer than a breath:
-    the hold becomes the sweep)."""
+    the hold becomes the sweep).
+
+    ``avoid`` (A49): when an end still covers a must_show box with an active
+    text zone, this extends that end outward, within the same breath-length
+    budget, to the nearest point clear of it; coverage (every box whole at
+    some point) is never traded away for this, so a `must_show`/people
+    guarantee always wins when the two conflict, and a still-conflicted end
+    is left as it was (the caller's own fallback, journaled, never refused)."""
     ax = long_axis(size, aspect)
     if ax is None or not boxes:
         return None
@@ -902,12 +1152,52 @@ def aimed_breath(size, aspect: float, boxes, record: bool, aerial: bool = False)
     lo, hi = min(sp[1] for sp in spans), max(sp[0] for sp in spans)
     if hi <= lo + 1e-9:
         return None                               # one window holds them all: the plain breath
-    if hi - lo > (TOUR["whole_creep_max"] - 1.0) * win + 1e-9:
+    budget = (TOUR["whole_creep_max"] - 1.0) * win
+    if hi - lo > budget + 1e-9:
         return None
     lo, hi = max(lo_c, lo - 1.0), min(hi_c, hi + 1.0)     # a pixel past each tight end: whole on a frame, not a float
     a, b = (lo, hi) if (ax == "x" or record or aerial) else (hi, lo)
-    first = settle({"z": 1.0, "x": 0.5, "y": 0.5, ax: a / side}, size, aspect)
-    last = settle({"z": 1.0, "x": 0.5, "y": 0.5, ax: b / side}, size, aspect)
+
+    def pose_at(v: float) -> dict:
+        return settle({"z": 1.0, "x": 0.5, "y": 0.5, ax: v / side}, size, aspect)
+
+    def win_at(v: float) -> tuple:
+        q = pose_at(v)
+        return window(size, aspect, q["z"], q["x"], q["y"])
+
+    def clear(v: float) -> bool:
+        if not avoid:
+            return True
+        win = win_at(v)
+        return avoid_fits(size, win, avoid) and avoid_overlap(size, win, avoid) < CINE["under_text_share"] - 1e-9
+
+    if avoid:
+        spare = max(0.0, budget - (hi - lo))
+        lo_v, hi_v = min(a, b), max(a, b)
+        if spare > 1e-6:
+            for edge, grow in ((lo_v, -1.0), (hi_v, 1.0)):
+                if clear(edge):
+                    continue
+                # A49: step outward within the same breath budget for the least overlap, preferring the point
+                # closest to the box's own tight edge among any that read clear of the lint's warn share
+                win0 = win_at(edge)
+                best_v = edge
+                best_key = avoid_key(avoid_overlap(size, win0, avoid), 0.0, fits=avoid_fits(size, win0, avoid))
+                step = spare / 40.0
+                v = edge
+                for k in range(1, 41):
+                    v = max(lo_c, min(hi_c, edge + grow * step * k))
+                    win = win_at(v)
+                    key = avoid_key(avoid_overlap(size, win, avoid), abs(v - edge), fits=avoid_fits(size, win, avoid))
+                    if key < best_key:
+                        best_key, best_v = key, v
+                if edge == lo_v:
+                    lo_v = best_v
+                else:
+                    hi_v = best_v
+            a, b = (lo_v, hi_v) if a <= b else (hi_v, lo_v)
+    first = pose_at(a)
+    last = pose_at(b)
     return first, last
 
 
@@ -964,8 +1254,8 @@ def subject_arrival(shot: dict, item: dict, subj: dict, persons: list[dict], wor
 
 def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], words: list[dict], size,
                  aspect: float, dur: float, t0: float, zmax: float, *, need_whole: bool, focus=None,
-                 match_screen=None, declared_whole: bool = False, hold_on=(), hz: float = 24.0
-                 ) -> tuple[list[dict], dict]:
+                 match_screen=None, declared_whole: bool = False, hold_on=(), hz: float = 24.0,
+                 avoid: list[tuple] | None = None) -> tuple[list[dict], dict]:
     """A47's default for a still: the subject (``resolve_subject``), its end
     pose composed by class (``end_pose``), when it arrives
     (``subject_arrival``), and the pass that ends on it (``subject_stops``).
@@ -978,9 +1268,14 @@ def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], w
     must be seen; else one sweep end to end (``whole_sweep``); either way its
     breath is a drift inside the fill, never a push. ``hold_on`` (boxes)
     holds the covering pass on each of them. ``no_zoom`` keeps every stop at
-    z 1 (drift only). Returns (stops, info) for the journal and the lints."""
+    z 1 (drift only). ``avoid`` (A49): passed straight to ``end_pose``, to
+    steer the subject's stop clear of an active text zone when it can.
+    Returns (stops, info) for the journal and the lints."""
     fpt = shot.get("focus") if focus is None else focus
     subj = resolve_subject(roi, fpt, declared_whole=declared_whole)
+    # A49: a dissolve carries the move across the cut, the same as a match: "prev" opening (``start``); the
+    # opening hold (``subject_stops``'s own MIN_OPEN_HOLD_S/settle_s insertion) is never forced on either
+    continues = (shot.get("transition_in") or {}).get("type") == "dissolve"
     record = is_record(item)
     facing = subject_facing(subj, persons)
     no_zoom = shot.get("no_zoom") is True
@@ -988,9 +1283,10 @@ def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], w
     people_kind = subj.get("kind") in PERSON_KINDS or subj.get("kind") == "group"
     if people_kind:
         zlim = min(zlim, CINE["face_zmax"])
-    pose = end_pose(subj, size, aspect, zlim, record=record, facing=facing, no_zoom=no_zoom)
+    pose = end_pose(subj, size, aspect, zlim, record=record, facing=facing, no_zoom=no_zoom, avoid=avoid)
     if pose["z"] > CINE["face_zmax"] + EPS and persons and framed_persons(pose, persons, size, aspect):
-        pose = end_pose(subj, size, aspect, CINE["face_zmax"], record=record, facing=facing, no_zoom=no_zoom)
+        pose = end_pose(subj, size, aspect, CINE["face_zmax"], record=record, facing=facing, no_zoom=no_zoom,
+                        avoid=avoid)
     whole = subj["src"] == "whole"
     settle_s = settle_for(subj)
     arrive, sp, why = subject_arrival(shot, item, subj, persons, words, t0, dur, settle_s)
@@ -1005,14 +1301,20 @@ def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], w
         iw, ih = float(size[0]), float(size[1])
         fw, fh = fill_window(size, aspect)
         mode = "hold"
-        if need_whole or fw * fh / (iw * ih) < CINE["whole_hold_min_shown"] - 1e-9:
+        fill_share_low = fw * fh / (iw * ih) < CINE["whole_hold_min_shown"] - 1e-9
+        if need_whole:
             mode = "sweep"
+        elif fill_share_low:
+            # A49 (ruling 2): clearing a must_show box of an active text zone outranks the fill-share doctrine
+            # alone (never a truth requirement like need_whole above); `pose` is already end_pose's avoid-aware
+            # whole_pose, so a static hold that already cleared it wins over the (unsteered) sweep
+            mode = "sweep" if not (avoid and pose.get("avoid_clear")) else "hold"
         elif seeing:
             win = window(size, aspect, pose["z"], pose["x"], pose["y"])
             if not people_check([win], seeing, size)["ok"]:
                 aimed = (None if match_screen is not None else
                          aimed_breath(size, aspect, [q["box"] for q in seeing["boxes"]], record,
-                                      aerial=item.get("aerial") is True))
+                                      aerial=item.get("aerial") is True, avoid=avoid))
                 mode = "sweep" if aimed is None else "hold"
         sw = (whole_sweep(size, aspect, record, toward=shot.get("_end_toward"), aerial=item.get("aerial") is True)
               if mode == "sweep" else None)
@@ -1023,6 +1325,8 @@ def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], w
             mode = "hold"
     pose.update(placed="engine", breath=True,
                 **{"from": f"A47: the subject ({subj['src']}{', swept' if mode == 'sweep' else ''})"})
+    if avoid:
+        pose["avoid"] = avoid       # A49: the hold's own creep (build()) steers its breath clear of it too
     if subj["src"] == "subject":
         pose["roi"] = "subject"
     if whole:
@@ -1081,28 +1385,52 @@ def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], w
                 pose.update(x=far["x"], y=far["y"], z=far["z"])
                 sweep_whole = False
         stops, timing = subject_stops(size, aspect, dur, pose, arrive=arrive, settle_s=settle_s,
-                                      need_whole=sweep_whole, start=start, breath=True, waypoints=waypoints, hz=hz)
+                                      need_whole=sweep_whole, start=start, breath=True, waypoints=waypoints, hz=hz,
+                                      continues=continues)
         timing["why"] = "whole: one sweep end to end, then a drift" if sweep_whole else (
             "whole: one sweep from the match opening to the farther end, then a drift")
     else:
         stops = timing = None
-        tries = (False, True) if not need_whole and start is None and seeing else (False,)
-        for near in tries:
-            stops, timing = subject_stops(size, aspect, dur, pose, arrive=arrive, settle_s=settle_s,
-                                          need_whole=need_whole, start=start, breath=True, from_near=near,
-                                          waypoints=waypoints, hz=hz)
-            if not seeing or need_whole:
+        # A51: a located face under a live text zone is steered like a must_show region; the opening is one more
+        # freedom the pass already has (far end or near end), so a far-end sweep that carries a face under the
+        # text while the near end's does not opens at the near end (the smaller move), never at the cost of a
+        # person or a must_show region
+        # A52: each opening is first searched along the travel as whole_pose searches it (``open_avoid``), so a
+        # must_show box or a face under text already up is minimised from the first frame; the unsteered end
+        # follows, so steering never costs a person or a must_show region
+        face_av = [a for a in avoid or [] if is_face_avoid(a)]
+        tries = (False, True) if not need_whole and start is None and (seeing or face_av) else (False,)
+        steers = (True, False) if avoid and not need_whole and start is None else (False,)
+        cands = []
+        for near, steer in [(n, st) for n in tries for st in steers]:
+            st_, tm_ = subject_stops(size, aspect, dur, pose, arrive=arrive, settle_s=settle_s,
+                                     need_whole=need_whole, start=start, breath=True, from_near=near,
+                                     waypoints=waypoints, hz=hz, continues=continues,
+                                     open_avoid=avoid if steer else None)
+            if not (seeing or face_av) or need_whole:
+                cands.append((st_, tm_, near, True, True))
                 break
-            tl = build(stops, dur, size, aspect, zmax, no_zoom=no_zoom)
-            if people_check(windows_of(tl, hz), seeing, size)["ok"]:
-                if near:
-                    opens = "the near end: the far end's sweep would leave a person or a must_show region unseen"
+            tl = build(st_, dur, size, aspect, zmax, no_zoom=no_zoom)
+            wins = windows_of(tl, hz)
+            cov = not seeing or people_check(wins, seeing, size)["ok"]
+            clear = not face_av or all(avoid_overlap(size, w, face_av) < CINE["under_text_share"] - 1e-9
+                                       for w in wins)
+            cands.append((st_, tm_, near, cov, clear))
+            if cov and clear:
                 break
+        pick = (next((c for c in cands if c[3] and c[4]), None) or next((c for c in cands if c[3]), None))
+        if pick is not None:
+            stops, timing, near = pick[0], pick[1], pick[2]
+            if near:
+                opens = ("the near end: the far end's sweep would leave a person or a must_show region unseen"
+                         if not any(c[3] for c in cands if not c[2]) else
+                         "the near end: the far end's sweep would carry a face under live text (A51)")
         else:
             # A47 and A7: no single sweep ending on the subject shows every located person and must_show region
             need_whole = True
             stops, timing = subject_stops(size, aspect, dur, pose, arrive=arrive, settle_s=settle_s,
-                                          need_whole=True, start=start, breath=True, waypoints=waypoints, hz=hz)
+                                          need_whole=True, start=start, breath=True, waypoints=waypoints, hz=hz,
+                                          continues=continues)
             opens = "both ends: no single sweep ending on the subject shows every person and must_show region"
     if opens:
         timing["opens"] = opens
@@ -1116,7 +1444,8 @@ def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], w
             # a whole still that sweeps toward the next shot's subject hands on that point's screen position
             "point": (tuple(shot["_end_toward"]) if whole and mode == "sweep" and shot.get("_end_toward") else
                       subject_point(subj, pose)), "subj": subj, "held_on": len(waypoints),
-            "focus_ignored": bool(declared_whole and _focus_point(fpt) is not None)}
+            "focus_ignored": bool(declared_whole and _focus_point(fpt) is not None),
+            "avoid_clear": pose.get("avoid_clear")}
     return stops, info
 
 
@@ -1217,7 +1546,8 @@ def _same(a: dict, b: dict) -> bool:
 
 
 def creep(p: dict, h: float, size, aspect: float, zmax: float, *, prefer=None, no_zoom: bool = False,
-          breath: bool = False, keep=None, keep_strict: bool = False) -> tuple[dict, str]:
+          breath: bool = False, keep=None, keep_strict: bool = False,
+          avoid: list[tuple] | None = None) -> tuple[dict, str]:
     """Where a stop held ``h`` seconds has crept to, and how: a push of
     ``creep_scale_per_s`` while under the cap, else a pull while above the
     fill, else a slow drift along the axis with room (``prefer`` is the last
@@ -1231,7 +1561,43 @@ def creep(p: dict, h: float, size, aspect: float, zmax: float, *, prefer=None, n
     every located person it frames) is never drifted out of a window it fits
     inside: the drift takes the first direction that keeps them all. When
     none does, a ``keep_strict`` stop (people) holds; any other drifts a few
-    per cent past its subject's edge rather than freeze (no dead holds)."""
+    per cent past its subject's edge rather than freeze (no dead holds).
+
+    ``avoid`` (A49): a few other directions are tried too (still honouring
+    ``keep``/``keep_strict``), plus staying put (no breath at all, for this
+    hold); the one with the least overlap wins, preferring the default
+    direction's own choice among those that already read clear of the lint's
+    warn share (``avoid_key``: the reviewer's own ruling is that ducking a
+    refusal while still warning has moved the wrong way), so the engine
+    never refuses itself here (ruling 2) and never moves further than it
+    has to."""
+    base = _creep_step(p, h, size, aspect, zmax, prefer=prefer, no_zoom=no_zoom, breath=breath, keep=keep,
+                       keep_strict=keep_strict)
+    if not avoid:
+        return base
+
+    def win_of(q: dict) -> tuple:
+        return window(size, aspect, q["z"], q["x"], q["y"])
+
+    candidates = [(base, 0.0)]
+    for alt in ((1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)):
+        q, how = _creep_step(p, h, size, aspect, zmax, prefer=alt, no_zoom=no_zoom, breath=breath, keep=keep,
+                             keep_strict=keep_strict)
+        candidates.append(((q, how), 1.0))
+    candidates.append(((dict(p), "held"), 2.0))        # staying put: the furthest from the plan, tried last
+    best, best_key = None, None
+    for (q, how), distance in candidates:
+        win = win_of(q)
+        ov = avoid_overlap(size, win, avoid)
+        key = avoid_key(ov, distance, fits=avoid_fits(size, win, avoid))
+        if best_key is None or key < best_key:
+            best, best_key = (q, how), key
+    return best
+
+
+def _creep_step(p: dict, h: float, size, aspect: float, zmax: float, *, prefer=None, no_zoom: bool = False,
+                breath: bool = False, keep=None, keep_strict: bool = False) -> tuple[dict, str]:
+    """``creep``'s own search, with no ``avoid`` (its default direction)."""
     c = TOUR["creep_scale_per_s"] * h
     cd = TOUR["creep_drift_per_s"] * h
     if breath:
@@ -1272,7 +1638,7 @@ def creep(p: dict, h: float, size, aspect: float, zmax: float, *, prefer=None, n
     if keep and not keep_strict:
         # a subject that fills its window leaves no room to drift inside it: a frozen frame is worse (no dead
         # holds, founder 2026-10-17), so the breath drifts and the subject's edge goes by a few per cent at most
-        return creep(p, h, size, aspect, zmax, prefer=prefer, no_zoom=no_zoom, breath=breath)
+        return _creep_step(p, h, size, aspect, zmax, prefer=prefer, no_zoom=no_zoom, breath=breath)
     return dict(p), "held"
 
 
@@ -1306,7 +1672,7 @@ def build(stops: list[dict], dur: float, size, aspect: float, zmax: float, *, no
         if p["z"] > zm + EPS:
             zm = p["z"]                       # an authored depth past the cap: the lint refuses it; never pushed further
         q, how = creep(p, t1 - t0, size, aspect, zm, prefer=prefer, no_zoom=no_zoom, breath=bool(p.get("breath")),
-                       keep=p.get("keep"), keep_strict=bool(p.get("keep_strict")))
+                       keep=p.get("keep"), keep_strict=bool(p.get("keep_strict")), avoid=p.get("avoid"))
         if how == "held":
             held.append({"t0": round(t0, 3), "t1": round(t1, 3)})
         q = settle(q, size, aspect)
@@ -1380,8 +1746,9 @@ FACINGS = ("left", "right", "camera", "away")
 SOURCES = ("auto", "human")
 SCALES = ("whole", "field", "detail")
 BOX = ("x", "y", "w", "h")
-PEOPLE_KEYS = set(BOX) | {"name", "facing", "source", "confidence", "model"}
-ROI_KEYS = set(BOX) | {"name", "kind", "facing", "source", "confidence", "model", "cue", "must_show", "person"}
+PEOPLE_KEYS = set(BOX) | {"name", "facing", "source", "confidence", "model", "face"}   # face: A51
+ROI_KEYS = set(BOX) | {"name", "kind", "facing", "source", "confidence", "model", "cue", "must_show", "person",
+                       "lines"}     # lines: A50, a text region's line count (its reading pace)
 STOP_KEYS = {"t", "at", "line", "x", "y", "z", "hold", "roi", "scale", "lead_s", "match"}
 # the rulebook's own names for what it finds (the schema): never a person's name
 GENERIC_NAME = re.compile(r"(subject|(face|person|group|text|object|place)-\d+)$")
@@ -1849,6 +2216,12 @@ def _entry_problems(e: dict, where: str, *, roi: bool) -> list[str]:
         probs.append(f"{where}: confidence is a number 0 to 1, not {c!r}")
     if e.get("name") is not None and not isinstance(e["name"], str):
         probs.append(f"{where}: name is a string")
+    if not roi and "face" in e:
+        # A51: the face found inside this figure ({x, y, w, h}, picture fractions; the rulebook's, or a person's)
+        if not isinstance(e["face"], dict) or roi_box(e["face"]) is None:
+            probs.append(f"{where}: face is a box {{x, y, w, h}} (the face inside this figure)")
+        else:
+            probs += _box_problems(e["face"], f"{where}.face")
     if roi:
         if not isinstance(e.get("name"), str) or not e["name"].strip():
             probs.append(f"{where}: a region needs a name (the rulebook's subject, person-1, ...; or the author's)")
@@ -1857,6 +2230,9 @@ def _entry_problems(e: dict, where: str, *, roi: bool) -> list[str]:
         cue = e.get("cue")
         if cue is not None and not (isinstance(cue, str) or (isinstance(cue, list) and all(isinstance(x, str) for x in cue))):
             probs.append(f"{where}: cue is a string or a list of strings")
+        ln = e.get("lines")
+        if ln is not None and not (isinstance(ln, int) and not isinstance(ln, bool) and ln >= 1):
+            probs.append(f"{where}: lines is the number of lines of text the region holds (1 or more), not {ln!r}")
     return probs
 
 
@@ -2064,19 +2440,78 @@ def people_check(windows, people: dict, size) -> dict:
             "located": len(people["boxes"]), "known": people["known"]}
 
 
-def must_show(windows, item: dict, size) -> list[str]:
-    """The ledger's ``must_show`` regions (a caption, a sign, a second figure:
-    a region with ``must_show: true``, or a name in the item's ``must_show``
-    list) that the path never shows whole."""
+def must_show_regions(item: dict) -> list[dict]:
+    """The ledger's ``must_show`` regions (a caption, a sign, a second
+    figure): a region with ``must_show: true``, or named in the item's
+    ``must_show`` list. Cinematography ticket #4: the single source for
+    ``must_show`` (section 7.2, A41), read by this module's own
+    ``must_show`` (coverage) and by ``render.build_plan``'s
+    ``subject-under-text`` steering and block (A49)."""
     names = item.get("must_show") if isinstance(item.get("must_show"), list) else []
-    out = []
-    for r in item.get("roi") or []:
-        if not isinstance(r, dict) or roi_box(r) is None:
+    return [r for r in item.get("roi") or [] if isinstance(r, dict) and roi_box(r) is not None
+            and (r.get("must_show") is True or r.get("name") in names)]
+
+
+def must_show(windows, item: dict, size) -> list[str]:
+    """The ledger's ``must_show`` regions (``must_show_regions``) that the
+    path never shows whole."""
+    return [r.get("name") for r in must_show_regions(item) if not seen(windows, roi_box(r), size)]
+
+
+def face_boxes(item: dict) -> list[dict]:
+    """A51 (doctrine section 4, "faces never"): every located face in the
+    picture, as the camera may use it (``effective_regions``): a ``kind:
+    face`` region; else, for each located person (a ``people`` box, a
+    ``kind: person`` region or A41's ``person: true``), the face MediaPipe
+    found inside that figure (the rulebook's ``face`` on the entry), else
+    its head: the top ``CINE["head_share"]`` of the person's box. A person
+    whose box already holds a face region is not counted twice, nor is one
+    box listed under two names (a ``people`` entry and the ``subject`` the
+    rulebook made of it). Returns [{name, box (x0, y0, x1, y1), src: roi |
+    face | head, must_show}]; ``must_show`` is the region's own (a face
+    named in the ledger's ``must_show``)."""
+    eff = effective_regions(item)
+    names = item.get("must_show") if isinstance(item.get("must_show"), list) else []
+    out: list[dict] = []
+    seen_boxes: set = set()
+
+    def add(name, box, src, must):
+        key = tuple(round(v, 4) for v in box)
+        if key in seen_boxes:
+            return
+        seen_boxes.add(key)
+        out.append({"name": name, "box": box, "src": src, "must_show": must})
+
+    faces = [r for r in eff["roi"] if r.get("kind") == "face" and roi_box(r) is not None]
+    for r in faces:
+        add(r.get("name"), roi_box(r), "roi", r.get("must_show") is True or r.get("name") in names)
+    figures = [p for p in (eff["people"] if isinstance(eff["people"], list) else [])
+               if isinstance(p, dict) and roi_box(p) is not None]
+    figures += [r for r in eff["roi"] if is_person_region(r) and r.get("kind") != "face" and roi_box(r) is not None]
+    done: set = set()
+    for e in figures:
+        pb = roi_box(e)
+        key = tuple(round(v, 4) for v in pb)
+        if key in done:
             continue
-        if r.get("must_show") is True or r.get("name") in names:
-            if not seen(windows, roi_box(r), size):
-                out.append(r.get("name"))
+        done.add(key)
+        if any(_inside_share(roi_box(f), pb) >= CINE["nest_share"] for f in faces):
+            continue
+        fb = roi_box(e["face"]) if isinstance(e.get("face"), dict) else None
+        if fb is not None:
+            add(e.get("name"), fb, "face", False)
+        else:
+            add(e.get("name"), (pb[0], pb[1], pb[2], pb[1] + (pb[3] - pb[1]) * CINE["head_share"]), "head", False)
     return out
+
+
+def face_avoid(item: dict, zones) -> list[tuple]:
+    """A51: the ``avoid`` entries (``end_pose``, ``whole_pose``, ``creep``,
+    ``aimed_breath``) for every located face (``face_boxes``) against every
+    live text zone (frame fractions: the lower thirds and subtitle cues up
+    over the shot), each marked ``"face"`` so it reads at any overlap
+    (``avoid_overlap``) and is never a fit requirement (``avoid_fits``)."""
+    return [(f["box"], zone, "face") for f in face_boxes(item) for zone in zones]
 
 
 def speed_report(wins: list[tuple[float, tuple]]) -> dict:
@@ -2135,3 +2570,84 @@ def reversal(out_v, in_v) -> list[str]:
         if abs(a) > eps and abs(b) > eps and (a > 0) != (b > 0):
             out.append(name)
     return out
+
+
+# --------------------------------------------------------------------------
+# A49 refined: degenerate stops (two framings the eye cannot tell apart, under a settle apart)
+# --------------------------------------------------------------------------
+
+DEGENERATE_GAP_S = CINE["settle_s"]        # closer than the settle minimum (1.0 s) ...
+DEGENERATE_CENTRE = 0.005                  # ... with window centres within 0.5% of the frame ...
+DEGENERATE_Z = 0.01                        # ... and depths within 1%: one framing, stopped on twice
+
+
+def near_equal(a: dict, b: dict, size, aspect: float, *, centre: float = DEGENERATE_CENTRE,
+               z: float = DEGENERATE_Z) -> bool:
+    """Two stops frame the same window to the eye: centres within ``centre`` of the frame (the first window's
+    width and height) and depths within ``z``."""
+    wa = window(size, aspect, float(a["z"]), float(a["x"]), float(a["y"]))
+    wb = window(size, aspect, float(b["z"]), float(b["x"]), float(b["y"]))
+    fw, fh = wa[2] - wa[0], wa[3] - wa[1]
+    dcx = abs((wb[0] + wb[2]) - (wa[0] + wa[2])) / 2.0
+    dcy = abs((wb[1] + wb[3]) - (wa[1] + wa[3])) / 2.0
+    return (abs(math.log(float(b["z"]) / float(a["z"]))) <= math.log1p(z) + EPS
+            and dcx <= centre * fw + 1e-6 and dcy <= centre * fh + 1e-6)
+
+
+def degenerate_pairs(stops: list[dict], size, aspect: float, *, gap_s: float = DEGENERATE_GAP_S) -> list[dict]:
+    """``degenerate-stops`` (A49 refined): consecutive stops closer than ``gap_s`` whose windows are near-equal
+    (``near_equal``): the path stops on one framing twice, which reads as a hitch or a micro-settle. Returns
+    [{i, t, dt, z, authored, from}], ``i`` the first stop's index."""
+    out = []
+    for i, (a, b) in enumerate(zip(stops, stops[1:])):
+        dt = float(b["t"]) - float(a["t"])
+        if -EPS <= dt < gap_s - EPS and near_equal(a, b, size, aspect):
+            out.append({"i": i, "t": [round(float(a["t"]), 3), round(float(b["t"]), 3)], "dt": round(dt, 3),
+                        "z": [round(float(a["z"]), 4), round(float(b["z"]), 4)],
+                        "authored": authored(a) or authored(b), "from": [a.get("from"), b.get("from")]})
+    return out
+
+
+def is_arrival(st: dict) -> bool:
+    """The A47 subject stop (``subject_stops``' pose: its ``subject_at`` arrival, or its settle before the cut)."""
+    return str(st.get("from") or "").startswith("A47: the subject")
+
+
+def merge_pair(stops: list[dict], i: int) -> tuple[list[dict], dict]:
+    """Stops ``i`` and ``i + 1`` as one: the later one's time is kept when it is the subject's arrival
+    (``is_arrival``), else the earlier one's; the kept stop keeps its own hold, grown to cover a dropped stop's
+    own hold where that runs longer (the micro-hold between the two is gone, a real hold is not). Returns
+    (stops, what was merged)."""
+    a, b = stops[i], stops[i + 1]
+    later = is_arrival(b) and not is_arrival(a)
+    keep, drop = (b, a) if later else (a, b)
+    k = dict(keep)
+    if float(drop.get("hold", 0.0)) > 0:
+        end = float(drop["t"]) + float(drop["hold"])
+        if end > float(k["t"]) + float(k.get("hold", 0.0)) + EPS:
+            k["hold"] = end - float(k["t"])
+    rec = {"t": [round(float(a["t"]), 3), round(float(b["t"]), 3)], "kept": round(float(k["t"]), 3),
+           "dropped": drop.get("from"), "why": "the subject's arrival" if later else "the earlier"}
+    return stops[:i] + [k] + stops[i + 2:], rec
+
+
+def merge_degenerate(stops: list[dict], size, aspect: float, *, gap_s: float = DEGENERATE_GAP_S, accept=None
+                     ) -> tuple[list[dict], list[dict]]:
+    """The engine's side of ``degenerate-stops``: near-equal ENGINE stops under ``gap_s`` apart become one
+    (``merge_pair``), one pair at a time, first to last, each kept only when ``accept(stops)`` (the caller's
+    truth check; None accepts all). A stop a person wrote (``camera``) is never merged: ``degenerate_pairs``
+    lints it. Returns (stops, merged: [{t, kept, dropped, why}])."""
+    merged: list[dict] = []
+    refused: set = set()
+    while True:
+        cand = [p for p in degenerate_pairs(stops, size, aspect, gap_s=gap_s)
+                if not p["authored"] and (p["t"][0], p["t"][1]) not in refused]
+        if not cand:
+            return stops, merged
+        p = cand[0]
+        out, rec = merge_pair(stops, p["i"])
+        if accept is None or accept(out):
+            stops = out
+            merged.append(rec)
+        else:
+            refused.add((p["t"][0], p["t"][1]))

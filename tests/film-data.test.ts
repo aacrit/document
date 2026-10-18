@@ -247,6 +247,15 @@ describe("words: sources, flags, the transcript, the record's silences", () => {
     expect(parseSources({ v: 2, shots: [{ id: "a", kind: "archive_still", start_s: 0, end_s: 1, mark: { class: "ARCHIVE" }, fill_ok: true, fill_exception: null }] }).shots[0])
       .toMatchObject({ fill_ok: true, fill_exception: null });
     expect("fill_exception" in parseSources({ v: 2, shots: [{ id: "a", kind: "archive_still", start_s: 0, end_s: 1, mark: { class: "ARCHIVE" } }] }).shots[0]).toBe(false);
+    // A50: the words follow the measured share: a detail only at 40% of the picture or less, else closer on one part
+    expect(stillCamera({ ...whole, fill_detail: "detail" as const })).toBe("Shown whole at its own shape; the camera moves in to one detail, then back out to the whole.");
+    expect(stillCamera({ ...whole, fill_detail: "field" as const })).toBe("Shown whole at its own shape; the camera moves in closer on one part of it, then back out to the whole.");
+    expect(stillCamera({ ...whole, fill_detail: "field" as const })).not.toMatch(/detail/);
+    expect(parseSources({ v: 2, shots: [{ id: "a", kind: "archive_still", start_s: 0, end_s: 1, mark: { class: "ARCHIVE" }, fill_ok: false, fill_exception: "a small scan, two words", fill_detail: "field" }] }).shots[0])
+      .toMatchObject({ fill_detail: "field" });
+    expect("fill_detail" in parseSources({ v: 2, shots: [{ id: "a", kind: "archive_still", start_s: 0, end_s: 1, mark: { class: "ARCHIVE" }, fill_detail: false }] }).shots[0]).toBe(false);
+    expect("fill_detail" in parseSources({ v: 2, shots: [{ id: "a", kind: "archive_still", start_s: 0, end_s: 1, mark: { class: "ARCHIVE" }, fill_detail: true }] }).shots[0]).toBe(false);
+    expect(stillCamera(whole)).toBe("Shown whole at its own shape, then the camera creeps slowly inside it.");
   });
 
   it("names the series titles (GRAMMAR A40) in plain words", () => {

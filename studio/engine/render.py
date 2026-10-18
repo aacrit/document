@@ -1,7 +1,7 @@
 """Render a screenplay v2 into a 1080p24 master film.
 
     python -m studio.engine.render <film dir> [--out <dir>] [--res 1080|720]
-                                   [--from SHOT] [--workers N] [--burn-subtitles]
+                                   [--from SHOT | --until S | --shots A..B] [--workers N] [--burn-subtitles]
 
 Reads ``<film dir>/screenplay.json`` (films/GRAMMAR.md section 12) and the
 ledgers it cites (top-level ``ledgers``: name -> path, or {"path", "media"};
@@ -42,7 +42,10 @@ A9; design/brand-kit/BRAND-KIT.md; every graphic comes from motion.py):
 Frames render in N worker processes (default 8, at most 12: this laptop
 crashes under parallel load), one shot per unit, each to a cached segment
 keyed by a content hash; the master is encoded last. ``--from SHOT``
-re-renders from that shot and takes every earlier shot from the cache.
+re-renders from that shot and takes every earlier shot from the cache. ``--shots A..B`` (a check
+render, like ``--until``) plans and lints the whole film, renders only shots A to B from the full plan
+(edge transitions as the film plays them) with the full mix cut to the span to the sample, to
+``<out>/master.shots-A-B.mp4``; it never writes the film's master or sources.json.
 
 Every unit of work is journaled (studio/engine/journal.py). Media never
 enters the repo (R-08); outputs land outside it unless ``--out`` says so.
@@ -70,6 +73,7 @@ import numpy as np
 from PIL import Image
 
 from studio.engine import aswas as AW
+from studio.engine import bracket as BR
 from studio.engine import cadence as CAD
 from studio.engine import clips as CL
 from studio.engine import levels as LV
@@ -80,6 +84,7 @@ from studio.engine import policy as POL
 from studio.engine import score as SC
 from studio.engine import titles as TS
 from studio.engine import tour as T
+from studio.engine import tourlint as TL
 from studio.engine import vision as VIS
 from studio.engine import voicing as VO
 from studio.engine.journal import Journal, sha256_file
@@ -264,7 +269,7 @@ LT_SUFFIXES = ("  ·  read by a computer voice", "  ·  original recording")
 EM_DASH = "—"
 
 _HERE = Path(__file__).resolve().parent
-ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py", "score.py", "overlays.py", "georef.py", "clips.py", "voicing.py", "titles.py", "tour.py"))).hexdigest()[:12]
+ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py", "score.py", "overlays.py", "georef.py", "clips.py", "voicing.py", "titles.py", "tour.py", "bracket.py"))).hexdigest()[:12]
 ENGINE_MODEL = {"name": "studio.engine.render", "version": f"{ENGINE_VERSION}+{ENGINE_HASH}"}
 
 
@@ -772,8 +777,31 @@ def whole_camera(shot: dict, img_size, W: int, H: int, *, preset: str = "HOLD") 
             "z_max": z_end, "fit_scale": s, "z_rel_max": 1.0, "creep_z": z_end, "opens_whole": True}
 
 
+def exception_camera(shot: dict, img_size, W: int, H: int, *, exc, preset: str, cap: float, words=None,
+                     avoid=None) -> dict:
+    """A50 (founder ruling 3): a still under ``fill_exception`` moves in to one
+    DETAIL inside its own shape and back out to the whole
+    (``bracket.plan``: whole, push, hold, pull, whole), within the softness cap
+    on the 1080p master and the face cap; with no subject, or no time for the
+    bracket with its settles, it keeps A41's whole + creep (``whole_camera``),
+    and ``bracket_why`` says why. A written ``camera`` the bracket cannot draw
+    as written carries its ``problems`` (tour-path refuses them, A43)."""
+    item = shot.get("_item") or {}
+    declared = item.get("whole") is True and "whole" not in ((shot.get("_vision") or {}).get("from_rulebook") or [])
+    br = BR.plan(shot, item, img_size, W, H, words=words or [], t0=float(shot.get("start_s") or 0.0),
+                 dur=float(shot["_dur"]), cap=cap, avoid=avoid, declared_whole=declared)
+    if not br["ok"]:
+        return dict(whole_camera(shot, img_size, W, H), fill_exception=exc, declared_preset=preset,
+                    bracket_why=br["why"], problems=list(br["problems"]))
+    s = min(W / img_size[0], H / img_size[1])
+    return {"path": br["path"], "clamp": "native", "fill_ok": False, "preset": "HOLD", "open_s": 0.0,
+            "move_s": float(shot["_dur"]), "z_max": br["z_max"], "fit_scale": s, "z_rel_max": br["z_max"],
+            "creep_z": br["z_open"], "opens_whole": True, "fill_exception": exc, "declared_preset": preset,
+            "bracket": br, "problems": []}
+
+
 def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words=None, cover=False,
-                 cap: float | None = None, fps: float | None = None, hold_on=()) -> dict:
+                 cap: float | None = None, fps: float | None = None, hold_on=(), avoid=None) -> dict:
     """The still's camera (A41, TOUR): a path of stops in picture coordinates
     (studio/engine/tour.py) that fills 16:9 on every frame, drawn by
     ``overlays.framing_at``. The path is the shot's ``camera`` (a list of
@@ -790,9 +818,14 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
     holds that pass on each of them. Under ``no_zoom`` a preset that zooms
     (PUSH, PULL, DRIFT, TILT, DETAIL) keeps its moves at z 1: drift only. A
     still the
-    softness cap cannot fill states ``fill_exception`` and is held whole (A7).
+    softness cap cannot fill states ``fill_exception`` and is shown whole (A7),
+    then one detail and back to the whole where it can (A50, ``exception_camera``).
     FIND (A32) keeps its own camera, held at the fill. ``words`` are the
-    narration's words over the shot (tour.shot_words), for ``at`` anchors."""
+    narration's words over the shot (tour.shot_words), for ``at`` anchors.
+    ``avoid`` (A49, ``subject-under-text`` steering): ``[(box, zone), ...]``
+    must_show boxes and the house text zones active over this shot, passed
+    to the A47 default pass (``tour.subject_plan``) only; a written
+    ``camera`` path is never steered."""
     iw, ih = img_size
     s = min(W / iw, H / ih)
     fw, fh = iw * s, ih * s
@@ -806,7 +839,7 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
     if exc is not None:
         if preset == OV.FIND:
             return dict(OV.find_camera(shot, img_size, W, H, open_s=OPEN_S), opens_whole=True, fill_exception=exc)
-        return dict(whole_camera(shot, img_size, W, H), fill_exception=exc, declared_preset=preset)
+        return exception_camera(shot, img_size, W, H, exc=exc, preset=preset, cap=cap, words=words, avoid=avoid)
     if preset == OV.FIND:                     # A32 under A41: the sheet's own moves, at the fill on every frame
         cam = OV.find_camera(dict(shot, fill_ok=True), img_size, W, H, open_s=OPEN_S)
         zf = max(W / fw, H / fh)
@@ -847,7 +880,7 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
                                                                 or [])
         st, subject = T.subject_plan(shot, item, roi, persons, words or [], img_size, aspect, dur, t0, zmax,
                                      need_whole=need, focus=focus, match_screen=shot.get("_match_screen"),
-                                     declared_whole=declared, hold_on=hold_on, hz=fps or FPS)
+                                     declared_whole=declared, hold_on=hold_on, hz=fps or FPS, avoid=avoid)
         return st
     if camera is not None and shot.get("preset") is not None:
         problems.append("a shot takes a camera path or a preset, not both")
@@ -894,6 +927,9 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
     stops, reframed = T.degrade_bindings(stops, dur, item, roi_by_name, persons, img_size, aspect, zmax,
                                          no_zoom=no_zoom)
     stops = T.cap_faces(stops, persons, img_size, aspect)
+    # A49 refined: one stop for one framing (before the face cap's own pass, which judges the merged path)
+    stops, merged = degenerate_merge(stops, shot, item, dur, img_size, aspect, zmax, no_zoom=no_zoom, hz=fps or FPS,
+                                     persons=persons)
     stops, pulled = T.enforce_face_cap(stops, persons, dur, img_size, aspect, zmax, no_zoom=no_zoom,
                                        hz=fps)               # A44: the face cap sampled at every master frame
     if shot.get("match") == "prev" and stops:
@@ -916,16 +952,50 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
                        last_frame={k: round(last[k], 4) for k in ("x", "y", "z")},
                        reversals=T.reversals(tl))
         subject["point"] = [round(v, 4) for v in subject["point"]]
+    # A49 settle-before-move: a stop's picture-class kind (face, person, text, ...), from the named region it
+    # visited (``tour.tour_stops``'s and ``tour.parse_path``'s own ``roi`` field on the stop), keyed by its time;
+    # an unnamed stop (most of the A47 default pass) carries no kind and settles to the plain 1.0 s floor
+    settle_kinds = {round(st["t"], 3): roi_by_name[st["roi"]].get("kind") for st in tl["stops"]
+                    if st.get("roi") and st["roi"] in roi_by_name and roi_by_name[st["roi"]].get("kind")}
     return {"path": frame_path, "clamp": "image", "fill_ok": True, "preset": TOUR, "macro": macro, "open_s": 0.0,
             "z_max": zf * tl["z_max"], "fit_scale": s, "z_rel_max": max(max(1.0, float(st["z"])) for st in asked),
             "tour": tl, "W": W, "H": H, "opens_whole": False, "problems": problems, "zcap": zcap, "cap": cap,
             "covering": covering, "cover": (("whole" if cover is True else cover) if covering else None),
-            "capped": any(st.get("capped") for st in stops), "subject": subject,
+            "capped": any(st.get("capped") for st in stops), "subject": subject, "settle_kinds": settle_kinds,
             "cine": {"persons": persons, "regions": roi_by_name, "ignored": eff["ignored"], "reframed": reframed,
-                     "pulled": pulled}}
+                     "pulled": pulled, "merged": merged}}
 
 
-def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journal | None, fps: float = FPS) -> dict:
+def degenerate_merge(stops: list[dict], shot: dict, item: dict, dur: float, size, aspect: float, zmax: float, *,
+                     no_zoom: bool, hz: float, persons: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+    """A49 refined (``degenerate-stops``): the engine's near-equal stops under a settle apart become one
+    (``tour.merge_degenerate``), only when the merged path keeps every truth guarantee the path as placed had:
+    every person it showed still seen, the whole picture still shown if it was (A7), every ``must_show``
+    region still seen, and no face or person (``persons``) framed past the face cap where it was not (A43).
+    Otherwise the stops stay as placed (the lint then names the pair). Returns (stops, merged: what was
+    merged, empty when nothing was)."""
+    if not T.degenerate_pairs(stops, size, aspect):
+        return stops, []
+    people = T.people_of(item, kind=shot.get("kind", "archive_still"))
+
+    def truth(st):
+        tl = T.build(st, dur, size, aspect, zmax, no_zoom=no_zoom)
+        w = T.windows_of(tl, hz)
+        pc = T.people_check(w, people, size)
+        faces = {n for v in (T.face_cap_check(tl, persons, hz) if persons else []) for n in v["people"]}
+        return set(pc["missed"]), pc["whole_shown"], set(T.must_show(w, item, size)), faces
+
+    missed0, whole0, ms0, faces0 = truth(stops)
+
+    def keeps_truth(st):
+        missed1, whole1, ms1, faces1 = truth(st)
+        return not (missed1 - missed0 or (whole0 and not whole1) or ms1 - ms0 or faces1 - faces0)
+
+    return T.merge_degenerate(stops, size, aspect, accept=keeps_truth)
+
+
+def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journal | None, fps: float = FPS,
+                 avoid=None, text_spans=None) -> dict:
     """A41, A43 and A47: a path the engine made (a preset, the default, or
     the ``tour`` resolver's visits, re-framed or not) can never fail
     tour-people. Its windows are checked against every person in the picture
@@ -937,7 +1007,22 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
     roi, must_show): then the path is the author's, and a reviewer item. The
     default pass itself is never widened for coverage alone: what it leaves
     unseen is the subject's choice (``tour-partial``). A path a person wrote
-    (``camera`` stops) is never changed here."""
+    (``camera`` stops) is never changed here. ``avoid`` (A49) is carried into
+    every re-covered pass, the same as the first.
+
+    A49 (ruling 2, "the engine never refuses itself"): when a ``must_show``
+    region is still covered by an active text zone (``text_spans``) after
+    whatever the chosen preset, the default pass or ``aimed_breath`` already
+    tried to steer, this escalates once more to the subject pass (the same
+    one missing-person coverage escalates to, now ``avoid``-aware); if that
+    still does not clear it, the engine keeps its best attempt and journals
+    a reviewer item, never a refusal. Only a written ``camera`` path blocks
+    (``render.a49_tour_lints``), since it is never steered here.
+
+    A51: a ``subject`` region (a person's or the rulebook's) under HOLD is
+    never the author's path: the still takes the subject pass, with every
+    guarantee above; and a located face under live text is steered and
+    reported the same way as a ``must_show`` region (``_steer_from_text``)."""
     if cam.get("preset") != TOUR or not (cam.get("macro") in COVERABLE or cam.get("macro") == "TOUR"):
         return cam
     item = s["_item"]
@@ -956,12 +1041,16 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
     # person's region or must_show does
     roi = item.get("roi")
     human_roi = [r for r in roi if isinstance(r, dict) and T.source_of(r) == "human"] if isinstance(roi, list) else roi
-    authored = bool(human_roi or item.get("must_show")) or cam["macro"] in ("TOUR", "DEFAULT")
     macro = cam["macro"]
+    # A51 (a human subject leads): a still the ledger gives a ``subject`` region (a person's or the rulebook's) under
+    # HOLD, the preset that only says "stay", takes the A47 subject pass; only a written camera path or a deliberate
+    # move preset (PUSH, PULL, DRIFT, TILT, DETAIL, FILL) stays the author's
+    leads = macro == "HOLD" and has_subject_region(item)
+    authored = (bool(human_roi or item.get("must_show")) and not leads) or macro in ("TOUR", "DEFAULT")
     if item.get("whole") is True and macro != "DEFAULT" and macro != "TOUR" and pc["ok"]:
         # A47 and A48: a still the ledger declares whole holds at the fill, its breath a drift (aimed at what
         # must be seen), never a preset's push, whoever named its regions
-        cam = still_camera(s, size, W, H, words=words, cover="subject", fps=fps)
+        cam = still_camera(s, size, W, H, words=words, cover="subject", fps=fps, avoid=avoid)
         wins, pc = check(cam)
         if journal is not None:
             journal.decision("motion", f"{s['id']}: {macro} on a whole still made the A47 whole pass",
@@ -969,9 +1058,20 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
                              "aimed so every must_show region is whole at some point", unit=s["id"],
                              evidence={"subject": (cam.get("subject") or {}).get("src"),
                                        "whole_mode": (cam.get("subject") or {}).get("whole_mode")})
+    elif pc["ok"] and leads:
+        cam = still_camera(s, size, W, H, words=words, cover="subject", fps=fps, avoid=avoid)
+        wins, pc = check(cam)
+        if journal is not None and pc["ok"]:
+            journal.decision("motion", f"{s['id']}: HOLD on a still with a subject made the subject pass",
+                             "A51: a subject region (a person's or the rulebook's) leads under HOLD; the pass ends "
+                             "on it (A47), its must_show regions and people guarded as for any engine pass",
+                             unit=s["id"], evidence={"subject": (cam.get("subject") or {}).get("src"),
+                                                     "human": any(T.source_of(r) == "human" for r in human_roi or []
+                                                                  if isinstance(r, dict)
+                                                                  and r.get("name") == "subject")})
     elif pc["ok"] and not pc["whole_shown"] and not authored:
         why = f"it shows {100 * T.coverage(wins, size):.0f}% of the picture"
-        cam = still_camera(s, size, W, H, words=words, cover="subject", fps=fps)
+        cam = still_camera(s, size, W, H, words=words, cover="subject", fps=fps, avoid=avoid)
         wins, pc = check(cam)
         if journal is not None and pc["ok"]:
             journal.decision("motion", f"{s['id']}: {macro} made the default pass, ending on the subject",
@@ -980,9 +1080,9 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
                                                      "subject": (cam.get("subject") or {}).get("src")})
     ms = missed_must_show(cam, wins)
     if pc["ok"] and not ms:
-        return cam
+        return _steer_from_text(s, cam, size, W, H, words, journal, fps, avoid, text_spans, item)
     missed = pc["missed"]
-    cam = still_camera(s, size, W, H, words=words, cover="whole", fps=fps)
+    cam = still_camera(s, size, W, H, words=words, cover="whole", fps=fps, avoid=avoid)
     wins, pc = check(cam)
     held = []
     if not pc["ok"] or missed_must_show(cam, wins):
@@ -990,7 +1090,7 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
         names = set(missed_must_show(cam, wins))
         held = [p["box"] for p in people["boxes"] if not T.seen(wins, p["box"], size)]
         held += [T.roi_box(r) for r in item.get("roi") or [] if isinstance(r, dict) and r.get("name") in names]
-        cam = still_camera(s, size, W, H, words=words, cover="whole", fps=fps, hold_on=held)
+        cam = still_camera(s, size, W, H, words=words, cover="whole", fps=fps, hold_on=held, avoid=avoid)
         wins, pc = check(cam)                 # the held pass, checked again (tour-people judges it as drawn)
     if journal is not None:
         journal.decision("motion", f"{s['id']}: {macro} made a covering pass of the whole picture, ending on the "
@@ -1000,6 +1100,96 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
                          unit=s["id"], evidence={"people": people, "kind": s["kind"], "missed": missed,
                                                  "must_show_missed": ms, "held_on": len(held),
                                                  "now_shows_everyone": pc["ok"]})
+    return _steer_from_text(s, cam, size, W, H, words, journal, fps, avoid, text_spans, item)
+
+
+def has_subject_region(item: dict) -> bool:
+    """A51: the ledger (a person, or the A45 rulebook under them) names the
+    still's ``subject`` region, as the camera may use it
+    (``tour.effective_regions``)."""
+    return any(r.get("name") == "subject" and T.roi_box(r) is not None for r in T.effective_regions(item)["roi"])
+
+
+def _steer_from_text(s, cam, size, W, H, words, journal, fps, avoid, text_spans, item):
+    """A49 (ruling 2): the last step of ``engine_cover``. A must_show region
+    still covered by an active text zone escalates once to the subject pass
+    (``avoid``-aware); still covered, the engine keeps its closest attempt
+    and journals a reviewer item. Never a refusal here: only a written
+    ``camera`` path blocks (``a49_tour_lints``).
+
+    A51 (faces never): a located face (``tour.face_boxes``) under a live
+    lower third or subtitle cue while it is up is steered the same way: the
+    subject pass, ``avoid``-aware, taken only when it puts fewer faces under
+    the text, shows every located person and every must_show region, and
+    covers no more must_show regions than the pass it replaces; a face it
+    cannot clear is a ``face-under-text`` reviewer item, never a refusal."""
+    must_show_rois = T.must_show_regions(item)
+    faces = T.face_boxes(item)
+    if not (must_show_rois or faces) or not text_spans:
+        return cam
+
+    def missed_text(c):
+        if c.get("tour") is None:
+            return []
+        tw = still_windows(c, s, size, W, H, hz=fps)
+        out = []
+        for r in must_show_rois:
+            box = T.roi_box(r)
+            if box is None:
+                continue
+            res = TL.subject_under_text(tw, box, size, text_spans=text_spans, is_face=r.get("kind") == "face",
+                                        must_show=True)
+            if res["block"]:
+                out.append(r.get("name"))
+        return out
+
+    def faces_under(c):
+        if c.get("tour") is None or not faces:
+            return []
+        return TL.face_under_text(still_windows(c, s, size, W, H, hz=fps), faces, size, text_spans=text_spans)
+
+    ms_text = missed_text(cam) if must_show_rois else []
+    if ms_text and cam.get("macro") != "DEFAULT":
+        cam2 = still_camera(s, size, W, H, words=words, cover="subject", fps=fps, avoid=avoid)
+        still_missed = missed_text(cam2)
+        if journal is not None:
+            journal.decision("motion", f"{s['id']}: steered clear of an active text zone"
+                             if not still_missed else f"{s['id']}: steering could not clear an active text zone",
+                             "A49 (ruling 2, the engine never refuses itself): a must_show region under a lower "
+                             "third or a subtitle while it is up is steered clear of it (the subject pass, "
+                             "avoid-aware) rather than refused", unit=s["id"],
+                             evidence={"must_show": ms_text, "cleared": not still_missed})
+        cam, ms_text = cam2, still_missed
+    if ms_text and journal is not None:
+        journal.lint("subject-under-text", False, stage="motion", unit=s["id"], severity="review", grammar="A49",
+                     phase="preflight", evidence={"must_show": ms_text,
+                     "check": "no steer the engine tried clears every must_show region of an active text zone; "
+                              "a human can re-time the text, move the region or re-author the camera (never "
+                              "refused here: ruling 2)"})
+    under = faces_under(cam)
+    if under and cam.get("macro") != "DEFAULT" and cam.get("cover") != "subject":
+        cam2 = still_camera(s, size, W, H, words=words, cover="subject", fps=fps, avoid=avoid)
+        under2 = faces_under(cam2)
+        wins2 = [w for _, w in still_windows(cam2, s, size, W, H, hz=fps)]
+        keeps = (T.people_check(wins2, T.people_of(item, kind=s["kind"]), size)["ok"]
+                 and not T.must_show(wins2, item, size) and len(missed_text(cam2)) <= len(ms_text))
+        better = keeps and len(under2) < len(under)
+        if journal is not None:
+            journal.decision("motion", f"{s['id']}: a face steered out from under live text" if better else
+                             f"{s['id']}: the subject pass would not clear a face of live text: kept",
+                             "A51 (faces never; ruling 2, the engine never refuses itself): a located face under "
+                             "a lower third or a subtitle while it is up is steered like a must_show region (the "
+                             "subject pass, avoid-aware), never at the cost of a person or a must_show region",
+                             unit=s["id"], evidence={"faces": [r["name"] for r in under],
+                                                     "after": [r["name"] for r in under2], "taken": better})
+        if better:
+            cam, under = cam2, under2
+    if under and journal is not None:
+        journal.lint("face-under-text", False, stage="motion", unit=s["id"], severity="review", grammar="A51",
+                     phase="preflight", evidence={"faces": under,
+                     "check": "a located face is under a live lower third or subtitle while it is up, and no steer "
+                              "the engine tried clears it; a human can re-time the text, re-author the camera or "
+                              "cut differently (never refused: ruling 2)"})
     return cam
 
 
@@ -1197,7 +1387,7 @@ def still_windows(cam: dict, s: dict, size, W: int, H: int, hz: float = FPS) -> 
     return out
 
 
-def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int, fps: float = FPS) -> None:
+def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int, fps: float = FPS) -> dict | None:
     """A41 at plan time, for a still that tours (or a FIND held at the fill).
     Blocking: the path as written (tour-path), its narration anchors
     (tour-anchor), every frame filled inside the picture (tour-fills), the
@@ -1208,8 +1398,12 @@ def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int,
     picture shown). Warnings (pacing is guidance, A39): a pan or zoom past
     the speed guides (tour-speed), a hold that cannot creep (tour-held).
     Reviewer items: a ``must_show`` region never shown (tour-must-show), a
-    path that never shows the whole picture (tour-partial)."""
+    path that never shows the whole picture (tour-partial). Returns the
+    ``tour-speed`` report (or None off the TOUR preset), so A49's
+    ``pan-speed-px`` can warn only when this outer ceiling has already
+    passed (never double-warned)."""
     dur = float(s["_dur"])
+    sp = None
     probs = cam.get("problems") or []
     anchor = [p for p in probs if p.startswith("anchor:")]
     other = [p for p in probs if not p.startswith("anchor:")]
@@ -1292,6 +1486,7 @@ def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int,
                                                            "out is the author's choice (A41: full visibility comes "
                                                            "from touring the whole surface)"})
     subject_lints(journal, s, cam, people)
+    return sp
 
 
 def subject_lints(journal: Journal, s: dict, cam: dict, people: dict) -> None:
@@ -1332,6 +1527,120 @@ def subject_lints(journal: Journal, s: dict, cam: dict, people: dict) -> None:
                                               "macro": cam.get("macro"), "fix": "every person here is located: "
                                               "end on the subject in one sweep (a path that passes over each of "
                                               "them), or cut between two stills"})
+
+
+def a49_tour_lints(lint, journal: Journal, s: dict, cam: dict, size, fps: float, sp: dict | None,
+                   text_spans: list[dict], must_show_rois: list[dict]) -> None:
+    """Cinematography ticket #4 (GRAMMAR A49): the tour lints beyond A41 and
+    A47, at plan time. Blocking: ``subject-under-text`` on a ``must_show``
+    region still covered by an active text zone (``text_spans``: the LT and
+    SUB zones on screen over this shot, ``text_zone_timeline``) once A47's
+    ``end_pose`` has had its chance to steer clear of it (``avoid``, built
+    by the caller from the same regions and zones); a written ``camera``
+    path is refused as written too, since it is never steered (A43's own
+    rule: only what the engine placed is re-framed). Every other check here
+    warns (pacing and framing choice are the founder's to judge, A39):
+    ``pan-speed-px`` and ``zoom-speed`` (the 7-second rule, tighter guides
+    beside ``tour-speed``'s outer ceiling in ``tour_lints``, warned only
+    once that ceiling has already passed, so nothing double-warns);
+    ``settle-before-move`` (``cam["settle_kinds"]``, a named region's own
+    kind); ``min-move-after-cut`` (waived when the first move continues one
+    already running across the cut: a ``match: "prev"`` opening, or a
+    dissolve); ``end-pose-composition``'s borderline flag and ``lead-room``
+    (both read A47's own verdict, never a second measurement); and
+    ``subject-under-text`` at the warn share for the subject itself (a face
+    at any overlap with live text, A51). A51's ``face-under-text`` on a
+    written path warns for every located face under live text (a
+    ``must_show`` face blocks through ``subject-under-text``); on an engine
+    path ``engine_cover`` already steered it and journaled what it could
+    not clear."""
+    tl = cam.get("tour")
+    if not tl:
+        return
+    if sp is None or sp.get("ok"):
+        pan = TL.pan_speed_px(tl, fps)
+        journal.lint("pan-speed-px", pan["ok"], stage="motion", unit=s["id"], severity="warn", grammar="A49",
+                     phase="preflight", evidence=dict(pan, fix=None if pan["ok"] else
+                                                      "a point should take at least 7 s to cross the frame"))
+        zoom = TL.zoom_speed_cruise(tl, fps)
+        journal.lint("zoom-speed", zoom["ok"], stage="motion", unit=s["id"], severity="warn", grammar="A49",
+                     phase="preflight", evidence=dict(zoom, fix=None if zoom["ok"] else "a 5%/s cruise or slower"))
+    settle = TL.settle_before_move(tl, kinds=cam.get("settle_kinds"))
+    if settle:
+        journal.lint("settle-before-move", False, stage="motion", unit=s["id"], severity="warn", grammar="A49",
+                     phase="preflight", evidence={"violations": settle,
+                                                  "fix": "hold at least 1.0 s (1.5 s for text, a face or a person) "
+                                                         "before the next leg"})
+    stops0 = tl["stops"][0] if tl["stops"] else {}
+    continues = stops0.get("match") == "prev" or (s.get("transition_in") or {}).get("type") == "dissolve"
+    mv = TL.min_move_after_cut(tl, continues_across_cut=continues)
+    if not mv["ok"]:
+        journal.lint("min-move-after-cut", False, stage="motion", unit=s["id"], severity="warn", grammar="A49",
+                     phase="preflight", evidence=dict(mv, fix="settle before the cut, or carry the move across it "
+                                                               "with match: \"prev\" or a dissolve"))
+    deg = TL.degenerate_stops(tl)
+    if not deg["ok"]:
+        journal.lint("degenerate-stops", False, stage="motion", unit=s["id"], severity="warn", grammar="A49 refined",
+                     phase="preflight", evidence=dict(deg, fix="one stop for one framing: drop one of the pair, or "
+                                                               "move it so the eye sees a new window"))
+    verdict = (cam.get("subject") or {}).get("last")
+    if verdict is not None:
+        comp = TL.end_pose_composition(verdict)
+        if comp["borderline"]:
+            journal.lint("end-pose-composition", True, stage="motion", unit=s["id"], severity="review",
+                         grammar="A49", phase="preflight",
+                         evidence={"axes": comp["borderline_axes"], "verdict": comp["verdict"],
+                                   "check": "a composition within half a bin of the golden band's edge: reported, "
+                                            "never flipped"})
+        lead = TL.lead_room_check(verdict)
+        if lead["applies"] and not lead["ok"]:
+            journal.lint("lead-room", False, stage="motion", unit=s["id"], severity="warn", grammar="A49",
+                         phase="preflight", evidence=dict(lead, fix="give the subject at least as much room ahead "
+                                                                     "as behind, on the axis it faces"))
+    if not text_spans:
+        return
+    wins = TL.frame_windows(tl, fps)
+    sub = cam.get("subject") or {}
+    # A52: a subject that is itself a must_show region is reported once, by the must_show check below (or by
+    # engine_cover's reviewer item), never twice with the same overlap
+    sub_is_must = sub.get("box") is not None and any(
+        T.roi_box(r) is not None and all(abs(a - b) <= 1e-3 for a, b in zip(T.roi_box(r), sub["box"]))
+        for r in must_show_rois)
+    if sub.get("box") is not None and not sub_is_must:
+        res = TL.subject_under_text(wins, sub["box"], size, text_spans=text_spans, is_face=sub.get("kind") == "face",
+                                    must_show=False)
+        if not res["ok"]:
+            journal.lint("subject-under-text", False, stage="motion", unit=s["id"], severity="warn", grammar="A49",
+                         phase="preflight", evidence={"must_show": None, **res})
+    written = isinstance(s.get("camera"), list)      # A43's own signal: the stops of a camera list, a person's own
+    for r in must_show_rois:
+        box = T.roi_box(r)
+        if box is None:
+            continue
+        res = TL.subject_under_text(wins, box, size, text_spans=text_spans, is_face=r.get("kind") == "face",
+                                    must_show=True)
+        if res["block"] and written:
+            # A49 (ruling 2): only a path a person wrote is refused as written; an engine path is never refused
+            # here (render.engine_cover's _steer_from_text already steered it, or journaled a review item)
+            lint("subject-under-text", False, unit=s["id"], stage="motion", grammar="A49",
+                 evidence={"must_show": r.get("name"), **res,
+                           "fix": "a must_show region is covered by a text zone while it is up: re-time or move "
+                                  "the text, or free the region (a written camera path, so it is refused as "
+                                  "written; A43's own rule)"})
+        elif not res["ok"] and not res["block"]:
+            journal.lint("subject-under-text", False, stage="motion", unit=s["id"], severity="warn", grammar="A49",
+                         phase="preflight", evidence={"must_show": r.get("name"), **res})
+    if written:
+        # A51: a face under live text on a path a person wrote is a warning (a face is not must_show; a must_show
+        # face blocks above, as any must_show region does); an engine path was steered in engine_cover, and what
+        # it could not clear is already a reviewer item there
+        under = [f for f in TL.face_under_text(wins, T.face_boxes(s.get("_item") or {}), size, text_spans=text_spans)
+                 if not f["must_show"]]
+        if under:
+            journal.lint("face-under-text", False, stage="motion", unit=s["id"], severity="warn", grammar="A51",
+                         phase="preflight", evidence={"faces": under, "fix": "a written camera path puts a face "
+                                                      "under a lower third or a subtitle while it is up: re-time the "
+                                                      "text or move the stop"})
 
 
 def cine_lints(lint, journal: Journal, s: dict, cam: dict, fps: float = FPS) -> None:
@@ -1429,11 +1738,15 @@ def ml_upscale_lint(lint, s: dict) -> None:
                        "fix": None if okm else "a learned upscale is RECONSTRUCTED 'upscaled', on any camera"})
 
 
-def fill_exception_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int) -> None:
+def fill_exception_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int,
+                         fps: float = FPS) -> None:
     """A41: ``fill_exception`` holds a still whole only where the fill would
     pass the softness cap on the 1080p master (the house master decides, so a
     film renders the same way at every delivery), and it states why.
-    Journaled and a reviewer item."""
+    Journaled and a reviewer item. A50: a written camera the bracket cannot
+    draw is refused (tour-path, tour-anchor); a bracket is checked for the
+    softness cap on the master and for every person over its frames, and
+    its detail and timing, or why the shot keeps whole + creep, journaled."""
     exc = s.get("fill_exception")
     cap = float(s.get("_fill_max_upscale") or STILL_MAX_UPSCALE)
     mw, mh = RESOLUTIONS[1080]
@@ -1447,12 +1760,47 @@ def fill_exception_lints(lint, journal: Journal, s: dict, cam: dict, size, W: in
                        "state the reason, a sentence" if needed else
                        f"this picture fills the 1080p master at {fill_up:.2f}x, within {cap:g}x: every still fills "
                        "(A41); drop fill_exception")})
+    br = cam.get("bracket")
     journal.decision("motion", f"{s['id']}: fill_exception, held whole ({exc})",
                      f"A41: the fill would magnify the source {fill_up:.2f}x on the 1080p master, over {cap:g}x; "
                      "held whole (A7)", unit=s["id"], evidence={"master_fill_upscale": round(fill_up, 4), "max_upscale": cap})
-    journal.lint("tour-exception-review", True, stage="motion", unit=s["id"], severity="review", grammar="A41",
-                 phase="preflight", evidence={"check": "the still is held whole, pillarboxed, under its stated exception",
-                                              "fill_exception": exc})
+    journal.lint("tour-exception-review", True, stage="motion", unit=s["id"], severity="review", grammar="A41, A50",
+                 phase="preflight", evidence={"check": (f"the still is shown whole, pillarboxed, under its stated "
+                                                        f"exception, moves in {BR.copy_phrase(cam)} and back out to "
+                                                        "the whole"
+                                                        if br else "the still is held whole, pillarboxed, under its "
+                                                        "stated exception"), "fill_exception": exc})
+    # A50 (founder ruling 3): one DETAIL inside the whole, or why the shot keeps whole + creep
+    probs = cam.get("problems") or []
+    anchor = [p for p in probs if p.startswith("anchor")]
+    other = [p for p in probs if not p.startswith("anchor")]
+    if isinstance(s.get("camera"), list) or probs:
+        lint("tour-path", not other, unit=s["id"], stage="motion", grammar="A41, A43, A50",
+             evidence={"problems": other, "camera": s.get("camera"), "fill_exception": exc,
+                       "fix": None if not other else "one stop {roi} or {x, y, z} (z the zoom of the whole), "
+                                                     "within the cap, with time for the whole at both ends"})
+        lint("tour-anchor", not anchor, unit=s["id"], stage="motion", grammar="A41, A43",
+             evidence={"problems": anchor})
+    if br is None:
+        journal.decision("motion", f"{s['id']}: fill_exception, whole + creep (no detail)",
+                         f"A50: {cam.get('bracket_why') or 'no detail'}", unit=s["id"],
+                         evidence={"why": cam.get("bracket_why"), "creep_z": round(cam.get("creep_z", 1.0), 4)})
+        return
+    d, tm = br["detail"], br["timing"]
+    up = BR.master_scale(size) * br["z_max"]
+    lint("tour-softness", up <= cap + 1e-6, unit=s["id"], stage="motion", grammar="A5, A41, A50",
+         evidence={"deepest_upscale": round(up, 4), "max_upscale": cap, "at": "1080p", "detail": d})
+    wins = [w for _, w in still_windows(cam, s, size, W, H, hz=fps)]   # every frame at the master rate (A44)
+    people = T.people_of(s.get("_item") or {}, kind=s.get("kind", "archive_still"))
+    r = T.people_check(wins, people, size)
+    lint("tour-people", r["ok"], unit=s["id"], stage="motion", grammar="A7, A41, A50", evidence=r)
+    missed = T.must_show(wins, s.get("_item") or {}, size)
+    if missed:
+        journal.lint("tour-must-show", True, stage="motion", unit=s["id"], severity="review", grammar="A41",
+                     phase="preflight", evidence={"never_shown": missed})
+    journal.decision("motion", f"{s['id']}: fill_exception, a {d['scale']} inside the whole ({d['why']})",
+                     "A50 (founder ruling 3): whole, push in to one detail within the softness cap, hold, pull back "
+                     "to the whole before the cut", unit=s["id"], evidence={"detail": d, "timing": tm})
 
 
 def continuity_lints(journal: Journal, shots: list[dict], W: int, H: int) -> None:
@@ -2053,8 +2401,51 @@ def fit_voices(play: dict, film: Path, journal: Journal, gap: float = VOICE_GAP_
     return play
 
 
+def text_zone_timeline(play: dict, texts: list[dict]) -> list[dict]:
+    """A49 (``subject-under-text``, section 4): every lower third's and
+    subtitle cue's ``{t0, t1, zone, box, id}`` (absolute film seconds, the
+    house zone's name and frame-fraction box, and the lower third's or the
+    cue's own id, so the report names what was up, not just "text"), read
+    from the same source (``texts``, the screenplay's own ``text``
+    elements; ``play["subtitle_source"]``) the on-screen-text pass reads
+    later in this function, so steering and the lint never drift from what
+    the film actually shows. A lower third's span is clipped the same way
+    it is drawn (``motion.lower_third_span``, A16). Subtitles count here
+    whether or not they are burned (``burn_subtitles``): soft captions are
+    the web player's own on-screen text over the same ``SUB`` band, so a
+    must_show region is checked against them either way. The glyph
+    (``ZONES["GLYPH"]``) is not listed: it is on every frame (A31/A42) and
+    is handled separately."""
+    out = []
+    for t in texts:
+        if t.get("kind") == "lower_third":
+            try:
+                shown = M.lower_third_span(float(t["start_s"]), float(t["end_s"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            out.append({"t0": shown[0], "t1": shown[1], "zone": "LT", "box": M.ZONES["LT"], "id": t.get("id")})
+    for c in play.get("subtitle_source") or []:
+        if not isinstance(c, dict):
+            continue
+        try:
+            a, b = float(c["start_s"]), float(c["end_s"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if b > a:
+            out.append({"t0": a, "t1": b, "zone": "SUB", "box": M.ZONES["SUB"], "id": c.get("ref")})
+    return out
+
+
 def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Journal, play: dict | None = None,
-               write_overlays: bool = True) -> dict:
+               write_overlays: bool = True, draft: bool = False, voice_lints: str = "run",
+               until_s: float | None = None) -> dict:
+    """The film's plan, every plan-time lint journaled and every blocking
+    one refused. Last, the take-only sound lints (take_lints: A13, A14,
+    A19, A38 on the takes) at the severity the mix gives them, ``draft``
+    making them warnings as it does there; ``voice_lints`` "off" skips them
+    (a preview tool's plan, which also passes ``write_overlays`` False).
+    ``until_s`` (a check render's --until) only words a take refusal: the
+    plan is the whole film's, and a refused take past the span is named so."""
     play = play if play is not None else json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
     if "parts" not in play:
         raise Refused("screenplay.json has no parts: it is not format v2 (GRAMMAR 12); studio/sketch.py renders v1")
@@ -2314,6 +2705,10 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     cine_schema_lints(lint, journal, stills, lambda x: T.shot_words(words_src or [], x["start_s"], x["end_s"]))
     if lint_fail:
         raise Refused("lint failed: " + "; ".join(lint_fail))
+    # A49 (cinematography ticket #4): every lower third's and subtitle cue's on-screen span, read once (the same
+    # source the on-screen-text pass below reads), so the camera can steer a must_show region clear of one while
+    # it is up, and subject-under-text can block what steering could not clear
+    zone_timeline = text_zone_timeline(play, texts)
     for si, s in enumerate(shots):
         if s["kind"] in ("archive_still", "drawn") and s.get("_item", {}).get("_path"):
             if s["kind"] == "drawn" and s.get("camera") is None:
@@ -2326,23 +2721,41 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             s["_fill_max_upscale"] = (settings["fill_max_upscale"] if "fill_max_upscale" in settings_stated
                                       else STILL_MAX_UPSCALE)
             words = T.shot_words(words_src or [], s["start_s"], s["end_s"])
-            cam = still_camera(s, size, W, H, words=words, fps=fps)
-            cam = engine_cover(s, cam, size, W, H, words, journal, fps=fps)
+            item = s.get("_item") or {}
+            must_show_rois = T.must_show_regions(item)
+            shot_a, shot_b = float(s["start_s"]), float(s["start_s"]) + float(s["_dur"])
+            text_spans = [{"zone": "glyph", "id": None, "box": M.ZONES["GLYPH"], "t0": 0.0, "t1": float(s["_dur"])}]
+            text_spans += [{"zone": z["zone"], "id": z["id"], "box": z["box"], "t0": max(0.0, z["t0"] - shot_a),
+                            "t1": min(float(s["_dur"]), z["t1"] - shot_a)} for z in zone_timeline
+                           if z["t0"] < shot_b and z["t1"] > shot_a]
+            active_zones = [z["box"] for z in zone_timeline if z["t0"] < shot_b and z["t1"] > shot_a]
+            # A49: every must_show box against every zone up over the shot; A51: every located face too ("faces
+            # never"), steered the same way, never a fit requirement and never a refusal
+            avoid = ([(T.roi_box(r), zone) for r in must_show_rois for zone in active_zones]
+                     + T.face_avoid(item, active_zones)) or None
+            cam = still_camera(s, size, W, H, words=words, fps=fps, avoid=avoid)
+            cam = engine_cover(s, cam, size, W, H, words, journal, fps=fps, avoid=avoid, text_spans=text_spans)
             s["_cam"] = cam
             fill_lints(lint, journal, s, cam)
             ml_upscale_lint(lint, s)
             if cam["preset"] == TOUR or cam.get("a41"):
-                tour_lints(lint, journal, s, cam, size, W, H, fps=fps)
+                sp = tour_lints(lint, journal, s, cam, size, W, H, fps=fps)
+                a49_tour_lints(lint, journal, s, cam, size, fps, sp, text_spans, must_show_rois)
                 if cam["preset"] == OV.FIND:
                     lint("still-zoom-limit", cam["z_rel_max"] <= cam["scan_zmax"] + 1e-9, unit=s["id"], stage="motion",
                          grammar="7.2, A32", evidence={"preset": OV.FIND, "z_max": round(cam["z_rel_max"], 4),
                                                        "limit": round(cam["scan_zmax"], 4), "face": bool(s.get("face"))})
             else:
                 if cam.get("fill_exception") is not None:
-                    fill_exception_lints(lint, journal, s, cam, size, W, H)
+                    fill_exception_lints(lint, journal, s, cam, size, W, H, fps=fps)
                 if cam["preset"] == OV.FIND:
                     limit = cam["scan_zmax"]
                     ok = cam["z_rel_max"] <= limit + 1e-9
+                elif cam.get("bracket") is not None:
+                    # A50: the detail goes as deep as the softness cap (and the face cap) allows; the opening's
+                    # breath stays inside whole_creep_max
+                    limit = cam["bracket"]["z_limit"]
+                    ok = cam["z_rel_max"] <= limit + 1e-9 and cam.get("creep_z", 1.0) <= M.TOUR["whole_creep_max"] + 1e-9
                 else:
                     limit = PRESET_ZMAX.get(cam["preset"], 1.0)
                     ok = cam["z_rel_max"] <= limit + 1e-9 and cam["z_rel_max"] <= 1.3 + 1e-9
@@ -2364,7 +2777,8 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                 journal.lint("fill-ok", True, stage="motion", unit=s["id"], severity="review", grammar="A7, A41", phase="preflight",
                              evidence={"fill_ok": cam["fill_ok"], "preset": cam["preset"], "macro": cam.get("macro"),
                                        "check": ("Every person in the photograph is inside the frame at some point in this shot."
-                                                 if cam["fill_ok"] else "Held whole under a fill exception (A41).")})
+                                                 if cam["fill_ok"] else f"Shown whole under a fill exception, then moves in {BR.copy_phrase(cam)} and back to the whole (A41, A50)."
+                                                 if cam.get("bracket") else "Held whole under a fill exception (A41).")})
             if s.get("fill_ok") is False and cam["preset"] == TOUR:
                 journal.decision("motion", f"{s['id']}: fill_ok: false no longer holds a still whole",
                                  "A41: every still fills 16:9; a still kept whole states fill_exception (only when the "
@@ -2800,6 +3214,19 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                                  evidence={"clip": x["clip"], "speaker": x["speaker"]})
         if lint_fail:
             raise Refused("lint failed: " + "; ".join(lint_fail))
+    # ticket preflight-voice: the takes' own sound lints, before any render (a voice refusal used to surface only in
+    # the mix, after HEAVY.lock); cached by take sha, and not journaled again by this run's mix
+    plan["_takes"] = take_lints(journal, plan, film, draft=draft, mode=voice_lints)
+    if plan["_takes"] and plan["_takes"]["refusal"]:
+        why = plan["_takes"]["refusal"]
+        if until_s is not None and until_s > 0:
+            # a check render (--until) is refused by a take it will not play: the plan judges every take in the film
+            kept = {ln["id"] for ln in trim_plan(plan, until_s)["lines"]}
+            outside = [lid for lid in plan["_takes"]["refused_lines"] if lid not in kept]
+            if outside:
+                why += (f" (refused by {', '.join(outside)} outside this check span; the plan judges every take in "
+                        "the film)")
+        raise Refused(why)
     return plan
 
 
@@ -3127,6 +3554,79 @@ def trim_plan(plan: dict, until_s: float) -> dict:
     out["card_spans"] = [(a, b) for a, b in plan["card_spans"] if a < end_s]
     out["until_s"] = until_s
     return out
+
+
+def parse_shots(arg: str | tuple | list) -> tuple[str, str]:
+    """``--shots <a>..<b>`` (inclusive; one id alone is that shot) as the pair of shot ids."""
+    if isinstance(arg, (tuple, list)):
+        if len(arg) != 2:
+            raise Refused(f"--shots {arg!r}: give two shot ids")
+        return str(arg[0]), str(arg[1])
+    a, sep, b = str(arg).strip().partition("..")
+    a, b = a.strip(), (b.strip() if sep else a.strip())
+    if not a or not b:
+        raise Refused(f"--shots {arg}: give <id>..<id>, both ends named (e.g. --shots 5.9..5.9bb)")
+    return a, b
+
+
+def shot_span(plan: dict, a: str, b: str) -> dict:
+    """The inclusive span of shots ``a``..``b`` on the FULL plan: its shot indices and its frames
+    ``[f0, f1)``, which are exactly the film's frames there (the span is rendered from the full plan).
+
+    Transitions at the edges play as they do in the film (the segment model's own choice): a shot owns
+    its incoming transition, so a dissolve into ``a`` blends the previous shot's picture into a's first
+    frames and a dip into ``a`` rises from black; at the far end, a dip into the next shot darkens b's
+    tail, and a dissolve into the next shot plays in that shot's frames, so the span ends where it begins
+    (b's last frame is b alone, as the film shows it). Unknown ids and a reversed range refuse."""
+    ids = [s["id"] for s in plan["shots"]]
+    for x in (a, b):
+        if x not in ids:
+            near = [i for i in ids if i.startswith(x.split(".")[0])][:12]
+            raise Refused(f"--shots {a}..{b}: no shot {x!r} in the screenplay"
+                          + (f" (shots like it: {', '.join(near)})" if near else ""))
+    i0, i1 = ids.index(a), ids.index(b)
+    if i0 > i1:
+        raise Refused(f"--shots {a}..{b}: reversed range ({a} plays after {b}); give the earlier shot first")
+    shots = plan["shots"]
+    f0, f1 = shots[i0]["f0"], shots[i1]["f1"]
+    fps = fps_of(plan)
+    tin = dict(shots[i0]["transition_in"])
+    nxt = dict(shots[i1 + 1]["transition_in"]) if i1 + 1 < len(shots) else None
+    edge_in = {"transition": tin.get("type", "cut"), "s": tin.get("s"),
+               "plays": {"dissolve": f"as in the film: {ids[i0 - 1] if i0 else '-'}'s picture dissolves into {a}",
+                         "dip": f"as in the film: {a} rises from the dip's black"}.get(tin.get("type"), "a cut")}
+    edge_out = {"transition": (nxt or {}).get("type", "end" if nxt is None else "cut"), "s": (nxt or {}).get("s"),
+                "plays": {"dissolve": f"ends where the dissolve into {ids[i1 + 1] if nxt else '-'} begins (it plays in that shot's frames)",
+                          "dip": f"as in the film: {b}'s tail falls into the dip's black"}.get((nxt or {}).get("type"), "a cut")}
+    return {"a": a, "b": b, "i0": i0, "i1": i1, "ids": ids[i0:i1 + 1], "f0": f0, "f1": f1, "frames": f1 - f0,
+            "t0_s": f0 / fps, "t1_s": f1 / fps, "duration_s": (f1 - f0) / fps, "edge_in": edge_in, "edge_out": edge_out}
+
+
+def span_samples(plan: dict, f0: int, f1: int, sr: int = AUDIO_RATE) -> tuple[int, int]:
+    """The audio samples ``[n0, n1)`` under frames ``[f0, f1)`` at the plan's exact master rate (A44):
+    frame k starts at sample round(k * sr / rate), so a span's sound lines up with its pictures to the sample."""
+    from fractions import Fraction
+    rate = Fraction(master_rate_of(plan))
+    return round(f0 * sr / rate), round(f1 * sr / rate)
+
+
+def slice_mix(x: np.ndarray, plan: dict, f0: int, f1: int, sr: int = AUDIO_RATE) -> np.ndarray:
+    """The full film's mix cut to frames ``[f0, f1)``, sample-aligned (zero-padded if the mix ends early)."""
+    n0, n1 = span_samples(plan, f0, f1, sr)
+    y = x[n0:n1]
+    if len(y) < n1 - n0:
+        y = np.concatenate([y, np.zeros((n1 - n0 - len(y),) + y.shape[1:], dtype=x.dtype)])
+    return y
+
+
+def span_view(plan: dict, span: dict) -> dict:
+    """The plan seen from the span's master: its shots, and the voice lines that start inside it, moved so the
+    span's first frame is time 0 (the post-render sync check measures them in the span's master)."""
+    f0, t0 = span["f0"], span["t0_s"]
+    shots = [dict(s, f0=s["f0"] - f0, f1=s["f1"] - f0) for s in plan["shots"][span["i0"]:span["i1"] + 1]]
+    lines = [dict(ln, start_s=float(ln["start_s"]) - t0) for ln in plan["lines"]
+             if t0 <= float(ln["start_s"]) < span["t1_s"]]
+    return dict(plan, shots=shots, lines=lines, frames=span["frames"], duration_s=span["duration_s"])
 
 
 # --------------------------------------------------------------------------
@@ -3714,13 +4214,15 @@ def opens_whole(s: dict) -> bool:
     return bool((s.get("_cam") or {}).get("opens_whole", True))
 
 
-def preflight_stills(plan: dict, journal: Journal) -> list[str]:
-    """A7's pixel check for every still, run before any frame is rendered: one
-    frame per still, its own layer. Returns the shots that are not whole."""
+def preflight_stills(plan: dict, journal: Journal, only: set[int] | None = None) -> list[str]:
+    """A7's pixel check for every still (or only those shots, a --shots span's), run before any frame is
+    rendered: one frame per still, its own layer. Returns the shots that are not whole."""
     pics = Pictures(plan)
     bad = []
     try:
         for i, s in enumerate(plan["shots"]):
+            if only is not None and i not in only:
+                continue
             if s["kind"] == "archive_still" and s.get("_cam") and opens_whole(s):
                 ev: dict = {}
                 ok = still_first_frame_whole(plan, pics, i, ev)
@@ -3819,7 +4321,9 @@ def cached_span(film: Path, src: str | Path, in_s: float, out_s: float, *, video
         try:
             info = json.loads(meta.read_text(encoding="utf-8"))
             if info.get("sha256") == sha256_file(out) and info.get("edges") == rec["edges"]:
-                return info
+                # the span is where it was found, not where it was cut: a cache folder copied elsewhere (another
+                # DOCUMENT_SPANS_CACHE) holds meta that still names the old folder
+                return dict(info, file=str(out))
         except (OSError, ValueError):
             pass
         _unlink_quietly(out)
@@ -4430,22 +4934,30 @@ def _level(journal: Journal, unit: str, x: np.ndarray, target: float, what: str)
     linear gain (never archival audio, which keeps its own level and
     dynamics), and journal the gain as a decision."""
     g, m = level_gain(x, target)
+    _journal_level(journal, unit, g, m, len(x), target, what)
+    return g
+
+
+def _journal_level(journal: Journal, unit: str, g: float | None, m: dict, n: int, target: float, what: str) -> None:
+    """_level's decision (and its level-measured warning when the line or cue
+    could not be measured), from the gain and measurement of an ``n``-sample
+    line; split out so a take's record from the plan-time cache journals the
+    same events (take_lints)."""
     if g is None:
         journal.decision("assembly", f"{unit} not levelled", "empty or too quiet to measure (gated out)", unit=unit,
-                         evidence={"measured_i": m.get("input_i"), "dur_s": round(len(x) / AUDIO_RATE, 3)})
+                         evidence={"measured_i": m.get("input_i"), "dur_s": round(n / AUDIO_RATE, 3)})
         # a line or cue that cannot be levelled (and so is not peak-controlled) is said, not silently passed
         journal.lint("level-measured", False, stage="assembly", phase="preflight", unit=unit, severity="warn", grammar="A13",
-                     evidence={"what": what, "dur_s": round(len(x) / AUDIO_RATE, 3), "measured_i": m.get("input_i"),
+                     evidence={"what": what, "dur_s": round(n / AUDIO_RATE, 3), "measured_i": m.get("input_i"),
                                "result": "placed at its own level, with no peak control"})
-        return None
+        return
     looped = m.get("looped", 1)
     journal.decision("assembly", f"{unit} levelled to {target:g} LUFS ({what}) by {g:+.2f} dB",
                      f"measured {m['input_i']:.2f} LUFS integrated, true peak {m['input_tp']:.2f} dBTP; linear gain only"
-                     + (f"; the line is {len(x) / AUDIO_RATE:.3f} s, under one {LEVEL_MIN_S:g} s gating block, so it was "
+                     + (f"; the line is {n / AUDIO_RATE:.3f} s, under one {LEVEL_MIN_S:g} s gating block, so it was "
                         f"measured looped {looped} times" if looped > 1 else ""),
                      unit=unit, evidence={"measured_i": m["input_i"], "measured_tp": m["input_tp"], "target": target, "gain_db": round(g, 2),
                                           "measured_looped": looped})
-    return g
 
 
 def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, draft: bool = False) -> list[str]:
@@ -4969,6 +5481,278 @@ def narrator_consistency_lints(journal: Journal, profiles: dict[str, dict], draf
     return off
 
 
+# --------------------------------------------------------------------------
+# Take lints at plan time (ticket preflight-voice): every sound lint whose
+# inputs are a take's WAV and the screenplay, not the mix, runs in build_plan
+# with the severity it has in the mix, cached by the take's sha256.
+# --------------------------------------------------------------------------
+
+# Every lint the sound path journals, and why it can or cannot run before the mix. "take-only": its inputs are
+# one take's WAV (or the film's narration takes together) and the screenplay, so build_plan runs it (take_lints)
+# at the severity the mix gives it, and a full render does not journal it twice; ``plan`` names the rule(s) that
+# judge it at plan time. "needs full mix": it reads the placed or levelled mix, the reels' own sound as placed, or
+# the score as ducked, so only the mix can judge it. studio/tests/test_preflight_voice.py holds this table to the
+# code (every lint the mix path journals is listed) and every take-only rule to the plan.
+SOUND_LINTS: dict[str, dict] = {
+    "audio-present": {"class": "take-only", "plan": ("sources-readable", "take-cue"),
+                      "why": "a voice WAV or the take stem exists: preflight_sources (sources-readable) and build_plan's "
+                             "take-cue judge it before the mix; the mix journals audio-present only under --draft"},
+    "level-measured": {"class": "take-only", "plan": ("level-measured",),
+                       "why": "a take too quiet to level, on the take alone (a music cue's copy stays in the mix)"},
+    "voice-clean": {"class": "take-only", "plan": ("voice-clean",), "why": "A19, the take cleaned and levelled alone"},
+    "voice-chop": {"class": "take-only", "plan": ("voice-chop",), "why": "A19, the take cleaned alone"},
+    "voice-beside": {"class": "take-only", "plan": ("voice-beside",), "why": "A19 (a warning), the take cleaned alone"},
+    "voice-peak-control": {"class": "take-only", "plan": ("voice-peak-control",),
+                           "why": "A13 at A15's fixed voice ceiling, on the levelled take; its pass-2 copy at the "
+                                  "derived ceiling (voice_ceiling_pass) needs the mix and stays there"},
+    "narrator-consistency": {"class": "take-only", "plan": ("narrator-consistency",),
+                             "why": "A14, every narration take's profile against the plain and measured lines"},
+    "narrator-drift": {"class": "take-only", "plan": ("narrator-drift",),
+                       "why": "A14, the narration takes' baseline against the stored audition profile"},
+    "narrator-eq": {"class": "take-only", "plan": ("narrator-eq",), "why": "A38, the EQ measured on each narration take"},
+    "reader-eq": {"class": "take-only", "plan": ("reader-eq",), "why": "A38 refined, the EQ measured on each reading take"},
+    "archival-sound-edge": {"class": "needs full mix", "why": "A36, the reels' own sound as placed, every edge "
+                                                                "against the stem around it"},
+    "digital-silence": {"class": "needs full mix", "why": "the placed mix"},
+    "voiceless-floor": {"class": "needs full mix", "why": "6.1, the voice shares as placed"},
+    "readings-floor": {"class": "needs full mix", "why": "6.1, the voice shares as placed"},
+    "women-floor": {"class": "needs full mix", "why": "6.5, the voice shares as placed"},
+    "shortfall-measured": {"class": "needs full mix", "why": "6.5, the shares as placed"},
+    "pacing-guide": {"class": "needs full mix", "why": "A39, a reviewer item beside a pacing guide judged on the mix"},
+    "score-standard checks": {"class": "needs full mix", "why": "A29: score.score_checks on the cues as placed and "
+                                                                "ducked (stems), every rule it returns"},
+    "shortfall-fill": {"class": "needs full mix", "why": "E15, a card's numbers come from the mix's measurement"},
+    "card-fills-fit": {"class": "needs full mix", "why": "E15, the card as filled from the mix"},
+    "card-fills-drawn": {"class": "needs full mix", "why": "E15, the card as filled from the mix"},
+    "still-hold": {"class": "needs full mix", "why": "A39 guidance, the holds against the speech as placed"},
+    "loudness": {"class": "needs full mix", "why": "8.5, the levelled master"},
+    "loudnorm-linear": {"class": "needs full mix", "why": "8.5, the levelled master"},
+    "limiter-peak-only": {"class": "needs full mix", "why": "8.5, the levelled master's limiter"},
+}
+
+TAKE_LINT_MODES = ("run", "off")
+
+
+def takes_cache_dir(film: Path) -> Path:
+    """Where a take's plan-time record is kept: ``<film>/cache/takes`` unless
+    ``DOCUMENT_TAKES_CACHE`` names another folder (as DOCUMENT_SPANS_CACHE
+    and DOCUMENT_BOUNDS_CACHE do). A record is a small JSON named by the
+    hash of the take's sha256 and everything else that changes it, so one
+    folder may serve several films."""
+    env = os.environ.get("DOCUMENT_TAKES_CACHE")
+    return Path(env) if env else Path(film) / "cache" / "takes"
+
+
+def _plain(x):
+    """A take record as JSON holds it (numpy scalars and arrays to Python, tuples to lists), so a record read
+    from the cache and one just measured journal the same values."""
+    if isinstance(x, dict):
+        return {str(k): _plain(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [_plain(v) for v in x]
+    if isinstance(x, np.ndarray):
+        return _plain(x.tolist())
+    if isinstance(x, np.generic):
+        return x.item()
+    return x
+
+
+def process_take(x: np.ndarray, ln: dict, eq: dict | None, reader_eq: dict | None) -> tuple[np.ndarray, np.ndarray, dict]:
+    """One synthetic line's pass 1, as build_mix places it: A19's cleanup,
+    levelling to the dialogue target, the narrator's A14 profile (on the
+    levelled take, before any EQ), A38's EQ (``eq`` on narration, the
+    reader's own ``reader_eq`` on a reading), then A13's peak control at
+    A15's fixed ceiling. Returns the line as placed, the line before peak
+    control (pass 2 peak-controls it again) and the take's record: what its
+    lints read, and nothing that needs the mix."""
+    x, cleaned = clean_voice(x)
+    n = len(x)
+    g, m = level_gain(x, DIALOGUE_LUFS)
+    profile = eq_rec = rd_rec = peak = None
+    x0 = x
+    if g is not None:
+        x = x * np.float32(10 ** (g / 20))
+        if ln.get("kind") == "narration":
+            words = len(WORD_RE.findall(str(ln.get("text") or "")))
+            profile = voice_profile(x, words)
+            if eq is not None:                   # A38: after the narrator's profile (A14 judges her own voice), before peaks
+                x, eq_rec = SC.apply_voice_eq(x, eq)
+        elif reader_eq is not None:
+            # A38 refined: a reading, through its own voice's EQ, at the same place (after levelling and A19's
+            # cleaning, before peak control); archival audio never reaches here (it is not levelled)
+            x, rd_rec = SC.apply_voice_eq(x, reader_eq)
+        x0 = x                                   # E14: pass 2 peak-controls the levelled line again, at its own ceiling
+        x, peak = voice_peak_control(x)
+        if peak:
+            peak = dict(peak, acted=list(peak.get("acted") or [])[:20])   # what the journal keeps of it
+    rec = _plain({"n": n, "cleaned": cleaned, "level": g, "level_m": m, "profile": profile, "eq": eq_rec,
+                  "reader_eq": rd_rec, "peak": peak})
+    return x, x0, rec
+
+
+def journal_take(journal, ln: dict, rec: dict, draft: bool) -> tuple[list[str], str | None]:
+    """A take's own lints from its record (process_take), in build_mix's
+    order: the levelling (level-measured), A19 (voice-clean, voice-beside,
+    voice-chop) and A13 at the fixed ceiling (voice-peak-control). Returns
+    what A19 refuses and the bad take's reason (None when it is not one)."""
+    _journal_level(journal, ln["id"], rec["level"], rec["level_m"], rec["n"], DIALOGUE_LUFS, "dialogue")
+    unclean = _journal_clean(journal, ln["id"], rec["cleaned"], rec["level"], draft) if rec["cleaned"] is not None else []
+    bad = None
+    if rec["peak"]:
+        _journal_peak(journal, ln["id"], rec["peak"], draft)
+        if rec["peak"]["bad_take"]:
+            bad = f"{ln['id']} ({'; '.join(rec['peak']['bad_take'])})"
+    return unclean, bad
+
+
+def _take_refusing(bad_takes: list[str], unclean: list[str], narrator_off: list[str], eq_off: list[str],
+                   draft: bool) -> tuple[str, list[str]] | None:
+    """The first refusal of the take lints, in build_mix's order and words, with the reasons it lists."""
+    if bad_takes and not draft:
+        return (f"voice-peak-control (A13): bad takes, re-render them instead of crushing them: {'; '.join(bad_takes)}",
+                bad_takes)
+    if unclean:
+        return f"voice-clean and voice-chop (A19): re-render these takes (or render with --draft): {'; '.join(unclean)}", unclean
+    if narrator_off and not draft:
+        return (f"narrator-consistency and narrator-drift (A14): not the narrator's voice: {'; '.join(narrator_off)}",
+                narrator_off)
+    if eq_off and not draft:
+        return f"narrator-eq and reader-eq (A38): the EQ applied is not the one declared: {'; '.join(eq_off)}", eq_off
+    return None
+
+
+def take_refusal(bad_takes: list[str], unclean: list[str], narrator_off: list[str], eq_off: list[str],
+                 draft: bool) -> str | None:
+    """The first refusal of the take lints, in build_mix's order and words (None: none refuses)."""
+    r = _take_refusing(bad_takes, unclean, narrator_off, eq_off, draft)
+    return r[0] if r else None
+
+
+class _Muted:
+    """A journal that writes nothing: build_mix's take lints when the plan already journaled them, for the
+    same takes, into the same journal (no double journaling). Their refusals are still computed."""
+
+    def lint(self, *a, **k):
+        return {}
+
+    def decision(self, *a, **k):
+        return {}
+
+    def event(self, *a, **k):
+        return {}
+
+
+def take_digest(rec: dict) -> str:
+    """A take record's digest: what build_mix compares to the plan's, so a take the mix measures differently
+    (a new take, another EQ) is journaled and judged again there."""
+    return hashlib.sha256(json.dumps(rec, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _take_key(sha: str, ln: dict, eq: dict | None, tools: dict) -> str:
+    words = len(WORD_RE.findall(str(ln.get("text") or ""))) if ln.get("kind") == "narration" else None
+    doc = {"take": sha, "narration": ln.get("kind") == "narration", "words": words, "eq": eq, "tools": tools}
+    return hashlib.sha256(json.dumps(doc, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def take_lints(journal: Journal, plan: dict, film: Path, *, draft: bool = False, mode: str = "run") -> dict | None:
+    """The take-only sound lints (SOUND_LINTS) at plan time, at the
+    severity build_mix gives them (blocking; warnings under --draft): each
+    synthetic line's levelling, A19 and A13 at the fixed ceiling, then A14
+    over the narration takes and A38 over the EQ'd ones. A take's record is
+    cached in takes_cache_dir under the hash of its sha256 with its kind,
+    word count, EQ, the engine's hash and the ffmpeg build, so a warm plan
+    measures nothing; the render's mix journals none of them again
+    (plan["_takes"] names the journal and each take record's digest: a
+    take the mix measures otherwise is journaled there). A missing WAV
+    is left to preflight_sources (sources-readable) and, under --draft, the
+    mix. ``mode`` "off" (a preview tool: sheets, tourlint) runs none and
+    reads and writes nothing. Returns what build_plan keeps, with
+    ``refusal`` (None when nothing refuses), or None when off."""
+    if mode not in TAKE_LINT_MODES:
+        raise ValueError(f"take lints mode {mode!r}: one of {TAKE_LINT_MODES}")
+    if mode == "off":
+        journal.decision("scout", "take lints not run: a preview plan",
+                         "a preview tool (contact sheets, tourlint) plans the pictures; the takes' lints run in every "
+                         "render's plan and pre-flight", unit="takes")
+        return None
+    t0 = time.perf_counter()
+    eq = plan.get("narrator_eq") if "narrator_eq" in plan else SC.narrator_eq_setting({})[0]
+    reader_eqs = plan.get("reader_eq") or {}
+    reader_of = plan.get("reader_voices") or {}
+    cache = takes_cache_dir(film)
+    tools = {"engine": ENGINE_HASH, "ffmpeg": ffmpeg_version(), "numpy": np.__version__}
+    narr: dict[str, dict] = {}
+    eq_lines: dict[str, dict] = {}
+    rd_lines: dict[str, dict] = {}
+    placed: dict = {"lines": []}
+    unclean, bad_takes, digests = [], [], {}
+    hits = measured = 0
+    write_ok = True
+    for ln in plan["lines"]:
+        if archival_span(ln):
+            placed["lines"].append({"id": ln["id"], "kind": "archival"})
+            continue
+        wav = film / (ln.get("wav") or f"audio/{ln['id']}.wav")
+        if not wav.exists():
+            continue                             # sources-readable refuses it; a draft's mix places silence
+        if ln.get("archival_audio"):
+            placed["lines"].append({"id": ln["id"], "kind": "archival"})
+            continue
+        if "gain_db" in ln:                      # build_plan's voice-gain-db refuses it
+            continue
+        narration = ln.get("kind") == "narration"
+        placed["lines"].append({"id": ln["id"], "kind": "narration" if narration else "reading"})
+        line_eq = eq if narration else reader_eqs.get(reader_of.get(ln["id"]))
+        sha = sha256_file(wav)
+        f = cache / f"{_take_key(sha, ln, line_eq, tools)}.json"
+        rec = None
+        try:
+            if f.exists():
+                rec = json.loads(f.read_text(encoding="utf-8"))
+                hits += 1
+        except (OSError, ValueError):
+            rec = None
+        if rec is None:
+            _, _, rec = process_take(_read_wav(wav), ln, eq if narration else None, None if narration else line_eq)
+            measured += 1
+            if write_ok:
+                try:
+                    cache.mkdir(parents=True, exist_ok=True)
+                    tmp = f.with_name(f"{f.stem}.{os.getpid()}.tmp")
+                    tmp.write_text(json.dumps(rec), encoding="utf-8")
+                    os.replace(tmp, f)
+                except OSError:
+                    write_ok = False             # a read-only cache folder: measured every time, never refused for it
+        digests[ln["id"]] = take_digest(rec)
+        u, b = journal_take(journal, ln, rec, draft)
+        unclean += u
+        if b:
+            bad_takes.append(b)
+        if rec["profile"] is not None:
+            narr[ln["id"]] = dict(rec["profile"], mood=(ln.get("delivery") or {}).get("mood"))
+        if rec["eq"] is not None:
+            eq_lines[ln["id"]] = rec["eq"]
+        if rec["reader_eq"] is not None:
+            rd_lines[ln["id"]] = dict(rec["reader_eq"], voice=reader_of[ln["id"]])
+    narrator_off = narrator_consistency_lints(journal, narr, draft, plan.get("narrator_voice")) if narr else []
+    eq_off = narrator_eq_lints(journal, plan, eq, eq_lines, draft)
+    eq_off += reader_eq_lints(journal, plan, rd_lines, placed, draft)
+    wall = round(time.perf_counter() - t0, 2)
+    journal.decision("scout", f"take lints at plan time: {len(digests)} takes, {measured} measured, {hits} from the cache, "
+                     f"in {wall:g} s", "the take-only sound lints (SOUND_LINTS) run before any render, at the mix's "
+                     "severity; the mix does not journal them again", unit="takes",
+                     evidence={"takes": len(digests), "measured": measured, "cached": hits, "wall_s": wall,
+                               "cache": str(cache), "cache_written": write_ok and measured > 0, "draft": draft})
+    refusing = _take_refusing(bad_takes, unclean, narrator_off, eq_off, draft)
+    ids = {ln["id"] for ln in plan["lines"]}
+    # the lines the refusal names (a reason starts with its line's id; the narrator's spread, a mood group and the
+    # drift name none)
+    named = [] if not refusing else list(dict.fromkeys(r.split(" ", 1)[0] for r in refusing[1]
+                                                        if r.split(" ", 1)[0] in ids))
+    return {"run": journal.run, "draft": draft, "lines": digests, "wall_s": wall, "measured": measured, "cached": hits,
+            "refusal": refusing[0] if refusing else None, "refused_lines": named}
+
+
 def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
               work: Path | None = None, stems: dict | None = None) -> tuple[np.ndarray, dict]:
     """The programme mix, in two passes (A15 refined, E14). Pass 1 levels,
@@ -5006,6 +5790,12 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
     reader_of = plan.get("reader_voices") or {}  # reading line id -> its voice
     rd_lines: dict[str, dict] = {}               # reading line id -> its EQ record
     parts: list[dict] = []                       # E14: every voice placement in order, so pass 2 can place them again
+    # take_lints: the takes the plan journaled into this journal at this severity (line id -> record digest); a take
+    # whose record here is the same is not journaled again
+    pt = plan.get("_takes") or {}
+    planned = bool(pt) and pt.get("run") == getattr(journal, "run", None) and pt.get("draft") == draft
+    pre = dict(pt.get("lines") or {}) if planned else {}
+    all_pre = True
     # A36 (R12): every archival segment's edges, planned together (a gap between two of one reel may be joined)
     segs = archival_segments(plan, film)
     plan_edges(segs, plan, film)
@@ -5041,31 +5831,25 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
         synthetic = not ln.get("archival_audio")
         if synthetic and "gain_db" in ln:        # build_plan refuses it (voice-gain-db); a hand-made plan is refused here too
             raise Refused(f"voice-gain-db (A13, A14): {ln['id']} carries gain_db; a synthetic line's level is set by the engine")
-        cleaned = None
-        if synthetic:                            # A19: cleaned before levelling; archival audio never is
-            x, cleaned = clean_voice(x)
-        level = _level(journal, ln["id"], x, DIALOGUE_LUFS, "dialogue") if synthetic else None
-        if cleaned is not None:
-            unclean += _journal_clean(journal, ln["id"], cleaned, level, draft)
-        peak = None
-        if level is not None:                    # A13: peak control on a synthetic line, after its levelling
-            x = x * np.float32(10 ** (level / 20))
-            if ln.get("kind") == "narration":
-                words = len(WORD_RE.findall(str(ln.get("text") or "")))
-                narr[ln["id"]] = dict(voice_profile(x, words), mood=(ln.get("delivery") or {}).get("mood"))
-                if eq is not None:               # A38: after the narrator's profile (A14 judges her own voice), before peaks
-                    x, eq_lines[ln["id"]] = SC.apply_voice_eq(x, eq)
-            elif reader_eqs.get(reader_of.get(ln["id"])) is not None:
-                # A38 refined: a reading, through its own voice's EQ, at the same place (after levelling and A19's
-                # cleaning, before peak control); archival audio never reaches here (it is not levelled)
-                x, rec = SC.apply_voice_eq(x, reader_eqs[reader_of[ln["id"]]])
-                rd_lines[ln["id"]] = dict(rec, voice=reader_of[ln["id"]])
-            x0 = x                               # E14: pass 2 peak-controls the levelled line again, at its own ceiling
-            x, peak = voice_peak_control(x)
-            if peak:
-                _journal_peak(journal, ln["id"], peak, draft)
-                if peak["bad_take"]:
-                    bad_takes.append(f"{ln['id']} ({'; '.join(peak['bad_take'])})")
+        cleaned = level = peak = None
+        if synthetic:
+            # A19, A13, A14, A38 pass 1 (process_take): cleaned before levelling (archival audio never is), profiled,
+            # EQ'd and peak-controlled. The plan journaled these lints for the same take into this journal
+            # (take_lints): computed again here for the sound, journaled once.
+            x, x0, rec = process_take(x, ln, eq, reader_eqs.get(reader_of.get(ln["id"])))
+            muted = pre.get(ln["id"]) == take_digest(rec)
+            all_pre = all_pre and muted
+            u, b = journal_take(_Muted() if muted else journal, ln, rec, draft)
+            unclean += u
+            if b:
+                bad_takes.append(b)
+            cleaned, level, peak = rec["cleaned"], rec["level"], rec["peak"]
+            if rec["profile"] is not None:
+                narr[ln["id"]] = dict(rec["profile"], mood=(ln.get("delivery") or {}).get("mood"))
+            if rec["eq"] is not None:
+                eq_lines[ln["id"]] = rec["eq"]
+            if rec["reader_eq"] is not None:
+                rd_lines[ln["id"]] = dict(rec["reader_eq"], voice=reader_of[ln["id"]])
         offset = mood_offset(journal, ln) if synthetic else 0.0
         place_db = offset if synthetic else float(ln.get("gain_db", 0.0))
         k = _place(voice, x, float(ln["start_s"]), place_db)                # levelling is in x
@@ -5086,9 +5870,14 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
                                 "floor_before_dbfs": None if cleaned is None else cleaned["before"]["floor_dbfs"],
                                 "floor_after_dbfs": None if not (cleaned and cleaned["cleaned"]) else cleaned["after"]["floor_dbfs"],
                                 "peak_reduction_db": peak["max_reduction_db"] if peak else None})
-    narrator_off = narrator_consistency_lints(journal, narr, draft, plan.get("narrator_voice")) if narr else []
-    eq_off = narrator_eq_lints(journal, plan, eq, eq_lines, draft)
-    eq_off += reader_eq_lints(journal, plan, rd_lines, placed, draft)
+    if planned and all_pre:
+        # every take here was judged by the plan, in this journal, with the same record, over the whole film's takes
+        # (take_lints): A14 and A38 are not judged again (a check render's trimmed plan would judge fewer lines)
+        narrator_off, eq_off = [], []
+    else:
+        narrator_off = narrator_consistency_lints(journal, narr, draft, plan.get("narrator_voice")) if narr else []
+        eq_off = narrator_eq_lints(journal, plan, eq, eq_lines, draft)
+        eq_off += reader_eq_lints(journal, plan, rd_lines, placed, draft)
     for c in plan["cues"]:
         wav = film / (c.get("wav") or f"audio/{c['id']}.wav")
         if not wav.exists():
@@ -5175,14 +5964,9 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
             placed["clips"].append(s["id"])
     if missing_voice and not draft:
         raise Refused(f"voice WAVs missing for {', '.join(missing_voice)} (render with --draft to place silence)")
-    if bad_takes and not draft:
-        raise Refused(f"voice-peak-control (A13): bad takes, re-render them instead of crushing them: {'; '.join(bad_takes)}")
-    if unclean:
-        raise Refused(f"voice-clean and voice-chop (A19): re-render these takes (or render with --draft): {'; '.join(unclean)}")
-    if narrator_off and not draft:
-        raise Refused(f"narrator-consistency and narrator-drift (A14): not the narrator's voice: {'; '.join(narrator_off)}")
-    if eq_off and not draft:
-        raise Refused(f"narrator-eq and reader-eq (A38): the EQ applied is not the one declared: {'; '.join(eq_off)}")
+    why = take_refusal(bad_takes, unclean, narrator_off, eq_off, draft)
+    if why:
+        raise Refused(why)
     edge_off = archival_edge_lints(journal, arch, segs, draft=draft)
     if edge_off:
         raise Refused(f"archival-sound-edge (A36): the reel's sound stops in one step: {'; '.join(edge_off)}")
@@ -7038,6 +7822,9 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             "preset": (s.get("_cam") or {}).get("preset"), "fill_ok": (s.get("_cam") or {}).get("fill_ok"),
             "fill": (s.get("_cam") or {}).get("fill"),
             "fill_exception": (s.get("_cam") or {}).get("fill_exception"),     # A41: held whole, the Sources page says so
+            # A50: what the bracket showed, by its measured share: "detail" (40% of the picture or less), "field"
+            # (closer on one part), false when the still only crept; None off a fill exception
+            "fill_detail": BR.sources_scale(s.get("_cam") or {}),
             "in_s": s.get("in_s"), "out_s": s.get("out_s"),
             "resampler": s.get("_resampler"), "conform": (s.get("_video") or {}).get("conform"),
             "levels": s.get("_levels"),          # A46: the black floor applied (non-material), or the stated opt-out
@@ -7197,16 +7984,24 @@ class _Direct:
 def render(film: Path | str, out: Path | str | None = None, *, height: int = 1080, from_shot: str | None = None,
            workers: int = DEFAULT_WORKERS, burn_subtitles: bool = False, min_free_gb: float = MIN_FREE_GB,
            encode_preset: str = "slow", draft: bool = False, fit_voices_opt: bool = False, audio_only: bool = False,
-           until_s: float | None = None, journal: Journal | None = None) -> dict:
+           until_s: float | None = None, shots: str | tuple | None = None, journal: Journal | None = None) -> dict:
     film = Path(film).resolve()
     out = Path(out).resolve() if out else film / "out"
     W, H = frame_size(height)
     journal = journal or Journal(film=film.name, out_dir=out)
     run_t0 = time.perf_counter()
+    pair = None
+    if shots is not None:
+        try:
+            pair = parse_shots(shots)
+        except Refused:           # refused inside the run, journaled
+            pair = None
     resume_cmd = f"python -m studio.engine.render {film} --out {out} --res {height}" + (
-        f" --until {until_s:g}" if until_s is not None else "")
-    # A check render (--until) keeps its segments, mix and outputs apart: it never touches, or passes as, the full render.
-    check = f"check-{until_s:g}s" if until_s is not None else None
+        f" --until {until_s:g}" if until_s is not None else "") + (f" --shots {pair[0]}..{pair[1]}" if pair else "")
+    # A check render (--until, --shots) keeps its segments, mix and outputs apart: it never touches, or passes as, the
+    # full render. A span (--shots) is named by its ends.
+    check = (f"check-{until_s:g}s" if until_s is not None
+             else "shots-" + "-".join(re.sub(r"[^A-Za-z0-9._]", "_", x) for x in pair) if pair else None)
     run_dir = out / check if check else out
     try:   # A44: the master rate the plan resolves (stated, or the majority of clip runtime), named at run.start
         play0 = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
@@ -7216,8 +8011,9 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         rate0 = {"fps": None, "master_fps": None, "master_fps_from": "unresolved before the plan"}
     settings = {"height": H, "width": W, **rate0, "workers": workers, "from": from_shot, "burn_subtitles": burn_subtitles,
                 "min_free_gb": min_free_gb, "encode_preset": encode_preset, "draft": draft, "fit_voices": fit_voices_opt,
-                "audio_only": audio_only, "until_s": until_s}
+                "audio_only": audio_only, "until_s": until_s, "shots": f"{pair[0]}..{pair[1]}" if pair else shots}
     current = {"stage": "scout", "unit": None}
+    span = None
     n_req = int(workers)
     n = max(1, min(n_req, MAX_WORKERS, os.cpu_count() or 1))
     try:
@@ -7230,6 +8026,15 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         # licences, marks, transitions, dips, zoom limits, A7 framing, voice-overlap, then A7 on each
         # still's own first frame. The rendered pixels are checked again after motion (phase post-render).
         journal.stage("scout", "start", phase="preflight")
+        if shots is not None:      # a span of the film: its own exclusions, before any work
+            pair = parse_shots(shots)
+            if until_s is not None:
+                raise Refused("--shots and --until are exclusive: a span names its own shots")
+            if from_shot is not None:
+                raise Refused("--shots with --from: not supported (a span renders its own shots; its segments are cached "
+                              "in its own folder, so running the same --shots again resumes)")
+            if audio_only:
+                raise Refused("--shots with --audio-only: not supported (a span is its pictures with the film's sound)")
         if draft:
             journal.human("scout", "draft render: missing voice WAVs become silence; dynamic loudness, a compressing master limiter, A13 bad takes and narrator-consistency are warnings instead of refusing the run",
                           override="--draft")
@@ -7254,7 +8059,8 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
             raise Refused("source files missing or unreadable (pre-flight): " + "; ".join(
                 f"{b['unit']}: {b['file']} ({b['why']})" for b in bad_sources))
         with journal.unit("scout", "plan", size={"driver": "items", "value": 0}) as u:
-            plan = build_plan(film, W=W, H=H, burn_subtitles=burn_subtitles, journal=journal, play=play)
+            plan = build_plan(film, W=W, H=H, burn_subtitles=burn_subtitles, journal=journal, play=play, draft=draft,
+                              until_s=until_s)
             u.size = {"driver": "items", "value": len(plan["shots"])}
         # E15: binding on a run that renders the final frames; --draft, --audio-only (no frames) and --until (a check
         # render) journal them as warnings
@@ -7269,9 +8075,17 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
             journal.human("scout", f"--until {until_s:g}: only the shots that start before {until_s:g} s are rendered",
                           override="--until")
             plan = trim_plan(plan, until_s)
-        stills = [s["id"] for s in plan["shots"] if s["kind"] == "archive_still" and s.get("_cam") and opens_whole(s)]
+        if pair is not None:       # the whole film planned and linted above; only the span's frames are rendered
+            span = shot_span(plan, *pair)
+            journal.human("scout", f"--shots {pair[0]}..{pair[1]}: a check render of {len(span['ids'])} shots, "
+                          f"{span['t0_s']:.3f} s to {span['t1_s']:.3f} s of the film ({span['frames']} frames), with the "
+                          "full film's mix cut to the span; the film's master and sources.json are never written",
+                          override="--shots", span={k: span[k] for k in ("a", "b", "f0", "f1", "frames", "edge_in", "edge_out")})
+        in_span = range(span["i0"], span["i1"] + 1) if span else range(len(plan["shots"]))
+        stills = [plan["shots"][i]["id"] for i in in_span
+                  if plan["shots"][i]["kind"] == "archive_still" and plan["shots"][i].get("_cam") and opens_whole(plan["shots"][i])]
         with journal.unit("scout", "preflight-stills", size={"driver": "items", "value": len(stills)}):
-            not_whole = preflight_stills(plan, journal)
+            not_whole = preflight_stills(plan, journal, only=set(in_span) if span else None)
             if not_whole:
                 raise Refused(f"A7 (pre-flight): the first frame of {', '.join(not_whole)} is not the whole photograph")
         journal.stage("scout", "done", phase="preflight", frames_rendered=0)
@@ -7320,17 +8134,21 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
 
         # A25 refined: a film with placeholders is keyed once the mix has filled them (a card's text is its pixels, and a
         # neighbour's key reads it through prev and the subtitles), so every shot of such a film waits for the fill
-        pending = list(range(len(plan["shots"]))) if plan_has_placeholders(plan) else []
-        for i in range(len(plan["shots"])):
+        pending = list(in_span) if plan_has_placeholders(plan) else []
+        for i in in_span:
             if i not in pending:
                 key_shot(i)
+        n_frames = span["frames"] if span else plan["frames"]
+        dur = span["duration_s"] if span else plan["duration_s"]
 
         # What run.start cannot know until the screenplay is read: the units and the film's length.
         journal.event("stage", "run", None, lens="run.plan", status="planned", film=plan["slug"], title=plan["title"],
-                      units=[{"id": s["id"], "stage": "motion", "size": {"driver": "frames", "value": s["f1"] - s["f0"]}}
-                             for s in plan["shots"]],
-                      duration_s=plan["duration_s"], frames=plan["frames"], todo=[ids[i] for i in todo],
-                      cached=[ids[i] for i in cached], preflight=pf)
+                      units=[{"id": plan["shots"][i]["id"], "stage": "motion",
+                              "size": {"driver": "frames", "value": plan["shots"][i]["f1"] - plan["shots"][i]["f0"]}}
+                             for i in in_span],
+                      duration_s=dur, frames=n_frames, todo=[ids[i] for i in todo],
+                      cached=[ids[i] for i in cached], preflight=pf,
+                      **({"span": {k: span[k] for k in ("a", "b", "f0", "f1", "t0_s", "t1_s")}} if span else {}))
 
         # Audio first (cheap), so the marks event can carry the voice shares.
         current.update(stage="assembly", unit="mix")
@@ -7377,6 +8195,17 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         refusals = loudness_lints(journal, loud, draft=draft)
         if refusals:
             raise Refused(f"loudness (pre-flight): {'; '.join(refusals)} (GRAMMAR 8.5; render with --draft to accept it)")
+        mix_for_master = work / "mix-norm.wav"
+        if span:                  # the full film's levelled mix, cut to the span's frames to the sample
+            import soundfile as sf
+            full, sr = sf.read(str(work / "mix-norm.wav"), dtype="float32", always_2d=False)
+            n0, n1 = span_samples(plan, span["f0"], span["f1"], sr)
+            mix_for_master = work / f"mix-{check}.wav"
+            sf.write(str(mix_for_master), slice_mix(full, plan, span["f0"], span["f1"], sr), sr, subtype="FLOAT")
+            del full
+            journal.artifact("assembly", mix_for_master, unit="loudness", role="check-mix-span")
+            journal.event("unit", "assembly", "loudness", lens="span-mix", status="info", samples=[n0, n1], rate=sr,
+                          frames=[span["f0"], span["f1"]], file=mix_for_master.name)
         if audio_only:                       # --audio-only: the pre-flight and the sound, no frames and no master
             journal.stage("assembly", "done", detail={"audio_only": True})
             summary = {"run": journal.run, "journal": str(journal.path), "mix": str(work / "mix-norm.wav"), "loudness": loud,
@@ -7408,7 +8237,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
                     "conform": (s.get("_video") or {}).get("conform")}
             with journal.unit("motion", s["id"], size={"driver": "frames", "value": s["f1"] - s["f0"], "width": W, "height": H},
                               model=ENGINE_MODEL, settings=set_, start_event=False, unit_kind="shot",
-                              resume=f"{resume_cmd} --from {s['id']}") as u:
+                              resume=resume_cmd if span else f"{resume_cmd} --from {s['id']}") as u:
                 if exc is not None:
                     raise exc
                 u.wall_s = res["wall_s"]
@@ -7489,8 +8318,8 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         if dip_glyph:                            # A40: a master's own dip that shows its mark on the black hold (a warning)
             journal.lint("title-dip-hold", False, stage="marks", grammar="A40, 7.3, A11", phase="post-render", severity="warn",
                          evidence={"frames": dip_glyph, "fix": "re-assemble the master with its dip's black hold all black"})
-        journal.lint("mark-coverage", not fails and checked == plan["frames"], stage="marks", grammar="1.3, 4, A11", phase="post-render",
-                     evidence={"frames": plan["frames"], "checked": checked, "ok": sum(r["mark"]["ok"] for r in results.values()),
+        journal.lint("mark-coverage", not fails and checked == n_frames, stage="marks", grammar="1.3, 4, A11", phase="post-render",
+                     evidence={"frames": n_frames, "checked": checked, "ok": sum(r["mark"]["ok"] for r in results.values()),
                                "probe": "the class glyph's centre for the hue and its corner for the shape (A16 refined)",
                                "wrong_shape": sum(r["mark"].get("shape", 0) for r in results.values()),
                                "label_frames": sum(r["mark"].get("label", 0) for r in results.values()),
@@ -7512,12 +8341,13 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         voiced = {"narration": 0.0, "reading": 0.0, "archival": 0.0}
         for ln in placed["lines"]:
             voiced[ln["kind"]] = voiced.get(ln["kind"], 0.0) + ln["dur_s"]
-        dur = plan["duration_s"]
+        film_dur = plan["duration_s"]
         journal.event("lint", "marks", None, lens="marks", rule="marks-track", status="pass" if not fails else "fail",
                       severity="block", track=doc["marks"], share=doc["share"], generated_share=doc["share"]["AI-GENERATED"],
-                      narration_share=round(voiced["narration"] / dur, 4), readings_share=round((voiced["reading"] + voiced["archival"]) / dur, 4),
+                      narration_share=round(voiced["narration"] / film_dur, 4),
+                      readings_share=round((voiced["reading"] + voiced["archival"]) / film_dur, 4),
                       violations=[{"shot": k, "frames": v} for k, v in fails.items()])
-        if fails or checked != plan["frames"]:
+        if fails or checked != n_frames:
             raise Refused(f"mark coverage failed on {fails or 'a frame count mismatch'}")
         held = held_totals(results, ids)
         held_bad = [sid for sid, k in held.items() if k / fps_of(plan) > MAX_HOLD_S and not (
@@ -7534,7 +8364,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         current.update(stage="assembly", unit="encode")
         out.mkdir(parents=True, exist_ok=True)
         listing = work / "segments.txt"
-        listing.write_text("".join(f"file '{segs[i].as_posix()}'\n" for i in range(len(plan["shots"]))), encoding="utf-8")
+        listing.write_text("".join(f"file '{segs[i].as_posix()}'\n" for i in in_span), encoding="utf-8")
         master = out / (f"master.{check}.mp4" if check else "master.mp4")
         sources_path = out / (f"sources.{check}.json" if check else "sources.json")
         threads = MASTER_THREADS          # fixed, so the master's bytes never depend on --workers
@@ -7545,7 +8375,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         with journal.unit("assembly", "encode", size={"driver": "seconds", "value": round(dur, 3)},
                           model={"name": "ffmpeg", "version": ffmpeg_version()}, settings=enc_settings,
                           resume=resume_cmd) as u:
-            cmd = [ffmpeg(), "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(listing), "-i", str(work / "mix-norm.wav"),
+            cmd = [ffmpeg(), "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(listing), "-i", str(mix_for_master),
                    "-map", "0:v:0", "-map", "1:a:0",
                    "-vf", "scale=in_color_matrix=bt709:out_color_matrix=bt709:in_range=tv:out_range=tv,format=yuv420p,"
                           "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv",
@@ -7562,45 +8392,51 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
                                    "frames": pr["frames"]})
         ok_fmt = (pr["width"] == W and pr["height"] == H and CAD.probe_rate(pr.get("r_frame_rate")) == master_rate_of(plan)
                   and abs(pr["fps"] - fps_of(plan)) < 0.01
-                  and pr["frames"] == plan["frames"])
+                  and pr["frames"] == n_frames)
         journal.lint("master-format", ok_fmt, stage="assembly", grammar="7.5", phase="post-render",
                      evidence={"width": pr["width"], "height": pr["height"], "fps": pr["fps"], "r_frame_rate": pr.get("r_frame_rate"),
                                "expected_rate": rate, "frames": pr["frames"],
-                               "expected_frames": plan["frames"], "duration_s": pr["duration_s"]})
+                               "expected_frames": n_frames, "duration_s": pr["duration_s"]})
         if not ok_fmt:
             raise Refused(f"the master is {pr['width']}x{pr['height']} at {pr['fps']} fps with {pr['frames']} frames; "
-                          f"expected {W}x{H} at {rate} with {plan['frames']}")
+                          f"expected {W}x{H} at {rate} with {n_frames}")
         # A33(1c): every archival line heard over its own picture is measured in the master; a final render refuses a
         # conclusive offset more than 45 ms from the correction applied (a draft or check render journals it)
+        seen = span_view(plan, span) if span else plan        # a span's lines, measured where they sit in its master
         with journal.unit("assembly", "sync-check", size={"driver": "items", "value": sum(
-                1 for ln in plan["lines"] if ln.get("archival_audio") and ln.get("clip"))}):
-            sync_refusals = CL.rendered_sync_lints(journal, plan, master, draft=draft or bool(check))
+                1 for ln in seen["lines"] if ln.get("archival_audio") and ln.get("clip"))}):
+            sync_refusals = CL.rendered_sync_lints(journal, seen, master, draft=draft or bool(check))
         if sync_refusals:
             raise Refused(f"archival sync (post-render): {'; '.join(sync_refusals)} (GRAMMAR A33)")
         # One write: a check render writes its own partial sources file and never the full one (T1d);
         # a full render also records the master's sha256, which ties sources.json to its film (T7).
+        # A span (--shots) writes no sources file at all: its timeline is the film's, cut, and it is never published.
         extra = {"loudness": loud, "master": master.name, "master_sha256": sha256_file(master)}
         if check:
             extra.update(partial=True, until_s=until_s)
-        doc = sources_doc(plan, journal, extra)
-        sources_path.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
-        for i in range(len(plan["shots"])):
+        if not span:
+            doc = sources_doc(plan, journal, extra)
+            sources_path.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
+        for i in in_span:
             journal.artifact("motion", segs[i], unit=ids[i], role="check-segment" if check else "segment")
         journal.artifact("assembly", master, role="check-master" if check else "master")
-        journal.artifact("assembly", sources_path, role="check-sources" if check else "sources")
+        if not span:
+            journal.artifact("assembly", sources_path, role="check-sources" if check else "sources")
         journal.stage("assembly", "done")
         wall = time.perf_counter() - run_t0
-        journal.timing("run", "total", wall, size={"driver": "seconds", "value": round(dur, 3), "frames": plan["frames"]},
+        journal.timing("run", "total", wall, size={"driver": "seconds", "value": round(dur, 3), "frames": n_frames},
                        model=ENGINE_MODEL, settings=dict(settings, workers=n))
-        summary = {"run": journal.run, "journal": str(journal.path), "master": str(master), "sources": str(sources_path),
-                   "frames": plan["frames"], "duration_s": dur, "wall_s": round(wall, 2), "rendered": [ids[i] for i in todo],
+        summary = {"run": journal.run, "journal": str(journal.path), "master": str(master),
+                   "sources": None if span else str(sources_path), "frames": n_frames, "duration_s": dur, "wall_s": round(wall, 2), "rendered": [ids[i] for i in todo],
                    "cached": [ids[i] for i in cached], "workers": n, "partial": bool(check), "until_s": until_s,
+                   "shots": {k: span[k] for k in ("a", "b", "f0", "f1", "t0_s", "t1_s", "edge_in", "edge_out")} if span else None,
                    "clip_warnings": plan.get("clip_integrity", {}).get("warnings", [])}     # A33(3): listed in the report
         journal.event("stage", "run", None, lens="run.end", status="done", outcome="ok", **summary)
         return summary
     except BaseException as exc:
         unit = current.get("unit")
-        resume = f"{resume_cmd} --from {unit}" if current["stage"] == "motion" and unit else resume_cmd
+        # a span resumes by running it again (its segments are cached in its own folder); --from is the film's
+        resume = f"{resume_cmd} --from {unit}" if current["stage"] == "motion" and unit and not span else resume_cmd
         if not getattr(exc, "_journaled", False):
             journal.error(current["stage"], unit, exc, resume=resume,
                           fix="fix the lint or pre-flight finding above" if isinstance(exc, Refused) else None)
@@ -7624,7 +8460,9 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
     journal = journal or Journal(film=film.name, out_dir=out)
     pr = probe_video(master)
     with journal.unit("scout", "sources-only", size={"driver": "items", "value": 0}) as u:
-        plan = build_plan(film, W=pr["width"], H=pr["height"], burn_subtitles=False, journal=journal, play=play)
+        # the master exists: its takes were judged by its render; sources.json is rewritten from the screenplay
+        plan = build_plan(film, W=pr["width"], H=pr["height"], burn_subtitles=False, journal=journal, play=play,
+                          voice_lints="off")
         u.size = {"driver": "items", "value": len(plan["shots"])}
     frames = count_frames(master)
     journal.lint("master-matches-plan", frames == plan["frames"], stage="assembly", phase="sources-only",
@@ -7665,6 +8503,9 @@ def main(argv=None) -> int:
                     help="move overlapping voice lines later (0.8 s apart) and lengthen their shots (journaled)")
     ap.add_argument("--until", dest="until_s", type=float, default=None,
                     help="a check render: only the shots that start before this many seconds (journaled)")
+    ap.add_argument("--shots", dest="shots", default=None, metavar="A..B",
+                    help="a check render of the shots A to B inclusive (e.g. 5.9..5.9bb): the full film planned and linted, "
+                         "only the span's frames rendered, with the full mix cut to it -> <out>/master.shots-A-B.mp4")
     ap.add_argument("--audio-only", action="store_true",
                     help="run the pre-flight and the sound (mix, levelling, loudness) only: no frames, no master")
     ap.add_argument("--sources-only", action="store_true",
@@ -7680,7 +8521,7 @@ def main(argv=None) -> int:
         return 0
     try:
         s = render(a.film, a.out, height=a.res, from_shot=a.from_shot, workers=a.workers, burn_subtitles=a.burn_subtitles,
-                   draft=a.draft, fit_voices_opt=a.fit_voices, audio_only=a.audio_only, until_s=a.until_s)
+                   draft=a.draft, fit_voices_opt=a.fit_voices, audio_only=a.audio_only, until_s=a.until_s, shots=a.shots)
     except Refused as e:
         print(f"render: refused: {e}", file=sys.stderr)
         return 2
