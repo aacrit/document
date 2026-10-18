@@ -2410,3 +2410,84 @@ def reversal(out_v, in_v) -> list[str]:
         if abs(a) > eps and abs(b) > eps and (a > 0) != (b > 0):
             out.append(name)
     return out
+
+
+# --------------------------------------------------------------------------
+# A49 refined: degenerate stops (two framings the eye cannot tell apart, under a settle apart)
+# --------------------------------------------------------------------------
+
+DEGENERATE_GAP_S = CINE["settle_s"]        # closer than the settle minimum (1.0 s) ...
+DEGENERATE_CENTRE = 0.005                  # ... with window centres within 0.5% of the frame ...
+DEGENERATE_Z = 0.01                        # ... and depths within 1%: one framing, stopped on twice
+
+
+def near_equal(a: dict, b: dict, size, aspect: float, *, centre: float = DEGENERATE_CENTRE,
+               z: float = DEGENERATE_Z) -> bool:
+    """Two stops frame the same window to the eye: centres within ``centre`` of the frame (the first window's
+    width and height) and depths within ``z``."""
+    wa = window(size, aspect, float(a["z"]), float(a["x"]), float(a["y"]))
+    wb = window(size, aspect, float(b["z"]), float(b["x"]), float(b["y"]))
+    fw, fh = wa[2] - wa[0], wa[3] - wa[1]
+    dcx = abs((wb[0] + wb[2]) - (wa[0] + wa[2])) / 2.0
+    dcy = abs((wb[1] + wb[3]) - (wa[1] + wa[3])) / 2.0
+    return (abs(math.log(float(b["z"]) / float(a["z"]))) <= math.log1p(z) + EPS
+            and dcx <= centre * fw + 1e-6 and dcy <= centre * fh + 1e-6)
+
+
+def degenerate_pairs(stops: list[dict], size, aspect: float, *, gap_s: float = DEGENERATE_GAP_S) -> list[dict]:
+    """``degenerate-stops`` (A49 refined): consecutive stops closer than ``gap_s`` whose windows are near-equal
+    (``near_equal``): the path stops on one framing twice, which reads as a hitch or a micro-settle. Returns
+    [{i, t, dt, z, authored, from}], ``i`` the first stop's index."""
+    out = []
+    for i, (a, b) in enumerate(zip(stops, stops[1:])):
+        dt = float(b["t"]) - float(a["t"])
+        if -EPS <= dt < gap_s - EPS and near_equal(a, b, size, aspect):
+            out.append({"i": i, "t": [round(float(a["t"]), 3), round(float(b["t"]), 3)], "dt": round(dt, 3),
+                        "z": [round(float(a["z"]), 4), round(float(b["z"]), 4)],
+                        "authored": authored(a) or authored(b), "from": [a.get("from"), b.get("from")]})
+    return out
+
+
+def is_arrival(st: dict) -> bool:
+    """The A47 subject stop (``subject_stops``' pose: its ``subject_at`` arrival, or its settle before the cut)."""
+    return str(st.get("from") or "").startswith("A47: the subject")
+
+
+def merge_pair(stops: list[dict], i: int) -> tuple[list[dict], dict]:
+    """Stops ``i`` and ``i + 1`` as one: the later one's time is kept when it is the subject's arrival
+    (``is_arrival``), else the earlier one's; the kept stop keeps its own hold, grown to cover a dropped stop's
+    own hold where that runs longer (the micro-hold between the two is gone, a real hold is not). Returns
+    (stops, what was merged)."""
+    a, b = stops[i], stops[i + 1]
+    later = is_arrival(b) and not is_arrival(a)
+    keep, drop = (b, a) if later else (a, b)
+    k = dict(keep)
+    if float(drop.get("hold", 0.0)) > 0:
+        end = float(drop["t"]) + float(drop["hold"])
+        if end > float(k["t"]) + float(k.get("hold", 0.0)) + EPS:
+            k["hold"] = end - float(k["t"])
+    rec = {"t": [round(float(a["t"]), 3), round(float(b["t"]), 3)], "kept": round(float(k["t"]), 3),
+           "dropped": drop.get("from"), "why": "the subject's arrival" if later else "the earlier"}
+    return stops[:i] + [k] + stops[i + 2:], rec
+
+
+def merge_degenerate(stops: list[dict], size, aspect: float, *, gap_s: float = DEGENERATE_GAP_S, accept=None
+                     ) -> tuple[list[dict], list[dict]]:
+    """The engine's side of ``degenerate-stops``: near-equal ENGINE stops under ``gap_s`` apart become one
+    (``merge_pair``), one pair at a time, first to last, each kept only when ``accept(stops)`` (the caller's
+    truth check; None accepts all). A stop a person wrote (``camera``) is never merged: ``degenerate_pairs``
+    lints it. Returns (stops, merged: [{t, kept, dropped, why}])."""
+    merged: list[dict] = []
+    refused: set = set()
+    while True:
+        cand = [p for p in degenerate_pairs(stops, size, aspect, gap_s=gap_s)
+                if not p["authored"] and (p["t"][0], p["t"][1]) not in refused]
+        if not cand:
+            return stops, merged
+        p = cand[0]
+        out, rec = merge_pair(stops, p["i"])
+        if accept is None or accept(out):
+            stops = out
+            merged.append(rec)
+        else:
+            refused.add((p["t"][0], p["t"][1]))

@@ -1,7 +1,7 @@
 """Render a screenplay v2 into a 1080p24 master film.
 
     python -m studio.engine.render <film dir> [--out <dir>] [--res 1080|720]
-                                   [--from SHOT] [--workers N] [--burn-subtitles]
+                                   [--from SHOT | --until S | --shots A..B] [--workers N] [--burn-subtitles]
 
 Reads ``<film dir>/screenplay.json`` (films/GRAMMAR.md section 12) and the
 ledgers it cites (top-level ``ledgers``: name -> path, or {"path", "media"};
@@ -42,7 +42,10 @@ A9; design/brand-kit/BRAND-KIT.md; every graphic comes from motion.py):
 Frames render in N worker processes (default 8, at most 12: this laptop
 crashes under parallel load), one shot per unit, each to a cached segment
 keyed by a content hash; the master is encoded last. ``--from SHOT``
-re-renders from that shot and takes every earlier shot from the cache.
+re-renders from that shot and takes every earlier shot from the cache. ``--shots A..B`` (a check
+render, like ``--until``) plans and lints the whole film, renders only shots A to B from the full plan
+(edge transitions as the film plays them) with the full mix cut to the span to the sample, to
+``<out>/master.shots-A-B.mp4``; it never writes the film's master or sources.json.
 
 Every unit of work is journaled (studio/engine/journal.py). Media never
 enters the repo (R-08); outputs land outside it unless ``--out`` says so.
@@ -899,6 +902,9 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
     stops, reframed = T.degrade_bindings(stops, dur, item, roi_by_name, persons, img_size, aspect, zmax,
                                          no_zoom=no_zoom)
     stops = T.cap_faces(stops, persons, img_size, aspect)
+    # A49 refined: one stop for one framing (before the face cap's own pass, which judges the merged path)
+    stops, merged = degenerate_merge(stops, shot, item, dur, img_size, aspect, zmax, no_zoom=no_zoom, hz=fps or FPS,
+                                     persons=persons)
     stops, pulled = T.enforce_face_cap(stops, persons, dur, img_size, aspect, zmax, no_zoom=no_zoom,
                                        hz=fps)               # A44: the face cap sampled at every master frame
     if shot.get("match") == "prev" and stops:
@@ -932,7 +938,35 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
             "covering": covering, "cover": (("whole" if cover is True else cover) if covering else None),
             "capped": any(st.get("capped") for st in stops), "subject": subject, "settle_kinds": settle_kinds,
             "cine": {"persons": persons, "regions": roi_by_name, "ignored": eff["ignored"], "reframed": reframed,
-                     "pulled": pulled}}
+                     "pulled": pulled, "merged": merged}}
+
+
+def degenerate_merge(stops: list[dict], shot: dict, item: dict, dur: float, size, aspect: float, zmax: float, *,
+                     no_zoom: bool, hz: float, persons: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+    """A49 refined (``degenerate-stops``): the engine's near-equal stops under a settle apart become one
+    (``tour.merge_degenerate``), only when the merged path keeps every truth guarantee the path as placed had:
+    every person it showed still seen, the whole picture still shown if it was (A7), every ``must_show``
+    region still seen, and no face or person (``persons``) framed past the face cap where it was not (A43).
+    Otherwise the stops stay as placed (the lint then names the pair). Returns (stops, merged: what was
+    merged, empty when nothing was)."""
+    if not T.degenerate_pairs(stops, size, aspect):
+        return stops, []
+    people = T.people_of(item, kind=shot.get("kind", "archive_still"))
+
+    def truth(st):
+        tl = T.build(st, dur, size, aspect, zmax, no_zoom=no_zoom)
+        w = T.windows_of(tl, hz)
+        pc = T.people_check(w, people, size)
+        faces = {n for v in (T.face_cap_check(tl, persons, hz) if persons else []) for n in v["people"]}
+        return set(pc["missed"]), pc["whole_shown"], set(T.must_show(w, item, size)), faces
+
+    missed0, whole0, ms0, faces0 = truth(stops)
+
+    def keeps_truth(st):
+        missed1, whole1, ms1, faces1 = truth(st)
+        return not (missed1 - missed0 or (whole0 and not whole1) or ms1 - ms0 or faces1 - faces0)
+
+    return T.merge_degenerate(stops, size, aspect, accept=keeps_truth)
 
 
 def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journal | None, fps: float = FPS,
@@ -1451,6 +1485,11 @@ def a49_tour_lints(lint, journal: Journal, s: dict, cam: dict, size, fps: float,
         journal.lint("min-move-after-cut", False, stage="motion", unit=s["id"], severity="warn", grammar="A49",
                      phase="preflight", evidence=dict(mv, fix="settle before the cut, or carry the move across it "
                                                                "with match: \"prev\" or a dissolve"))
+    deg = TL.degenerate_stops(tl)
+    if not deg["ok"]:
+        journal.lint("degenerate-stops", False, stage="motion", unit=s["id"], severity="warn", grammar="A49 refined",
+                     phase="preflight", evidence=dict(deg, fix="one stop for one framing: drop one of the pair, or "
+                                                               "move it so the eye sees a new window"))
     verdict = (cam.get("subject") or {}).get("last")
     if verdict is not None:
         comp = TL.end_pose_composition(verdict)
@@ -3340,6 +3379,79 @@ def trim_plan(plan: dict, until_s: float) -> dict:
     return out
 
 
+def parse_shots(arg: str | tuple | list) -> tuple[str, str]:
+    """``--shots <a>..<b>`` (inclusive; one id alone is that shot) as the pair of shot ids."""
+    if isinstance(arg, (tuple, list)):
+        if len(arg) != 2:
+            raise Refused(f"--shots {arg!r}: give two shot ids")
+        return str(arg[0]), str(arg[1])
+    a, sep, b = str(arg).strip().partition("..")
+    a, b = a.strip(), (b.strip() if sep else a.strip())
+    if not a or not b:
+        raise Refused(f"--shots {arg}: give <id>..<id>, both ends named (e.g. --shots 5.9..5.9bb)")
+    return a, b
+
+
+def shot_span(plan: dict, a: str, b: str) -> dict:
+    """The inclusive span of shots ``a``..``b`` on the FULL plan: its shot indices and its frames
+    ``[f0, f1)``, which are exactly the film's frames there (the span is rendered from the full plan).
+
+    Transitions at the edges play as they do in the film (the segment model's own choice): a shot owns
+    its incoming transition, so a dissolve into ``a`` blends the previous shot's picture into a's first
+    frames and a dip into ``a`` rises from black; at the far end, a dip into the next shot darkens b's
+    tail, and a dissolve into the next shot plays in that shot's frames, so the span ends where it begins
+    (b's last frame is b alone, as the film shows it). Unknown ids and a reversed range refuse."""
+    ids = [s["id"] for s in plan["shots"]]
+    for x in (a, b):
+        if x not in ids:
+            near = [i for i in ids if i.startswith(x.split(".")[0])][:12]
+            raise Refused(f"--shots {a}..{b}: no shot {x!r} in the screenplay"
+                          + (f" (shots like it: {', '.join(near)})" if near else ""))
+    i0, i1 = ids.index(a), ids.index(b)
+    if i0 > i1:
+        raise Refused(f"--shots {a}..{b}: reversed range ({a} plays after {b}); give the earlier shot first")
+    shots = plan["shots"]
+    f0, f1 = shots[i0]["f0"], shots[i1]["f1"]
+    fps = fps_of(plan)
+    tin = dict(shots[i0]["transition_in"])
+    nxt = dict(shots[i1 + 1]["transition_in"]) if i1 + 1 < len(shots) else None
+    edge_in = {"transition": tin.get("type", "cut"), "s": tin.get("s"),
+               "plays": {"dissolve": f"as in the film: {ids[i0 - 1] if i0 else '-'}'s picture dissolves into {a}",
+                         "dip": f"as in the film: {a} rises from the dip's black"}.get(tin.get("type"), "a cut")}
+    edge_out = {"transition": (nxt or {}).get("type", "end" if nxt is None else "cut"), "s": (nxt or {}).get("s"),
+                "plays": {"dissolve": f"ends where the dissolve into {ids[i1 + 1] if nxt else '-'} begins (it plays in that shot's frames)",
+                          "dip": f"as in the film: {b}'s tail falls into the dip's black"}.get((nxt or {}).get("type"), "a cut")}
+    return {"a": a, "b": b, "i0": i0, "i1": i1, "ids": ids[i0:i1 + 1], "f0": f0, "f1": f1, "frames": f1 - f0,
+            "t0_s": f0 / fps, "t1_s": f1 / fps, "duration_s": (f1 - f0) / fps, "edge_in": edge_in, "edge_out": edge_out}
+
+
+def span_samples(plan: dict, f0: int, f1: int, sr: int = AUDIO_RATE) -> tuple[int, int]:
+    """The audio samples ``[n0, n1)`` under frames ``[f0, f1)`` at the plan's exact master rate (A44):
+    frame k starts at sample round(k * sr / rate), so a span's sound lines up with its pictures to the sample."""
+    from fractions import Fraction
+    rate = Fraction(master_rate_of(plan))
+    return round(f0 * sr / rate), round(f1 * sr / rate)
+
+
+def slice_mix(x: np.ndarray, plan: dict, f0: int, f1: int, sr: int = AUDIO_RATE) -> np.ndarray:
+    """The full film's mix cut to frames ``[f0, f1)``, sample-aligned (zero-padded if the mix ends early)."""
+    n0, n1 = span_samples(plan, f0, f1, sr)
+    y = x[n0:n1]
+    if len(y) < n1 - n0:
+        y = np.concatenate([y, np.zeros((n1 - n0 - len(y),) + y.shape[1:], dtype=x.dtype)])
+    return y
+
+
+def span_view(plan: dict, span: dict) -> dict:
+    """The plan seen from the span's master: its shots, and the voice lines that start inside it, moved so the
+    span's first frame is time 0 (the post-render sync check measures them in the span's master)."""
+    f0, t0 = span["f0"], span["t0_s"]
+    shots = [dict(s, f0=s["f0"] - f0, f1=s["f1"] - f0) for s in plan["shots"][span["i0"]:span["i1"] + 1]]
+    lines = [dict(ln, start_s=float(ln["start_s"]) - t0) for ln in plan["lines"]
+             if t0 <= float(ln["start_s"]) < span["t1_s"]]
+    return dict(plan, shots=shots, lines=lines, frames=span["frames"], duration_s=span["duration_s"])
+
+
 # --------------------------------------------------------------------------
 # Pictures (worker side)
 # --------------------------------------------------------------------------
@@ -3925,13 +4037,15 @@ def opens_whole(s: dict) -> bool:
     return bool((s.get("_cam") or {}).get("opens_whole", True))
 
 
-def preflight_stills(plan: dict, journal: Journal) -> list[str]:
-    """A7's pixel check for every still, run before any frame is rendered: one
-    frame per still, its own layer. Returns the shots that are not whole."""
+def preflight_stills(plan: dict, journal: Journal, only: set[int] | None = None) -> list[str]:
+    """A7's pixel check for every still (or only those shots, a --shots span's), run before any frame is
+    rendered: one frame per still, its own layer. Returns the shots that are not whole."""
     pics = Pictures(plan)
     bad = []
     try:
         for i, s in enumerate(plan["shots"]):
+            if only is not None and i not in only:
+                continue
             if s["kind"] == "archive_still" and s.get("_cam") and opens_whole(s):
                 ev: dict = {}
                 ok = still_first_frame_whole(plan, pics, i, ev)
@@ -7408,16 +7522,24 @@ class _Direct:
 def render(film: Path | str, out: Path | str | None = None, *, height: int = 1080, from_shot: str | None = None,
            workers: int = DEFAULT_WORKERS, burn_subtitles: bool = False, min_free_gb: float = MIN_FREE_GB,
            encode_preset: str = "slow", draft: bool = False, fit_voices_opt: bool = False, audio_only: bool = False,
-           until_s: float | None = None, journal: Journal | None = None) -> dict:
+           until_s: float | None = None, shots: str | tuple | None = None, journal: Journal | None = None) -> dict:
     film = Path(film).resolve()
     out = Path(out).resolve() if out else film / "out"
     W, H = frame_size(height)
     journal = journal or Journal(film=film.name, out_dir=out)
     run_t0 = time.perf_counter()
+    pair = None
+    if shots is not None:
+        try:
+            pair = parse_shots(shots)
+        except Refused:           # refused inside the run, journaled
+            pair = None
     resume_cmd = f"python -m studio.engine.render {film} --out {out} --res {height}" + (
-        f" --until {until_s:g}" if until_s is not None else "")
-    # A check render (--until) keeps its segments, mix and outputs apart: it never touches, or passes as, the full render.
-    check = f"check-{until_s:g}s" if until_s is not None else None
+        f" --until {until_s:g}" if until_s is not None else "") + (f" --shots {pair[0]}..{pair[1]}" if pair else "")
+    # A check render (--until, --shots) keeps its segments, mix and outputs apart: it never touches, or passes as, the
+    # full render. A span (--shots) is named by its ends.
+    check = (f"check-{until_s:g}s" if until_s is not None
+             else "shots-" + "-".join(re.sub(r"[^A-Za-z0-9._]", "_", x) for x in pair) if pair else None)
     run_dir = out / check if check else out
     try:   # A44: the master rate the plan resolves (stated, or the majority of clip runtime), named at run.start
         play0 = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
@@ -7427,8 +7549,9 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         rate0 = {"fps": None, "master_fps": None, "master_fps_from": "unresolved before the plan"}
     settings = {"height": H, "width": W, **rate0, "workers": workers, "from": from_shot, "burn_subtitles": burn_subtitles,
                 "min_free_gb": min_free_gb, "encode_preset": encode_preset, "draft": draft, "fit_voices": fit_voices_opt,
-                "audio_only": audio_only, "until_s": until_s}
+                "audio_only": audio_only, "until_s": until_s, "shots": f"{pair[0]}..{pair[1]}" if pair else shots}
     current = {"stage": "scout", "unit": None}
+    span = None
     n_req = int(workers)
     n = max(1, min(n_req, MAX_WORKERS, os.cpu_count() or 1))
     try:
@@ -7441,6 +7564,15 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         # licences, marks, transitions, dips, zoom limits, A7 framing, voice-overlap, then A7 on each
         # still's own first frame. The rendered pixels are checked again after motion (phase post-render).
         journal.stage("scout", "start", phase="preflight")
+        if shots is not None:      # a span of the film: its own exclusions, before any work
+            pair = parse_shots(shots)
+            if until_s is not None:
+                raise Refused("--shots and --until are exclusive: a span names its own shots")
+            if from_shot is not None:
+                raise Refused("--shots with --from: not supported (a span renders its own shots; its segments are cached "
+                              "in its own folder, so running the same --shots again resumes)")
+            if audio_only:
+                raise Refused("--shots with --audio-only: not supported (a span is its pictures with the film's sound)")
         if draft:
             journal.human("scout", "draft render: missing voice WAVs become silence; dynamic loudness, a compressing master limiter, A13 bad takes and narrator-consistency are warnings instead of refusing the run",
                           override="--draft")
@@ -7480,9 +7612,17 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
             journal.human("scout", f"--until {until_s:g}: only the shots that start before {until_s:g} s are rendered",
                           override="--until")
             plan = trim_plan(plan, until_s)
-        stills = [s["id"] for s in plan["shots"] if s["kind"] == "archive_still" and s.get("_cam") and opens_whole(s)]
+        if pair is not None:       # the whole film planned and linted above; only the span's frames are rendered
+            span = shot_span(plan, *pair)
+            journal.human("scout", f"--shots {pair[0]}..{pair[1]}: a check render of {len(span['ids'])} shots, "
+                          f"{span['t0_s']:.3f} s to {span['t1_s']:.3f} s of the film ({span['frames']} frames), with the "
+                          "full film's mix cut to the span; the film's master and sources.json are never written",
+                          override="--shots", span={k: span[k] for k in ("a", "b", "f0", "f1", "frames", "edge_in", "edge_out")})
+        in_span = range(span["i0"], span["i1"] + 1) if span else range(len(plan["shots"]))
+        stills = [plan["shots"][i]["id"] for i in in_span
+                  if plan["shots"][i]["kind"] == "archive_still" and plan["shots"][i].get("_cam") and opens_whole(plan["shots"][i])]
         with journal.unit("scout", "preflight-stills", size={"driver": "items", "value": len(stills)}):
-            not_whole = preflight_stills(plan, journal)
+            not_whole = preflight_stills(plan, journal, only=set(in_span) if span else None)
             if not_whole:
                 raise Refused(f"A7 (pre-flight): the first frame of {', '.join(not_whole)} is not the whole photograph")
         journal.stage("scout", "done", phase="preflight", frames_rendered=0)
@@ -7531,17 +7671,21 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
 
         # A25 refined: a film with placeholders is keyed once the mix has filled them (a card's text is its pixels, and a
         # neighbour's key reads it through prev and the subtitles), so every shot of such a film waits for the fill
-        pending = list(range(len(plan["shots"]))) if plan_has_placeholders(plan) else []
-        for i in range(len(plan["shots"])):
+        pending = list(in_span) if plan_has_placeholders(plan) else []
+        for i in in_span:
             if i not in pending:
                 key_shot(i)
+        n_frames = span["frames"] if span else plan["frames"]
+        dur = span["duration_s"] if span else plan["duration_s"]
 
         # What run.start cannot know until the screenplay is read: the units and the film's length.
         journal.event("stage", "run", None, lens="run.plan", status="planned", film=plan["slug"], title=plan["title"],
-                      units=[{"id": s["id"], "stage": "motion", "size": {"driver": "frames", "value": s["f1"] - s["f0"]}}
-                             for s in plan["shots"]],
-                      duration_s=plan["duration_s"], frames=plan["frames"], todo=[ids[i] for i in todo],
-                      cached=[ids[i] for i in cached], preflight=pf)
+                      units=[{"id": plan["shots"][i]["id"], "stage": "motion",
+                              "size": {"driver": "frames", "value": plan["shots"][i]["f1"] - plan["shots"][i]["f0"]}}
+                             for i in in_span],
+                      duration_s=dur, frames=n_frames, todo=[ids[i] for i in todo],
+                      cached=[ids[i] for i in cached], preflight=pf,
+                      **({"span": {k: span[k] for k in ("a", "b", "f0", "f1", "t0_s", "t1_s")}} if span else {}))
 
         # Audio first (cheap), so the marks event can carry the voice shares.
         current.update(stage="assembly", unit="mix")
@@ -7588,6 +7732,17 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         refusals = loudness_lints(journal, loud, draft=draft)
         if refusals:
             raise Refused(f"loudness (pre-flight): {'; '.join(refusals)} (GRAMMAR 8.5; render with --draft to accept it)")
+        mix_for_master = work / "mix-norm.wav"
+        if span:                  # the full film's levelled mix, cut to the span's frames to the sample
+            import soundfile as sf
+            full, sr = sf.read(str(work / "mix-norm.wav"), dtype="float32", always_2d=False)
+            n0, n1 = span_samples(plan, span["f0"], span["f1"], sr)
+            mix_for_master = work / f"mix-{check}.wav"
+            sf.write(str(mix_for_master), slice_mix(full, plan, span["f0"], span["f1"], sr), sr, subtype="FLOAT")
+            del full
+            journal.artifact("assembly", mix_for_master, unit="loudness", role="check-mix-span")
+            journal.event("unit", "assembly", "loudness", lens="span-mix", status="info", samples=[n0, n1], rate=sr,
+                          frames=[span["f0"], span["f1"]], file=mix_for_master.name)
         if audio_only:                       # --audio-only: the pre-flight and the sound, no frames and no master
             journal.stage("assembly", "done", detail={"audio_only": True})
             summary = {"run": journal.run, "journal": str(journal.path), "mix": str(work / "mix-norm.wav"), "loudness": loud,
@@ -7619,7 +7774,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
                     "conform": (s.get("_video") or {}).get("conform")}
             with journal.unit("motion", s["id"], size={"driver": "frames", "value": s["f1"] - s["f0"], "width": W, "height": H},
                               model=ENGINE_MODEL, settings=set_, start_event=False, unit_kind="shot",
-                              resume=f"{resume_cmd} --from {s['id']}") as u:
+                              resume=resume_cmd if span else f"{resume_cmd} --from {s['id']}") as u:
                 if exc is not None:
                     raise exc
                 u.wall_s = res["wall_s"]
@@ -7700,8 +7855,8 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         if dip_glyph:                            # A40: a master's own dip that shows its mark on the black hold (a warning)
             journal.lint("title-dip-hold", False, stage="marks", grammar="A40, 7.3, A11", phase="post-render", severity="warn",
                          evidence={"frames": dip_glyph, "fix": "re-assemble the master with its dip's black hold all black"})
-        journal.lint("mark-coverage", not fails and checked == plan["frames"], stage="marks", grammar="1.3, 4, A11", phase="post-render",
-                     evidence={"frames": plan["frames"], "checked": checked, "ok": sum(r["mark"]["ok"] for r in results.values()),
+        journal.lint("mark-coverage", not fails and checked == n_frames, stage="marks", grammar="1.3, 4, A11", phase="post-render",
+                     evidence={"frames": n_frames, "checked": checked, "ok": sum(r["mark"]["ok"] for r in results.values()),
                                "probe": "the class glyph's centre for the hue and its corner for the shape (A16 refined)",
                                "wrong_shape": sum(r["mark"].get("shape", 0) for r in results.values()),
                                "label_frames": sum(r["mark"].get("label", 0) for r in results.values()),
@@ -7723,12 +7878,13 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         voiced = {"narration": 0.0, "reading": 0.0, "archival": 0.0}
         for ln in placed["lines"]:
             voiced[ln["kind"]] = voiced.get(ln["kind"], 0.0) + ln["dur_s"]
-        dur = plan["duration_s"]
+        film_dur = plan["duration_s"]
         journal.event("lint", "marks", None, lens="marks", rule="marks-track", status="pass" if not fails else "fail",
                       severity="block", track=doc["marks"], share=doc["share"], generated_share=doc["share"]["AI-GENERATED"],
-                      narration_share=round(voiced["narration"] / dur, 4), readings_share=round((voiced["reading"] + voiced["archival"]) / dur, 4),
+                      narration_share=round(voiced["narration"] / film_dur, 4),
+                      readings_share=round((voiced["reading"] + voiced["archival"]) / film_dur, 4),
                       violations=[{"shot": k, "frames": v} for k, v in fails.items()])
-        if fails or checked != plan["frames"]:
+        if fails or checked != n_frames:
             raise Refused(f"mark coverage failed on {fails or 'a frame count mismatch'}")
         held = held_totals(results, ids)
         held_bad = [sid for sid, k in held.items() if k / fps_of(plan) > MAX_HOLD_S and not (
@@ -7745,7 +7901,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         current.update(stage="assembly", unit="encode")
         out.mkdir(parents=True, exist_ok=True)
         listing = work / "segments.txt"
-        listing.write_text("".join(f"file '{segs[i].as_posix()}'\n" for i in range(len(plan["shots"]))), encoding="utf-8")
+        listing.write_text("".join(f"file '{segs[i].as_posix()}'\n" for i in in_span), encoding="utf-8")
         master = out / (f"master.{check}.mp4" if check else "master.mp4")
         sources_path = out / (f"sources.{check}.json" if check else "sources.json")
         threads = MASTER_THREADS          # fixed, so the master's bytes never depend on --workers
@@ -7756,7 +7912,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         with journal.unit("assembly", "encode", size={"driver": "seconds", "value": round(dur, 3)},
                           model={"name": "ffmpeg", "version": ffmpeg_version()}, settings=enc_settings,
                           resume=resume_cmd) as u:
-            cmd = [ffmpeg(), "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(listing), "-i", str(work / "mix-norm.wav"),
+            cmd = [ffmpeg(), "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(listing), "-i", str(mix_for_master),
                    "-map", "0:v:0", "-map", "1:a:0",
                    "-vf", "scale=in_color_matrix=bt709:out_color_matrix=bt709:in_range=tv:out_range=tv,format=yuv420p,"
                           "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv",
@@ -7773,45 +7929,51 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
                                    "frames": pr["frames"]})
         ok_fmt = (pr["width"] == W and pr["height"] == H and CAD.probe_rate(pr.get("r_frame_rate")) == master_rate_of(plan)
                   and abs(pr["fps"] - fps_of(plan)) < 0.01
-                  and pr["frames"] == plan["frames"])
+                  and pr["frames"] == n_frames)
         journal.lint("master-format", ok_fmt, stage="assembly", grammar="7.5", phase="post-render",
                      evidence={"width": pr["width"], "height": pr["height"], "fps": pr["fps"], "r_frame_rate": pr.get("r_frame_rate"),
                                "expected_rate": rate, "frames": pr["frames"],
-                               "expected_frames": plan["frames"], "duration_s": pr["duration_s"]})
+                               "expected_frames": n_frames, "duration_s": pr["duration_s"]})
         if not ok_fmt:
             raise Refused(f"the master is {pr['width']}x{pr['height']} at {pr['fps']} fps with {pr['frames']} frames; "
-                          f"expected {W}x{H} at {rate} with {plan['frames']}")
+                          f"expected {W}x{H} at {rate} with {n_frames}")
         # A33(1c): every archival line heard over its own picture is measured in the master; a final render refuses a
         # conclusive offset more than 45 ms from the correction applied (a draft or check render journals it)
+        seen = span_view(plan, span) if span else plan        # a span's lines, measured where they sit in its master
         with journal.unit("assembly", "sync-check", size={"driver": "items", "value": sum(
-                1 for ln in plan["lines"] if ln.get("archival_audio") and ln.get("clip"))}):
-            sync_refusals = CL.rendered_sync_lints(journal, plan, master, draft=draft or bool(check))
+                1 for ln in seen["lines"] if ln.get("archival_audio") and ln.get("clip"))}):
+            sync_refusals = CL.rendered_sync_lints(journal, seen, master, draft=draft or bool(check))
         if sync_refusals:
             raise Refused(f"archival sync (post-render): {'; '.join(sync_refusals)} (GRAMMAR A33)")
         # One write: a check render writes its own partial sources file and never the full one (T1d);
         # a full render also records the master's sha256, which ties sources.json to its film (T7).
+        # A span (--shots) writes no sources file at all: its timeline is the film's, cut, and it is never published.
         extra = {"loudness": loud, "master": master.name, "master_sha256": sha256_file(master)}
         if check:
             extra.update(partial=True, until_s=until_s)
-        doc = sources_doc(plan, journal, extra)
-        sources_path.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
-        for i in range(len(plan["shots"])):
+        if not span:
+            doc = sources_doc(plan, journal, extra)
+            sources_path.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
+        for i in in_span:
             journal.artifact("motion", segs[i], unit=ids[i], role="check-segment" if check else "segment")
         journal.artifact("assembly", master, role="check-master" if check else "master")
-        journal.artifact("assembly", sources_path, role="check-sources" if check else "sources")
+        if not span:
+            journal.artifact("assembly", sources_path, role="check-sources" if check else "sources")
         journal.stage("assembly", "done")
         wall = time.perf_counter() - run_t0
-        journal.timing("run", "total", wall, size={"driver": "seconds", "value": round(dur, 3), "frames": plan["frames"]},
+        journal.timing("run", "total", wall, size={"driver": "seconds", "value": round(dur, 3), "frames": n_frames},
                        model=ENGINE_MODEL, settings=dict(settings, workers=n))
-        summary = {"run": journal.run, "journal": str(journal.path), "master": str(master), "sources": str(sources_path),
-                   "frames": plan["frames"], "duration_s": dur, "wall_s": round(wall, 2), "rendered": [ids[i] for i in todo],
+        summary = {"run": journal.run, "journal": str(journal.path), "master": str(master),
+                   "sources": None if span else str(sources_path), "frames": n_frames, "duration_s": dur, "wall_s": round(wall, 2), "rendered": [ids[i] for i in todo],
                    "cached": [ids[i] for i in cached], "workers": n, "partial": bool(check), "until_s": until_s,
+                   "shots": {k: span[k] for k in ("a", "b", "f0", "f1", "t0_s", "t1_s", "edge_in", "edge_out")} if span else None,
                    "clip_warnings": plan.get("clip_integrity", {}).get("warnings", [])}     # A33(3): listed in the report
         journal.event("stage", "run", None, lens="run.end", status="done", outcome="ok", **summary)
         return summary
     except BaseException as exc:
         unit = current.get("unit")
-        resume = f"{resume_cmd} --from {unit}" if current["stage"] == "motion" and unit else resume_cmd
+        # a span resumes by running it again (its segments are cached in its own folder); --from is the film's
+        resume = f"{resume_cmd} --from {unit}" if current["stage"] == "motion" and unit and not span else resume_cmd
         if not getattr(exc, "_journaled", False):
             journal.error(current["stage"], unit, exc, resume=resume,
                           fix="fix the lint or pre-flight finding above" if isinstance(exc, Refused) else None)
@@ -7876,6 +8038,9 @@ def main(argv=None) -> int:
                     help="move overlapping voice lines later (0.8 s apart) and lengthen their shots (journaled)")
     ap.add_argument("--until", dest="until_s", type=float, default=None,
                     help="a check render: only the shots that start before this many seconds (journaled)")
+    ap.add_argument("--shots", dest="shots", default=None, metavar="A..B",
+                    help="a check render of the shots A to B inclusive (e.g. 5.9..5.9bb): the full film planned and linted, "
+                         "only the span's frames rendered, with the full mix cut to it -> <out>/master.shots-A-B.mp4")
     ap.add_argument("--audio-only", action="store_true",
                     help="run the pre-flight and the sound (mix, levelling, loudness) only: no frames, no master")
     ap.add_argument("--sources-only", action="store_true",
@@ -7891,7 +8056,7 @@ def main(argv=None) -> int:
         return 0
     try:
         s = render(a.film, a.out, height=a.res, from_shot=a.from_shot, workers=a.workers, burn_subtitles=a.burn_subtitles,
-                   draft=a.draft, fit_voices_opt=a.fit_voices, audio_only=a.audio_only, until_s=a.until_s)
+                   draft=a.draft, fit_voices_opt=a.fit_voices, audio_only=a.audio_only, until_s=a.until_s, shots=a.shots)
     except Refused as e:
         print(f"render: refused: {e}", file=sys.stderr)
         return 2

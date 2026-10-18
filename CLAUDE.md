@@ -92,6 +92,7 @@ See `CHARTER.md` for its surfaces and kill dates, and `contract.yaml` for what
 - `python -m studio.engine.render <film dir>`: render a screenplay v2 to a 1080p master at the film's rate (24, or 30000/1001: GRAMMAR A44);
   every run is journaled (`studio/engine/journal.py`), issues go to `docs/ENGINE-LOG.md`. Cut spans of long reels go to
   `<film>/cache/spans`, or to `DOCUMENT_SPANS_CACHE` when set (keep them off a near-full system disk).
+- `python -m studio.engine.render <film dir> --shots <id>..<id> [--out <dir>]`: a check render of that span (whole film planned and linted, the full mix cut to it) to `<out>/master.shots-<a>-<b>.mp4`.
 - `python -m studio.engine.score <film dir> [--wavs <dir>]`: the house score standard (GRAMMAR A29) checked offline on the
   film's cue WAVs as its screenplay places them, with no mix rendered; `--wavs` swaps in a re-scored set of cues.
 - `python -m studio.engine.levels --check <film dir> [--json <file>]`: GRAMMAR A46's automatic black floor read-only on a
