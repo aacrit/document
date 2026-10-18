@@ -936,7 +936,7 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
 
 
 def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journal | None, fps: float = FPS,
-                 avoid=None) -> dict:
+                 avoid=None, text_spans=None) -> dict:
     """A41, A43 and A47: a path the engine made (a preset, the default, or
     the ``tour`` resolver's visits, re-framed or not) can never fail
     tour-people. Its windows are checked against every person in the picture
@@ -949,7 +949,16 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
     default pass itself is never widened for coverage alone: what it leaves
     unseen is the subject's choice (``tour-partial``). A path a person wrote
     (``camera`` stops) is never changed here. ``avoid`` (A49) is carried into
-    every re-covered pass, the same as the first."""
+    every re-covered pass, the same as the first.
+
+    A49 (ruling 2, "the engine never refuses itself"): when a ``must_show``
+    region is still covered by an active text zone (``text_spans``) after
+    whatever the chosen preset, the default pass or ``aimed_breath`` already
+    tried to steer, this escalates once more to the subject pass (the same
+    one missing-person coverage escalates to, now ``avoid``-aware); if that
+    still does not clear it, the engine keeps its best attempt and journals
+    a reviewer item, never a refusal. Only a written ``camera`` path blocks
+    (``render.a49_tour_lints``), since it is never steered here."""
     if cam.get("preset") != TOUR or not (cam.get("macro") in COVERABLE or cam.get("macro") == "TOUR"):
         return cam
     item = s["_item"]
@@ -992,7 +1001,7 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
                                                      "subject": (cam.get("subject") or {}).get("src")})
     ms = missed_must_show(cam, wins)
     if pc["ok"] and not ms:
-        return cam
+        return _steer_from_text(s, cam, size, W, H, words, journal, fps, avoid, text_spans, item)
     missed = pc["missed"]
     cam = still_camera(s, size, W, H, words=words, cover="whole", fps=fps, avoid=avoid)
     wins, pc = check(cam)
@@ -1012,6 +1021,52 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
                          unit=s["id"], evidence={"people": people, "kind": s["kind"], "missed": missed,
                                                  "must_show_missed": ms, "held_on": len(held),
                                                  "now_shows_everyone": pc["ok"]})
+    return _steer_from_text(s, cam, size, W, H, words, journal, fps, avoid, text_spans, item)
+
+
+def _steer_from_text(s, cam, size, W, H, words, journal, fps, avoid, text_spans, item):
+    """A49 (ruling 2): the last step of ``engine_cover``. A must_show region
+    still covered by an active text zone escalates once to the subject pass
+    (``avoid``-aware); still covered, the engine keeps its closest attempt
+    and journals a reviewer item. Never a refusal here: only a written
+    ``camera`` path blocks (``a49_tour_lints``)."""
+    must_show_rois = T.must_show_regions(item)
+    if not must_show_rois or not text_spans:
+        return cam
+
+    def missed_text(c):
+        if c.get("tour") is None:
+            return []
+        tw = still_windows(c, s, size, W, H, hz=fps)
+        out = []
+        for r in must_show_rois:
+            box = T.roi_box(r)
+            if box is None:
+                continue
+            res = TL.subject_under_text(tw, box, size, text_spans=text_spans, is_face=r.get("kind") == "face",
+                                        must_show=True)
+            if res["block"]:
+                out.append(r.get("name"))
+        return out
+
+    ms_text = missed_text(cam)
+    if ms_text and cam.get("macro") != "DEFAULT":
+        cam2 = still_camera(s, size, W, H, words=words, cover="subject", fps=fps, avoid=avoid)
+        still_missed = missed_text(cam2)
+        if journal is not None:
+            journal.decision("motion", f"{s['id']}: steered clear of an active text zone"
+                             if not still_missed else f"{s['id']}: steering could not clear an active text zone",
+                             "A49 (ruling 2, the engine never refuses itself): a must_show region under a lower "
+                             "third or a subtitle while it is up is steered clear of it (the subject pass, "
+                             "avoid-aware) rather than refused", unit=s["id"],
+                             evidence={"must_show": ms_text, "cleared": not still_missed})
+        cam, ms_text = cam2, still_missed
+    if ms_text and journal is not None:
+        journal.lint("subject-under-text", False, stage="motion", unit=s["id"], severity="review", grammar="A49",
+                     phase="preflight", evidence={"must_show": ms_text,
+                     "check": "no steer the engine tried clears every must_show region of an active text zone; "
+                              "a human can re-time the text, move the region or re-author the camera (never "
+                              "refused here: ruling 2)"})
     return cam
 
 
@@ -1420,19 +1475,22 @@ def a49_tour_lints(lint, journal: Journal, s: dict, cam: dict, size, fps: float,
         if not res["ok"]:
             journal.lint("subject-under-text", False, stage="motion", unit=s["id"], severity="warn", grammar="A49",
                          phase="preflight", evidence={"must_show": None, **res})
+    written = isinstance(s.get("camera"), list)      # A43's own signal: the stops of a camera list, a person's own
     for r in must_show_rois:
         box = T.roi_box(r)
         if box is None:
             continue
         res = TL.subject_under_text(wins, box, size, text_spans=text_spans, is_face=r.get("kind") == "face",
                                     must_show=True)
-        if res["block"]:
+        if res["block"] and written:
+            # A49 (ruling 2): only a path a person wrote is refused as written; an engine path is never refused
+            # here (render.engine_cover's _steer_from_text already steered it, or journaled a review item)
             lint("subject-under-text", False, unit=s["id"], stage="motion", grammar="A49",
                  evidence={"must_show": r.get("name"), **res,
                            "fix": "a must_show region is covered by a text zone while it is up: re-time or move "
-                                  "the text, or free the region (a written camera path is refused as written; an "
-                                  "engine path already tried to steer clear of it and could not)"})
-        elif not res["ok"]:
+                                  "the text, or free the region (a written camera path, so it is refused as "
+                                  "written; A43's own rule)"})
+        elif not res["ok"] and not res["block"]:
             journal.lint("subject-under-text", False, stage="motion", unit=s["id"], severity="warn", grammar="A49",
                          phase="preflight", evidence={"must_show": r.get("name"), **res})
 
@@ -2156,19 +2214,21 @@ def fit_voices(play: dict, film: Path, journal: Journal, gap: float = VOICE_GAP_
     return play
 
 
-def text_zone_timeline(play: dict, texts: list[dict]) -> list[tuple[float, float, tuple]]:
+def text_zone_timeline(play: dict, texts: list[dict]) -> list[dict]:
     """A49 (``subject-under-text``, section 4): every lower third's and
-    subtitle cue's (start_s, end_s, house zone, frame fractions) in
-    absolute film seconds, read from the same source (``texts``, the
-    screenplay's own ``text`` elements; ``play["subtitle_source"]``) the
-    on-screen-text pass reads later in this function, so steering and the
-    lint never drift from what the film actually shows. A lower third's
-    span is clipped the same way it is drawn (``motion.lower_third_span``,
-    A16). Subtitles count here whether or not they are burned
-    (``burn_subtitles``): soft captions are the web player's own
-    on-screen text over the same ``SUB`` band, so a must_show region is
-    checked against them either way. The glyph (``ZONES["GLYPH"]``) is not
-    listed: it is on every frame (A31/A42) and is handled separately."""
+    subtitle cue's ``{t0, t1, zone, box, id}`` (absolute film seconds, the
+    house zone's name and frame-fraction box, and the lower third's or the
+    cue's own id, so the report names what was up, not just "text"), read
+    from the same source (``texts``, the screenplay's own ``text``
+    elements; ``play["subtitle_source"]``) the on-screen-text pass reads
+    later in this function, so steering and the lint never drift from what
+    the film actually shows. A lower third's span is clipped the same way
+    it is drawn (``motion.lower_third_span``, A16). Subtitles count here
+    whether or not they are burned (``burn_subtitles``): soft captions are
+    the web player's own on-screen text over the same ``SUB`` band, so a
+    must_show region is checked against them either way. The glyph
+    (``ZONES["GLYPH"]``) is not listed: it is on every frame (A31/A42) and
+    is handled separately."""
     out = []
     for t in texts:
         if t.get("kind") == "lower_third":
@@ -2176,7 +2236,7 @@ def text_zone_timeline(play: dict, texts: list[dict]) -> list[tuple[float, float
                 shown = M.lower_third_span(float(t["start_s"]), float(t["end_s"]))
             except (KeyError, TypeError, ValueError):
                 continue
-            out.append((shown[0], shown[1], M.ZONES["LT"]))
+            out.append({"t0": shown[0], "t1": shown[1], "zone": "LT", "box": M.ZONES["LT"], "id": t.get("id")})
     for c in play.get("subtitle_source") or []:
         if not isinstance(c, dict):
             continue
@@ -2185,7 +2245,7 @@ def text_zone_timeline(play: dict, texts: list[dict]) -> list[tuple[float, float
         except (KeyError, TypeError, ValueError):
             continue
         if b > a:
-            out.append((a, b, M.ZONES["SUB"]))
+            out.append({"t0": a, "t1": b, "zone": "SUB", "box": M.ZONES["SUB"], "id": c.get("ref")})
     return out
 
 
@@ -2469,20 +2529,20 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             item = s.get("_item") or {}
             must_show_rois = T.must_show_regions(item)
             shot_a, shot_b = float(s["start_s"]), float(s["start_s"]) + float(s["_dur"])
-            active_zones = [zone for (a, b, zone) in zone_timeline if a < shot_b and b > shot_a]
+            text_spans = [{"zone": "glyph", "id": None, "box": M.ZONES["GLYPH"], "t0": 0.0, "t1": float(s["_dur"])}]
+            text_spans += [{"zone": z["zone"], "id": z["id"], "box": z["box"], "t0": max(0.0, z["t0"] - shot_a),
+                            "t1": min(float(s["_dur"]), z["t1"] - shot_a)} for z in zone_timeline
+                           if z["t0"] < shot_b and z["t1"] > shot_a]
+            active_zones = [z["box"] for z in zone_timeline if z["t0"] < shot_b and z["t1"] > shot_a]
             avoid = [(T.roi_box(r), zone) for r in must_show_rois for zone in active_zones] if (
                 must_show_rois and active_zones) else None
             cam = still_camera(s, size, W, H, words=words, fps=fps, avoid=avoid)
-            cam = engine_cover(s, cam, size, W, H, words, journal, fps=fps, avoid=avoid)
+            cam = engine_cover(s, cam, size, W, H, words, journal, fps=fps, avoid=avoid, text_spans=text_spans)
             s["_cam"] = cam
             fill_lints(lint, journal, s, cam)
             ml_upscale_lint(lint, s)
             if cam["preset"] == TOUR or cam.get("a41"):
                 sp = tour_lints(lint, journal, s, cam, size, W, H, fps=fps)
-                text_spans = [{"zone": "glyph", "box": M.ZONES["GLYPH"], "t0": 0.0, "t1": float(s["_dur"])}]
-                text_spans += [{"zone": "text", "box": zone, "t0": max(0.0, a - shot_a),
-                               "t1": min(float(s["_dur"]), b - shot_a)} for a, b, zone in zone_timeline
-                              if a < shot_b and b > shot_a]
                 a49_tour_lints(lint, journal, s, cam, size, fps, sp, text_spans, must_show_rois)
                 if cam["preset"] == OV.FIND:
                     lint("still-zoom-limit", cam["z_rel_max"] <= cam["scan_zmax"] + 1e-9, unit=s["id"], stage="motion",

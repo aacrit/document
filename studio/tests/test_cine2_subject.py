@@ -14,6 +14,7 @@ from studio.engine import motion as M
 from studio.engine import overlays as OV
 from studio.engine import render as R
 from studio.engine import tour as T
+from studio.engine import tourlint as TL
 
 W, H = 640, 360
 A = W / H
@@ -788,3 +789,74 @@ def test_the_aimed_breath_keeps_the_plain_breath_or_gives_way_to_the_sweep():
     cam, _ = cam_for(far, NEAR, dur=8.0)
     assert cam["subject"]["whole_mode"] == "sweep"
     assert T.aimed_breath(GOES, A, [(0, 0, 0.2, 0.99)], True) is None      # a region taller than the window
+
+
+# --------------------------------------------------------------------------
+# A49 (cinematography ticket #4, reviewer's re-review): the engine never
+# refuses itself for subject-under-text. GOES-8 (3.7)'s own "caption" box,
+# under a lower third widened to cover the whole shot: a written path is
+# the one case that still blocks (render.a49_tour_lints); every engine path
+# (HOLD, PUSH, declared whole: true, the plain default) must plan without a
+# Refused and, this fixture's own geometry, clear of the zone once steered.
+# --------------------------------------------------------------------------
+
+LT_OVER_WHOLE_SHOT = {"zone": "LT", "id": "T-fixture", "box": M.ZONES["LT"], "t0": 0.0, "t1": 8.0}
+
+
+def _engine_text_cam(item, size, dur, preset):
+    s = dict({"id": "X", "kind": "archive_still", "_dur": dur, "start_s": 0.0, "_item": item, "preset": preset})
+    must_show = T.must_show_regions(item)
+    avoid = [(T.roi_box(r), LT_OVER_WHOLE_SHOT["box"]) for r in must_show]
+    cam = R.still_camera(s, size, W, H, words=[], fps=24.0, avoid=avoid)
+    cam = R.engine_cover(s, cam, size, W, H, [], None, fps=24.0, avoid=avoid, text_spans=[LT_OVER_WHOLE_SHOT])
+    return cam, s, must_show
+
+
+def _caption_block(cam, s, size, must_show):
+    tl = cam.get("tour")
+    if not tl or not must_show:
+        return False
+    wins = TL.frame_windows(tl, 24.0)
+    box = T.roi_box(must_show[0])
+    return TL.subject_under_text(wins, box, size, text_spans=[LT_OVER_WHOLE_SHOT], must_show=True)["block"]
+
+
+@pytest.mark.parametrize("label,preset,declare_whole", [
+    ("HOLD", "HOLD", False), ("PUSH", "PUSH", False), ("whole-true", "HOLD", True), ("default", None, False),
+])
+def test_an_engine_path_is_never_refused_for_a_must_show_box_under_a_lower_third(label, preset, declare_whole):
+    item = dict(GOES_ITEM)
+    item.pop("whole", None)
+    if declare_whole:
+        item["whole"] = True
+    cam, s, must_show = _engine_text_cam(item, GOES, 8.0, preset)
+    assert cam.get("tour") is not None                   # the engine always has somewhere to go (ruling 2)
+    assert not _caption_block(cam, s, GOES, must_show)    # steered clear of the zone (this fixture's own geometry)
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_property_an_engine_path_with_a_must_show_box_under_text_is_never_refused(seed):
+    rng = random.Random(seed)
+    size = rng.choice([GOES, L43, L32, NEAR, (1920, 1080), (1000, 750)])
+    w, h = rng.uniform(0.03, 0.4), rng.uniform(0.02, 0.25)
+    must_show = {"name": "caption", "x": rng.uniform(0, 1 - w), "y": rng.uniform(0, 1 - h), "w": w, "h": h,
+                "must_show": True, "kind": rng.choice(["place", "text", "object"]), "source": "human"}
+    item = {"people": "none", "class": rng.choice(["document", "place", "object"]), "roi": [must_show]}
+    if rng.random() < 0.3:
+        item["whole"] = True
+    preset = rng.choice([None, "HOLD", "PUSH", "PULL", "DRIFT", "TILT", "FILL"])
+    dur = rng.uniform(2.5, 20.0)
+    zone_name, zone_box = rng.choice([("LT", M.ZONES["LT"]), ("SUB", M.ZONES["SUB"])])
+    span = {"zone": zone_name, "id": "cue-1", "box": zone_box, "t0": 0.0, "t1": dur}   # up for the whole shot: worst case
+    s = dict({"id": "X", "kind": "archive_still", "_dur": dur, "start_s": 0.0, "_item": item, "preset": preset})
+    avoid = [(T.roi_box(must_show), zone_box)]
+    cam = R.still_camera(s, size, W, H, words=[], fps=24.0, avoid=avoid)           # must not raise
+    cam = R.engine_cover(s, cam, size, W, H, [], None, fps=24.0, avoid=avoid, text_spans=[span])  # never refuses
+    sub = cam.get("subject") or {}
+    if sub.get("avoid_clear") is True:
+        # the engine's own signal that it cleared the box: the measured overlap must agree with it
+        tl = cam.get("tour")
+        if tl is not None:
+            wins = TL.frame_windows(tl, 24.0)
+            r = TL.subject_under_text(wins, T.roi_box(must_show), size, text_spans=[span], must_show=True)
+            assert not r["block"]

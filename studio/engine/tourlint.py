@@ -235,16 +235,17 @@ def subject_under_text(wins: Sequence[tuple], subject_box: tuple, size, *, text_
     """``subject-under-text`` (section 4): overlap of a subject or
     ``must_show`` box (picture fractions) with the LT, subtitle, overlay or
     mark zone while that zone is on screen (``text_spans``:
-    ``[{"zone", "box" (frame fractions), "t0", "t1"}]``). A face is never
-    checked (A43: the house's own text is not shrunk for a face, but a face
-    is also never the thing this lint is protecting). GUIDANCE at
-    ``warn_share`` (10% overlap); BLOCK only when ``must_show`` is true and
-    the overlap reaches ``block_share`` (effectively covered: a burned
-    caption or a must-show region a viewer cannot read, A0's truth guard,
-    not a pacing choice)."""
+    ``[{"zone", "id", "box" (frame fractions), "t0", "t1"}]``; ``id`` names
+    the lower third or the subtitle cue this span came from, for the
+    report). A face is never checked (A43: the house's own text is not
+    shrunk for a face, but a face is also never the thing this lint is
+    protecting). GUIDANCE at ``warn_share`` (10% overlap); BLOCK only when
+    ``must_show`` is true and the overlap reaches ``block_share``
+    (effectively covered: a burned caption or a must-show region a viewer
+    cannot read, A0's truth guard, not a pacing choice)."""
     if is_face:
-        return {"ok": True, "block": False, "max_overlap": 0.0, "at_s": None, "zone": None}
-    worst, worst_at, worst_zone = 0.0, None, None
+        return {"ok": True, "block": False, "max_overlap": 0.0, "at_s": None, "zone": None, "cue": None}
+    worst, worst_at, worst_zone, worst_cue = 0.0, None, None, None
     for t, win in wins:
         active = [sp for sp in text_spans if sp["t0"] - 1e-9 <= t <= sp["t1"] + 1e-9]
         if not active:
@@ -255,10 +256,11 @@ def subject_under_text(wins: Sequence[tuple], subject_box: tuple, size, *, text_
         for sp in active:
             share = T.box_overlap_share(fb, sp["box"])
             if share > worst:
-                worst, worst_at, worst_zone = share, t, sp.get("zone")
+                worst, worst_at, worst_zone, worst_cue = share, t, sp.get("zone"), sp.get("id")
     block = must_show and worst >= block_share - 1e-9
     ok = worst < warn_share - 1e-9
-    return {"ok": ok, "block": block, "max_overlap": round(worst, 4), "at_s": worst_at, "zone": worst_zone}
+    return {"ok": ok, "block": block, "max_overlap": round(worst, 4), "at_s": worst_at, "zone": worst_zone,
+            "cue": worst_cue}
 
 
 # --------------------------------------------------------------------------
@@ -481,7 +483,8 @@ def check_film(film: Path, *, W: int = 1920, H: int = 1080, skip_sound_lints: bo
     fps = float(plan["fps"])
     play_raw = json_mod.loads((Path(film) / "screenplay.json").read_text(encoding="utf-8"))
 
-    zone_timeline = [(lt["start"], lt["end"], M.ZONES["LT"]) for lt in plan.get("lower_thirds", [])]
+    zone_timeline = [{"t0": lt["start"], "t1": lt["end"], "zone": "LT", "box": M.ZONES["LT"], "id": lt.get("id")}
+                     for lt in plan.get("lower_thirds", [])]
     for c in play_raw.get("subtitle_source") or []:
         if not isinstance(c, dict):
             continue
@@ -490,7 +493,7 @@ def check_film(film: Path, *, W: int = 1920, H: int = 1080, skip_sound_lints: bo
         except (KeyError, TypeError, ValueError):
             continue
         if b > a:
-            zone_timeline.append((a, b, M.ZONES["SUB"]))
+            zone_timeline.append({"t0": a, "t1": b, "zone": "SUB", "box": M.ZONES["SUB"], "id": c.get("ref")})
 
     stills = [s for s in plan["shots"] if s["kind"] in ("archive_still", "drawn")
               and s.get("_item", {}).get("_path") and s.get("_cam", {}).get("tour")]
@@ -500,10 +503,10 @@ def check_film(film: Path, *, W: int = 1920, H: int = 1080, skip_sound_lints: bo
         with Image.open(s["_item"]["_path"]) as im:
             size = im.size
         shot_a, shot_b = float(s["start_s"]), float(s["start_s"]) + float(s["_dur"])
-        text_spans = [{"zone": "glyph", "box": M.MARK_GLYPH_ZONE, "t0": 0.0, "t1": float(s["_dur"])}]
-        text_spans += [{"zone": "LT" if zone == M.ZONES["LT"] else "SUB",
-                        "box": zone, "t0": max(0.0, a - shot_a), "t1": min(float(s["_dur"]), b - shot_a)}
-                       for a, b, zone in zone_timeline if a < shot_b and b > shot_a]
+        text_spans = [{"zone": "glyph", "id": None, "box": M.MARK_GLYPH_ZONE, "t0": 0.0, "t1": float(s["_dur"])}]
+        text_spans += [{"zone": z["zone"], "id": z["id"], "box": z["box"], "t0": max(0.0, z["t0"] - shot_a),
+                        "t1": min(float(s["_dur"]), z["t1"] - shot_a)} for z in zone_timeline
+                       if z["t0"] < shot_b and z["t1"] > shot_a]
         must_show = [{"name": r.get("name"), "box": T.roi_box(r), "kind": r.get("kind")}
                      for r in T.must_show_regions(s.get("_item") or {})]
         row = check_still(s, cam, size, fps=fps, text_spans=text_spans, must_show_boxes=must_show,
@@ -518,12 +521,30 @@ def check_film(film: Path, *, W: int = 1920, H: int = 1080, skip_sound_lints: bo
             "blocks": [b for row in per_still for b in row["blocks"]]}
 
 
+def _text_detail(row: dict) -> str:
+    """``LT``/``SUB`` and the cue's own id, for a ``subject-under-text``
+    finding, named instead of the generic tag (the reviewer's own ask:
+    "name the zone, and the cue")."""
+    out = []
+    sub = row.get("subject_under_text")
+    if sub and sub.get("zone") not in (None, "glyph"):
+        out.append(f"subject-under-text[{sub['zone']}{'/' + str(sub['cue']) if sub.get('cue') else ''} "
+                   f"{sub['max_overlap']:.0%} @{sub['at_s']:.2f}s]")
+    for ms in row.get("must_show_under_text") or []:
+        if ms.get("zone") not in (None, "glyph") and (ms.get("block") or ms["max_overlap"] > 0):
+            out.append(f"subject-under-text:{ms.get('name')}[{ms['zone']}{'/' + str(ms['cue']) if ms.get('cue') else ''} "
+                       f"{ms['max_overlap']:.0%} @{ms['at_s']:.2f}s]")
+    return " ".join(out)
+
+
 def _print_report(report: dict) -> None:
     print(f"tourlint: {report['film']} ({report['still_count']} toured stills, fps {report['fps']:.3f})")
     for row in report["stills"]:
-        tag = " ".join(row.get("warnings") or [])
+        tag = " ".join(w for w in (row.get("warnings") or []) if not w.startswith("subject-under-text"))
+        detail = _text_detail(row)
         blk = " ".join(f"BLOCK:{b}" for b in row.get("blocks") or [])
-        print(f"  {row['id']:>6}  scale={row.get('scale')!s:<7} dir={row.get('direction')!s:<6} {tag} {blk}".rstrip())
+        print(f"  {row['id']:>6}  scale={row.get('scale')!s:<7} dir={row.get('direction')!s:<6} "
+             f"{tag} {detail} {blk}".rstrip())
     if report["scale_variety"]:
         for row in report["scale_variety"]:
             print(f"  scale-variety: chapter {row['chapter']} ({row['count']} stills) "
