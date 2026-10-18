@@ -436,10 +436,13 @@ def test_an_unlocated_person_tours_a_hold_rather_than_crop_them_out(film):
     _edit(film, lambda p: _shot(p, "S3").update(preset="HOLD"))
     plan, j = _plan(film, "a41-cover")
     cam = next(s for s in plan["shots"] if s["id"] == "S3")["_cam"]
-    assert cam["covering"] and cam["macro"] == "HOLD"
+    # A54: HOLD lets the move chooser choose; with nobody located and no subject it takes the WHOLE, whose pass
+    # sweeps the whole picture for the unlocated person (A7) exactly as the covering pass did
+    assert cam["covering"] or ((cam.get("move") or {}).get("move") == "WHOLE" and cam["subject"]["need_whole"])
     evs = J.read(j.path)
     assert [e["status"] for e in lints(evs, "tour-people") if e["unit"] == "S3"] == ["pass"]
-    assert any(e["kind"] == "decision" and e.get("unit") == "S3" and "covering" in e.get("what", "") for e in evs)
+    assert any(e["kind"] == "decision" and e.get("unit") == "S3" and ("covering" in e.get("what", "")
+               or "WHOLE" in e.get("what", "")) for e in evs)
 
 
 def test_the_softness_cap_refuses_without_a_stated_exception(film):
