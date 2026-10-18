@@ -64,6 +64,26 @@ def test_dissolve_true_respects_an_existing_duration_and_match(tmp_path):
     assert s8["match"] == "prev"
 
 
+def test_dissolve_true_treats_a_bare_default_cut_as_absent(tmp_path):
+    # S8 in the fixture already carries transition_in: {"type": "cut"} (every shot's own default, stated or
+    # not). That bare cut has no duration to contradict, so the shorthand replaces it, same as if it were
+    # never there (the reviewer's own round 1 finding on this ticket).
+    film = make_film(tmp_path / "film")
+
+    def edit(play):
+        s8 = _shot(play, "S8")
+        assert s8["transition_in"] == {"type": "cut"}             # the fixture's own stated default
+        s8["dissolve"] = True
+        s8["start_s"] -= CINE["dissolve_default_s"]
+        _shot(play, "S9")["start_s"] -= CINE["dissolve_default_s"]
+
+    _edit_play(film, edit)
+    plan, _ = _plan(film, "dissolve-bare-cut")
+    s8 = next(s for s in plan["shots"] if s["id"] == "S8")
+    assert s8["transition_in"] == {"type": "dissolve", "s": CINE["dissolve_default_s"]}
+    assert s8["match"] == "prev"
+
+
 def test_dissolve_true_conflicts_with_a_different_transition_type(tmp_path):
     film = make_film(tmp_path / "film")
 
@@ -75,6 +95,21 @@ def test_dissolve_true_conflicts_with_a_different_transition_type(tmp_path):
     _edit_play(film, edit)
     with pytest.raises(R.Refused, match=r"dissolve-flag-conflict"):
         _plan(film, "dissolve-conflict")
+
+
+def test_dissolve_true_still_conflicts_with_a_cut_that_states_a_duration(tmp_path):
+    # a cut never carries a duration in practice, but a shot that states one anyway is no longer "bare": it
+    # is read as a real, if unusual, statement, and dissolve: true still contradicts it.
+    film = make_film(tmp_path / "film")
+
+    def edit(play):
+        s8 = _shot(play, "S8")
+        s8["dissolve"] = True
+        s8["transition_in"] = {"type": "cut", "s": 0.3}
+
+    _edit_play(film, edit)
+    with pytest.raises(R.Refused, match=r"dissolve-flag-conflict"):
+        _plan(film, "dissolve-cut-with-duration")
 
 
 # --------------------------------------------------------------------------
@@ -214,3 +249,48 @@ def test_dissolve_rule_lints_journals_a_pass_for_a_clean_join(tmp_path):
     R.dissolve_rule_lints(j, [prev, s], SPANNING_LINE)
     pair = [e for e in J.read(j.path) if e["rule"] == "dissolve-rule" and e["unit"] == "S"]
     assert len(pair) == 1 and pair[0]["status"] == "pass"
+
+
+# --------------------------------------------------------------------------
+# A film with no stills at all still gets its narration lines read for
+# dissolve-rule's "one continuous reading" check (the reviewer's round 1
+# finding: ``words_src`` was only ever built when the film had a still)
+# --------------------------------------------------------------------------
+
+
+def _no_stills_dissolve_play(line_dur_s: float = 5.0) -> dict:
+    """Two CARD shots (no stills, no clips, no ledgers) dissolving into each
+    other, with one narration line stated to span the join."""
+    return {
+        "title": "No-stills dissolve fixture", "slug": "no-stills",
+        "languages": {"spoken": "en", "subtitles": ["en"]}, "runtime_target_s": 10, "as_of": "2026",
+        "parts": [{"id": "p1", "shots": [
+            {"id": "C1", "kind": "card", "start_s": 0.0, "dur_s": 4.0, "transition_in": {"type": "cut"},
+             "text": ["First card"], "mark": "CARD", "why": "test"},
+            {"id": "C2", "kind": "card", "start_s": 3.1, "dur_s": 4.0, "dissolve": True,
+             "text": ["Second card"], "mark": "CARD", "why": "test"},
+        ], "lines": [{"id": "L1", "kind": "narration", "start_s": 1.0, "dur_s": line_dur_s,
+                       "text": "A line that spans the join between the two cards."}],
+         "cues": [], "text": []}],
+    }
+
+
+def test_a_clip_to_clip_style_dissolve_reads_narration_with_no_stills_in_the_film(tmp_path):
+    film = tmp_path / "no-stills"
+    film.mkdir()
+    j = J.Journal(film="no-stills-ok", kind="test", out_dir=tmp_path, directory=tmp_path)
+    plan = R.build_plan(film, W=640, H=360, burn_subtitles=False, journal=j, play=_no_stills_dissolve_play())
+    assert not [s for s in plan["shots"] if s["kind"] in ("archive_still", "drawn")]   # genuinely no stills
+    pair = [e for e in J.read(j.path) if e.get("rule") == "dissolve-rule" and e.get("unit") == "C2"]
+    assert len(pair) == 1 and pair[0]["status"] == "pass" and pair[0]["evidence"]["reasons"] == []
+
+
+def test_the_same_dissolve_warns_once_the_line_no_longer_spans_the_join(tmp_path):
+    film = tmp_path / "no-stills"
+    film.mkdir()
+    j = J.Journal(film="no-stills-short-line", kind="test", out_dir=tmp_path, directory=tmp_path)
+    play = _no_stills_dissolve_play(line_dur_s=1.5)                # ends at 2.5 s, well before the 3.1-4.0 s join
+    plan = R.build_plan(film, W=640, H=360, burn_subtitles=False, journal=j, play=play)
+    pair = [e for e in J.read(j.path) if e.get("rule") == "dissolve-rule" and e.get("unit") == "C2"]
+    assert len(pair) == 1 and pair[0]["status"] == "fail"
+    assert any("no narration line spans the join" in r for r in pair[0]["evidence"]["reasons"])

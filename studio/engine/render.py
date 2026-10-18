@@ -2547,8 +2547,13 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                 # `transition_in` a dissolve has always taken (GRAMMAR 7.3), and it implies `match: "prev"`
                 # (doctrine 2.9: a dissolve keeps its subject). An explicit `transition_in` or `match` the
                 # shot already carries wins over the shorthand's own default (0.9 s, inside 7.3's 0.5 to
-                # 1.5 s); a `transition_in` naming a different type is a contradiction, refused.
+                # 1.5 s). A bare default cut (``{"type": "cut"}``, no stated duration: every shot's own
+                # written or filled-in default) carries no information the shorthand could contradict, so
+                # it is read as absent, the same as no `transition_in` at all; a stated dip, or any other
+                # stated type, is a real contradiction, refused.
                 tr = dict(s.get("transition_in") or {})
+                if tr.get("type") == "cut" and "s" not in tr:
+                    tr = {}
                 lint("dissolve-flag-conflict", tr.get("type", "dissolve") == "dissolve", unit=s.get("id"),
                      evidence={"dissolve": True, "transition_in": s.get("transition_in")}, grammar="A53")
                 tr.setdefault("type", "dissolve")
@@ -2734,8 +2739,11 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     # shot, the resampler (A5), fill_ok for the reviewer.
     words_src = None
     stills = [s for s in shots if s["kind"] in ("archive_still", "drawn") and s.get("_item", {}).get("_path")]
-    if stills:
-        # A41 anchors, and A47: the default pass lands its subject by the shot's last line (or its subject_at)
+    has_dissolve = any((s.get("transition_in") or {}).get("type") == "dissolve" for s in shots)
+    if stills or has_dissolve:
+        # A41 anchors, and A47: the default pass lands its subject by the shot's last line (or its subject_at).
+        # A53: a dissolve between two clips (no stills in the film at all) still needs this for dissolve-rule's
+        # "one continuous reading" check, so a dissolve alone is enough to ask for it.
         words_src = tour_lines(play, film)
     # A45 (founder ruling 2): the rulebook's fields under the human ledger's, from the cache only (a render never infers;
     # a miss is planned under the A41 default, journaled, with a reviewer item; never refused)
