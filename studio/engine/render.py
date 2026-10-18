@@ -4300,7 +4300,9 @@ def cached_span(film: Path, src: str | Path, in_s: float, out_s: float, *, video
         try:
             info = json.loads(meta.read_text(encoding="utf-8"))
             if info.get("sha256") == sha256_file(out) and info.get("edges") == rec["edges"]:
-                return info
+                # the span is where it was found, not where it was cut: a cache folder copied elsewhere (another
+                # DOCUMENT_SPANS_CACHE) holds meta that still names the old folder
+                return dict(info, file=str(out))
         except (OSError, ValueError):
             pass
         _unlink_quietly(out)

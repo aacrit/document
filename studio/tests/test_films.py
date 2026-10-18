@@ -1151,6 +1151,29 @@ def test_spans_cache_env_moves_the_cut_spans_off_the_film(film, tmp_path, monkey
     assert not list((film / "cache" / "spans").glob("*.mkv"))                      # nothing cut onto the film's disk
 
 
+def test_a_moved_spans_cache_still_hits_and_names_where_the_span_is_now(film, tmp_path, monkeypatch):
+    # WG-3, B side: the cache was copied off C: and DOCUMENT_SPANS_CACHE pointed at the copy; a hit returned the meta
+    # as written, so "file" named the old folder and the mix's _read_wav failed on a missing file
+    import shutil
+    src = film / "footage" / "fx-reel.mp4"
+    old = tmp_path / "c-drive" / "spans"
+    monkeypatch.setenv("DOCUMENT_SPANS_CACHE", str(old))
+    first = R.cached_span(film, src, 1.0, 2.5, video=False)
+    assert Path(first["file"]).parent == old
+    new = tmp_path / "d-drive" / "spans"
+    shutil.copytree(old, new)
+    shutil.rmtree(old)
+    monkeypatch.setenv("DOCUMENT_SPANS_CACHE", str(new))
+
+    def no_cut(*a, **k):
+        raise AssertionError("a moved cache must hit, never cut again")
+    monkeypatch.setattr(R.subprocess, "run", no_cut)
+    hit = R.cached_span(film, src, 1.0, 2.5, video=False)
+    assert Path(hit["file"]).parent == new and Path(hit["file"]).exists()
+    assert hit["sha256"] == first["sha256"] and R.sha256_file(Path(hit["file"])) == first["sha256"]
+    assert len(R._read_wav(Path(hit["file"]))) > 0
+
+
 def test_a3_refined_a_caption_split_across_cues_counts_the_unsigned_in_its_neighbour():
     from studio.engine import captions as CAP
     vals = {"women": {"share": 0.04, "floor": 0.3, "unknown_s": 60.0, "unsigned_share": 0.12,
