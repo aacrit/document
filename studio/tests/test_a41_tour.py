@@ -545,14 +545,16 @@ def test_a_hold_that_shows_part_of_the_picture_tours_it_unless_authored(film):
     plan, j = _plan(film, "a41-hold-cover")
     cam = next(s for s in plan["shots"] if s["id"] == "S3")["_cam"]
     # A47: the HOLD becomes the default pass, which ends on the subject; nobody is in the picture and the ledger
-    # names no subject, so the subject is the whole picture: the upper-weighted hold, never widened for coverage
-    # alone (what it leaves unseen is a reviewer item)
+    # names no subject, so the subject is the whole picture. Its fill shows 80% of it, under WHOLE_HOLD_MIN_SHOWN
+    # (founder ruling, option (c)): one sweep end to end shows it all, then a drift
     assert cam["covering"] and cam["cover"] == "subject" and cam["subject"]["src"] == "whole"
+    assert cam["subject"]["whole_mode"] == "sweep" and not T.reversals(cam["tour"])
+    assert T.covered([w for _, w in R.still_windows(cam, {"_dur": 4.0}, (1500, 1050), W, H)], (0, 0, 1, 1), (1500, 1050))
     evs = J.read(j.path)
     assert any(e["kind"] == "decision" and e.get("unit") == "S3" and "ending on the subject" in e.get("what", "")
                for e in evs)
-    assert [e["severity"] for e in lints(evs, "tour-partial") if e["unit"] == "S3"] == ["review"]
-    # a person the ledger has not located still needs the whole picture: then the pass covers it (A7)
+    assert not [e for e in lints(evs, "tour-partial") if e["unit"] == "S3"]
+    # a person the ledger has not located still needs the whole picture: the pass covers it (A7)
     _item(film, "FX-STILL-A", lambda i: i.update(people=True))
     plan, j = _plan(film, "a41-hold-cover-whole")
     cam = next(s for s in plan["shots"] if s["id"] == "S3")["_cam"]

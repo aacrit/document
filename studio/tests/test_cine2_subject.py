@@ -27,15 +27,15 @@ def subject(x, y, w, h, kind="place", **kw):
                  "confidence": 0.9}, **kw)
 
 
-def cam_for(item, size, dur=8.0, words=None, cover=False, **shot):
+def cam_for(item, size, dur=8.0, words=None, cover=False, fps=None, **shot):
     s = dict({"id": "X", "kind": "archive_still", "_dur": dur, "start_s": 0.0, "_item": item}, **shot)
-    cam = R.still_camera(s, size, W, H, words=words or [], cover=cover)
+    cam = R.still_camera(s, size, W, H, words=words or [], cover=cover, fps=fps)
     return cam, s
 
 
-def engine(item, size, dur=8.0, words=None, **shot):
-    cam, s = cam_for(item, size, dur, words, **shot)
-    return R.engine_cover(s, cam, size, W, H, words or [], None), s
+def engine(item, size, dur=8.0, words=None, fps=24.0, **shot):
+    cam, s = cam_for(item, size, dur, words, fps=fps, **shot)
+    return R.engine_cover(s, cam, size, W, H, words or [], None, fps=fps), s
 
 
 def last_window(cam, size):
@@ -73,28 +73,109 @@ def test_the_default_ends_on_the_subject_and_starts_at_the_far_end():
     assert T.at(cam["tour"], 8.0)["y"] < 0.5
 
 
-def test_whole_is_an_upper_weighted_hold_with_one_breath():
-    cam, _ = cam_for({"people": False, "class": "place"}, L43, dur=8.0)
-    assert cam["subject"]["src"] == "whole"
+NEAR = (1920, 1150)                                          # the fill shows 94% of it: a whole still holds
+
+
+def test_whole_is_an_upper_weighted_hold_with_one_drift_breath():
+    cam, _ = cam_for({"people": False, "class": "place"}, NEAR, dur=8.0)
+    assert cam["subject"]["src"] == "whole" and cam["subject"]["whole_mode"] == "hold"
     tl = cam["tour"]
     assert [g["kind"] for g in tl["segments"]] == ["creep"] and len(tl["stops"]) == 1
-    fh = T.fill_window(L43, A)[1]
-    want_y = (CINE["whole_weight"] * (L43[1] - fh) + fh / 2) / L43[1]
+    fh = T.fill_window(NEAR, A)[1]
+    want_y = (CINE["whole_weight"] * (NEAR[1] - fh) + fh / 2) / NEAR[1]
     st = tl["stops"][0]
     assert st["z"] == 1.0 and st["x"] == 0.5 and st["y"] == pytest.approx(want_y)
     fs = all_frames(cam, 8.0)
-    assert all(f["x"] == pytest.approx(0.5) and f["y"] == pytest.approx(want_y) for f in fs)   # no move but the creep
-    assert fs[-1]["z"] == pytest.approx(M.TOUR["whole_creep_max"])                           # one breath, capped
-    assert all(b["z"] >= a["z"] for a, b in zip(fs, fs[1:]))                                 # one direction
-    rec, _ = cam_for({"people": False, "class": "document", "compose": "centred:document"}, L43)
+    assert all(f["z"] == pytest.approx(1.0) for f in fs)                 # the breath never pushes: a drift
+    dy = [b["y"] - a["y"] for a, b in zip(fs, fs[1:])]
+    assert all(d >= -1e-12 for d in dy) or all(d <= 1e-12 for d in dy)   # one direction
+    drift_px = abs(fs[-1]["y"] - fs[0]["y"]) * NEAR[1]
+    assert 0 < drift_px <= (M.TOUR["whole_creep_max"] - 1.0) * fh + 1e-6
+    assert cam["subject"]["last"]["shown"] == pytest.approx(T.fill_window(NEAR, A)[1] / NEAR[1], abs=1e-3)
+    rec, _ = cam_for({"people": False, "class": "document", "compose": "centred:document"}, NEAR)
     assert rec["tour"]["stops"][0]["y"] == pytest.approx(0.5)                               # a record: centred
 
 
-def test_a_long_whole_hold_breathes_at_a_tenth_of_a_percent():
-    cam, _ = cam_for({"people": False}, L43, dur=48.0)
-    z = T.at(cam["tour"], 48.0)["z"]
-    rate = (z - 1.0) / 48.0
-    assert z == pytest.approx(M.TOUR["whole_creep_max"]) and 0.001 <= rate <= 0.0015
+def test_a_long_whole_hold_breathes_a_few_per_cent_at_most():
+    cam, _ = cam_for({"people": False}, NEAR, dur=48.0)
+    fs = all_frames(cam, 48.0, 4.0)
+    fh = T.fill_window(NEAR, A)[1]
+    total = abs(fs[-1]["y"] - fs[0]["y"]) * NEAR[1] / fh
+    assert all(f["z"] == pytest.approx(1.0) for f in fs) and 0 < total <= M.TOUR["whole_creep_max"] - 1.0 + 1e-9
+    assert total / 48.0 <= 0.0015                                       # 0.1 to 0.15% a second over a long hold
+    # a picture of the frame's own shape has no room to drift: it breathes in, at most 1.06
+    cam, _ = cam_for({"people": False}, (1920, 1080), dur=48.0)
+    assert T.at(cam["tour"], 48.0)["z"] == pytest.approx(M.TOUR["whole_creep_max"])
+
+
+def test_goes8_s_caption_stays_in_frame_on_its_whole_hold():
+    # Real World 3.7 (GOES-8, 1287x748, a map): the burned caption's date line is rows 662 to 729. The whole hold
+    # never pushes, so every frame keeps the full width and those rows
+    size = (1287, 748)
+    cam, _ = cam_for({"people": "none", "class": "map", "compose": "centred:map"}, size, dur=8.0)
+    assert cam["subject"]["whole_mode"] == "hold"
+    for f in all_frames(cam, 8.0, 30000 / 1001):
+        x0, y0, x1, y1 = T.window(size, A, f["z"], f["x"], f["y"])
+        assert f["z"] == pytest.approx(1.0) and x0 <= 0.5 and x1 >= size[0] - 0.5
+        assert y0 <= 662 and y1 >= 729
+
+
+@pytest.mark.parametrize("cls,size,axis,rising", [("place", L43, 1, True), ("person", PORTRAIT, 1, True),
+                                                  ("document", L43, 1, False), ("map", PORTRAIT, 1, False),
+                                                  ("place", WIDE, 0, False)])
+def test_a_whole_its_fill_cannot_show_sweeps_once_end_to_end(cls, size, axis, rising):
+    item = {"people": False, "class": cls}
+    if cls in ("document", "map"):
+        item["compose"] = f"centred:{cls}"
+    cam, s = cam_for(item, size, dur=10.0)
+    assert cam["subject"]["whole_mode"] == "sweep"
+    tl = cam["tour"]
+    assert not T.reversals(tl)
+    key = "xy"[axis]
+    a, b = tl["stops"][0][key], tl["stops"][-1][key]
+    assert (a > b) if rising else (a < b)                    # rising for people and places; reading order or l to r
+    wins = [w for _, w in R.still_windows(cam, s, size, W, H)]
+    assert T.covered(wins, T.whole_box(size, A), size)
+    fs = all_frames(cam, 10.0)
+    assert all(f["z"] == pytest.approx(1.0) for f in fs)     # then a drift-only breath
+
+
+def test_whole_hold_min_shown_switches_hold_and_sweep(monkeypatch):
+    monkeypatch.setitem(M.CINE, "whole_hold_min_shown", 0.0)
+    assert cam_for({"people": False}, L43)[0]["subject"]["whole_mode"] == "hold"
+    monkeypatch.setitem(M.CINE, "whole_hold_min_shown", 1.01)
+    assert cam_for({"people": False}, NEAR)[0]["subject"]["whole_mode"] == "sweep"
+    assert M.CINE["whole_hold_min_shown"] != M.WHOLE_HOLD_MIN_SHOWN
+
+
+def test_the_default_value_is_the_founder_s_option_c():
+    assert M.WHOLE_HOLD_MIN_SHOWN == 0.90 and M.CINE["whole_hold_min_shown"] == M.WHOLE_HOLD_MIN_SHOWN
+
+
+def test_a_whole_sweep_ends_toward_the_next_shot_s_matched_subject():
+    for toward, low_end in (([0.7, 0.8], True), ([0.7, 0.2], False)):
+        cam, _ = cam_for({"people": False, "class": "place"}, L43, _end_toward=toward)
+        end = cam["tour"]["stops"][-1]["y"]
+        bottom = T.settle({"z": 1, "x": .5, "y": 1.0}, L43, A)["y"]
+        assert (end == pytest.approx(bottom)) == low_end
+        assert cam["subject"]["point"] == toward              # the match carries that point's screen position
+    nxt = {"id": "N", "kind": "archive_still", "match": "prev", "transition_in": {"type": "cut"},
+           "_item": {"people": False, "roi": [subject(0.6, 0.6, 0.2, 0.2)]}}
+    assert R.next_subject(nxt) == pytest.approx([0.7, 0.7])
+    assert R.next_subject(dict(nxt, transition_in={"type": "dissolve"})) is None
+    assert R.next_subject(dict(nxt, match=None)) is None
+
+
+def test_a_declared_whole_beats_an_old_focus_and_warns(tmp_path):
+    cam, s = cam_for({"people": False, "whole": True}, L43, focus=[0.5, 0.9])
+    assert cam["subject"]["src"] == "whole" and cam["subject"]["focus_ignored"]
+    j = J.Journal(film="x", kind="test", out_dir=tmp_path, directory=tmp_path)
+    R.subject_lints(j, s, cam, T.people_of(s["_item"]))
+    assert [e["rule"] for e in J.read(j.path) if e["kind"] == "lint"] == ["cine-whole-focus"]
+    # the rulebook's whole (its fallback, A45) is no declaration: the shot's focus is the subject
+    cam, _ = cam_for({"people": False, "whole": True}, L43, focus=[0.5, 0.9],
+                     _vision={"from_rulebook": ["whole"]})
+    assert cam["subject"]["src"] == "focus"
 
 
 def test_the_focus_is_the_subject_when_the_ledger_names_none():
@@ -323,38 +404,146 @@ def test_match_prev_opens_with_the_subject_where_the_last_shot_left_its_own(tmp_
 
 
 # --------------------------------------------------------------------------
+# must_show, the covering pass's holds, no_zoom presets, people kept in the drift
+# --------------------------------------------------------------------------
+
+NTSC = 30000 / 1001
+
+
+def test_the_default_never_leaves_a_must_show_region_unseen():
+    sign = {"name": "sign", "x": 0.4, "y": 0.0, "w": 0.2, "h": 0.06, "must_show": True}
+    for item in ({"people": False, "roi": [subject(0.3, 0.3, 0.3, 0.3), sign]},          # far end is the bottom
+                 {"people": False, "roi": [sign]},                                        # whole, swept or held
+                 {"people": False, "roi": [subject(0.3, 0.3, 0.3, 0.3), dict(sign, must_show=None)],
+                  "must_show": ["sign"]}):
+        cam, s = engine(item, L43, fps=NTSC)
+        wins = [w for _, w in R.still_windows(cam, s, L43, W, H, hz=NTSC)]
+        assert not T.must_show(wins, item, L43)
+        assert not T.reversals(cam["tour"]) or cam["subject"]["need_whole"]
+
+
+def test_a_person_the_sweep_passes_between_frames_is_held_whole():
+    # seed 844's geometry: a 561 px figure in a 562.5 px window, swept at 29.97, never whole in any one frame
+    size = (1000, 750)
+    assert T.fill_window(size, A)[1] == pytest.approx(562.5)
+    fig = {"name": "person-1", "x": 0.45, "y": 0.1, "w": 0.1, "h": 561 / 750, "source": "auto", "confidence": 0.9}
+    item = {"people": [fig], "roi": [subject(0.0, 0.0, 1.0, 0.05)]}
+    cam, s = engine(item, size, dur=3.0, fps=NTSC)
+    wins = [w for _, w in R.still_windows(cam, s, size, W, H, hz=NTSC)]
+    assert T.people_check(wins, T.people_of(item), size)["ok"]
+
+
+@pytest.mark.parametrize("preset", ["PUSH", "PULL", "DRIFT", "TILT", "DETAIL"])
+def test_no_zoom_turns_a_zooming_preset_into_a_drift(preset):
+    item = {"people": "none", "roi": [{"name": "the shapes", "x": 0.2, "y": 0.2, "w": 0.5, "h": 0.5}]}
+    cam, s = engine(item, L43, preset=preset, no_zoom=True, region={"x": 0.4, "y": 0.4})
+    assert all(f["z"] == pytest.approx(1.0) for f in all_frames(cam, 8.0))
+
+
+def test_the_closing_drift_keeps_every_located_person_in_frame():
+    a = {"name": "person-1", "x": 0.40, "y": 0.3, "w": 0.08, "h": 0.4, "source": "auto", "confidence": 0.9}
+    b = {"name": "person-2", "x": 0.52, "y": 0.3, "w": 0.08, "h": 0.4, "source": "auto", "confidence": 0.9}
+    item = {"people": [a, b], "class": "crowd", "roi": [subject(0.40, 0.3, 0.2, 0.4, kind="group")]}
+    cam, _ = engine(item, L43, dur=20.0, no_zoom=True)
+    last = last_window(cam, L43)
+    for p in (a, b):
+        assert last[0] <= p["x"] + 1e-6 and last[2] >= p["x"] + p["w"] - 1e-6
+        assert last[1] <= p["y"] + 1e-6 and last[3] >= p["y"] + p["h"] - 1e-6
+
+
+def test_a_reversal_for_unlocated_people_only_is_journaled(tmp_path):
+    j = J.Journal(film="x", kind="test", out_dir=tmp_path, directory=tmp_path)
+    tl = T.build([{"t": 0, "z": 1, "x": .5, "y": 0.0}, {"t": 3, "z": 1, "x": .5, "y": 1.0},
+                  {"t": 6, "z": 1, "x": .5, "y": 0.5}], 8.0, L43, A, 3.0)
+    R.subject_lints(j, {"id": "S9"}, {"tour": tl, "subject": None}, {"boxes": [], "unlocated": 2, "known": True})
+    evs = J.read(j.path)
+    assert any(e["kind"] == "decision" and e.get("unit") == "S9" for e in evs)
+    assert not [e for e in evs if e["kind"] == "lint"]
+
+
+# --------------------------------------------------------------------------
+# Rulebook 6: a cue and a VL label match through a short synonym table
+# --------------------------------------------------------------------------
+
+def test_cue_and_label_synonyms_and_the_recorded_answers():
+    from studio.engine import rulebook as RB
+    assert RB.RULEBOOK_VERSION == "6"
+    smoke = {"regions": [{"kind": "object", "label": "smoke", "x": 0.55, "y": 0.3, "w": 0.3, "h": 0.25}]}
+    sub, why = RB.vl_subject("place", smoke, {"title": "From orbit", "people": "none"}, ["plume"])
+    assert sub is not None and "plume" in why
+    # recorded VL answers (Real World, the pinned qwen2.5vl key, cached in the stills ledger's sidecar):
+    # 1.4 (Fisch): "south tower" in the title finds the VL's "building" on the left
+    fisch = {"regions": [{"h": 0.86, "kind": "object", "label": "smoke", "w": 0.79, "x": 0.0, "y": 0.14},
+                         {"h": 0.29, "kind": "object", "label": "fire", "w": 0.215, "x": 0.38, "y": 0.675},
+                         {"h": 1.0, "kind": "place", "label": "sky", "w": 1.0, "x": 0.0, "y": 0.0},
+                         {"h": 0.68, "kind": "place", "label": "building", "w": 0.385, "x": 0.0, "y": 0.32}]}
+    sub, _ = RB.vl_subject("place", fisch, {"title": "United Airlines 175 strikes the south tower, seen from "
+                                                     "Greenwich Village"}, [])
+    assert sub["label"] == "building" and sub["x"] == 0.0
+    # C0 (ISS003-E-5388): the VL answered one region, "urban landscape"; no synonym makes a plume of it, so C0
+    # stays whole (a correction would be a new measurement, never a hand-drawn box)
+    iss = {"regions": [{"h": 1.0, "kind": "place", "label": "urban landscape", "w": 1.0, "x": 0.0, "y": 0.0}]}
+    assert RB.vl_subject("place", iss, {"title": "New York from the International Space Station"}, ["plume"])[0] is None
+
+
+# --------------------------------------------------------------------------
 # The people guard still holds (property)
 # --------------------------------------------------------------------------
 
-@pytest.mark.parametrize("seed", range(40))
-def test_property_the_subject_pass_never_leaves_a_person_unseen(seed):
+LINE_P = {"id": "NP", "kind": "narration", "start": 0.5, "dur": 4.0,
+          "text": "Across the harbour the plume rose over the tower and the boat."}
+
+
+@pytest.mark.parametrize("seed", list(range(60)) + [844])
+def test_property_the_subject_pass_never_leaves_a_person_or_must_show_unseen(seed):
     rng = random.Random(seed)
-    size = rng.choice([L43, L32, PORTRAIT, WIDE, (1920, 1080), (2089, 1186)])
+    size = rng.choice([L43, L32, PORTRAIT, WIDE, (1920, 1080), (2089, 1186), (1000, 750), NEAR])
+    hz = rng.choice([24.0, NTSC])
     people = []
     for k in range(rng.randint(0, 5)):
-        w, h = rng.uniform(0.01, 0.2), rng.uniform(0.02, 0.6)
+        w, h = rng.uniform(0.01, 0.2), rng.uniform(0.02, 0.75)
         people.append({"name": f"person-{k + 1}", "x": rng.uniform(0, 1 - w), "y": rng.uniform(0, 1 - h), "w": w,
                        "h": h, "source": "auto", "confidence": rng.uniform(0.3, 1.0),
                        **({"facing": rng.choice(["left", "right", "camera"])} if rng.random() < 0.5 else {})})
     item = {"people": people or rng.choice([False, "none visible", "a crowd"]),
             "class": rng.choice(["person", "crowd", "place", "document", "map"])}
+    roi = []
     if rng.random() < 0.7:
         w, h = rng.uniform(0.02, 0.9), rng.uniform(0.02, 0.9)
-        item["roi"] = [subject(rng.uniform(0, 1 - w), rng.uniform(0, 1 - h), w, h,
-                               kind=rng.choice(["person", "group", "place", "object", "text", "face"]))]
+        roi.append(subject(rng.uniform(0, 1 - w), rng.uniform(0, 1 - h), w, h,
+                           kind=rng.choice(["person", "group", "place", "object", "text", "face"])))
+    if rng.random() < 0.4:
+        w, h = rng.uniform(0.02, 0.3), rng.uniform(0.02, 0.3)
+        roi.append({"name": "sign", "x": rng.uniform(0, 1 - w), "y": rng.uniform(0, 1 - h), "w": w, "h": h,
+                    "must_show": True})
+    if roi:
+        item["roi"] = roi
+    if rng.random() < 0.15:
+        item["whole"] = True
     shot = {}
     if rng.random() < 0.3:
         shot["no_zoom"] = True
     if rng.random() < 0.3:
-        shot["preset"] = rng.choice(["HOLD", "PUSH", "TILT"])
+        shot["preset"] = rng.choice(["HOLD", "PUSH", "TILT", "DETAIL", "FILL"])
+        shot["region"] = {"x": rng.random(), "y": rng.random()}
+    if rng.random() < 0.3:
+        shot["focus"] = [rng.random(), rng.random()]
+    if rng.random() < 0.3:
+        shot["subject_at"] = rng.choice(["plume", "tower", "boat", "harbour"])
+    if rng.random() < 0.3:
+        shot["_match_screen"] = [rng.random(), rng.random()]
+        shot["match"] = "prev"
     dur = rng.uniform(2.5, 30.0)
-    cam, s = engine(item, size, dur=dur, **shot)
-    wins = [w for _, w in R.still_windows(cam, s, size, W, H)]
+    words = T.shot_words([LINE_P], 0.0, dur)
+    cam, s = cam_for(item, size, dur, words, **shot)
+    cam = R.engine_cover(s, cam, size, W, H, words, None, fps=hz)
+    wins = [w for _, w in R.still_windows(cam, s, size, W, H, hz=hz)]
     assert T.people_check(wins, T.people_of(item), size)["ok"]
-    assert not T.face_cap_check(cam["tour"], cam["cine"]["persons"])
-    if cam.get("subject") is not None:                      # the engine's pass ends on its subject
+    if cam.get("subject") is not None:                      # the engine's own pass: must_show seen, ends on subject
+        assert not T.must_show(wins, item, size)
         v = cam["subject"]["last"]
         assert v["centre_in_frame"] and not v["edge_not_subject"]
-        if no_zoom := shot.get("no_zoom"):
-            assert all(f["z"] == pytest.approx(1.0) for f in all_frames(cam, dur, 8.0)), no_zoom
+    assert not T.face_cap_check(cam["tour"], cam["cine"]["persons"])
+    if shot.get("no_zoom"):
+        assert all(f["z"] == pytest.approx(1.0) for f in all_frames(cam, dur, 8.0))
     assert all(f["z"] >= 1.0 - 1e-9 for f in all_frames(cam, dur, 8.0))
