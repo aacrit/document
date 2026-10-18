@@ -285,3 +285,12 @@ def test_a_survey_cut_in_has_at_most_three_framings_of_at_least_1_5_s():
     assert [bool(x.get("cut")) for x in st] == [False, True, True]
     tl = T.build(st, 6.0, BIG, A, 3.0)
     assert len(tl["cuts"]) == 2
+
+
+def test_a_typeset_page_with_no_regions_is_read_whole():
+    item = {"class": "document", "title": "observations, 8:51 a.m. (typeset page)"}
+    m = MV.base_choice(shot_of(item, kind="drawn"), item, (1600, 2000))
+    assert m["move"] == "READ" and m["target"] == MV.PAGE
+    s = shot_of(item, 12.0, kind="drawn", _move=dict(m, end="detail"))
+    cam = R.still_camera(s, (1600, 2000), W, H, words=[], fps=24.0)
+    assert cam["macro"] == "READ" and cam["tour"]["stops"][0]["y"] < cam["tour"]["stops"][-1]["y"]

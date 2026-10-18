@@ -949,6 +949,8 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
         declared = item.get("whole") is True and "whole" not in ((shot.get("_vision") or {}).get("from_rulebook")
                                                                   or [])
         record = T.is_record(item)
+        if move.get("target") == MV.PAGE and not any(r.get("name") == MV.PAGE for r in roi):
+            roi.append({"name": MV.PAGE, "x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0, "kind": "text"})
         target = next((r for r in roi if r.get("name") == move.get("target")), None) if move.get("target") else None
         subj = T.resolve_subject(roi, shot.get("focus"), declared_whole=declared)
         if target is not None:
