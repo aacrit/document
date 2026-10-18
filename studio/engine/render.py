@@ -6860,6 +6860,7 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             "alterations": s.get("alterations") or [], "transition_in": s["transition_in"],
             "preset": (s.get("_cam") or {}).get("preset"), "fill_ok": (s.get("_cam") or {}).get("fill_ok"),
             "fill": (s.get("_cam") or {}).get("fill"),
+            "fill_exception": (s.get("_cam") or {}).get("fill_exception"),     # A41: held whole, the Sources page says so
             "in_s": s.get("in_s"), "out_s": s.get("out_s"),
             "resampler": s.get("_resampler"), "conform": (s.get("_video") or {}).get("conform"),
             "levels": s.get("_levels"),          # A46: the black floor applied (non-material), or the stated opt-out

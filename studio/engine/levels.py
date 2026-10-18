@@ -11,23 +11,30 @@ non-material. A still whose fade is the artifact can opt out per still with
 The measure. Luma is Rec.709 on the 8-bit code values, in integers so it is
 exact and the same on every machine: ``Y = (54 R + 183 G + 19 B + 128) >> 8``
 (the weights sum to 256, so a grey pixel's luma is its own value). A
-percentile is the nearest rank on the 256-bin histogram of Y: ``p_q`` is the
-smallest level whose cumulative count reaches ``ceil(q / 100 * N)``.
+percentile is the nearest rank on a 256-bin histogram: ``p_q`` is the
+smallest level whose cumulative count reaches ``ceil(q / 100 * N)``. The
+threshold reads luma p2; the black point reads ``min0_5``, the 0.5th
+percentile of each pixel's darkest channel ``min(R, G, B)``, so at most about
+0.5% of pixels reach 0 in any channel (a black point from luma would clip a
+sepia shadow's blue channel and turn its hue).
 
 The map. One affine map on the code values, the same for R, G and B::
 
-    out = 10 + (c - p0.5) * 245 / (255 - p0.5)
+    out = 10 + (c - black_in) * k,   k = 245 / (255 - black_in)
 
 rounded half up and clipped to 0..255, applied as one 256-entry table. It
-sends p0.5 to 10/255 and 255 to 255 (the white point stays), it is linear
-(no gamma: every midtone moves by the same straight line), and because the
-three channels share one offset and one gain, the differences between them
-(what hue is made of) are all scaled by the same factor: the hue angle, in HSV
-and in Y'CbCr alike, is unchanged up to the 8-bit rounding (the suite holds a
-sepia patch to 1 degree). Paper tone and sepia stay. A map on luma alone with
-the chroma kept would hold Y'CbCr's hue too, but it moves a pixel off the line
-through its own colour in RGB and can leave gamut in the darks; per-channel
-black points would neutralise a cast, which is a grade, not a floor.
+sends ``black_in`` to 10/255 and 255 to 255 (the white point stays) and is one
+straight line (no gamma bend). What it does to colour, exactly: the three
+channels share the offset and the gain, so the differences between them are
+all multiplied by ``k``. Contrast and colour strength (chroma, saturation) rise
+by that factor; the hue angle of a pixel no channel clips is kept up to the
+8-bit rounding, so a sepia stays a sepia. ``k`` is at most ``LEVELS_MAX_GAIN``
+(1.35, so ``black_in`` at most 73): a paler scan would be stretched, not
+floored, a grade rather than a level, and is shown as held and journaled
+("pale scan: floor would be a grade"). A map on luma alone with the chroma
+kept moves a pixel off the line through its own colour in RGB and can leave
+gamut in the darks; per-channel black points would neutralise a cast, which is
+a grade, not a floor.
 
 Who gets it. An archive still (``kind: archive_still``) marked ARCHIVE or
 RECONSTRUCTED: a RECONSTRUCTED still is still a scan of a real photograph, its
@@ -36,8 +43,9 @@ level is not material under GRAMMAR 4.2, so it adds no alteration and is
 logged like an ARCHIVE one. Never a clip, a card, a map or picture the studio
 drew (DRAWN), an AI-GENERATED picture, or the series titles. A still whose
 ledger item says ``levels: "none"`` (with ``levels_reason``) is shown as held.
-A still with luma p2 at or under 24 is untouched; one whose p0.5 is already at
-or under 10 is untouched too (the floor never lifts a black).
+A still with luma p2 at or under 24 is untouched; one whose ``min0_5`` is
+already at or under 10 is untouched too (the floor never lifts a black), and so
+is a pale scan whose gain would pass ``LEVELS_MAX_GAIN``.
 
 Where. Once, in the source-still prep (``render.Pictures.still``), on the
 full-resolution scan before the Lanczos pre-scale and ``fit_still``; the A7
@@ -49,7 +57,11 @@ The record. Every archive still the film shows is written to the ledger's
 overlay ``<ledger stem>.levels.json`` beside the ledger (film data, never in
 git; the human ledger is never rewritten): its sha256, measurements, the floor
 applied or why none, and the materiality. It is also the measurement cache,
-keyed by (sha256, ``VERSION``). Each applied floor is journaled as a decision
+keyed by (sha256, ``VERSION``): the first machine's decode of the file is
+what gets cached (a JPEG decode can differ by a level between library builds),
+and the same numbers are reused after it. The overlay is written atomically.
+Stills never floored (DRAWN, or otherwise not eligible) are measured and cached
+there too, for ``grade-jump``. Each applied floor is journaled as a decision
 and printed in sources.json's ``levels`` for the shot (the Sources page states
 it).
 
@@ -63,22 +75,26 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
+import uuid
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 
-VERSION = 1                 # bump when the measure, the map or the rules change: old segments are not reused
+VERSION = 2                 # bump when the measure, the map or the rules change: old segments are not reused
 P2_MAX = 24                 # a still whose luma p2 is above this (8-bit) is floored
-BLACK_OUT = 10              # p0.5 goes here (10/255)
+BLACK_OUT = 10              # the black point (min-channel p0.5) goes here (10/255)
+LEVELS_MAX_GAIN = 1.35      # the gain k past which a floor is a grade: a pale scan is shown as held
 WHITE = 255                 # the white point stays
 GRADE_JUMP = 20             # grade-jump: a p2 delta across a cut above this warns
 ELIGIBLE_KIND = "archive_still"
 ELIGIBLE_MARKS = ("ARCHIVE", "RECONSTRUCTED")
-MATERIALITY = "non-material (GRAMMAR 4.2: a flat level; A46)"
-WHAT = ("black level set: the scan's grey floor (a scanner offset or a faded print) mapped to near black by one "
-        "flat level; white point, gamma and hue untouched")
+MATERIALITY = "non-material (GRAMMAR 4.2: a level adjustment, one straight line the same on every channel; A46)"
+WHAT = ("black level set: the scan's grey floor taken down to near black by one straight-line level, the same on "
+        "every colour, which raises contrast and colour strength by the same small factor; the white point kept")
+PALE_WHY = "pale scan: floor would be a grade"
 RECONSTRUCTED_WHY = ("a RECONSTRUCTED still is still a scan of a real photograph; its named alteration is apart from "
                      "its black level, and a flat level adds no alteration (GRAMMAR 4.2)")
 SIDECAR_SUFFIX = ".levels.json"
@@ -103,18 +119,35 @@ def percentile(hist: np.ndarray, q: float) -> int:
 
 
 def measure(img: Image.Image) -> dict:
-    """The still's luma p0.5, p2, p50 and p98 (8-bit levels)."""
+    """The still's luma p0.5, p2, p50 and p98, and ``min0_5``, the 0.5th percentile of min(R, G, B) (8-bit)."""
     arr = np.asarray(img.convert("RGB"))
     hist = np.bincount(luma_u8(arr).ravel(), minlength=256)
+    mins = np.bincount(arr.min(axis=-1).ravel(), minlength=256)
     return {"p0_5": percentile(hist, 0.5), "p2": percentile(hist, 2), "p50": percentile(hist, 50),
-            "p98": percentile(hist, 98)}
+            "p98": percentile(hist, 98), "min0_5": percentile(mins, 0.5)}
+
+
+def gain(black_in: int) -> float:
+    """The map's slope k for a black point."""
+    return (WHITE - BLACK_OUT) / (WHITE - black_in)
+
+
+def why_not(m: dict) -> str | None:
+    """Why a measurement gets no floor, or None when it gets one."""
+    if m["p2"] <= P2_MAX:
+        return f"p2 {m['p2']} is at or under {P2_MAX}"
+    if m["min0_5"] <= BLACK_OUT:
+        return f"the darkest channel's p0.5 {m['min0_5']} is already at or under {BLACK_OUT}"
+    if m["min0_5"] >= WHITE or gain(m["min0_5"]) > LEVELS_MAX_GAIN:
+        return f"{PALE_WHY} (black point {m['min0_5']}, gain over {LEVELS_MAX_GAIN})"
+    return None
 
 
 def floor_params(m: dict) -> dict | None:
-    """The floor a measurement asks for, or None (p2 at or under 24, or p0.5 already at or under 10)."""
-    if m["p2"] <= P2_MAX or m["p0_5"] <= BLACK_OUT or m["p0_5"] >= WHITE:
+    """The floor a measurement asks for, or None (see ``why_not``)."""
+    if why_not(m) is not None:
         return None
-    return {"black_in": m["p0_5"], "black_out": BLACK_OUT, "white": WHITE}
+    return {"black_in": m["min0_5"], "black_out": BLACK_OUT, "white": WHITE, "gain": round(gain(m["min0_5"]), 4)}
 
 
 def lut(params: dict) -> list[int]:
@@ -149,14 +182,13 @@ def eligible(shot: dict, item: dict | None) -> tuple[bool, str]:
 
 def decide(shot: dict, item: dict, m: dict, after: dict | None) -> dict:
     """The shot's ``_levels`` record from its item and measurement (``after``: the floored still's measurement)."""
-    base = {"version": VERSION, "p0_5": m["p0_5"], "p2": m["p2"]}
+    base = {"version": VERSION, "p0_5": m["p0_5"], "p2": m["p2"], "min0_5": m["min0_5"]}
     if item.get("levels") == "none":
         return {**base, "applied": False, "opt_out": True, "reason": item.get("levels_reason")}
     fp = floor_params(m)
     if fp is None:
-        why = (f"p2 {m['p2']} is at or under {P2_MAX}" if m["p2"] <= P2_MAX else
-               f"p0.5 {m['p0_5']} is already at or under {BLACK_OUT}")
-        return {**base, "applied": False, "why": why}
+        why = why_not(m)
+        return {**base, "applied": False, "why": why, **({"pale": True} if why.startswith(PALE_WHY) else {})}
     rec = {**base, "applied": True, **fp, "p2_after": (after or {}).get("p2"), "what": WHAT, "materiality": MATERIALITY}
     if shot.get("mark") == "RECONSTRUCTED":
         rec["why_reconstructed"] = RECONSTRUCTED_WHY
@@ -205,9 +237,9 @@ def read_sidecar(path: Path) -> dict:
     return data.get("items") or {}
 
 
-def measured(item: dict, cache: dict) -> tuple[dict, dict | None, str]:
-    """The item's measurement and the floored still's (None when no floor), from the cache keyed by
-    (sha256, VERSION), else measured from the file."""
+def measured(item: dict, cache: dict, *, floor: bool = True) -> tuple[dict, dict | None, str]:
+    """The item's measurement and the floored still's (None when no floor, or ``floor`` is false), from the
+    cache keyed by (sha256, VERSION), else measured from the file."""
     from studio.engine.journal import sha256_file
     sha = sha256_file(item["_path"])
     hit = cache.get(item["id"])
@@ -216,7 +248,7 @@ def measured(item: dict, cache: dict) -> tuple[dict, dict | None, str]:
     with Image.open(item["_path"]) as im:
         img = im.convert("RGB")
     m = measure(img)
-    fp = floor_params(m)
+    fp = floor_params(m) if floor else None
     after = measure(apply(img, {"applied": True, **fp})) if fp else None
     return m, after, sha
 
@@ -229,21 +261,26 @@ def assess(shots: list[dict], item_of) -> tuple[dict, dict]:
     p2_of: dict[str, int] = {}
     for s in shots:
         item = item_of(s)
-        ok, _ = eligible(s, item)
-        if not ok:
-            if s.get("kind") in ("archive_still", "drawn") and item and item.get("_path"):   # grade-jump only, as held
-                with Image.open(item["_path"]) as im:
-                    p2_of[s["id"]] = measure(im)["p2"]
+        ok, why = eligible(s, item)
+        if not ok and not (s.get("kind") in ("archive_still", "drawn") and item and item.get("_path")):
             continue
         lf = item.get("_ledger_file") or ""
         cache = caches.setdefault(lf, read_sidecar(sidecar_path(lf)) if lf else {})
+        if not ok:                                          # measured as held, for grade-jump only, cached alike
+            m, _, sha = measured(item, cache, floor=False)
+            p2_of[s["id"]] = m["p2"]
+            overlay.setdefault(lf, {})[item["id"]] = {"version": VERSION, "sha256": sha, "file": item.get("file"),
+                                                      "measure": m, "measure_after": None, "applied": False,
+                                                      "why": why}
+            continue
         m, after, sha = measured(item, cache)
         rec = decide(s, item, m, after)
         s["_levels"] = rec
         p2_of[s["id"]] = rec["p2_after"] if rec["applied"] else rec["p2"]
         entry = {"version": VERSION, "sha256": sha, "file": item.get("file"), "measure": m, "measure_after": after,
-                 **{k: rec[k] for k in ("applied", "black_in", "black_out", "white", "p2_after", "what", "materiality",
-                                        "opt_out", "reason", "why", "why_reconstructed") if k in rec}}
+                 **{k: rec[k] for k in ("applied", "black_in", "black_out", "white", "gain", "p2_after", "what",
+                                        "materiality", "opt_out", "reason", "why", "pale", "why_reconstructed")
+                    if k in rec}}
         overlay.setdefault(lf, {})[item["id"]] = entry
     return p2_of, overlay
 
@@ -260,12 +297,18 @@ def write_overlays(overlay: dict) -> list[str]:
                         "ledger is never rewritten. Each applied floor is non-material (GRAMMAR 4.2)."),
                "items": dict(sorted(items.items()))}
         text = json.dumps(doc, indent=1, sort_keys=False, ensure_ascii=False) + "\n"
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
         try:
             if path.exists() and path.read_text(encoding="utf-8") == text:
                 continue
-            path.write_text(text, encoding="utf-8")
+            tmp.write_text(text, encoding="utf-8")
+            os.replace(tmp, path)                           # atomic: a reader never sees half an overlay
             written.append(str(path))
         except OSError:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
             continue
     return written
 
@@ -279,9 +322,11 @@ def plan_levels(shots: list[dict], journal, *, write: bool = True) -> list[dict]
     for s in shots:
         lv = s.get("_levels")
         if lv and lv.get("applied"):
-            journal.decision("motion", f"{s['id']}: black floor p0.5 {lv['black_in']} -> {lv['black_out']} "
+            journal.decision("motion", f"{s['id']}: black floor {lv['black_in']} -> {lv['black_out']}, gain {lv['gain']} "
                              f"(p2 {lv['p2']} -> {lv['p2_after']})", f"A46 (founder ruling 4): {MATERIALITY}",
                              unit=s["id"], levels=lv)
+        elif lv and lv.get("pale"):
+            journal.decision("motion", f"{s['id']}: shown as held, {PALE_WHY}", f"A46: {lv['why']}", unit=s["id"])
         elif lv and lv.get("opt_out"):
             journal.decision("motion", f"{s['id']}: shown as held (levels: none, p2 {lv['p2']})",
                              f"A46: {lv.get('reason')}", unit=s["id"])
@@ -307,15 +352,15 @@ def check(film: Path | str) -> dict:
         lv = s.get("_levels")
         if not lv:
             continue
-        row = {"shot": s["id"], "id": s.get("asset"), "p0_5": lv["p0_5"], "p2": lv["p2"]}
+        row = {"shot": s["id"], "id": s.get("asset"), "p0_5": lv["p0_5"], "min0_5": lv["min0_5"], "p2": lv["p2"]}
         if lv.get("applied"):
-            floored.append({**row, "p2_after": lv["p2_after"], "black_in": lv["black_in"]})
+            floored.append({**row, "p2_after": lv["p2_after"], "black_in": lv["black_in"], "gain": lv["gain"]})
         elif lv.get("opt_out"):
             opt_out.append({**row, "reason": lv.get("reason")})
         else:
             untouched.append({**row, "why": lv.get("why")})
     jumps = grade_jumps(shots, p2_of)
-    return {"film": str(film), "version": VERSION, "threshold_p2": P2_MAX, "floored": floored, "opt_out": opt_out,
+    return {"film": str(film), "version": VERSION, "threshold_p2": P2_MAX, "max_gain": LEVELS_MAX_GAIN, "floored": floored, "opt_out": opt_out,
             "untouched": untouched, "grade_jumps": [j for j in jumps if j["warn"]], "cuts_measured": len(jumps)}
 
 
@@ -327,10 +372,12 @@ def main(argv=None) -> int:
     rep = check(a.check)
     if a.json:
         Path(a.json).write_text(json.dumps(rep, indent=1), encoding="utf-8")
-    print(f"levels v{rep['version']} on {rep['film']} (floor when p2 > {rep['threshold_p2']})")
+    print(f"levels v{rep['version']} on {rep['film']} (floor when p2 > {rep['threshold_p2']}, gain at most "
+          f"{rep['max_gain']})")
     print(f"floored ({len(rep['floored'])}):")
     for r in rep["floored"]:
-        print(f"  {r['shot']:>6} {r['id']}: p0.5 {r['p0_5']}, p2 {r['p2']} -> {r['p2_after']}")
+        print(f"  {r['shot']:>6} {r['id']}: p0.5 {r['p0_5']}, black point (min-channel p0.5) {r['black_in']}, "
+              f"gain {r['gain']}, p2 {r['p2']} -> {r['p2_after']}")
     print(f"opted out ({len(rep['opt_out'])}):")
     for r in rep["opt_out"]:
         print(f"  {r['shot']:>6} {r['id']}: p0.5 {r['p0_5']}, p2 {r['p2']} ({r['reason']})")

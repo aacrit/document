@@ -33,6 +33,10 @@ export interface Shot {
   /** How the shot enters: a cut, a dissolve, or a dip to black of `s` seconds centred on the cut. */
   transition: { type: string; s: number };
   preset: string | null;
+  /** A41: true when the camera fills the screen and tours the picture; false when it is held whole. */
+  fill_ok: boolean | null;
+  /** A41: the reason a still is held whole at its own shape (it cannot fill); undefined in a sources.json made before A41. */
+  fill_exception?: string | null;
   /** GRAMMAR A46: the automatic black floor, when one was applied to this still (a flat level, non-material). */
   levels: { black_in: number; black_out: number } | null;
   in_s: number | null;
@@ -171,6 +175,8 @@ function parseShot(x: unknown, i: number, fps: number): Shot {
     alterations: Array.isArray(x.alterations) ? x.alterations.filter((a): a is string => typeof a === "string") : [],
     transition: isObj(x.transition_in) ? { type: str(x.transition_in.type) ?? "cut", s: num(x.transition_in.s) ?? 0 } : { type: "cut", s: 0 },
     preset: str(x.preset),
+    fill_ok: typeof x.fill_ok === "boolean" ? x.fill_ok : null,
+    ...("fill_exception" in x ? { fill_exception: str(x.fill_exception) } : {}),
     levels: parseLevels(x.levels),
     in_s: num(x.in_s),
     out_s: num(x.out_s),
@@ -785,14 +791,26 @@ export function shotWhat(shot: Shot): string {
   return `${secs} s`;
 }
 
+/** A46's black floor in plain words; studio/tests/test_cine11_levels.py pairs each claim with the map's math. */
+export const BLACK_FLOOR_COPY =
+  "Black level set: the scan's grey floor taken down to near black by one straight-line level, the same on every colour, which raises contrast and colour strength by the same small factor; the white point kept.";
+
+/** How the camera showed a still (A41): held whole under a fill exception, or filling the screen as it tours. */
+export function stillCamera(shot: Shot): string {
+  if (shot.fill_exception) return "Shown whole at its own shape, then the camera creeps slowly inside it.";
+  if (shot.fill_exception === null && shot.fill_ok === true) return "Filled to the screen, the camera moves across it, never past the picture's own edges.";
+  // a sources.json made before A41 (no fill_exception key): its presets moved over the whole picture
+  return shot.preset ? "Shown whole, then the camera moves slowly across it." : "Shown whole.";
+}
+
 /** What was done to the item, in plain words (GRAMMAR 4.2's closed list, or what is allowed without a mark change). */
 export function shotTreatment(shot: Shot): string | null {
   if (shot.mark.class === "CARD") return null;
   // A46: a black floor is stated, never hidden (A0), though it leaves the mark as it was (GRAMMAR 4.2)
-  const floor = shot.levels ? "Black level set: the scan's grey floor taken down to near black by one flat level, white and colour untouched." : null;
+  const floor = shot.levels ? BLACK_FLOOR_COPY : null;
   if (shot.alterations.length) return [`Changed: ${shot.alterations.join(", ")}.`, floor].filter(Boolean).join(" ");
   if (shot.kind === "archive_still") {
-    const shown = shot.preset ? "Shown whole, then the camera moves slowly across it." : "Shown whole.";
+    const shown = stillCamera(shot);
     return floor ? `${shown} ${floor} Nothing else in the picture is changed.` : `${shown} Nothing in the picture is changed.`;
   }
   if (shot.kind === "archive_video") return "Trimmed, shown at its own speed. Nothing in the picture is changed.";

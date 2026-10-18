@@ -7,6 +7,7 @@ guidance."). Small synthetic images only; nothing is rendered or encoded."""
 import colorsys
 import json
 import math
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -63,7 +64,7 @@ def test_the_threshold_p2_24_is_untouched_and_25_is_floored(p2, floored):
     fp = LV.floor_params(m)
     assert (fp is not None) is floored
     if floored:
-        assert fp == {"black_in": 12, "black_out": 10, "white": 255}
+        assert fp == {"black_in": 12, "black_out": 10, "white": 255, "gain": round(245 / 243, 4)}
 
 
 def test_a_floor_never_lifts_a_black():
@@ -118,7 +119,7 @@ def test_per_channel_black_points_would_shift_the_hue_so_one_map_is_shared():
     """The control: a sepia print's floor is itself tinted (warm paper base), so a black point per channel
     would neutralise it, a grade; the one shared map keeps the hue."""
     y = np.linspace(0, 190, 240)[None, :].repeat(160, 0)
-    arr = np.rint(np.stack([y + 40, y + 20, y], -1)).astype(np.uint8)          # a warm floor (40, 20, 0)
+    arr = np.rint(np.stack([y + 50, y + 35, y + 20], -1)).astype(np.uint8)     # a warm floor (50, 35, 20)
     img = Image.fromarray(arr, "RGB")
     q = [int(np.percentile(arr[..., k], 0.5)) for k in range(3)]
     per = np.stack([np.asarray(LV.lut({"black_in": q[k], "black_out": 10, "white": 255}))[arr[..., k]] for k in range(3)], -1)
@@ -136,6 +137,95 @@ def test_determinism_same_bytes_twice():
     assert LV.apply(img, p).tobytes() == LV.apply(milky(black=60, seed=3), p).tobytes()
     assert LV.measure(img) == LV.measure(milky(black=60, seed=3))
     assert LV.apply(img, None) is img and LV.apply(img, {"applied": False}) is img
+
+
+def sepia_shadows(seed: int = 4) -> np.ndarray:
+    """A sepia print whose shadows are warm: a dark brown (60, 40, 22) under a ramp to paper, with grain."""
+    rng = np.random.default_rng(seed)
+    y = np.linspace(0, 1, 300)[None, :].repeat(200, 0)
+    base = np.array([60, 40, 22.0]) + y[..., None] * np.array([180, 175, 160.0])
+    return np.rint(np.clip(base + rng.normal(0, 1.5, (200, 300, 1)), 0, 255)).astype(np.uint8)
+
+
+def test_the_black_point_reads_the_darkest_channel_so_sepia_shadows_do_not_clip():
+    arr = sepia_shadows()
+    img = Image.fromarray(arr, "RGB")
+    m = LV.measure(img)
+    fp = LV.floor_params(m)
+    assert fp is not None and fp["black_in"] == m["min0_5"] < m["p0_5"]
+    out = np.asarray(LV.apply(img, {"applied": True, **fp}))
+    newly = ((out == 0) & (arr > 0)).any(-1).mean()
+    assert newly <= 0.005, newly                               # at most 0.5% of pixels newly clipped in any channel
+    keep = (out > 0).all(-1) & (out < 255).all(-1) & ((arr.max(-1).astype(int) - arr.min(-1)) >= 12)
+    ha = np.array([hue_deg(px) for px in arr[keep][::23]])
+    hb = np.array([hue_deg(px) for px in out[keep][::23]])
+    assert max(hue_delta(a, b) for a, b in zip(ha, hb)) <= 3.0  # unclipped pixels keep their hue (8-bit rounding)
+    # the control: a black point read from luma clips the blue of the shadows and turns them
+    lum = np.asarray(LV.apply(img, {"applied": True, "black_in": m["p0_5"], "black_out": 10, "white": 255}))
+    assert ((lum == 0) & (arr > 0)).any(-1).mean() > 0.05
+
+
+@pytest.mark.parametrize("black,floored", [(73, True), (74, False)])
+def test_a_pale_scan_past_the_gain_cap_is_shown_as_held(black, floored):
+    img = grey_image({black: 5, black + 5: 15, 240: 980})
+    m = LV.measure(img)
+    assert m["min0_5"] == black
+    fp = LV.floor_params(m)
+    assert (fp is not None) is floored
+    rec = LV.decide({"kind": "archive_still", "mark": "ARCHIVE"}, {}, m, None)
+    if floored:
+        assert fp["gain"] <= LV.LEVELS_MAX_GAIN and rec["applied"]
+    else:
+        assert LV.gain(black) > LV.LEVELS_MAX_GAIN and rec["applied"] is False and rec["pale"] is True
+        assert rec["why"].startswith("pale scan: floor would be a grade")
+
+
+def test_the_copy_claims_exactly_what_the_map_does():
+    """Every claim in the record's WHAT and the Sources page's copy, paired with the math (like the privacy page)."""
+    web = (Path(R.__file__).resolve().parents[2] / "web" / "src" / "film-data.ts").read_text(encoding="utf-8")
+    page = web.split("export const BLACK_FLOOR_COPY =", 1)[1].split('"')[1]
+    claims = ("grey floor taken down to near black", "one straight-line level", "the same on every colour",
+              "raises contrast and colour strength by the same small factor", "the white point kept")
+    for text in (LV.WHAT, page):
+        for c in claims:
+            assert c in text, (c, text)
+        for word in ("hue", "untouched", "flat", "unchanged", "gamma"):
+            assert word not in text.lower(), (word, text)
+    assert "flat" not in LV.MATERIALITY
+    arr = sepia_shadows(seed=9)
+    img = Image.fromarray(arr, "RGB")
+    fp = LV.floor_params(LV.measure(img))
+    t = LV.lut(fp)
+    out = np.asarray(LV.apply(img, {"applied": True, **fp}))
+    # near black: the black point goes to 10; the white point kept: 255 stays 255
+    assert t[fp["black_in"]] == 10 and t[255] == 255
+    # one straight-line level: a single slope, rounding aside
+    c = np.arange(fp["black_in"], 256)
+    assert np.abs(np.array(t)[c] - (10 + (c - fp["black_in"]) * fp["gain"])).max() <= 0.5 + 1e-9
+    # the same on every colour: one table for R, G and B
+    assert all((out[..., k] == np.array(t)[arr[..., k]]).all() for k in range(3))
+    # contrast and colour strength rise by the same small factor: every difference between channels times k
+    ok = (out > 0).all(-1)
+    d_in = arr[ok].astype(int)[:, 0] - arr[ok].astype(int)[:, 2]
+    d_out = out[ok].astype(int)[:, 0] - out[ok].astype(int)[:, 2]
+    assert np.abs(d_out - fp["gain"] * d_in).max() <= 1.0
+    assert 1.0 < fp["gain"] <= LV.LEVELS_MAX_GAIN
+
+
+def test_the_overlay_write_is_atomic(tmp_path, monkeypatch):
+    led = tmp_path / "stills-ledger.json"
+    led.write_text("{}", encoding="utf-8")
+    entry = {"FX": {"version": LV.VERSION, "applied": False}}
+    assert LV.write_overlays({str(led): entry}) == [str(tmp_path / "stills-ledger.levels.json")]
+    before = (tmp_path / "stills-ledger.levels.json").read_bytes()
+    assert LV.write_overlays({str(led): entry}) == []          # unchanged content is not rewritten
+
+    def boom(a, b):
+        raise OSError("disk full")
+    monkeypatch.setattr(LV.os, "replace", boom)
+    assert LV.write_overlays({str(led): {"FX": {"version": LV.VERSION, "applied": True}}}) == []
+    assert (tmp_path / "stills-ledger.levels.json").read_bytes() == before
+    assert not list(tmp_path.glob(".*.tmp"))
 
 
 # --------------------------------------------------------------------------
@@ -164,7 +254,8 @@ def test_an_opt_out_is_honoured_and_carries_its_reason():
     m = LV.measure(milky())
     rec = LV.decide({"kind": "archive_still", "mark": "ARCHIVE"}, {"levels": "none", "levels_reason": "the fade is the print"},
                     m, None)
-    assert rec == {"version": LV.VERSION, "p0_5": m["p0_5"], "p2": m["p2"], "applied": False, "opt_out": True,
+    assert rec == {"version": LV.VERSION, "p0_5": m["p0_5"], "p2": m["p2"], "min0_5": m["min0_5"], "applied": False,
+                   "opt_out": True,
                    "reason": "the fade is the print"}
     img = milky()
     assert LV.apply(img, rec) is img
@@ -251,6 +342,10 @@ def test_the_plan_floors_an_archive_still_logs_it_and_sources_json_states_it(tmp
     a = doc["items"]["FX-STILL-A"]
     assert a["applied"] and a["materiality"] == LV.MATERIALITY and a["black_in"] == lv["black_in"] and len(a["sha256"]) == 64
     assert "levels" not in json.dumps(json.loads((film / "stills-ledger.json").read_text(encoding="utf-8")))
+    # a still never floored is measured and cached there too, for grade-jump
+    c = doc["items"]["FX-STILL-C"]
+    assert c["applied"] is False and c["why"].startswith("never floored") and c["measure"]["p2"] > 24
+    assert not list(film.glob(".*.tmp"))                       # written atomically, no temp left behind
     # the journal: a decision for the floor, a grade-jump lint at the S3 -> S4 dissolve
     evs = J.read(j.path)
     assert any(e["kind"] == "decision" and e.get("unit") == "S3" and "black floor" in e["what"] for e in evs)
@@ -272,7 +367,7 @@ def test_the_plan_floors_an_archive_still_logs_it_and_sources_json_states_it(tmp
     expect = np.asarray(LV.apply(raw, lv).resize((held.shape[1], held.shape[0]), Image.Resampling.LANCZOS)) \
         if held.shape[:2] != (raw.height, raw.width) else np.asarray(LV.apply(raw, lv))
     assert np.abs(held.astype(int) - expect.astype(int)).max() <= 1
-    assert LV.measure(Image.fromarray(held))["p0_5"] <= 11
+    assert LV.measure(Image.fromarray(held))["min0_5"] <= 11
     # the segment key changes with the floor
     k1 = R.shot_key(plan, plan["shots"].index(s3), {}, None)
     s3["_levels"] = dict(lv, black_in=lv["black_in"] + 1)
@@ -290,7 +385,7 @@ def test_the_plan_is_deterministic_and_reads_its_own_overlay_as_the_cache(tmp_pa
     assert get(p1) == get(p2)
     # a cached measurement is used only for the same file under the same version
     doc = json.loads(first)
-    doc["items"]["FX-STILL-A"]["measure"]["p0_5"] = 30
+    doc["items"]["FX-STILL-A"]["measure"]["min0_5"] = 30
     side.write_text(json.dumps(doc), encoding="utf-8")
     assert get(_plan(film, "c")[0])["black_in"] == 30
     doc["items"]["FX-STILL-A"]["sha256"] = "0" * 64
