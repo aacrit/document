@@ -560,3 +560,26 @@ def test_a7_under_a41_an_overshoot_onto_black_fails_the_edge_check(tmp_path):
     assert TS.pose_edge_difference(frame, str(p), win) < 1.0
     frame[:, :40] = 0                                                  # 40 px of black at the left: past the scan
     assert TS.pose_edge_difference(frame, str(p), win) > TS.POSE_EDGE_LIMIT
+
+
+def test_a40_a_shots_span_across_the_titles_is_the_full_render_byte_for_byte(tmp_path, masters):
+    """render --shots (#61's review): a span that ends inside the series titles (the cold open's last shot through
+    TS1) and one that starts there (TS1 through the first shot after it) render the same segments as the full
+    film, byte for byte: the titles' own frames (a master played as it is) and their edges included."""
+    def longer_credits(play):              # the Series titles block lengthens the roll (credits-roll)
+        play["parts"][-1]["shots"][-1]["dur_s"] += 6.0
+        play["runtime_target_s"] += 6.0
+    film = titled_film(tmp_path, masters, edit=longer_credits)
+    out = tmp_path / "out"
+    R.render(film, out, height=360, workers=2, min_free_gb=1, encode_preset="veryfast")
+    full = {p.name.split(".")[0]: J.sha256_file(p) for p in (out / "segments").glob("*.mp4")}
+    ids = [s["id"] for s in R.build_plan(film, W=640, H=360, burn_subtitles=False,
+                                         journal=J.Journal(film="a40-shots", directory=tmp_path / "j"),
+                                         write_overlays=False)["shots"]]
+    after = ids[ids.index("TS1") + 1]
+    for a, b in (("CO1", "TS1"), ("TS1", after)):
+        s = R.render(film, out, height=360, workers=2, min_free_gb=1, encode_preset="veryfast", shots=f"{a}..{b}")
+        assert s["partial"] is True and s["rendered"] == ids[ids.index(a):ids.index(b) + 1]
+        mine = {p.name.split(".")[0]: J.sha256_file(p) for p in (out / f"shots-{a}-{b}" / "segments").glob("*.mp4")}
+        assert set(mine) == set(s["rendered"]), (a, b, sorted(mine))
+        assert all(mine[k] == full[k] for k in mine), (a, b)
