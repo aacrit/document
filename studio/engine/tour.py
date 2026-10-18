@@ -33,7 +33,13 @@ import re
 from studio.engine import motion as M
 
 TOUR = M.TOUR
-MACROS = ("HOLD", "PUSH", "PULL", "DRIFT", "TILT", "DETAIL", "FILL")
+# Cinematography ticket #10 (A54): three more presets, engine-drawn from the ledger rather than a fixed framing
+# (``rich_macro_stops``): READ (a document or page, tilted or panned at reading pace), PORTRAIT (a person, face
+# first, then the fill) and SURVEY (a painting's several ROIs, then the widest fill). They carry every A41/A43/A47
+# guarantee a preset already has (``render.COVERABLE``: never refused, steered, covered), and fall back to the
+# A47 subject pass, journaled, when the still has none of what they need.
+RICH_MACROS = ("READ", "PORTRAIT", "SURVEY")
+MACROS = ("HOLD", "PUSH", "PULL", "DRIFT", "TILT", "DETAIL", "FILL") + RICH_MACROS
 # The old presets' framings (GRAMMAR 7.2), now in picture coordinates relative to the fill (A41)
 MACRO_ENDS = {
     "HOLD": ({"z": 1.0}, {"z": 1.0}),
@@ -461,6 +467,257 @@ def macro_stops(preset: str, shot: dict, dur: float) -> list[dict]:
         out.append({"t": t, "z": float(k.get("z", 1.0)), "x": float(k.get("x", 0.5)), "y": float(k.get("y", 0.5)),
                     "from": preset})
     return out
+
+
+# --------------------------------------------------------------------------
+# Cinematography ticket #10 (A54): READ, PORTRAIT and SURVEY
+#
+# Three more presets a screenplay may name, built from the ledger rather than
+# a fixed framing: READ tilts or pans through a document or page's text at
+# reading pace; PORTRAIT opens on a person's face, then pulls to the fill;
+# SURVEY visits a painting's regions of interest in order, then pulls to the
+# widest fill. Each is called from ``render.still_camera`` exactly where the
+# old macros are (``preset in MACROS``), so it carries every A41/A43/A47
+# guarantee a preset already has: the face cap, the people and must_show
+# guards, A49's text-zone steering and ``render.engine_cover``'s covering
+# pass. ``rich_macro_stops`` never raises for a still that lacks what the
+# macro needs (no text region, no located person, fewer than two regions of
+# interest, or no time for the pacing with its settles): it returns
+# ``(None, why)`` and the caller falls back to the A47 subject pass, which
+# ``render.tour_lints`` journals from ``why`` (ticket #10: "never refuse").
+# --------------------------------------------------------------------------
+
+READ_LINE_S = M.BRACKET["read_line_s"]                 # A50's reading pace, 1.0 to 1.5 s a line (doctrine 2.9)
+READ_PASS_S = M.BRACKET["cross_s"]                     # the 7-second rule's own floor (A49 pan-speed-px)
+READ_XHEIGHT_MIN_PX = 14.0                              # A41/A49's phone-legibility floor, on the 1080p master
+READ_LINE_HEIGHT_XH = 2.4                               # a line's own height (leading included), x-heights
+READ_MASTER = (1920, 1080)                              # the softness cap is judged on the 1080p master (A41)
+SURVEY_MAX_STOPS = 3                                    # doctrine 2.2: one to three stops per still
+SURVEY_ROW_TOL = 0.12                                   # a share of the picture's height: one reading "row"
+
+
+def _read_region(shot: dict, roi: list[dict]) -> dict | None:
+    """READ's text region, in this order: the shot's own ``region`` (as
+    DETAIL takes it), else the ``roi`` name the shot gives, else the
+    ledger's ``subject`` when it is text, else the first ``kind: text``
+    region. None when the still names no text to read (the caller falls
+    back to the A47 subject pass)."""
+    region = shot.get("region")
+    if isinstance(region, dict) and roi_box(region) is not None:
+        return region
+    named = shot.get("roi")
+    if isinstance(named, str):
+        hit = next((r for r in roi if r.get("name") == named), None)
+        if hit is not None and roi_box(hit) is not None:
+            return hit
+    subj = next((r for r in roi if r.get("name") == "subject"), None)
+    if subj is not None and subj.get("kind") == "text" and roi_box(subj) is not None:
+        return subj
+    return next((r for r in roi if r.get("kind") == "text" and roi_box(r) is not None), None)
+
+
+def _read_frame(region: dict, size, aspect: float, zmax: float) -> tuple[str, float, float, float, float]:
+    """The zoom READ reads at and the axis it travels. A region wider than
+    it is tall (a banner, a caption line) is fit by its height and panned
+    across (``x``); a page or a paragraph (taller, or square) is fit by its
+    width and tilted down through it (``y``), so every line it shows is
+    whole, edge to edge, at the deepest legible zoom the cap allows.
+    Returns (axis, z, a, b, c): the window travels from ``a`` to ``b`` on
+    ``axis`` (picture fractions), held at ``c`` on the other axis."""
+    x0, y0, x1, y1 = roi_box(region)
+    iw, ih = float(size[0]), float(size[1])
+    fw, fh = fill_window(size, aspect)
+    wide = (x1 - x0) * iw >= (y1 - y0) * ih
+    zc = max(1.0, zmax)
+    if wide:
+        rh = max((y1 - y0) * ih, 1.0)
+        z = max(1.0, min(fh / rh, zc))
+        half = (fw / z) / 2.0 / iw
+        c, span = (y0 + y1) / 2.0, x1 - x0
+        a, b = (x0 + x1) / 2.0, (x0 + x1) / 2.0
+        if span > 2 * half + EPS:
+            a, b = x0 + half, x1 - half
+        return "x", z, a, b, c
+    rw = max((x1 - x0) * iw, 1.0)
+    z = max(1.0, min(fw / rw, zc))
+    half = (fh / z) / 2.0 / ih
+    c, span = (x0 + x1) / 2.0, y1 - y0
+    a, b = (y0 + y1) / 2.0, (y0 + y1) / 2.0
+    if span > 2 * half + EPS:
+        a, b = y0 + half, y1 - half
+    return "y", z, a, b, c
+
+
+def read_line_count(region: dict, size, z: float) -> int:
+    """The region's own ``lines`` (A50's field), else estimated from its
+    height in source pixels and a nominal line height at ``z`` (READ's own
+    deepest legible zoom, ``_read_frame``): a line reads at
+    ``READ_XHEIGHT_MIN_PX`` x-height or more on the 1080p master, and a
+    line's own height, leading included, runs about
+    ``READ_LINE_HEIGHT_XH`` times its x-height for body text, so one line
+    needs about that many output pixels; dividing the region's own height
+    in output pixels at z by it gives the line count a legible pass would
+    show. No OCR and no glyph metrics: this is geometry, never a read of
+    the picture's pixels."""
+    n = region.get("lines")
+    if isinstance(n, int) and not isinstance(n, bool) and n > 0:
+        return n
+    box = roi_box(region)
+    if box is None:
+        return 1
+    bh_src = (box[3] - box[1]) * float(size[1])
+    out_per_src = upscale(size, READ_MASTER[0], READ_MASTER[1], z)
+    line_h_out = READ_XHEIGHT_MIN_PX * READ_LINE_HEIGHT_XH
+    return max(1, round(bh_src * out_per_src / line_h_out))
+
+
+def _read_stops(shot: dict, roi: list[dict], words: list[dict], dur: float, size, aspect: float,
+                zmax: float) -> tuple[list[dict] | None, str | None]:
+    """READ (doctrine 3.9, A54): a tilt (or pan) through the text in
+    reading order at reading pace when the narration reads it (a
+    ``kind: testimony`` word over the shot: GRAMMAR's "a reading"), else a
+    7-second pass; ends with the last line held at least the text settle
+    (1.5 s). A region too short to travel keeps the single legible hold
+    (``a == b``)."""
+    region = _read_region(shot, roi)
+    if region is None:
+        return None, "no text region: the ledger names no document or page text to read"
+    axis, z, a, b, c = _read_frame(region, size, aspect, zmax)
+    reads = any(w.get("kind") == "testimony" for w in words)
+    n = read_line_count(region, size, z)
+    travel_s = n * READ_LINE_S if reads else READ_PASS_S
+    settle_s = M.CINE["settle_read_s"]
+    if dur < travel_s + settle_s - EPS:
+        pace = f"reading pace, {n} line{'s' if n != 1 else ''}" if reads else "the 7-second pass"
+        return None, (f"too short: {pace} needs {travel_s + settle_s:.1f} s with the settle, the shot has "
+                      f"{dur:.1f} s")
+    cross = "y" if axis == "x" else "x"
+    s0 = {"t": 0.0, "z": z, axis: a, cross: c, "from": "READ: the text, start"}
+    if abs(a - b) <= EPS:
+        return [s0], None                          # the region fits one screen: a hold at reading pace, no travel
+    s1 = {"t": round(travel_s, 3), "z": z, axis: b, cross: c, "from": "READ: the text, last line"}
+    return [s0, s1], None
+
+
+def _portrait_subject(persons: list[dict], item: dict) -> dict | None:
+    """PORTRAIT's face (doctrine 3.9, A54): the ledger's ``subject`` when it
+    is a person or a face, else the one located face, else the largest of
+    several (A47's own tie-break, ``subject_facing``). None when the
+    ledger locates nobody (the fallback)."""
+    faces = face_boxes(item)
+    if not faces:
+        return None
+    named = next((f for f in faces if f.get("name") == "subject"), None)
+    if named is not None:
+        return named
+    if len(faces) == 1:
+        return faces[0]
+    return max(faces, key=lambda f: _area(f["box"]))
+
+
+def _portrait_facing(face: dict, persons: list[dict]) -> str | None:
+    """The way PORTRAIT's subject faces: the located person's own
+    ``facing`` (never inferred from the face, A43), else the largest
+    located person over the face's box (``subject_facing``)."""
+    for p in persons:
+        if p.get("name") is not None and p.get("name") == face.get("name"):
+            f = (p.get("entry") or {}).get("facing")
+            if f in FACINGS:
+                return f
+    return subject_facing({"box": face["box"], "kind": "face"}, persons)
+
+
+def _portrait_stops(item: dict, persons: list[dict], dur: float, size, aspect: float,
+                    zmax: float) -> tuple[list[dict] | None, str | None]:
+    """PORTRAIT (doctrine 3.9, A54): open on the face (A43's z 1.3 cap,
+    golden placement with lead room by facing, ``end_pose``), hold at
+    least the face settle (1.5 s), then pull to the fill (z 1, the house's
+    "whole" moment), landing at least the plain settle (1.0 s) before the
+    cut. Identity is never read from the face (A43): this macro places a
+    located person's geometry, and binds no name to it."""
+    face = _portrait_subject(persons, item)
+    if face is None:
+        return None, "no located person: the ledger locates nobody to open on"
+    facing = _portrait_facing(face, persons)
+    zlim = min(max(1.0, zmax), M.CINE["face_zmax"])
+    open_pose = end_pose({"box": face["box"], "kind": "face"}, size, aspect, zlim, record=False, facing=facing)
+    open_hold, fill_settle = M.CINE["settle_read_s"], M.CINE["settle_s"]
+    pull_t = dur - fill_settle
+    if pull_t < open_hold + EPS:
+        return None, (f"too short: the open ({open_hold:g} s) and the pull with its settle ({fill_settle:g} s) "
+                      f"need more than the shot's {dur:.1f} s")
+    s0 = dict(open_pose, t=0.0, hold=open_hold, **{"from": "PORTRAIT: the face"})
+    s1 = {"t": round(pull_t, 3), "z": 1.0, "x": 0.5, "y": 0.5, "from": "PORTRAIT: pull to the fill"}
+    return [s0, s1], None
+
+
+def _survey_candidates(roi: list[dict]) -> list[dict]:
+    return [r for r in roi if isinstance(r, dict) and roi_box(r) is not None]
+
+
+def _survey_order(cands: list[dict]) -> list[dict]:
+    """SURVEY's visiting order (doctrine 3.9, A54): the painter's own order
+    when any region states one (``order``, A54), else reading order: rows
+    top to bottom (centres within ``SURVEY_ROW_TOL`` of the picture's
+    height count as one row), left to right inside a row."""
+    def has_order(r):
+        o = r.get("order")
+        return isinstance(o, (int, float)) and not isinstance(o, bool)
+    if any(has_order(r) for r in cands):
+        return sorted(cands, key=lambda r: (r.get("order") if has_order(r) else math.inf, r.get("name") or ""))
+
+    def key(r):
+        x0, y0, x1, y1 = roi_box(r)
+        return (round((y0 + y1) / 2.0 / SURVEY_ROW_TOL), (x0 + x1) / 2.0)
+    return sorted(cands, key=key)
+
+
+def _survey_stops(item: dict, roi: list[dict], dur: float, size, aspect: float,
+                  zmax: float) -> tuple[list[dict] | None, str | None]:
+    """SURVEY (doctrine 3.9, A54): visits up to ``SURVEY_MAX_STOPS`` regions
+    of interest in reading order (``_survey_order``), each framed whole
+    with a margin (``roi_stop``) and held its own settle (A47's
+    ``settle_for``: 1.5 s for a face, a person or text, else 1.0 s), then
+    pulls to the widest fill, landing at least the plain settle before the
+    cut. A picture with fewer than two regions of interest has nothing to
+    survey (the fallback)."""
+    cands = _survey_order(_survey_candidates(roi))
+    if len(cands) < 2:
+        return None, f"too few regions of interest: SURVEY visits at least 2, this picture names {len(cands)}"
+    picked = cands[:SURVEY_MAX_STOPS]
+    holds = [settle_for({"kind": r.get("kind")}) for r in picked]
+    fill_settle = M.CINE["settle_s"]
+    need = sum(holds) + fill_settle
+    if dur < need - EPS:
+        return None, (f"too short: {len(picked)} stops and the fill need at least {need:.1f} s, the shot has "
+                      f"{dur:.1f} s")
+    slack = (dur - need) / len(picked)
+    stops, t = [], 0.0
+    for r, h in zip(picked, holds):
+        st = roi_stop(r, size, aspect, zmax)
+        st.update(t=round(t, 3), hold=round(h, 3), roi=r.get("name"), **{"from": f"SURVEY: {r.get('name') or 'roi'}"})
+        stops.append(st)
+        t += h + slack
+    stops.append({"t": round(dur - fill_settle, 3), "z": 1.0, "x": 0.5, "y": 0.5,
+                 "from": "SURVEY: pull to the widest fill"})
+    return stops, None
+
+
+def rich_macro_stops(preset: str, shot: dict, item: dict, roi: list[dict], persons: list[dict], words: list[dict],
+                     dur: float, size, aspect: float, zmax: float) -> tuple[list[dict] | None, str | None]:
+    """READ, PORTRAIT and SURVEY (cinematography ticket #10, A54): the
+    dispatcher ``render.still_camera`` calls for a preset in
+    ``RICH_MACROS``. Returns (stops, why): ``stops`` is None exactly when
+    the still has none of what the macro needs, or no time for its pacing
+    with the settles, and ``why`` names which; the caller falls back to
+    the A47 subject pass, journaled (never refused)."""
+    if preset == "READ":
+        return _read_stops(shot, roi, words, dur, size, aspect, zmax)
+    if preset == "PORTRAIT":
+        return _portrait_stops(item, persons, dur, size, aspect, zmax)
+    if preset == "SURVEY":
+        return _survey_stops(item, roi, dur, size, aspect, zmax)
+    raise ValueError(f"not a rich macro: {preset!r}")
 
 
 # --------------------------------------------------------------------------
@@ -1748,7 +2005,8 @@ SCALES = ("whole", "field", "detail")
 BOX = ("x", "y", "w", "h")
 PEOPLE_KEYS = set(BOX) | {"name", "facing", "source", "confidence", "model", "face"}   # face: A51
 ROI_KEYS = set(BOX) | {"name", "kind", "facing", "source", "confidence", "model", "cue", "must_show", "person",
-                       "lines"}     # lines: A50, a text region's line count (its reading pace)
+                       "lines",     # A50, a text region's line count (its reading pace)
+                       "order"}     # A54, SURVEY's painter reading order (ticket #10)
 STOP_KEYS = {"t", "at", "line", "x", "y", "z", "hold", "roi", "scale", "lead_s", "match"}
 # the rulebook's own names for what it finds (the schema): never a person's name
 GENERIC_NAME = re.compile(r"(subject|(face|person|group|text|object|place)-\d+)$")
@@ -2233,6 +2491,9 @@ def _entry_problems(e: dict, where: str, *, roi: bool) -> list[str]:
         ln = e.get("lines")
         if ln is not None and not (isinstance(ln, int) and not isinstance(ln, bool) and ln >= 1):
             probs.append(f"{where}: lines is the number of lines of text the region holds (1 or more), not {ln!r}")
+        od = e.get("order")
+        if od is not None and not (isinstance(od, (int, float)) and not isinstance(od, bool) and math.isfinite(od)):
+            probs.append(f"{where}: order is a number (the painter's reading order for SURVEY, A54), not {od!r}")
     return probs
 
 
