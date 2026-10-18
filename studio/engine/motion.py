@@ -1866,12 +1866,22 @@ TOUR = dict(hold_creep_after_s=1.5, creep_scale_per_s=0.015, creep_drift_per_s=0
 #                           ruling pending, default option (c) 0.90; 0 always holds, 1.01 always sweeps)
 #   waypoint_hold_s         a covering pass that would still miss a located person holds this long on them
 #   end_hold_s              a pass that must show the whole picture holds each end this long (a frame lands on it)
+#   Cinematography ticket #3 (contact sheets) and #4 (tour lints): guide numbers, not GRAMMAR thresholds, moved
+#   here so the preview tool (studio/engine/sheets.py) and the lint module (studio/engine/tourlint.py) read one
+#   source rather than each keeping its own copy:
+#   thirds                  the two third-lines drawn as a composition guide (the fallback to phi, A47)
+#   action_safe             EBU R95 / SMPTE ST 2046-1 action-safe inset, a share of W and H
+#   graphics_safe           ... graphics-safe inset (BRAND-KIT 4 accepts the mark zone sitting outside it)
+#   under_text_share        `subject-under-text` (groundwork brief section 4): warns at this overlap share
+#   whole_share, detail_share  doctrine 2.2: WHOLE shows this much of the picture or more, DETAIL this much or less
 WHOLE_HOLD_MIN_SHOWN = 0.90
 CINE = dict(face_zmax=1.3, framed_share=0.5, auto_confidence_floor=0.5, anchor_early_s=0.8, anchor_late_s=0.25,
             anchor_estimated_lead_s=1.0, anchor_lead_s=0.5, nest_share=0.8,
             settle_s=1.0, settle_read_s=1.5, whole_weight=0.38, whole_weight_record=0.5, golden_band=(0.30, 0.44),
             phi=0.382, compose_edge=0.02, eye_person=0.12, eye_face=0.4, centred_band=0.06,
-            whole_hold_min_shown=WHOLE_HOLD_MIN_SHOWN, waypoint_hold_s=0.3, end_hold_s=0.1)
+            whole_hold_min_shown=WHOLE_HOLD_MIN_SHOWN, waypoint_hold_s=0.3, end_hold_s=0.1,
+            thirds=(1 / 3, 2 / 3), action_safe=0.035, graphics_safe=0.05, under_text_share=0.10,
+            whole_share=0.8, detail_share=0.4)
 
 
 def still_view(size, L: Layout, *, z: float = 1.0, cx: float = 0.5, cy: float = 0.5, clamp: str = "frame"):
