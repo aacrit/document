@@ -92,7 +92,7 @@ _s = (LATCH["papyrus_local_x"] - ((_P0[0] - LATCH["disc"][0]) * _ax[0] + (_P0[1]
 _PAP_HEAD = (_P0[0] + _s * _HD[0], _P0[1] + _s * _HD[1])
 _PAP_C = (_PAP_HEAD[0] + _PAP_L / 2 * _HD[0], _PAP_HEAD[1] + _PAP_L / 2 * _HD[1])
 
-HINGE = {"lo": (0.920, 0.110), "deg": -66.0, "len": 0.688, "gap": 0.0015, "depth": 0.0015, "half_w": 0.025}
+HINGE = {"lo": (0.920, 0.110), "deg": -66.0, "len": 0.688, "gap": 0.0015, "depth": 0.0010, "half_w": 0.025}
 _HV = heading_vec(HINGE["deg"])
 HINGE["hi"] = (HINGE["lo"][0] - HINGE["len"] * _HV[0], HINGE["lo"][1] - HINGE["len"] * _HV[1])
 _HMID = ((HINGE["lo"][0] + HINGE["hi"][0]) / 2, (HINGE["lo"][1] + HINGE["hi"][1]) / 2)
@@ -118,7 +118,7 @@ SHEETS = {
     "piri": {"ledger": "T-04", "tex": "T-04_keyed", "alpha": True, "date": 1513, "surface": "parchment",
              "size": (0.65, 0.65 * 2619 / 1964), "centre": (1.130, 0.4555), "psi": 180.0, "t": 0.0003, "layer": 6, "cockle_clear_hinge": 0.05,
              "drape": 0.015,                         # parchment: stiffer than paper; the hinge dip survives under it
-             "cockle": {"amp": 0.0035, "lam": 0.20, "deg": 72.0, "through": (0.935, 0.060)},
+             "cockle": {"amp": 0.004, "lam": 0.15, "deg": 72.0, "through": (0.935, 0.060)},
              # turned 180 degrees: the fragment's diagonal cut lies at the far right, its near edge is the straight top
              # of the map (image +v is now the table's near side)
              "edges": [{"edge": "+v", "crest": 0.015, "run": 0.05}], "corners": {"+u-v": 0.004, "-u-v": 0.004}},
@@ -170,7 +170,7 @@ KHIPU = {"cord_r": 0.0011, "knot_r": 0.0024, "knots": 7, "span": ((0.93, 0.18), 
 QUAD = (0.000794, 0.00635, 0.01015)
 # the galley on its line (as the roll-out lays it); a loaded brass galley presses the papers under it flat: no cockle
 # within half_w of its line, fading over 3 cm (relief.py)
-GALLEY = {"from": (1.07, 0.44), "to": (1.24, 0.67), "mouth_deg_to_leg": 12.0, "on": "leaf", "mouth_widen": 0.004,
+GALLEY = {"from": (1.048, 0.397), "to": (1.079, 0.645), "mouth_deg_to_leg": 4.0, "on": "leaf", "mouth_widen": 0.004,
           "press_half_w": 0.06}
 REEL_REG = {"r": 0.032, "h": 0.012, "hub_r": 0.006, "hub_h": 0.012, "mass": 0.012, "damp": 2.0e-6, "fric": 1.5e-6,
             "at": (1.52, 0.40)}
@@ -178,7 +178,7 @@ REEL_FILM = {"r": 0.045, "h": 0.010, "hub_r": 0.008, "hub_h": 0.012, "mass": 0.0
              "at": (1.46, 0.18)}
 # a local steeper fall (within the fall's range), the table's own sag under the galley (founder 2026-10-18: if the
 # slower run starves the galley's strike, a slightly steeper local approach): (centre, radius, fall degrees along +x)
-FALL_ZONES = [{"name": "galley", "centre": (1.15, 0.50), "r": 0.16, "deg": 1.3}]
+FALL_ZONES = [{"name": "galley", "centre": (1.048, 0.397), "r": 0.25, "deg": 1.3}]
 IMPACT_MIN = 0.45                           # the reels' glance: impact parameter (in units of R + r) at least this
 PLATEN = {"r": 0.020, "len": 0.30, "from": (1.60, 0.10), "to": (1.76, 0.35), "pinned": True}
 # The lattice is 0.80 x 0.74 m of sticks (the keyed photograph is lattice edge to edge) and cannot lie in the plan's
@@ -188,7 +188,7 @@ PLATEN = {"r": 0.020, "len": 0.30, "from": (1.60, 0.10), "to": (1.76, 0.35), "pi
 STICK = {"ledger": "T-19", "tex": "T-19_keyed", "size": (0.80, 0.80 * 7602 / 8192), "raise": 0.008, "rib_h": 0.005,
          "centre": (1.910, 0.900), "psi": 90.0, "entry_tol": 0.05}
 BRASS = {"A": 0.025, "T": 0.0015, "rho": 8500.0, "lean_deg": 3.3, "C_HZ": 24.0 * (0.0225 / 0.025) ** 0.5,
-         "alpha_land_deg": 5.7, "at": (1.86, 0.45)}
+         "alpha_land_deg": 5.7, "at": (1.86, 0.56)}
 
 # ------------------------------------------------------------------------------------------------ the dark, the felt
 
@@ -289,7 +289,8 @@ def footprints():
     out = {n: sheet_corners(n) for n in SHEETS}
     t = TABLET
     out["tablet"] = corners(t["centre"][0], t["centre"][1], t["size"][0], t["size"][1], t["psi"])
-    out["stick"] = corners(STICK["centre"][0], STICK["centre"][1], STICK["size"][0], STICK["size"][1], STICK["psi"])
+    if not STICK.get("standing"):
+        out["stick"] = corners(STICK["centre"][0], STICK["centre"][1], STICK["size"][0], STICK["size"][1], STICK["psi"])
     out["felt"] = [(FELT_X1 - FELT[0], FELT_Y[0]), (FELT_X1, FELT_Y[0]), (FELT_X1, FELT_Y[1]), (FELT_X1 - FELT[0], FELT_Y[1])]
     a, d = DISC["A"], LATCH["disc"]
     out["disc"] = [(d[0] - a, d[1] - a), (d[0] + a, d[1] - a), (d[0] + a, d[1] + a), (d[0] - a, d[1] + a)]
@@ -365,9 +366,9 @@ FOLDED = {
     "chart": (2, 2, (0, 0)),
 }
 V41_SHEETS = {
-    "ino": {"centre": (1.50, 0.46), "psi": -8.0},          # 0.50 x 0.29 folded; its lifted edge and its crease stand
-    "page": {"centre": (1.55, 0.16), "psi": 4.0},
-    "chart": {"centre": (1.85, 0.27), "psi": 90.0},        # 0.34 x 0.50 folded; the rolled near edge (U3)
+    "ino": {"centre": (1.52, 0.47), "psi": -8.0},          # 0.50 x 0.29 folded; its lifted edge and its crease stand
+    "page": {"centre": (1.47, 0.16), "psi": 4.0},          # under Piri Reis's corner (older over newer)
+    "chart": {"centre": (1.76, 0.27), "psi": 90.0},        # 0.34 x 0.50 folded; the rolled near edge (U3)
 }
 TRAY = {"centre": (1.53, 0.84), "size": (0.34, 0.22), "rim_h": 0.018, "rim_t": 0.008, "floor_t": 0.004,
         "wood": "oak", "coins": 9, "coin_gap": 0.011, "note": "the money tray: its rim is a wall (U2); the coin row stands"
@@ -382,10 +383,44 @@ JETON = {"uid": "65c81382399942a99ff8daeeb6bd160c", "d": 0.028, "t": 0.0015, "in
 SCALE = {"uid": "9c5c67abed6c48459267e5613bcc480f", "pan_centre": (1.53, 0.64), "pan_r": 0.060, "pan_h": 0.012,
          "pan_z": 0.075, "spring_k": 40.0, "note": "Salter scales, late 19th c. (Timespan): the lead rolls up its ramp"
          " (the pan's rim lip at the table, a 4 mm lip), the pan dips under its weight on the spring and tips it on"}
-WEIGHTS = {"uid": "999d8e9275d4404ab956e39ce57716a0", "centre": (1.79, 0.56), "r": 0.035, "h": 0.045,
+WEIGHTS = {"uid": "999d8e9275d4404ab956e39ce57716a0", "centre": (1.80, 0.66), "r": 0.035, "h": 0.045,
            "note": "a set of nested weights, Krakow, 17th c.: a heavy round wall the file glances toward the brass"}
 GLOBE = {"uid": "21f7d2b8d4c743c4a15fe7103460c186", "centre": (2.05, 0.84), "d": 0.30, "stand_h": 0.45,
          "spin0_rad_s": 0.35, "bearing_c": 0.035,
          "note": "Doppelmayr, Nuremberg 1728 (Jagiellonian Univ. Museum): already turning when the shot begins, its"
          " spin decaying by bearing friction, analytic: w(t) = w0 exp(-c t); off the path, never touched"}
 SOURCES_NEED_TOKEN = "Sketchfab serves CC0 downloads only to a signed-in account: a free Sketchfab API token is needed"
+
+
+def _apply_v41():
+    """Layout A (approved 2026-10-18): Ino's sheet and the chart lie folded in quarters (each shows one panel of its scan,
+    the crop `uv_crop` in image fractions u0, u1, v0 (from the top), v1); the page and they move to their places; the
+    stick chart stands upright against the globe's stand, off the path (no ribs in the chain)."""
+    for name, (nu, nv, (iu, iv)) in FOLDED.items():
+        s = SHEETS[name]
+        W, H = s["size"]
+        s["size"] = (W / nu, H / nv)
+        s["uv_crop"] = (iu / nu, (iu + 1) / nu, iv / nv, (iv + 1) / nv)
+        s["t"] = s["t"] * nu * nv                       # four layers of paper
+        s.update(V41_SHEETS[name])
+    SHEETS["page"].update(V41_SHEETS["page"])
+    ino = SHEETS["ino"]
+    # its crease: the real fold of the folded sheet, along its middle (the panels tent up either side)
+    c, a = ino["centre"], math.radians(ino["psi"] + 90.0)
+    hh = ino["size"][1] / 2 - 0.02
+    ino["crease"] = {"from": (c[0] + hh * math.cos(a), c[1] + hh * math.sin(a)),
+                     "to": (c[0] - hh * math.cos(a), c[1] - hh * math.sin(a)), "depth": 0.002, "half_w": 0.025}
+    ino["edges"] = [{"edge": "+v", "crest": 0.004, "run": 0.03}]
+    ino["cockle"] = {"amp": 0.0008, "lam": 0.15, "deg": ino["psi"] + 90.0, "through": c}
+    ch = SHEETS["chart"]
+    ch["edges"] = [{"edge": "-u", "crest": 0.020, "run": 0.06}]
+    ch["cockle"] = {"amp": 0.0015, "lam": 0.15, "deg": 70.0, "through": ch["centre"]}
+    pg = SHEETS["page"]
+    pg["cockle"] = {"amp": 0.0015, "lam": 0.15, "deg": 30.0, "through": pg["centre"]}
+    STICK["standing"] = True
+    BANKS["U2"] = {"sheet": None, "object": "tray rim", "in": 60.0, "out": -60.0}
+    BANKS["U3"]["crest"], BANKS["U3"]["run"] = 0.020, 0.06
+
+
+if V41:
+    _apply_v41()

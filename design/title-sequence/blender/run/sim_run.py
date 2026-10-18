@@ -79,6 +79,11 @@ SURF = {"papyrus": "papyrus", "atlas1": "vellum", "atlas2": "vellum", "piri": "p
 B_IMPACT = 0.6                              # the reels' glance (design: 0.5 to 0.6, at least 0.45)
 
 
+def SHEETS_Y(name, dv):
+    """The y where the file crosses a sheet: its centre's y plus dv (m)."""
+    return B.SHEETS[name]["centre"][1] + dv
+
+
 def tf(frame):
     return frame / B.FPS
 
@@ -264,6 +269,10 @@ class Run:
                         f'friction="0.3 0.001 {B.RR["brass"] * R:.3e}" condim="6"/>')
                 z = B.BRASS["T"]
             free.append(f'<body name="{b}" pos="{px} {py} {z}"><freejoint/>{geom}</body>')
+        for cs in getattr(self, "coins_spec", []):
+            free.append(f'<body name="{cs["name"]}" pos="{PARK[0] - 0.5} {PARK[1] - 0.1 * int(cs["name"][-1])} 0.02"><freejoint/>'
+                        f'<geom name="{cs["name"]}" type="cylinder" size="{cs["r"]} {cs["t"] / 2}" mass="{cs["mass"]}" '
+                        f'friction="0.35 0.002 0.0001" condim="4"/></body>')
         hinged = []
         for h in HINGED:
             p = B.REEL_REG if h == "reel_reg" else B.REEL_FILM
@@ -306,6 +315,9 @@ class Run:
         self.m, self.d = m, d
         mujoco.mj_forward(m, d)
         self.bid = {b: mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, b) for b in FREE + HINGED + ["disc"]}
+        for cs in getattr(self, "coins_spec", []):
+            self.bid[cs["name"]] = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, cs["name"])
+            self.poses.setdefault(cs["name"], [])
         self.mass = {b: float(m.body_subtreemass[self.bid[b]]) for b in FREE}
         self.gname = [mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, i) or f"g{i}" for i in range(m.ngeom)]
         self._disc_mid = m.body_mocapid[self.bid["disc"]]
@@ -538,11 +550,26 @@ class Run:
             if stop_after <= 2:
                 return
         if resume < 3:
-            self.lay_tape()
-            self.lay_reel("reel_reg", side=-1, y_cross=B.REEL_REG["at"][1], before="ino")
-            self.lay_card()
-            self.lay_reel("reel_film", side=+1, y_cross=B.REEL_FILM["at"][1], before="page")
-            self.lay_strip()
+            if B.V41:
+                # v4.1, the collector's desk: the coin row on the oak before the tray, the tray's rim (U2), Ino's
+                # reels and card, the page's strip, each laid by roll-out on the file's line
+                self.lay_coins()
+                self.lay_tray()
+
+                def u2(p, v):
+                    return v[1] < -0.03 and p[1] > 0.55
+                ok = self.advance_until(u2, T_END)
+                self.log("U2 (the tray's rim) turned" if ok else "U2 NOT reached")
+                self.lay_reel("reel_reg", side=-1, y_cross=SHEETS_Y("ino", 0.0), before="ino")
+                self.lay_card()
+                self.lay_reel("reel_film", side=+1, y_cross=SHEETS_Y("page", 0.05), before="page")
+                self.lay_strip()
+            else:
+                self.lay_tape()
+                self.lay_reel("reel_reg", side=-1, y_cross=B.REEL_REG["at"][1], before="ino")
+                self.lay_card()
+                self.lay_reel("reel_film", side=+1, y_cross=B.REEL_FILM["at"][1], before="page")
+                self.lay_strip()
             low = {"y": 9.0}
 
             def u3(p, v):
@@ -555,8 +582,11 @@ class Run:
             if stop_after <= 3:
                 return
         if resume < 4:
-            self.lay_platen()
-            self.lay_stick()
+            if B.V41:
+                self.lay_weights()
+            else:
+                self.lay_platen()
+                self.lay_stick()
             self.lay_brass()
             self.advance(T_END)
             self.log("prefix end")
@@ -592,7 +622,7 @@ class Run:
             base = np.array(r[1:3])
             near = [q for q in span if abs((q - base) @ u) < 0.04]
             lat = max(float((q - base) @ nrm) for q in near) if near else 0.0
-            c = base + u * 0.004 + nrm * (lat + 0.0078)
+            c = base + u * 0.004 + nrm * (lat + 0.0098)                 # touched only at the swing's crest
             z = self.world.zmax(c[0], c[1], rk)
             knots.append((float(c[0]), float(c[1]), z + rk))
         for i, kp in enumerate(knots):
@@ -719,6 +749,79 @@ class Run:
         for k, (x, y) in enumerate(GL["pair"]):
             p = o + u * x + n * y
             self.place_free(f"pair{k + 1}", (p[0], p[1], ft + STEP_H + R))
+
+    def lay_coins(self):
+        """The coin row: the passing real coins (the dupondius, the sesterce) and the jeton, standing on edge on the oak in a
+        row across the lead's line, 11 mm apart, set out from the tray as a collector sorting them would; the lead strikes
+        the first and they fall in sequence."""
+        tr = self.ahead(10.0)
+        r = self.when(tr, lambda r: r[1] > 1.24 and r[2] > 0.60, t_after=self.d.time)
+        if r is None:
+            sys.exit("coins: the lead never leaves the galley's leaf")
+        i_r = tr["lead"].index(r)
+        back = next((q for q in reversed(tr["lead"][:i_r]) if math.dist(q[1:3], r[1:3]) >= 0.05), tr["lead"][0])
+        u = np.array(r[1:3]) - np.array(back[1:3])
+        u = u / np.linalg.norm(u)
+        pieces = [(c["id"], c["d"] / 2, c["t"]) for c in B.COINS[:2]] + [("jeton", B.JETON["d"] / 2, B.JETON["t"])]
+        p = np.array(r[1:3]) + u * 0.05
+        rows, spec = [], []
+        for k, (nm, rad, th) in enumerate(pieces):
+            c = p + u * (0.011 * k)
+            z = self.world.z(*c) + rad
+            q = qmul(qz(hdg(u)), qy(math.pi / 2))             # on its rim, its face square to the line
+            mass = 8900 * math.pi * rad * rad * th
+            spec.append({"name": f"coin{k + 1}", "id": nm, "r": rad, "t": th, "pos": (float(c[0]), float(c[1]), z),
+                         "quat": q, "mass": mass})
+            rows.append({"id": nm, "centre": [float(c[0]), float(c[1])], "r": rad, "t": th})
+        self.coins_spec = spec
+        self.compile()
+        for cs in spec:
+            self.place_free(cs["name"], cs["pos"], cs["quat"])
+        self.layout["stations"]["coins"] = {"row": rows, "deg": hdg(u)}
+        self.log("coins", row=[r_["centre"] for r_ in rows])
+
+    def lay_tray(self):
+        """The money tray (a plain oak tray, form only: no scan of one exists): its near rim stands across the file's
+        line after the coins, turned so the file's mirror leaves it heading about -70 degrees (U2)."""
+        tr = self.ahead(12.0)
+        lead = tr["lead"]
+        r = self.when(tr, lambda r: r[2] > 0.70, t_after=self.d.time) or lead[-1]
+        i_r = lead.index(r)
+        back = next((q for q in reversed(lead[:i_r]) if math.dist(q[1:3], r[1:3]) >= 0.05), lead[0])
+        h_in = hdg(np.array(r[1:3]) - np.array(back[1:3]))
+        alpha = (h_in + (-70.0)) / 2.0
+        T = B.TRAY
+        a = math.radians(alpha)
+        ua, na = np.array([math.cos(a), math.sin(a)]), np.array([-math.sin(a), math.cos(a)])
+        w, h = T["size"]
+        c = np.array(r[1:3]) + na * (h / 2)
+        z0 = self.world.zmax(c[0], c[1], 0.2)
+        for nm, off in (("tray_near", -h / 2), ("tray_far", h / 2)):
+            self.obox(nm, c + na * off, (w / 2, T["rim_t"] / 2), alpha, z0, z0 + T["rim_h"], "0.5 0.002 0.0001")
+        for nm, off in (("tray_left", -w / 2), ("tray_right", w / 2)):
+            self.obox(nm, c + ua * off, (T["rim_t"] / 2, h / 2), alpha, z0, z0 + T["rim_h"], "0.5 0.002 0.0001")
+        self.obox("tray_floor", c, (w / 2, h / 2), alpha, z0, z0 + T["floor_t"], "0.5 0.002 0.0001")
+        self.compile()
+        self.layout["stations"]["tray"] = {"centre": c.tolist(), "deg": alpha, "size": [w, h], "z": z0, "h_in": h_in}
+        self.log("tray", centre=c.tolist(), alpha=alpha, h_in=h_in)
+
+    def lay_weights(self):
+        """The nested weights (a heavy round wall): placed by roll-out beside the file after U3 so its glance turns the
+        file toward the brass disc."""
+        tr = self.ahead(12.0)
+        r = self.when(tr, lambda r: r[5] > 0 and r[2] > 0.30 and r[1] > 1.55, t_after=self.d.time)
+        if r is None:
+            sys.exit("weights: the file never rises after U3")
+        W = B.WEIGHTS
+        u = np.array(r[4:6]) / np.linalg.norm(r[4:6])
+        nrm = np.array([-u[1], u[0]])
+        c = np.array(r[1:3]) + u * 0.06 + nrm * (R + W["r"] - 0.006)
+        z0 = self.world.zmax(c[0], c[1], W["r"])
+        self.add("weights", {"type": "cylinder", "size": (W["r"], W["h"] / 2), "pos": (c[0], c[1], z0 + W["h"] / 2),
+                             "friction": "0.4 0.002 0.0001"})
+        self.compile()
+        self.layout["stations"]["weights"] = {"centre": [float(c[0]), float(c[1]), z0], "r": W["r"], "h": W["h"]}
+        self.log("weights", centre=c.tolist())
 
     def lay_tape(self):
         """Morse's tape in Ino's crease valley (drawn, not collided: 0.08 mm of paper; as a box its long edge rubbed a
@@ -938,6 +1041,7 @@ class Run:
         d = self.d
         blob = {k: getattr(self, k) for k in ("geoms", "hinge_pos", "layout", "hfields", "contacts", "poses",
                                               "next_bake", "brass_watch", "brass_hand", "fall")}
+        blob["coins_spec"] = getattr(self, "coins_spec", [])
         blob["v"] = vars(self.v)
         blob["state"] = {k: np.array(getattr(d, k)) for k in ("qpos", "qvel", "qacc_warmstart", "mocap_pos", "mocap_quat")}
         blob["time"] = float(d.time)

@@ -1,0 +1,554 @@
+{
+ "items": [
+  {
+   "id": "FS-coin-dupondius-octavian",
+   "title": "Dupondius of Octavian, c. 30-29 BCE",
+   "institution": "Musée Saint-Raymond, Toulouse (Fondation Calvet)",
+   "inventory_id": "FC.2015.1",
+   "source_url": "https://sketchfab.com/3d-models/48e52062e37d4a6194a36f76f6eb959f",
+   "licence": "CC0",
+   "capture_method": "structured-light",
+   "capture_software": "Artec Studio",
+   "capture_evidence": "Numérisation 3D par scanner 3D Artec EVA et/ou Spider par IMA Solutions SARL",
+   "capture_evidence_url": "https://sketchfab.com/3d-models/48e52062e37d4a6194a36f76f6eb959f",
+   "ai": false,
+   "ai_evidence": "the institution's or digitiser's own capture note (quoted); no AI or generative tool named or tagged",
+   "sha256": "6eb69a3f2d65a0a767a63d8fe0f093125f5fd427a0366b866b6308cb96f48f5d",
+   "files": [
+    {
+     "path": "D:/document-media/title-sequence/run/assets/FS-coin-dupondius-octavian/license.txt",
+     "sha256": "21d6143877f6a828626e1d20e1da1275b3c2f48de461ad184abd2652709a1b53"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/FS-coin-dupondius-octavian/scene.bin",
+     "sha256": "2b5848b435fee765fae7b8058bb1d4acf81937256e0c8e2b0428223adc6c06f1"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/FS-coin-dupondius-octavian/scene.gltf",
+     "sha256": "1bbe60ab1683c83f70aa909803b98624c5a8b4fc1133b84326713b77745d1c21"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/FS-coin-dupondius-octavian/textures/defaultMat_baseColor.jpeg",
+     "sha256": "46802d1ec64a144dca5ce8c2be1f52bc595e3dc634faebc622cc01d182c5b13c"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/FS-coin-dupondius-octavian/textures/defaultMat_metallicRoughness.png",
+     "sha256": "ce04e2b5e60324dff25615efac7b52bd7f2ff93fcdf56a0b69edb83899d1a3ef"
+    }
+   ],
+   "processing": [
+    "decimate"
+   ],
+   "tags": [
+    "v4.1",
+    "collector's desk"
+   ],
+   "gate": "pass",
+   "notes": "the coin row"
+  },
+  {
+   "id": "FS-coin-sesterce-trajan",
+   "title": "Sesterce of Trajan",
+   "institution": "Musée Saint-Raymond, Toulouse",
+   "inventory_id": "2000 21 144",
+   "source_url": "https://sketchfab.com/3d-models/ba652714bc514e3888f94a606985f79e",
+   "licence": "CC0",
+   "capture_method": "photogrammetry",
+   "capture_software": "not stated",
+   "capture_evidence": "Numérisation 3D par IMA Solutions SARL à partir de photos de Daniel Martin",
+   "capture_evidence_url": "https://sketchfab.com/3d-models/ba652714bc514e3888f94a606985f79e",
+   "ai": false,
+   "ai_evidence": "the institution's or digitiser's own capture note (quoted); no AI or generative tool named or tagged",
+   "sha256": "813c85fa9ba02cb833f48fc2aa434b1dd1e7fd593e8d597a320a86dce9d81377",
+   "files": [
+    {
+     "path": "D:/document-media/title-sequence/run/assets/FS-coin-sesterce-trajan/license.txt",
+     "sha256": "a1238ddb95d798225be77f90bffde4e4d1fed8961a176a57fc1da1951ba99e03"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/FS-coin-sesterce-trajan/scene.bin",
+     "sha256": "0314eb0cfda759355e7b4a1e7188af79c353cc90f721757b52f1e7bcd1854b3b"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/FS-coin-sesterce-trajan/scene.gltf",
+     "sha256": "4e3e388b0fd1490cb8a1fe99b026f27658235656c1baa2e4e3caaf745ebeb9aa"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/FS-coin-sesterce-trajan/textures/material_0_baseColor.jpeg",
+     "sha256": "05e7336705e8c343382948ce4d7745c118abdfab4215c7351abc596979916a85"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/FS-coin-sesterce-trajan/textures/material_0_normal.jpeg",
+     "sha256": "22248d2b7e6282a055bfafbb3eac12581e31dffd4ed25292a79bc00553357a14"
+    }
+   ],
+   "processing": [
+    "decimate"
+   ],
+   "tags": [
+    "v4.1",
+    "collector's desk"
+   ],
+   "gate": "pass",
+   "notes": "the coin row"
+  },
+  {
+   "id": "FS-coin-denier-coelius-caldus",
+   "title": "Denier of C. Coelius Caldus",
+   "institution": "Musée Saint-Raymond, Toulouse",
+   "inventory_id": "2000 16 333",
+   "source_url": "https://sketchfab.com/3d-models/1021c13dc0194732bbfe277cd5fb89a7",
+   "licence": "CC0",
+   "capture_method": "photogrammetry",
+   "capture_software": "not stated",
+   "capture_evidence": "Numérisation 3D par IMA Solutions SARL (method not named on the page)",
+   "capture_evidence_url": "https://sketchfab.com/3d-models/1021c13dc0194732bbfe277cd5fb89a7",
+   "ai": false,
+   "ai_evidence": "the institution's or digitiser's own capture note (quoted); no AI or generative tool named or tagged",
+   "sha256": "5d822ab3119d7b5c5afc05c6778931c7328930e0a212d2dfab881f926e5e8ded",
+   "files": [
+    {
+     "path": "D:/document-media/title-sequence/run/assets/FS-coin-denier-coelius-caldus/license.txt",
+     "sha256": "c1c897c7d470c4bf9746c8187954c536e8b5c1d8e66d4eabd4b24ce7f34188ac"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/FS-coin-denier-coelius-caldus/scene.bin",
+     "sha256": "0a837ee330a55180684d9e6f688a339479c2ecf3b4a1322b90b0a23713f2b1f2"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/FS-coin-denier-coelius-caldus/scene.gltf",
+     "sha256": "5a976e5df314649571b519db5b0f604ea7dedcb8967cb2f78f53f87f27b02935"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/FS-coin-denier-coelius-caldus/textures/material_0_baseColor.jpeg",
+     "sha256": "57777d5a8474def96f551b0fcbfe01b3f96f297ed1c7298bb3671a7cc66addfd"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/FS-coin-denier-coelius-caldus/textures/material_0_normal.jpeg",
+     "sha256": "478dc9cadce0d21710dc7c36aa62bd293fa5dd20f299cbba2402ef0a6dcbe1fd"
+    }
+   ],
+   "processing": [
+    "decimate"
+   ],
+   "tags": [
+    "v4.1",
+    "collector's desk"
+   ],
+   "gate": "refuse",
+   "notes": "method not named for this object: refused under the gate (an unknown method is a refusal); files deleted"
+  },
+  {
+   "id": "FS-coin-tetradrachm-alexander",
+   "title": "Tetradrachm of Alexander",
+   "institution": "Musée Saint-Raymond, Toulouse",
+   "inventory_id": "2000 15 104",
+   "source_url": "https://sketchfab.com/3d-models/8a6b56fedf014ea8a63041b1e4e90016",
+   "licence": "CC0",
+   "capture_method": "photogrammetry",
+   "capture_software": "not stated",
+   "capture_evidence": "Numérisation 3D par IMA Solutions SARL (method not named on the page)",
+   "capture_evidence_url": "https://sketchfab.com/3d-models/8a6b56fedf014ea8a63041b1e4e90016",
+   "ai": false,
+   "ai_evidence": "the institution's or digitiser's own capture note (quoted); no AI or generative tool named or tagged",
+   "sha256": "b36937e23b374bb67f3841e86269a1ed589474fd175326e34078927e78e202d6",
+   "files": [
+    {
+     "path": "D:/document-media/title-sequence/run/assets/FS-coin-tetradrachm-alexander/license.txt",
+     "sha256": "7b3393cb1d6fa77f9f5b5aa5b8391a8178cf929ac84dbd2f8fc80c2a0550b887"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/FS-coin-tetradrachm-alexander/scene.bin",
+     "sha256": "5ce9a078cdd0270c7c3230df88247d63a7b904896b80c5693c374b63f882fb69"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/FS-coin-tetradrachm-alexander/scene.gltf",
+     "sha256": "a33cb874c5c28a0415f2ccced680f376520ff0fcc9d09efa2584eb971c94e795"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/FS-coin-tetradrachm-alexander/textures/material_0_baseColor.jpeg",
+     "sha256": "ddacabee469eb6abb637172053c113906ba93a44b6627e1469647de3daa2cd2c"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/FS-coin-tetradrachm-alexander/textures/material_0_normal.jpeg",
+     "sha256": "8e00f87f8fc4c7775a1a5b8cfb6f983efe8d1afc65c42b9d7f6a083d20cec32e"
+    }
+   ],
+   "processing": [
+    "decimate"
+   ],
+   "tags": [
+    "v4.1",
+    "collector's desk"
+   ],
+   "gate": "refuse",
+   "notes": "method not named for this object: refused; files deleted"
+  },
+  {
+   "id": "scale",
+   "title": "Weighing scales, Salter Housewares Ltd., late 19th c.",
+   "institution": "Timespan Museum, Helmsdale",
+   "inventory_id": "unknown",
+   "source_url": "https://sketchfab.com/3d-models/9c5c67abed6c48459267e5613bcc480f",
+   "licence": "CC0",
+   "capture_method": "photogrammetry",
+   "capture_software": "not stated",
+   "capture_evidence": "3D digitisation was done by Catherine Cassidy and Iain Oliver with archaeological assistance provided by Jacquie Aitken",
+   "capture_evidence_url": "https://zenodo.org/records/10329676",
+   "ai": false,
+   "ai_evidence": "the institution's or digitiser's own capture note (quoted); no AI or generative tool named or tagged",
+   "sha256": "010bba10f20a969b04fbdb647172769ded3415759bced678a0d51ae252563cd4",
+   "files": [
+    {
+     "path": "D:/document-media/title-sequence/run/assets/scale/license.txt",
+     "sha256": "a2a162662fdbedcefdfe8d345d951457ee32d4fcf339652255dc03cbfc369d98"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/scale/scene.bin",
+     "sha256": "231de44ba5be6123bdd1f02810844c16dd140dc2b2e90f450e775fd390171c84"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/scale/scene.gltf",
+     "sha256": "7be7ec344645ba366bb691a1736ea082cc150bf3564e154484261368d0ae9111"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/scale/textures/scale_0_baseColor.jpeg",
+     "sha256": "d1b93d9222e7817abaac38c525c0c6558254ca46f68ee2caa39e3955c33796e2"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/scale/textures/scale_10_baseColor.jpeg",
+     "sha256": "a65bdc2916a8049a08cd306ab51f31ed869aa6fda5e40c48e32765502795f724"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/scale/textures/scale_11_baseColor.jpeg",
+     "sha256": "80971d590c8b1e274abd0da6b2eb0399750da667ccdd812457380092e5ab9a6d"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/scale/textures/scale_12_baseColor.jpeg",
+     "sha256": "e5e97e64be0dceed23914089f4569ed722ab0bbe273d4fa697f98f71b49d9324"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/scale/textures/scale_13_baseColor.jpeg",
+     "sha256": "e3401aa6e891904480520d8ab6981843d8891d2f06fdc23cffe6b300a88da61e"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/scale/textures/scale_14_baseColor.jpeg",
+     "sha256": "e1eac019e4bc60bc0a95762463df454bf082685696f8dd72e2edafbc68171524"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/scale/textures/scale_15_baseColor.jpeg",
+     "sha256": "bb565f1e448970ab0cff99cffce39bbb239015a0197687be9d8ec7c8b7aea5ca"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/scale/textures/scale_1_baseColor.jpeg",
+     "sha256": "1cdd22d1c823a70384c0dc51d48de0d84663e17c35bc45df4c5eef458b58fa20"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/scale/textures/scale_2_baseColor.jpeg",
+     "sha256": "a5efe606050ec0d7eb3e25570023008d72690ae25b3770b8a925b65923ed1d73"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/scale/textures/scale_3_baseColor.jpeg",
+     "sha256": "39fac43cccb96edcbf39c7388197bf870ad4de88bd4395916b5a3c64be55e5e5"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/scale/textures/scale_4_baseColor.jpeg",
+     "sha256": "3778637d46552380fcb1dd32bfcffdc309e69015ba84d340c40b511799bf7293"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/scale/textures/scale_5_baseColor.jpeg",
+     "sha256": "728d2006c62478dcf35048695ac7db1a8be05ed7e75f8992a82248c8bdc336b2"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/scale/textures/scale_6_baseColor.jpeg",
+     "sha256": "6465e1f73730601a1bf55375ee23b3797a53fffce358237145509b3f98a5e6af"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/scale/textures/scale_7_baseColor.jpeg",
+     "sha256": "f67dd33884c4998592a23177744ee21a9865c7d1def5d17dc6401b5c36501e69"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/scale/textures/scale_8_baseColor.jpeg",
+     "sha256": "03e9a2029418ef502f49487c4e2fc5aae7c4b9d006ae66aa9ab741ed9f00cad3"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/scale/textures/scale_9_baseColor.jpeg",
+     "sha256": "d96dc2605636b6f242579c8be1eb44f083a48a79a6da04ba9ac21648e833f498"
+    }
+   ],
+   "processing": [
+    "decimate"
+   ],
+   "tags": [
+    "v4.1",
+    "collector's desk"
+   ],
+   "gate": "refuse",
+   "notes": "no method named (Zenodo record and model page) and no inventory number: refused; files deleted"
+  },
+  {
+   "id": "globe",
+   "title": "Terrestrial globe, Johann Gabriel Doppelmayr, Nuremberg 1728",
+   "institution": "Jagiellonian University Museum, Collegium Maius",
+   "inventory_id": "4119; 119/V",
+   "source_url": "https://sketchfab.com/3d-models/21f7d2b8d4c743c4a15fe7103460c186",
+   "licence": "CC0",
+   "capture_method": "3d-scan",
+   "capture_software": "not stated (point-cloud scanning, scanner type not stated)",
+   "capture_evidence": "skanowanie 3D obiektu, efektem którego jest uzyskanie chmur punktów; przygotowanie modeli 3D (przejście od chmury punktów do siatki trójkątów); korekta i uzupełnienie braków w powierzchni modelu (w wypadku braków możliwe dodatkowe skanowanie elementów lub modelowanie graficzne); nałożenie i korekta tekstur powierzchni skanowanego obiektu",
+   "capture_evidence_url": "https://mik.krakow.pl/opis-projektu-wirtualne-muzea-malopolski/",
+   "ai": false,
+   "ai_evidence": "the institution's or digitiser's own capture note (quoted); no AI or generative tool named or tagged",
+   "sha256": "664069f3d5e2f42d49b4fb997c9aeae9ef188eead878cddea16d3381f7cbc2d7",
+   "files": [
+    {
+     "path": "D:/document-media/title-sequence/run/assets/globe/license.txt",
+     "sha256": "d74dd93f49194d2c0d818cd30976085ca69b4daab3d1c448a7df9ec2c0370b17"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/globe/scene.bin",
+     "sha256": "1c10b07c0439d0fd7c65162c227a874242e4ddd9cff9ae809bf69d681084e4b1"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/globe/scene.gltf",
+     "sha256": "c5871479ea758cb0d4bca5f29cf6e803473a726a8f275871947857b78eb4bf45"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/globe/textures/material_baseColor.jpeg",
+     "sha256": "0b5578dd731b42844c6f7ce544b906f73fba35a5bc619f05f96e03c336b4b3de"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/globe/textures/material_metallicRoughness.png",
+     "sha256": "1a01fa39c3813bc2b0ff6237184197d70ebd55ff6aeb038c82b21ec63bf5505e"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/globe/textures/None_baseColor.jpeg",
+     "sha256": "434c689745740c2b68608ee9f3a22abced5fe739aa7410e1231aef18ce304d30"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/globe/textures/None_metallicRoughness.png",
+     "sha256": "8838d125784976d0b016c0e10729e3662ff4429303c5a1e246917d24f5de9ef4"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/globe/textures/Quads_baseColor.jpeg",
+     "sha256": "9d52cbf8279e72bbf8429af7a91ead0a93ae939c59bb4f4bb350cbeb0f312098"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/globe/textures/Quads_metallicRoughness.png",
+     "sha256": "97207dd7baa24feb8c2a49adedb5e5a1fc0da75666fbe11b40924c8f4d56897e"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/globe/textures/ring_baseColor.jpeg",
+     "sha256": "28ca8ce3c0b39d9b6d1ad2a50a708e27ced6b5c414008931cf2e11c609cf8740"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/globe/textures/ring_metallicRoughness.png",
+     "sha256": "eaec221bd37a1dfb67182298ce7a91ca263403099a34bb2eccd90f39d3e61f8f"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/globe/textures/small-el_baseColor.jpeg",
+     "sha256": "8f48fc2e98cfd79047dcdf50f75d639df8811fd34aec398701a45a29bfeb63ce"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/globe/textures/small-el_metallicRoughness.png",
+     "sha256": "7aa1a8757c2b14618d85b67cfacb9989f462bcf34d2adc5a22ba813a8f4f446a"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/globe/textures/sphere_baseColor.jpeg",
+     "sha256": "0c934d218225f118038915daf6f371f6e4c9d74bc31a1f9f324eb969f16226f9"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/globe/textures/sphere_metallicRoughness.png",
+     "sha256": "3650fad486ead60affcaf8f0705d29e0bc7c03451f10f599e5bfecf2332c579c"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/globe/textures/Tris_baseColor.jpeg",
+     "sha256": "c4aa595265f268d83c16bb3d2c9076cabe083254b039d6381a4d34bc29b6fc46"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/globe/textures/Tris_metallicRoughness.png",
+     "sha256": "e33ac1aced3c292fb244653da9e2160cbd83ad7d9c85ef29c3ff8b1a7333fc70"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/globe/textures/under-table-mat_baseColor.jpeg",
+     "sha256": "5ad3b65a45784dc93876e0826a9f8aac6085fbb8b8b6cde3875b8ea1e7417fc5"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/globe/textures/under-table-mat_metallicRoughness.png",
+     "sha256": "a964ff66d16e9b919dc97d7ba060e55b14d1554c6156a311ff0b4915148c8b11"
+    }
+   ],
+   "processing": [
+    "decimate"
+   ],
+   "tags": [
+    "v4.1",
+    "collector's desk"
+   ],
+   "gate": "pass",
+   "notes": "gaps may be filled by additional scanning or graphic modelling, per the project; its texture is spot-checked against the museum's own photograph and any filled patch is kept out of the close passes"
+  },
+  {
+   "id": "weights",
+   "title": "Set of nested weights, Nuremberg, 18th c. (pharmacy)",
+   "institution": "Virtual Malopolska museum (KGZ)",
+   "inventory_id": "KGZ 3918",
+   "source_url": "https://sketchfab.com/3d-models/999d8e9275d4404ab956e39ce57716a0",
+   "licence": "CC0",
+   "capture_method": "3d-scan",
+   "capture_software": "not stated (point-cloud scanning, scanner type not stated)",
+   "capture_evidence": "skanowanie 3D obiektu, efektem którego jest uzyskanie chmur punktów; przygotowanie modeli 3D (przejście od chmury punktów do siatki trójkątów); korekta i uzupełnienie braków w powierzchni modelu (w wypadku braków możliwe dodatkowe skanowanie elementów lub modelowanie graficzne); nałożenie i korekta tekstur powierzchni skanowanego obiektu",
+   "capture_evidence_url": "https://mik.krakow.pl/opis-projektu-wirtualne-muzea-malopolski/",
+   "ai": false,
+   "ai_evidence": "the institution's or digitiser's own capture note (quoted); no AI or generative tool named or tagged",
+   "sha256": "c5176f682cf246564461ef12064a15a045d802b142a8f9d8e884fb59706d6fed",
+   "files": [
+    {
+     "path": "D:/document-media/title-sequence/run/assets/weights/license.txt",
+     "sha256": "34fc553635fe839e9edd44abcca70219f028cc089ab41c462a9ca4a2ea321d20"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/weights/scene.bin",
+     "sha256": "8335a444733b9b28c5caff4f51823f53c8915e2a018c974c1b217da961f0ad8f"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/weights/scene.gltf",
+     "sha256": "42e615c52f6a4906f3455976b7e98ccd88b6586c6dd7884a39858d28f2d1948a"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/weights/textures/KGZ_3918_Material_u1_v1_baseColor.jpeg",
+     "sha256": "9b898c65e83c5ca132f57ba4d67b651757c852c6f1cbb653639cd2339beb6929"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/weights/textures/KGZ_3918_Material_u1_v1_metallicRoughness.png",
+     "sha256": "373c4e5d3d649f5426a4d2dff195b4e4bca8df85105794de2170e2ed0edc30de"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/weights/textures/KGZ_3918_Material_u1_v1_normal.png",
+     "sha256": "63b0adc98d709e1d477aadec25b75dde820887e4a3c6380d3f4cda88da55fc97"
+    }
+   ],
+   "processing": [
+    "decimate"
+   ],
+   "tags": [
+    "v4.1",
+    "collector's desk"
+   ],
+   "gate": "pass",
+   "notes": "gaps may be filled by additional scanning or graphic modelling, per the project; its texture is spot-checked against the museum's own photograph and any filled patch is kept out of the close passes"
+  },
+  {
+   "id": "jeton",
+   "title": "Jeton, Kraków, 15th c.",
+   "institution": "Archaeological Museum in Kraków",
+   "inventory_id": "MAK/K/887/8",
+   "source_url": "https://sketchfab.com/3d-models/65c81382399942a99ff8daeeb6bd160c",
+   "licence": "CC0",
+   "capture_method": "3d-scan",
+   "capture_software": "not stated (point-cloud scanning, scanner type not stated)",
+   "capture_evidence": "skanowanie 3D obiektu, efektem którego jest uzyskanie chmur punktów; przygotowanie modeli 3D (przejście od chmury punktów do siatki trójkątów); korekta i uzupełnienie braków w powierzchni modelu (w wypadku braków możliwe dodatkowe skanowanie elementów lub modelowanie graficzne); nałożenie i korekta tekstur powierzchni skanowanego obiektu",
+   "capture_evidence_url": "https://mik.krakow.pl/opis-projektu-wirtualne-muzea-malopolski/",
+   "ai": false,
+   "ai_evidence": "the institution's or digitiser's own capture note (quoted); no AI or generative tool named or tagged",
+   "sha256": "50fc12d7bb763c6424019717d6d7dad80a3f21102e6aa0b2dbd470904b2b406d",
+   "files": [
+    {
+     "path": "D:/document-media/title-sequence/run/assets/jeton/license.txt",
+     "sha256": "195c5a043db885355aefc1a5927eaaec2a60f20e21e28e4c20966b22518bebc9"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/jeton/scene.bin",
+     "sha256": "52b0869b0f30e1842ac2f55a330442a09a88e3e1839516cc42d711b54636ebfe"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/jeton/scene.gltf",
+     "sha256": "64df161ae962e93bb7d9f4658ca3af80df5189dadbbc2f7701288ac729a071d5"
+    },
+    {
+     "path": "D:/document-media/title-sequence/run/assets/jeton/textures/defaultMat_baseColor.jpeg",
+     "sha256": "9495f4868f2003710d73302d55dbe1ded7ae75392fd99daaf49622ff53be1c4c"
+    }
+   ],
+   "processing": [
+    "decimate"
+   ],
+   "tags": [
+    "v4.1",
+    "collector's desk"
+   ],
+   "gate": "pass",
+   "notes": "gaps may be filled by additional scanning or graphic modelling, per the project; its texture is spot-checked against the museum's own photograph and any filled patch is kept out of the close passes"
+  },
+  {
+   "id": "C-02",
+   "title": "Oak Wood Planks (texture)",
+   "institution": "Poly Haven",
+   "inventory_id": "n/a",
+   "source_url": "https://polyhaven.com/a/oak_wood_planks",
+   "licence": "CC0",
+   "capture_method": "photo-scan",
+   "capture_software": "not stated",
+   "capture_evidence": "Poly Haven creates photoscanned seamless PBR materials ... around 300 images per 2 metre square area ... a cross-polarized flash setup",
+   "capture_evidence_url": "https://blog.polyhaven.com/photoscanned-texture-creation-process/",
+   "ai": false,
+   "ai_evidence": "Poly Haven's documented photoscan workflow",
+   "sha256": "aadbd93033fdfd15d875e85ce7da3558a8375ea282e55d6c3a3dd4ce5272f483",
+   "files": [
+    {
+     "path": "D:/document-media/title-sequence/chart/originals/C-02_diff.jpg",
+     "sha256": "aadbd93033fdfd15d875e85ce7da3558a8375ea282e55d6c3a3dd4ce5272f483"
+    },
+    {
+     "path": "D:/document-media/title-sequence/chart/originals/C-02_nor_gl.jpg",
+     "sha256": "fa16cba89c558836fa166f12a7e54df856de475e5e76fa157ed2d33cec4658a0"
+    },
+    {
+     "path": "D:/document-media/title-sequence/chart/originals/C-02_rough.jpg",
+     "sha256": "4619e7936a4e123e0ce951a308086348d003865154efc47737c7ee2ee2cad086"
+    }
+   ],
+   "processing": [],
+   "tags": [
+    "texture"
+   ],
+   "gate": "pass",
+   "notes": "material texture"
+  },
+  {
+   "id": "C-03",
+   "title": "Rough Linen (texture)",
+   "institution": "Poly Haven",
+   "inventory_id": "n/a",
+   "source_url": "https://polyhaven.com/a/rough_linen",
+   "licence": "CC0",
+   "capture_method": "photo-scan",
+   "capture_software": "not stated",
+   "capture_evidence": "colormass: Photography; Rico Cilliers: Processing",
+   "capture_evidence_url": "https://api.polyhaven.com/info/rough_linen",
+   "ai": false,
+   "ai_evidence": "Poly Haven's documented photoscan workflow",
+   "sha256": "e71016e08dfebea1dd4e8a2a675e3b617a889a782af782f1abb795906f4db1b4",
+   "files": [
+    {
+     "path": "D:/document-media/title-sequence/chart/originals/C-03_diff.jpg",
+     "sha256": "e71016e08dfebea1dd4e8a2a675e3b617a889a782af782f1abb795906f4db1b4"
+    },
+    {
+     "path": "D:/document-media/title-sequence/chart/originals/C-03_nor_gl.jpg",
+     "sha256": "c5733ad50cfe0f90c546f3d4076590c1c78a4fd1a83c967cc9c92dc8175b99e6"
+    },
+    {
+     "path": "D:/document-media/title-sequence/chart/originals/C-03_rough.jpg",
+     "sha256": "48400d48fa203882bf5d984d5beb2f95edb1550309924601c018f2c4f3f80731"
+    }
+   ],
+   "processing": [],
+   "tags": [
+    "texture"
+   ],
+   "gate": "pass",
+   "notes": "material texture"
+  }
+ ]
+}

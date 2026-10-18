@@ -136,7 +136,12 @@ def _scan(name, shape):
     s = B.SHEETS[name]
     ext = ".png" if s.get("alpha") else ".jpg"
     im = Image.open(TEX / f"{s['tex']}{ext}")
-    im.draft("RGB", (shape[1] * 2, shape[0] * 2)) if ext == ".jpg" else None
+    if ext == ".jpg" and not s.get("uv_crop"):
+        im.draft("RGB", (shape[1] * 2, shape[0] * 2))
+    if s.get("uv_crop"):
+        u0, u1, v0, v1 = s["uv_crop"]
+        w0, h0 = im.size
+        im = im.crop((int(u0 * w0), int(v0 * h0), int(u1 * w0), int(v1 * h0)))
     rgba = im.convert("RGBA").resize((shape[1], shape[0]), Image.BOX)
     a = np.asarray(rgba, np.float32) / 255.0
     lum = 0.2126 * a[..., 0] + 0.7152 * a[..., 1] + 0.0722 * a[..., 2]
@@ -253,6 +258,9 @@ def own_relief(name):
         # the hinge valley: the vellum dips into the hinge, 1.5 mm at the gap, over 25 mm
         dh = dist["+u"] if name == "atlas1" else dist["-u"]
         parts["hinge"] = -B.HINGE["depth"] * (1 - np.clip(dh / B.HINGE["half_w"], 0, 1)) ** 2
+        # the boards' end (-v, toward the hinge's foot) worn to a chamfer: it falls to the paper over its last 20 mm
+        # (design section 4's fallback; the U1 return climbs it under Piri Reis's drape)
+        parts["chamfer"] = -s["t"] * np.clip(1 - dist["-v"] / 0.020, 0, 1)
     if "crease" in s:
         c = s["crease"]
         (x0, y0), (x1, y1) = c["from"], c["to"]
@@ -328,7 +336,7 @@ def compose(write=True):
         if s.get("board"):
             # rigid: its weight presses the papers beneath it flat; both boards share one base, so the hinge is level
             bottom = np.full_like(rel, BOARD_BASE)
-            topl = bottom + t + np.minimum(rel, 0.0)       # the vellum's hinge dip below the board's top
+            topl = np.maximum(bottom + t + np.minimum(rel, 0.0), bottom + 0.0002)   # the hinge dip and the worn end
         else:
             # paper keeps its own lie on whatever it rests on (it drapes over what lies beneath, 6 mm smoothed)
             # never below what it lies on: the drape only bridges outward from a step (and nothing pokes through)
