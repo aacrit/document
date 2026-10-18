@@ -73,6 +73,7 @@ import numpy as np
 from PIL import Image
 
 from studio.engine import aswas as AW
+from studio.engine import bracket as BR
 from studio.engine import cadence as CAD
 from studio.engine import clips as CL
 from studio.engine import levels as LV
@@ -268,7 +269,7 @@ LT_SUFFIXES = ("  ·  read by a computer voice", "  ·  original recording")
 EM_DASH = "—"
 
 _HERE = Path(__file__).resolve().parent
-ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py", "score.py", "overlays.py", "georef.py", "clips.py", "voicing.py", "titles.py", "tour.py"))).hexdigest()[:12]
+ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py", "score.py", "overlays.py", "georef.py", "clips.py", "voicing.py", "titles.py", "tour.py", "bracket.py"))).hexdigest()[:12]
 ENGINE_MODEL = {"name": "studio.engine.render", "version": f"{ENGINE_VERSION}+{ENGINE_HASH}"}
 
 
@@ -776,6 +777,29 @@ def whole_camera(shot: dict, img_size, W: int, H: int, *, preset: str = "HOLD") 
             "z_max": z_end, "fit_scale": s, "z_rel_max": 1.0, "creep_z": z_end, "opens_whole": True}
 
 
+def exception_camera(shot: dict, img_size, W: int, H: int, *, exc, preset: str, cap: float, words=None,
+                     avoid=None) -> dict:
+    """A50 (founder ruling 3): a still under ``fill_exception`` moves in to one
+    DETAIL inside its own shape and back out to the whole
+    (``bracket.plan``: whole, push, hold, pull, whole), within the softness cap
+    on the 1080p master and the face cap; with no subject, or no time for the
+    bracket with its settles, it keeps A41's whole + creep (``whole_camera``),
+    and ``bracket_why`` says why. A written ``camera`` the bracket cannot draw
+    as written carries its ``problems`` (tour-path refuses them, A43)."""
+    item = shot.get("_item") or {}
+    declared = item.get("whole") is True and "whole" not in ((shot.get("_vision") or {}).get("from_rulebook") or [])
+    br = BR.plan(shot, item, img_size, W, H, words=words or [], t0=float(shot.get("start_s") or 0.0),
+                 dur=float(shot["_dur"]), cap=cap, avoid=avoid, declared_whole=declared)
+    if not br["ok"]:
+        return dict(whole_camera(shot, img_size, W, H), fill_exception=exc, declared_preset=preset,
+                    bracket_why=br["why"], problems=list(br["problems"]))
+    s = min(W / img_size[0], H / img_size[1])
+    return {"path": br["path"], "clamp": "native", "fill_ok": False, "preset": "HOLD", "open_s": 0.0,
+            "move_s": float(shot["_dur"]), "z_max": br["z_max"], "fit_scale": s, "z_rel_max": br["z_max"],
+            "creep_z": br["z_open"], "opens_whole": True, "fill_exception": exc, "declared_preset": preset,
+            "bracket": br, "problems": []}
+
+
 def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words=None, cover=False,
                  cap: float | None = None, fps: float | None = None, hold_on=(), avoid=None) -> dict:
     """The still's camera (A41, TOUR): a path of stops in picture coordinates
@@ -794,7 +818,8 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
     holds that pass on each of them. Under ``no_zoom`` a preset that zooms
     (PUSH, PULL, DRIFT, TILT, DETAIL) keeps its moves at z 1: drift only. A
     still the
-    softness cap cannot fill states ``fill_exception`` and is held whole (A7).
+    softness cap cannot fill states ``fill_exception`` and is shown whole (A7),
+    then one detail and back to the whole where it can (A50, ``exception_camera``).
     FIND (A32) keeps its own camera, held at the fill. ``words`` are the
     narration's words over the shot (tour.shot_words), for ``at`` anchors.
     ``avoid`` (A49, ``subject-under-text`` steering): ``[(box, zone), ...]``
@@ -814,7 +839,7 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
     if exc is not None:
         if preset == OV.FIND:
             return dict(OV.find_camera(shot, img_size, W, H, open_s=OPEN_S), opens_whole=True, fill_exception=exc)
-        return dict(whole_camera(shot, img_size, W, H), fill_exception=exc, declared_preset=preset)
+        return exception_camera(shot, img_size, W, H, exc=exc, preset=preset, cap=cap, words=words, avoid=avoid)
     if preset == OV.FIND:                     # A32 under A41: the sheet's own moves, at the fill on every frame
         cam = OV.find_camera(dict(shot, fill_ok=True), img_size, W, H, open_s=OPEN_S)
         zf = max(W / fw, H / fh)
@@ -1629,11 +1654,15 @@ def ml_upscale_lint(lint, s: dict) -> None:
                        "fix": None if okm else "a learned upscale is RECONSTRUCTED 'upscaled', on any camera"})
 
 
-def fill_exception_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int) -> None:
+def fill_exception_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int,
+                         fps: float = FPS) -> None:
     """A41: ``fill_exception`` holds a still whole only where the fill would
     pass the softness cap on the 1080p master (the house master decides, so a
     film renders the same way at every delivery), and it states why.
-    Journaled and a reviewer item."""
+    Journaled and a reviewer item. A50: a written camera the bracket cannot
+    draw is refused (tour-path, tour-anchor); a bracket is checked for the
+    softness cap on the master and for every person over its frames, and
+    its detail and timing, or why the shot keeps whole + creep, journaled."""
     exc = s.get("fill_exception")
     cap = float(s.get("_fill_max_upscale") or STILL_MAX_UPSCALE)
     mw, mh = RESOLUTIONS[1080]
@@ -1647,12 +1676,47 @@ def fill_exception_lints(lint, journal: Journal, s: dict, cam: dict, size, W: in
                        "state the reason, a sentence" if needed else
                        f"this picture fills the 1080p master at {fill_up:.2f}x, within {cap:g}x: every still fills "
                        "(A41); drop fill_exception")})
+    br = cam.get("bracket")
     journal.decision("motion", f"{s['id']}: fill_exception, held whole ({exc})",
                      f"A41: the fill would magnify the source {fill_up:.2f}x on the 1080p master, over {cap:g}x; "
                      "held whole (A7)", unit=s["id"], evidence={"master_fill_upscale": round(fill_up, 4), "max_upscale": cap})
-    journal.lint("tour-exception-review", True, stage="motion", unit=s["id"], severity="review", grammar="A41",
-                 phase="preflight", evidence={"check": "the still is held whole, pillarboxed, under its stated exception",
-                                              "fill_exception": exc})
+    journal.lint("tour-exception-review", True, stage="motion", unit=s["id"], severity="review", grammar="A41, A50",
+                 phase="preflight", evidence={"check": (f"the still is shown whole, pillarboxed, under its stated "
+                                                        f"exception, moves in {BR.copy_phrase(cam)} and back out to "
+                                                        "the whole"
+                                                        if br else "the still is held whole, pillarboxed, under its "
+                                                        "stated exception"), "fill_exception": exc})
+    # A50 (founder ruling 3): one DETAIL inside the whole, or why the shot keeps whole + creep
+    probs = cam.get("problems") or []
+    anchor = [p for p in probs if p.startswith("anchor")]
+    other = [p for p in probs if not p.startswith("anchor")]
+    if isinstance(s.get("camera"), list) or probs:
+        lint("tour-path", not other, unit=s["id"], stage="motion", grammar="A41, A43, A50",
+             evidence={"problems": other, "camera": s.get("camera"), "fill_exception": exc,
+                       "fix": None if not other else "one stop {roi} or {x, y, z} (z the zoom of the whole), "
+                                                     "within the cap, with time for the whole at both ends"})
+        lint("tour-anchor", not anchor, unit=s["id"], stage="motion", grammar="A41, A43",
+             evidence={"problems": anchor})
+    if br is None:
+        journal.decision("motion", f"{s['id']}: fill_exception, whole + creep (no detail)",
+                         f"A50: {cam.get('bracket_why') or 'no detail'}", unit=s["id"],
+                         evidence={"why": cam.get("bracket_why"), "creep_z": round(cam.get("creep_z", 1.0), 4)})
+        return
+    d, tm = br["detail"], br["timing"]
+    up = BR.master_scale(size) * br["z_max"]
+    lint("tour-softness", up <= cap + 1e-6, unit=s["id"], stage="motion", grammar="A5, A41, A50",
+         evidence={"deepest_upscale": round(up, 4), "max_upscale": cap, "at": "1080p", "detail": d})
+    wins = [w for _, w in still_windows(cam, s, size, W, H, hz=fps)]   # every frame at the master rate (A44)
+    people = T.people_of(s.get("_item") or {}, kind=s.get("kind", "archive_still"))
+    r = T.people_check(wins, people, size)
+    lint("tour-people", r["ok"], unit=s["id"], stage="motion", grammar="A7, A41, A50", evidence=r)
+    missed = T.must_show(wins, s.get("_item") or {}, size)
+    if missed:
+        journal.lint("tour-must-show", True, stage="motion", unit=s["id"], severity="review", grammar="A41",
+                     phase="preflight", evidence={"never_shown": missed})
+    journal.decision("motion", f"{s['id']}: fill_exception, a {d['scale']} inside the whole ({d['why']})",
+                     "A50 (founder ruling 3): whole, push in to one detail within the softness cap, hold, pull back "
+                     "to the whole before the cut", unit=s["id"], evidence={"detail": d, "timing": tm})
 
 
 def continuity_lints(journal: Journal, shots: list[dict], W: int, H: int) -> None:
@@ -2589,10 +2653,15 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                                                        "limit": round(cam["scan_zmax"], 4), "face": bool(s.get("face"))})
             else:
                 if cam.get("fill_exception") is not None:
-                    fill_exception_lints(lint, journal, s, cam, size, W, H)
+                    fill_exception_lints(lint, journal, s, cam, size, W, H, fps=fps)
                 if cam["preset"] == OV.FIND:
                     limit = cam["scan_zmax"]
                     ok = cam["z_rel_max"] <= limit + 1e-9
+                elif cam.get("bracket") is not None:
+                    # A50: the detail goes as deep as the softness cap (and the face cap) allows; the opening's
+                    # breath stays inside whole_creep_max
+                    limit = cam["bracket"]["z_limit"]
+                    ok = cam["z_rel_max"] <= limit + 1e-9 and cam.get("creep_z", 1.0) <= M.TOUR["whole_creep_max"] + 1e-9
                 else:
                     limit = PRESET_ZMAX.get(cam["preset"], 1.0)
                     ok = cam["z_rel_max"] <= limit + 1e-9 and cam["z_rel_max"] <= 1.3 + 1e-9
@@ -2614,7 +2683,8 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                 journal.lint("fill-ok", True, stage="motion", unit=s["id"], severity="review", grammar="A7, A41", phase="preflight",
                              evidence={"fill_ok": cam["fill_ok"], "preset": cam["preset"], "macro": cam.get("macro"),
                                        "check": ("Every person in the photograph is inside the frame at some point in this shot."
-                                                 if cam["fill_ok"] else "Held whole under a fill exception (A41).")})
+                                                 if cam["fill_ok"] else f"Shown whole under a fill exception, then moves in {BR.copy_phrase(cam)} and back to the whole (A41, A50)."
+                                                 if cam.get("bracket") else "Held whole under a fill exception (A41).")})
             if s.get("fill_ok") is False and cam["preset"] == TOUR:
                 journal.decision("motion", f"{s['id']}: fill_ok: false no longer holds a still whole",
                                  "A41: every still fills 16:9; a still kept whole states fill_exception (only when the "
@@ -7363,6 +7433,9 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             "preset": (s.get("_cam") or {}).get("preset"), "fill_ok": (s.get("_cam") or {}).get("fill_ok"),
             "fill": (s.get("_cam") or {}).get("fill"),
             "fill_exception": (s.get("_cam") or {}).get("fill_exception"),     # A41: held whole, the Sources page says so
+            # A50: what the bracket showed, by its measured share: "detail" (40% of the picture or less), "field"
+            # (closer on one part), false when the still only crept; None off a fill exception
+            "fill_detail": BR.sources_scale(s.get("_cam") or {}),
             "in_s": s.get("in_s"), "out_s": s.get("out_s"),
             "resampler": s.get("_resampler"), "conform": (s.get("_video") or {}).get("conform"),
             "levels": s.get("_levels"),          # A46: the black floor applied (non-material), or the stated opt-out

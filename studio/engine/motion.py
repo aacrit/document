@@ -1923,6 +1923,28 @@ CINE = dict(face_zmax=1.3, framed_share=0.5, auto_confidence_floor=0.5, anchor_e
             thirds=(1 / 3, 2 / 3), action_safe=0.035, graphics_safe=0.05, under_text_share=0.10,
             under_text_block_share=0.90, whole_share=0.8, detail_share=0.4)
 
+# A50 (cinematography ticket #12; founder ruling 3, 2026-10-17: "Detail stop in a fill_exception shot: (b). One DETAIL
+# stop within 3x, bracketed by the whole picture at both ends"): a still held whole under fill_exception may move in
+# to one detail inside its own pillarboxed shape and back out to the whole (studio/engine/bracket.py). z here is the
+# zoom of the whole (z 1 the whole picture at its native aspect), the frame space the exception already moves in.
+#   open_s            the whole opens at least this long before the push (CINE settle_s: long enough to read it)
+#   end_s             ... and the pull lands on the whole at least this long before the cut
+#   hold_s            the detail holds at least this long (CINE settle_read_s)
+#   read_line_s       a text detail holds a line this long (doctrine 2.9: one line per 1.0 to 1.5 s) when its
+#                     region states ``lines``; ...
+#   read_default_s    ... else this long (a page whose line count is not known)
+#   margin            the detail frames its region whole with this margin (tour.roi_stop's own)
+#   cross_s           the 7-second rule: a point crosses the frame in no less than this (A49 pan-speed-px)
+#   zoom_cruise       the zoom cruise guide, 5% a second (A49 zoom-speed)
+#   open_creep_share  the opening's creep takes at most this share of the push's own depth (log), so the push,
+#                     not the breath, is the move; never past TOUR whole_creep_max either
+#   min_detail_z      BRACKET_MIN_Z: a push shallower than this would not read as a move (a stop showing more than
+#                     64% of the picture), so the shot keeps whole + creep (reviewer, 2026-10-17; founder to confirm)
+BRACKET_MIN_Z = 1.25
+BRACKET = dict(open_s=CINE["settle_s"], end_s=CINE["settle_s"], hold_s=CINE["settle_read_s"], read_line_s=1.25,
+               read_default_s=3.0, margin=1.25, cross_s=7.0, zoom_cruise=0.05, open_creep_share=1 / 3,
+               min_detail_z=BRACKET_MIN_Z)
+
 
 def still_view(size, L: Layout, *, z: float = 1.0, cx: float = 0.5, cy: float = 0.5, clamp: str = "frame"):
     """Where a still lands for a camera at zoom z about the frame-space centre
