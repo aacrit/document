@@ -55,13 +55,8 @@ EPS = 1e-9
 SHOWN_STRIP = 0.005
 WHOLE = (0.0, 0.0, 1.0, 1.0)
 FRAME_ASPECT = 16 / 9                      # every delivery is 16:9 (render.RESOLUTIONS)
-# A49 (cinematography ticket #4, settle-before-move and min-move-after-cut): the default pass settles on the
-# cut frame before its first leg, the doctrine settle (1.0 s, 1.5 s for text, a face or a person) when the
-# arrival time leaves room for all of it, else as much as fits, down to this floor (``subject_stops``); never
-# when the pass opens matched to the shot before or continues one running across a dissolve (``start``,
-# ``continues``), or when there is no room at all, in which case A47's own priority (reach the subject in time)
-# wins, as it always has
-MIN_OPEN_HOLD_S = 0.5
+# A54 (entering mid-move, founder 2026-10-18) retired A49's opening settle (MIN_OPEN_HOLD_S): every still leaves
+# its cut frame already moving at the creep's speed (``build``, ``motion.enter_moving``)
 
 
 class TourError(ValueError):
@@ -1281,17 +1276,8 @@ def subject_stops(size, aspect: float, dur: float, pose: dict, *, arrive: float,
     out[-1]["t"] = max(want, out[-2]["t"]) if len(out) > 1 else want
     for st in out:
         st.pop("_hold", None)
-    # A49 (settle-before-move, min-move-after-cut): settle on the cut frame before the first leg, the doctrine
-    # settle (``settle_s``: 1.0 s, 1.5 s for text, a face or a person) when the arrival time leaves room for all
-    # of it, else as much of it as fits, down to MIN_OPEN_HOLD_S (0.5 s, min-move-after-cut's own floor); never
-    # when the pass opens matched to the shot before or continues one running across a dissolve (``continues``),
-    # and never at the cost of the leg's own speed guide or the subject's arrival time, both kept exactly as A47
-    # already placed them
-    if start is None and not continues and len(out) >= 2 and out[0]["t"] <= EPS:
-        need_leg = leg_min_s(out[0], out[1], size, aspect)
-        room = out[1]["t"] - need_leg
-        if room >= MIN_OPEN_HOLD_S - 1e-6:
-            out[0]["hold"] = min(settle_s, room)
+    # A54 (entering mid-move) replaces A49's opening settle: the pass leaves the cut frame already moving, at the
+    # creep's speed in its first leg's direction (``build``, ``motion.enter_moving``), never from rest
     timing["arrive_s"] = round(want, 3)
     return out, timing
 
@@ -1530,8 +1516,7 @@ def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], w
     Returns (stops, info) for the journal and the lints."""
     fpt = shot.get("focus") if focus is None else focus
     subj = resolve_subject(roi, fpt, declared_whole=declared_whole)
-    # A49: a dissolve carries the move across the cut, the same as a match: "prev" opening (``start``); the
-    # opening hold (``subject_stops``'s own MIN_OPEN_HOLD_S/settle_s insertion) is never forced on either
+    # A49: a dissolve carries the move across the cut, the same as a match: "prev" opening (``start``)
     continues = (shot.get("transition_in") or {}).get("type") == "dissolve"
     record = is_record(item)
     facing = subject_facing(subj, persons)
@@ -1918,10 +1903,12 @@ def build(stops: list[dict], dur: float, size, aspect: float, zmax: float, *, no
     held: list[dict] = []
 
     def hold(t0, t1, p, *, into: bool = False, prefer=None):
-        """A hold from t0 to t1 at p (or, ``into``, a hold that must end on p)."""
+        """A hold from t0 to t1 at p (or, ``into``, a hold that must end on p). A54: a hold that opens the
+        still or runs into the cut always creeps, however short (never from rest, never a dead stop)."""
         if t1 - t0 <= EPS:
             return p
-        if t1 - t0 <= after + EPS:
+        edge = t0 <= EPS or t1 >= dur - EPS
+        if t1 - t0 <= after + EPS and not edge:
             segs.append({"t0": t0, "t1": t1, "a": p, "b": p, "kind": "hold"})
             return p
         # A43: a stop that frames a face or a person creeps under the face cap, not only the softness cap
@@ -1942,7 +1929,16 @@ def build(stops: list[dict], dur: float, size, aspect: float, zmax: float, *, no
     for i, p in enumerate(pts):
         nxt = pts[i + 1] if i + 1 < len(pts) else None
         leave = min(p["t"] + p["hold"], nxt["t"] if nxt else dur)
-        pos = hold(p["t"], leave, p, prefer=last_dir) if leave > p["t"] + EPS else p
+        if i == 0 and p["t"] <= EPS and nxt is not None and leave > EPS and not _same(p, nxt):
+            # A54: the still's opening hold leaves the cut already moving, at the creep's speed along its first
+            # leg (so it never turns back, and a sweep the whole picture needs keeps its depth)
+            k = min(0.5, M.creep_rate(*_leg_dist(p, nxt, size, aspect)) * leave)
+            q = dict(p, z=p["z"] * (nxt["z"] / p["z"]) ** k, x=p["x"] + (nxt["x"] - p["x"]) * k,
+                     y=p["y"] + (nxt["y"] - p["y"]) * k)
+            segs.append({"t0": 0.0, "t1": leave, "a": p, "b": q, "kind": "creep", "how": "lead"})
+            pos = q
+        else:
+            pos = hold(p["t"], leave, p, prefer=last_dir) if leave > p["t"] + EPS else p
         if nxt is None:
             if dur - leave > EPS:
                 hold(leave, dur, pos, prefer=last_dir)
@@ -1958,6 +1954,9 @@ def build(stops: list[dict], dur: float, size, aspect: float, zmax: float, *, no
             last_dir = (nxt["x"] - pos["x"], nxt["y"] - pos["y"])
     if not segs:
         segs.append({"t0": 0.0, "t1": max(dur, EPS), "a": pts[0], "b": pts[0], "kind": "hold"})
+    # A54 (entering mid-move): the first segment enters at the creep's speed, the last leaves at it, and a leg
+    # next to a creep slows to it rather than stopping
+    M.enter_moving(segs, lambda a, b: _leg_dist(a, b, size, aspect))
     zs = [s["a"]["z"] for s in segs] + [s["b"]["z"] for s in segs]
     return {"segments": segs, "stops": pts, "dur": dur, "size": [float(size[0]), float(size[1])], "aspect": aspect,
             "z_max": max(zs), "z_min": min(zs), "held": held, "zmax_allowed": zmax}
@@ -1975,7 +1974,7 @@ def at(tl: dict, t: float) -> dict:
     else:
         g = next((s for s in segs if s["t0"] - EPS <= t <= s["t1"] + EPS), segs[-1])
     a, b = g["a"], g["b"]
-    e = M.rostrum(t - g["t0"], g["t1"] - g["t0"]) if g["t1"] > g["t0"] else 1.0
+    e = M.eased(g, t)
     return {"z": a["z"] * (b["z"] / a["z"]) ** e, "x": a["x"] + (b["x"] - a["x"]) * e,
             "y": a["y"] + (b["y"] - a["y"]) * e}
 

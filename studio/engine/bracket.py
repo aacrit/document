@@ -119,7 +119,7 @@ def at(segs: list[dict], t: float) -> dict:
     else:
         g = next((s for s in segs if s["t0"] - EPS <= t <= s["t1"] + EPS), segs[-1])
     a, b = g["a"], g["b"]
-    e = M.rostrum(t - g["t0"], g["t1"] - g["t0"]) if g["t1"] > g["t0"] else 1.0
+    e = M.eased(g, t)
     return {"z": a["z"] * (b["z"] / a["z"]) ** e, "x": a["x"] + (b["x"] - a["x"]) * e,
             "y": a["y"] + (b["y"] - a["y"]) * e}
 
@@ -375,7 +375,7 @@ def plan(shot: dict, item: dict, size, W: int, H: int, *, words=(), t0: float = 
     # the opening breathes in (one way, eased) and never takes more than a third of the push's own depth
     after = M.TOUR["hold_creep_after_s"]
     z_open = 1.0
-    if o > after + EPS:
+    if o > EPS:                              # A54: the whole opens already creeping in, never from rest
         z_open = min(1.0 + M.TOUR["creep_scale_per_s"] * o, M.TOUR["whole_creep_max"],
                      z_d ** B["open_creep_share"])
     z_hold = z_d
@@ -386,11 +386,16 @@ def plan(shot: dict, item: dict, size, W: int, H: int, *, words=(), t0: float = 
     f_det = framing(u, v, z_d, size, W, H)
     f_hold = dict(f_det, z=z_hold)
     t1, t2, t3, t4 = o, o + p, o + p + hd, o + p + hd + q
+    # A54: the pull slows to a creep just short of the whole and creeps out onto it at the cut (never a dead stop)
+    z_end = min(1.0 + M.TOUR["creep_scale_per_s"] * max(0.0, dur - t4), M.TOUR["whole_creep_max"])
+    f_end = dict(whole0, z=z_end)
     segs = [{"t0": 0.0, "t1": t1, "a": whole0, "b": f_open, "kind": "creep" if z_open > 1.0 else "hold"},
             {"t0": t1, "t1": t2, "a": f_open, "b": f_det, "kind": "push"},
             {"t0": t2, "t1": t3, "a": f_det, "b": f_hold, "kind": "creep" if z_hold > z_d + EPS else "hold"},
-            {"t0": t3, "t1": t4, "a": f_hold, "b": dict(whole0), "kind": "pull"},
-            {"t0": t4, "t1": dur, "a": dict(whole0), "b": dict(whole0), "kind": "hold"}]
+            {"t0": t3, "t1": t4, "a": f_hold, "b": f_end, "kind": "pull"},
+            {"t0": t4, "t1": dur, "a": f_end, "b": dict(whole0), "kind": "creep" if z_end > 1.0 else "hold"}]
+    M.enter_moving(segs, lambda a_, b_: (max(abs(b_["x"] - a_["x"]), abs(b_["y"] - a_["y"])),
+                                         abs(math.log(b_["z"] / a_["z"]))))
     share = 1.0 / z_hold ** 2
     scale = "detail" if share <= M.CINE["detail_share"] + EPS else "field"
     limit = min(zc, face) if (people_kind or framed(z_d, u, v)) else zc
