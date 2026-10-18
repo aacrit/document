@@ -535,20 +535,65 @@ RECORDED_VL = json.loads((Path(__file__).resolve().parent / "fixture" / "vision-
 
 
 def test_vl_normalization_snaps_sorts_and_is_canonical():
-    raw = json.dumps({"class": "place", "regions": [
+    raw = json.dumps({"regions": [
         {"label": " Smoke Plume ", "kind": "object", "box": [100, 50, 600, 300]},
         {"label": "city skyline", "kind": "place", "box": [0, 280, 1000, 400]},
         {"label": "a man", "kind": "person", "box": [10, 10, 20, 40]},
         {"label": "bad", "kind": "vehicle", "box": [0, 0, 5, 5]}]})
     n = V.vl_normalize(raw, 1000, 800)
-    assert [r["kind"] for r in n["regions"]] == ["object", "person", "place"]        # kind, then y, x, label
+    assert [r["kind"] for r in n["regions"]] == ["object", "place"]        # kind, then y, x, label; no person kind
     plume = n["regions"][0]
     assert plume == {"kind": "object", "label": "smoke plume", "x": 0.1, "y": 0.06, "w": 0.5, "h": 0.31}
     # half-even on the 0.005 grid: 0.0625 -> 0.06 (12.5 rounds to 12), 0.0675 -> 0.07 (13.5 rounds to 14)
     assert V._snap(0.0625) == 0.06 and V._snap(0.0675) == 0.07
-    swapped = json.dumps({"class": "place", "regions": list(reversed(json.loads(raw)["regions"]))})
+    swapped = json.dumps({"regions": list(reversed(json.loads(raw)["regions"]))})
     assert V.vl_normalize(swapped, 1000, 800) == n
     assert V.vl_normalize("not json", 10, 10)["regions"] == []
+    assert set(n) == {"regions"}                                          # normalization v2: no picture class
+
+
+def test_vl_v2_never_asks_for_or_keeps_a_person():
+    # prompt v2 asks for things, never people: the schema has no person or group kind and no class
+    kinds = V.VL_SCHEMA["properties"]["regions"]["items"]["properties"]["kind"]["enum"]
+    assert set(kinds) == {"place", "object", "text"} and "class" not in V.VL_SCHEMA["properties"]
+    assert V.VL_SCHEMA["properties"]["regions"]["maxItems"] == V.VL_MAX_REGIONS == 8
+    p = V.vl_prompt(1120, 756).lower()
+    assert "never label a person, a face or a group of people" in p and "never identify anyone" in p
+    assert "1120 x 756" in p and "whole picture" in p
+    # a person-like label is dropped whatever kind the model gave it; a thing named with a person word's
+    # neighbour stays (a coast guard boat, a police car: the rulebook never reads a VL region as a person)
+    raw = json.dumps({"regions": [
+        {"label": "Firefighters", "kind": "object", "box": [0, 0, 100, 100]},
+        {"label": "people on sidewalk", "kind": "place", "box": [0, 0, 100, 100]},
+        {"label": "man's face", "kind": "object", "box": [0, 0, 100, 100]},
+        {"label": "crew", "kind": "object", "box": [0, 0, 100, 100]},
+        {"label": "police car", "kind": "object", "box": [100, 100, 300, 200]},
+        {"label": "u.s. coast guard", "kind": "text", "box": [300, 100, 500, 200]},
+        {"label": "group", "kind": "group", "box": [0, 0, 100, 100]}]})
+    n = V.vl_normalize(raw, 1000, 800)
+    assert [r["label"] for r in n["regions"]] == ["police car", "u.s. coast guard"]
+    assert V.vl_person_like("Onlookers") and V.vl_person_like("a woman") and not V.vl_person_like("smoke plume")
+    # the prompt, the normalization, the size floor and num_predict are in the cache key: a change re-measures
+    key = V.vl_model_key()
+    assert f":n{V.VL_NORM_VERSION}:" in key and V.VL_NORM_VERSION == "2" and ":px802816:" in key and ":np600:" in key
+    assert key.endswith(V.vl_prompt_sha()[:12])
+
+
+@pytest.mark.parametrize("size, sent", [((3000, 1992), (1120, 756)), ((1992, 3000), (756, 1120)),
+                                        ((1920, 1080), (1204, 672)), ((1000, 750), (1036, 784)),
+                                        ((1287, 748), (1176, 700)), ((896, 588), (1120, 728))])
+def test_the_vl_sees_the_picture_at_its_own_size_so_boxes_come_back_in_its_pixels(size, sent):
+    # #2b: Qwen2.5-VL scales any picture under 1024 patches of 28 x 28 up to that floor (896 x 588 became
+    # 1120 x 728, as vl_size computes here) and answers in those pixels, so v1's boxes, read against 896 x 588, sat
+    # about 1.25 times too far right and down. Sent at exactly the model's own size (a cold calibration with drawn shapes at 16:9, 4:3,
+    # 3:2 and 2:3 came back within a few pixels), the boxes are in the picture's pixels.
+    floor = V.manifest()["vl"]["min_pixels"]
+    assert floor == 28 * 28 * 1024
+    w, h = V.vl_size(*size, floor)
+    assert (w, h) == sent and w % 28 == 0 and h % 28 == 0 and w * h >= floor
+    assert abs((w / h) / (size[0] / size[1]) - 1) < 0.04                          # the picture's shape kept
+    png, pw, ph = V.vl_image(Image.new("RGB", size), floor)
+    assert (pw, ph) == sent and Image.open(__import__("io").BytesIO(png)).size == sent
 
 
 def test_vl_regions_never_make_a_person_and_a_cue_beats_the_caption():
@@ -570,12 +615,14 @@ def test_vl_regions_never_make_a_person_and_a_cue_beats_the_caption():
 
 
 @pytest.mark.parametrize("shot, cls, subject", [
-    ("3.6", "place", ("object", "smoke plume")),     # the plume over Lower Manhattan (no_zoom: drift only)
-    ("5.7", "object", ("object", "damaged car")),    # the police car in the debris
+    # prompt v2 answers (#2b); a cue or the title finds the region through the synonym table
+    ("3.6", "place", ("object", "building")),        # the cue "south tower" (no_zoom: drift only)
+    ("5.7", "object", ("object", "van")),            # rulebook 7: the title's police car is the VL's "van"
     ("5.9ba", "place", ("object", "boat")),          # the Hocking crossing; its crew still unlocated, so shown whole
-    # rulebook 6 (A47): "the south tower" in 1.4's title finds the VL's "building" through the synonym table
-    ("1.4", "place", ("place", "building")), ("2.8", "place", None), ("3.7", "map", None),
+    ("1.4", "place", ("object", "building")), ("2.8", "place", None),
+    ("3.7", "map", ("object", "hurricane erin")),    # GOES-8: the title names the hurricane
     ("4.2", "person", ("person", None)),             # people: MediaPipe alone, the VL is not read
+    ("C0", "place", ("object", "smoke trail")),      # ISS003-E-5388: the cue "plume" finds the VL's smoke trail
 ])
 def test_the_rulebook_on_recorded_vl_answers(shot, cls, subject):
     rec = RECORDED_VL["stills"][shot]

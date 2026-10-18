@@ -467,7 +467,7 @@ def test_a_reversal_for_unlocated_people_only_is_journaled(tmp_path):
 
 def test_cue_and_label_synonyms_and_the_recorded_answers():
     from studio.engine import rulebook as RB
-    assert RB.RULEBOOK_VERSION == "6"
+    assert RB.RULEBOOK_VERSION == "7"
     smoke = {"regions": [{"kind": "object", "label": "smoke", "x": 0.55, "y": 0.3, "w": 0.3, "h": 0.25}]}
     sub, why = RB.vl_subject("place", smoke, {"title": "From orbit", "people": "none"}, ["plume"])
     assert sub is not None and "plume" in why
@@ -480,8 +480,8 @@ def test_cue_and_label_synonyms_and_the_recorded_answers():
     sub, _ = RB.vl_subject("place", fisch, {"title": "United Airlines 175 strikes the south tower, seen from "
                                                      "Greenwich Village"}, [])
     assert sub["label"] == "building" and sub["x"] == 0.0
-    # C0 (ISS003-E-5388): the VL answered one region, "urban landscape"; no synonym makes a plume of it, so C0
-    # stays whole (a correction would be a new measurement, never a hand-drawn box)
+    # C0 (ISS003-E-5388), prompt v1: the VL answered one region, "urban landscape"; no synonym makes a plume of
+    # it, so it stays whole (the correction was a new measurement, prompt v2, never a hand-drawn box: #2b below)
     iss = {"regions": [{"h": 1.0, "kind": "place", "label": "urban landscape", "w": 1.0, "x": 0.0, "y": 0.0}]}
     assert RB.vl_subject("place", iss, {"title": "New York from the International Space Station"}, ["plume"])[0] is None
 
@@ -592,3 +592,119 @@ def test_build_refuses_engine_stop_times_that_go_back():
     with pytest.raises(T.TourError, match="go back"):
         T.build([{"t": 0.0, "z": 1, "x": .5, "y": .5}, {"t": 1.0, "z": 1, "x": .5, "y": .2},
                  {"t": 0.5, "z": 1, "x": .5, "y": .8}], 2.0, L43, A, 3.0)
+
+
+# --------------------------------------------------------------------------
+# #2b: prompt v2 regions, Real World C0's plume, and rulebook 7 (seen from above)
+# --------------------------------------------------------------------------
+
+def _recorded(shot):
+    import json
+    from pathlib import Path
+    fx = json.loads((Path(__file__).resolve().parent / "fixture" / "vision-vl.json").read_text(encoding="utf-8"))
+    return fx["stills"][shot]
+
+
+C0_SIZE = (3000, 1992)                                       # ISS003-E-5388 as saved
+C0_LINE = {"id": "N:C-1", "kind": "narration", "start": 12.0, "dur": 4.0,
+           "text": "the crew of the International Space Station had photographed the plume"}
+
+
+def _c0_item():
+    from studio.engine import rulebook as RB
+    rec = _recorded("C0")
+    out = RB.fields(rec["item"], rec["measure"], rec["measure"]["model"], vl=rec["vl"], cues=rec["cues"],
+                    vl_model=rec["vl"]["model"])
+    return RB.overlay(rec["item"], out["fields"])[0], out
+
+
+def test_c0_s_recorded_v2_answer_finds_the_plume_where_the_picture_has_it():
+    # checked against the picture: the pale plume runs from the tip of Manhattan, at about the frame's centre and
+    # 47% down, to the right edge, between about 28% and 48% down. The VL's "smoke trail" box (normalized v2)
+    # starts 2% right of the plume's source and holds the rest of it, a third of the height down.
+    item, out = _c0_item()
+    sub = item["roi"][0]
+    assert (sub["x"], sub["y"], sub["w"], sub["h"]) == (0.52, 0.26, 0.48, 0.23)
+    assert sub["name"] == "subject" and sub["kind"] == "object" and sub["source"] == "auto"
+    assert "smoke trail" in out["why"]["vl"] and "plume" in out["why"]["vl"] and "cue" in out["why"]["vl"]
+    assert 0.45 <= sub["x"] <= 0.55 and sub["x"] + sub["w"] == pytest.approx(1.0)      # centre to the right edge
+    assert 0.3 <= sub["y"] + sub["h"] / 2 <= 0.42                                          # about a third down
+    assert "whole" not in item and item["aerial"] is True and item["class"] == "place"
+    # the cloud the VL also boxed there shares no word with the cue; the whole-picture regions are never subjects
+    assert any(g["label"] == "cloud" for g in _recorded("C0")["vl"]["regions"])
+
+
+def test_c0_s_subject_pass_arrives_before_plume_and_ends_on_it():
+    item, _ = _c0_item()
+    ws = T.shot_words([C0_LINE], 0.0, 20.0)
+    onset = T.anchor_time("plume", ws)
+    cam, s = engine(item, C0_SIZE, dur=20.0, words=ws, fps=NTSC, subject_at="plume")
+    st = cam["tour"]["stops"]
+    assert cam["subject"]["src"] == "subject" and st[-1].get("roi") == "subject"
+    assert st[-1]["t"] == pytest.approx(onset - CINE["anchor_lead_s"]) and st[-1]["t"] < onset
+    assert not T.reversals(cam["tour"])
+    x0, y0, x1, y1 = last_window(cam, C0_SIZE)
+    b = item["roi"][0]
+    assert x0 <= b["x"] + 1e-6 and y0 <= b["y"] + 1e-6 and x1 >= b["x"] + b["w"] - 1e-6 and y1 >= b["y"] + b["h"] - 1e-6
+    assert cam["subject"]["last"]["shown"] == pytest.approx(1.0)
+
+
+def test_seen_from_above_reads_the_ledger_s_own_words():
+    from studio.engine import rulebook as RB
+    for text, word in (("From orbit: New York harbour", "orbit"), ("an orbital photograph", "orbital"),
+                       ("New York from the International Space Station", "international space station"),
+                       ("ISS003-E-5388", "ISS"), ("Photographed by the ISS crew", "ISS"),
+                       ("A black-and-white satellite view", "satellite"), ("GOES-8, 14:39 UTC", "GOES"),
+                       ("An aerial photograph of the site", "aerial"), ("Lower Manhattan from the air", "from the air"),
+                       ("the pile seen from overhead", "from overhead")):
+        assert RB.seen_from_above({"title": text}) == word, text
+    # words that also describe the ground: never a point of view from above
+    for text in ("A plain door with red signs, a wall phone, pipes overhead.",      # Real World's PEOC door (6.10)
+                 "Firefighters raise the aerial ladder", "the plume goes south-east", "his mission", "Orbits Cafe",
+                 "planes overhead"):
+        assert RB.seen_from_above({"seen": text}) is None, text
+    door = {"title": "The door to the Presidential Emergency Operations Center", "people": "none",
+            "seen": "A plain door with red signs, a wall phone, pipes overhead."}
+    m = {"model": "mp:test", "people": [], "faces": [], "size": [1000, 1500], "saliency": None}
+    assert "aerial" not in RB.fields(door, m, "mp:test")["fields"]
+    goes = _recorded("3.7")
+    f = RB.fields(goes["item"], goes["measure"], goes["measure"]["model"])
+    assert f["fields"]["aerial"] is True and "satellite" in f["why"]["aerial"]
+
+
+def test_an_aerial_whole_never_sweeps_rising():
+    from studio.engine import rulebook as RB
+    for size in (L43, L32, PORTRAIT):                         # the fill travels up and down: top to bottom
+        place = {"people": False, "class": "place"}
+        rising, _ = cam_for(place, size, dur=10.0)
+        aerial, _ = cam_for(dict(place, aerial=True), size, dur=10.0)
+        assert rising["subject"]["whole_mode"] == aerial["subject"]["whole_mode"] == "sweep"
+        r0, r1 = rising["tour"]["stops"][0]["y"], rising["tour"]["stops"][-1]["y"]
+        a0, a1 = aerial["tour"]["stops"][0]["y"], aerial["tour"]["stops"][-1]["y"]
+        assert r0 > r1 and a0 < a1 and not T.reversals(aerial["tour"])
+    wide, _ = cam_for({"people": False, "class": "place", "aerial": True}, WIDE, dur=10.0)
+    assert wide["tour"]["stops"][0]["x"] < wide["tour"]["stops"][-1]["x"]             # left to right
+    # toward the subject: the next shot's matched subject at the top still ends the sweep at the top
+    up, _ = cam_for({"people": False, "class": "place", "aerial": True}, L43, dur=10.0, _end_toward=[0.5, 0.1])
+    assert up["tour"]["stops"][-1]["y"] < up["tour"]["stops"][0]["y"]
+    # the rulebook supplies it under the human's word; a human aerial: false wins; anything but a bool is malformed
+    assert RB.overlay({"people": False}, {"aerial": True})[0]["aerial"] is True
+    assert RB.overlay({"people": False, "aerial": False}, {"aerial": True})[0]["aerial"] is False
+    assert T.item_schema({"aerial": "yes"})[0] and not T.item_schema({"aerial": True})[0]
+
+
+def test_a_vl_region_that_is_the_whole_picture_is_never_the_subject():
+    from studio.engine import rulebook as RB
+    vl = {"regions": [{"kind": "place", "label": "water", "x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0},
+                      {"kind": "object", "label": "smoke trail", "x": 0.0, "y": 0.0, "w": 0.95, "h": 0.92}]}
+    assert RB.vl_subject("place", vl, {"title": "Smoke over the water"}, ["plume"])[0] is None
+    vl["regions"].append({"kind": "object", "label": "smoke", "x": 0.0, "y": 0.0, "w": 1.0, "h": 0.85})
+    assert RB.vl_subject("place", vl, {"title": "x"}, ["plume"])[0]["h"] == 0.85     # wide but not the whole
+
+
+def test_car_van_and_vehicle_are_one_word():
+    from studio.engine import rulebook as RB
+    rec = _recorded("5.7")                     # Real World 5.7: "a police car in the debris"; the VL's "van" is it
+    sub, why = RB.vl_subject("object", rec["vl"], rec["item"], rec["cues"])
+    assert sub["label"] == "van" and "car" in why
+    assert RB.match_words("a smashed car") == RB.match_words("smashed vehicle")
