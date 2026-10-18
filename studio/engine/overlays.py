@@ -43,6 +43,7 @@ import math
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
+from . import bracket as BR
 from . import georef as GR
 from . import motion as M
 from . import tour as T
@@ -219,6 +220,8 @@ def framing_at(cam: dict, t: float, dur: float) -> dict:
     if cam.get("tour") is not None:          # A41: a still's tour, in picture space, drawn in frame space
         tl = cam["tour"]
         return T.to_frame(T.at(tl, t), tl["size"], cam["W"], cam["H"])
+    if cam.get("bracket") is not None:       # A50: whole, one detail inside the picture's own shape, whole again
+        return BR.at(cam["bracket"]["segments"], t)
     p = cam["path"]
     if len(p) == 1 or t < cam["open_s"]:
         return dict(p[0])

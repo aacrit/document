@@ -1653,7 +1653,8 @@ SOURCES = ("auto", "human")
 SCALES = ("whole", "field", "detail")
 BOX = ("x", "y", "w", "h")
 PEOPLE_KEYS = set(BOX) | {"name", "facing", "source", "confidence", "model"}
-ROI_KEYS = set(BOX) | {"name", "kind", "facing", "source", "confidence", "model", "cue", "must_show", "person"}
+ROI_KEYS = set(BOX) | {"name", "kind", "facing", "source", "confidence", "model", "cue", "must_show", "person",
+                       "lines"}     # lines: A50, a text region's line count (its reading pace)
 STOP_KEYS = {"t", "at", "line", "x", "y", "z", "hold", "roi", "scale", "lead_s", "match"}
 # the rulebook's own names for what it finds (the schema): never a person's name
 GENERIC_NAME = re.compile(r"(subject|(face|person|group|text|object|place)-\d+)$")
@@ -2129,6 +2130,9 @@ def _entry_problems(e: dict, where: str, *, roi: bool) -> list[str]:
         cue = e.get("cue")
         if cue is not None and not (isinstance(cue, str) or (isinstance(cue, list) and all(isinstance(x, str) for x in cue))):
             probs.append(f"{where}: cue is a string or a list of strings")
+        ln = e.get("lines")
+        if ln is not None and not (isinstance(ln, int) and not isinstance(ln, bool) and ln >= 1):
+            probs.append(f"{where}: lines is the number of lines of text the region holds (1 or more), not {ln!r}")
     return probs
 
 
