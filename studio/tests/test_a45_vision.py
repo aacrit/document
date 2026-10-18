@@ -622,7 +622,8 @@ def test_vl_regions_never_make_a_person_and_a_cue_beats_the_caption():
     ("5.7", "object", ("object", "van")),            # rulebook 7: the title's police car is the VL's "van"
     ("5.9ba", "place", ("object", "boat")),          # the Hocking crossing; its crew still unlocated, so shown whole
     ("1.4", "place", ("object", "building")), ("2.8", "place", None),
-    ("3.7", "map", ("object", "hurricane erin")),    # GOES-8: the title names the hurricane
+    ("3.7", "map", None),                            # GOES-8: "Hurricane Erin and the plume": the event leads (rulebook
+                                                     # 10, A52); no region names the plume, so held whole, never the hurricane
     ("4.2", "person", ("person", None)),             # people: MediaPipe alone, the VL is not read
     ("C0", "place", ("object", "smoke trail")),      # ISS003-E-5388: the cue "plume" finds the VL's smoke trail
 ])

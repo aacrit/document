@@ -510,6 +510,15 @@ A still shown whole under `fill_exception` may move in to one DETAIL inside its 
 | The steer | A49's own `avoid` search (end pose, whole travel, aimed breath, creep) plus the pass's opening (near end over far end), the smallest move that clears it, never a fit requirement for the face and never at the cost of a person or a `must_show` region |
 | What is left | a `face-under-text` reviewer item on an engine path; a warning on a written path; a `must_show` face under live text blocks a written path |
 
+### 14g. Rulebook 10: quoted text, two things, a vantage; the opening searched (2026-10-18; GRAMMAR A52)
+
+| Part | Numbers |
+|---|---|
+| Quoted text | quotes in the item's title, caption or `why`; a VL `text` label holding 60% of the quote's content words (`QUOTE_MATCH`); binds outright; the fallbacks only for a quote marked as lettering (a word before it or in the clause before a colon, "on the <thing>" after it, or `seen` holding its words) and never for speech or naming (a speech or naming word within 4 words before or 3 after); `seen` naming lettering elsewhere allows only the region on a named thing: the one text region labelled only as writing; else the one 80% inside a region the caption names (`INSIDE_SHARE`); grown by 0.2 of its own size each side (`TEXT_PAD`); a human region at IoU 0.5 or more (or holding 80% of it) wins |
+| Two things named | "X and the Y", "X with (the) Y behind": the event in Y (smoke, plume, fire, flames, debris, dust; never a crowd) is the caption's subject; none found: whole |
+| A monument as vantage | statue, monument, memorial, landmark, obelisk, pedestal, column, arch after "from", "seen from", "beside", "next to", "at", "at the foot of": never the subject |
+| The opening | the far or near end searched along the fill's travel in 2.5% steps toward the subject (`tour.travel_search`, `whole_pose`'s own search), the end kept when it is already clear |
+
 ## 15. The series titles: `void document · As It Was` (2026-10-17; GRAMMAR A40)
 
 The founder: "a cinematic ... intro ... after the hook of each video like it's a documentary episode." The series titles are the archive machine (`design/title-sequence/`: 12 beats, 57.0 s, G2 approved 2026-10-16), rendered once per film with that film's own record, and played by the engine as they are.
