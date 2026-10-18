@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -30,12 +31,26 @@ CHUNK = 160
 PAUSE_S = 45
 
 
-def build(window, rec, fps, calib, out):
+def build(window, rec, fps, calib, out, res=""):
     args = [RR.BL, "--background", "--factory-startup", "--python", str(HERE / "run_take.py"), "--",
             "--window", window, "--record", rec, "--fps", fps, "--out", str(out).replace("\\", "/")]
     if calib:
         args += ["--calib", "1"]
-    r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=RR.REPO, env=RR.d_env())
+    if res:
+        args += ["--res", res]
+    # building the scene is a heavy step too: under the lock, with the machine checked
+    while True:
+        RR.wait_clear()
+        ok, why = RR.machine_ok()
+        if ok:
+            break
+        print(f"waiting on the machine: {why}", flush=True)
+        time.sleep(180)
+    RR.MY_LOCK.write_text(json.dumps({"group": "WG-4", "job": f"The Run (build {window})", "pid": os.getpid()}), encoding="utf-8")
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=RR.REPO, env=RR.d_env())
+    finally:
+        RR.MY_LOCK.unlink(missing_ok=True)
     m = re.search(r"^RUN-BUILD (.*)$", r.stdout, re.M)
     if r.returncode != 0 or not m:
         sys.exit(f"build {window} failed:\n{r.stdout[-4000:]}\n{r.stderr[-2000:]}")
@@ -70,6 +85,7 @@ def main():
     ap.add_argument("--tag", required=True)
     ap.add_argument("--size", default="")
     ap.add_argument("--skip-prefix", action="store_true")
+    ap.add_argument("--res", default="", help="calib resolution, e.g. 854x480 (the 8a animatic)")
     a = ap.parse_args()
     rec, fps = a.record, a.fps
     base = MEDIA / "frames" / a.tag
@@ -80,10 +96,10 @@ def main():
     all_stats = {}
     if not a.skip_prefix:
         bp = blend_dir / f"prefix-{suffix}.blend"
-        info = build("prefix", rec, fps, a.calib, bp)
+        info = build("prefix", rec, fps, a.calib, bp, a.res)
         all_stats["prefix"] = render_chunks(bp, pre_dir, *info["frames"], f"{a.tag}-prefix")
     bt = blend_dir / f"tail-{rec}-{suffix}.blend"
-    info = build("tail", rec, fps, a.calib, bt)
+    info = build("tail", rec, fps, a.calib, bt, a.res)
     all_stats["tail"] = render_chunks(bt, tail_dir, *info["frames"], f"{a.tag}-tail")
     snd = MEDIA / "masters" / a.tag
     r = subprocess.run([RR.VPY, str(HERE / "foley_take.py"), "--record", rec, "--out-dir", str(snd)],
@@ -91,7 +107,7 @@ def main():
     if r.returncode != 0:
         sys.exit(f"foley failed:\n{r.stdout[-2000:]}\n{r.stderr[-3000:]}")
     RR.log(event="foley", record=rec, report=r.stdout.strip().splitlines()[-1][:1500])
-    size = a.size or ("640x360" if a.calib else "1920x1080")
+    size = a.size or a.res or ("640x360" if a.calib else "1920x1080")
     mp4 = snd / f"the-run-{a.tag}-{rec}-{suffix}.mp4"
     r = subprocess.run([RR.VPY, str(HERE / "assemble_take.py"), "--record", rec, "--fps", fps, "--size", size,
                         "--prefix", str(pre_dir), "--tail", str(tail_dir), "--audio", str(snd / "title.review-mix.wav"),

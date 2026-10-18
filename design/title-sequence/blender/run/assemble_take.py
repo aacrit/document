@@ -31,7 +31,7 @@ from studio.engine import motion as M  # noqa: E402
 import bench as B  # noqa: E402
 import camera_run as CR  # noqa: E402
 
-SIM = Path("D:/document-media/title-sequence/run/sim")
+SIM = Path("D:/document-media/title-sequence/run/sim/v4")
 MAN = json.loads(Path("D:/document-media/title-sequence/chart/tex-manifest.json").read_text(encoding="utf-8"))
 DIP = 0.75
 
@@ -49,9 +49,14 @@ def crop_from_camera(rec, cam_rows, t, img_size):
     pts = []
     for px, py in ((0, 0), (1920, 1080)):
         g = CR.ray_to_bench(pose, px, py, z=r["z"])
-        u = (g[0] - r["x0"]) / r["W"]
-        v = (g[1] - (r["y"] - r["H"] / 2)) / r["H"]
-        pts.append((u * w, (1 - v) * h))
+        if r.get("upright", True):
+            u = (g[0] - r["x0"]) / r["W"]
+            v_top = ((r["y"] + r["H"] / 2) - g[1]) / r["H"]
+        else:
+            # turned 90 degrees: the image's width along +y, its top toward -x
+            u = (g[1] - (r["y"] - r["H"] / 2)) / r["H"]
+            v_top = (g[0] - r["x0"]) / r["W"]
+        pts.append((u * w, v_top * h))
     (x0, y0), (x1, y1) = pts
     c = [min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)]
     # A41: nothing but the scan inside the frame. If the camera's last pose saw past the sheet's edge, the matching
@@ -110,14 +115,38 @@ def lockup(W, H, t, t_dip, t_end, fonts):
 
 def timeline(rec, fps):
     F = B.FILMS[rec]
-    a, c, d, tour = F["tail"]
+    a, dsc, c, d, tour = F["tail"]                       # find, descend, close, dissolve, tour (v4)
     s = lambda f: f / 24.0  # noqa: E731
-    T = {"lamp": s(36), "tail0": s(B.PREFIX_FRAMES), "close0": s(B.PREFIX_FRAMES + a), "dis0": s(B.PREFIX_FRAMES + a + c),
-         "tour0": s(B.PREFIX_FRAMES + a + c + d), "dip": s(B.PREFIX_FRAMES + a + c + d + tour),
-         "end": s(B.total_frames(rec))}
+    P = B.PREFIX_FRAMES
+    T = {"lamp": s(36), "tail0": s(P), "close0": s(P + a + dsc), "dis0": s(P + a + dsc + c),
+         "tour0": s(P + a + dsc + c + d), "dip": s(P + a + dsc + c + d + tour), "end": s(B.total_frames(rec))}
     T["rest"] = T["dip"] - 0.6                            # the tour has come to rest: the class label surfaces
     n = B.frames_at(T["end"], fps)
     return T, n
+
+
+def handover(audio, T, fps):
+    """The clean rule's join (design section 7): the room stem is one continuous recording, never faded, and the film's
+    take continues it at the sample where the title ends (a butt join, no crossfade). Asserted here: the room stem's
+    level over the title's last second is -72 +- 1 dBFS, and nothing in the review mix from the lockup's first frame
+    to the end exceeds -60 dBFS (the last decay is gone)."""
+    from scipy.io import wavfile
+    import clean as CL
+    sr, x = wavfile.read(audio)
+    x = (x.astype(np.float64) / 32768.0).mean(1) if x.ndim > 1 else x.astype(np.float64) / 32768.0
+    room_p = Path(audio).with_name("title.room.wav")
+    _, rm = wavfile.read(room_p)
+    rm = (rm.astype(np.float64) / 32768.0).mean(1) if rm.ndim > 1 else rm.astype(np.float64) / 32768.0
+    n_end = int(round(T["end"] * sr))
+    last = rm[max(0, n_end - sr):n_end]
+    room_db = 20 * np.log10(np.sqrt((last ** 2).mean()) + 1e-20)
+    k0 = int(round((T["dip"] + 1.5) * sr))                   # the lockup's first full frame
+    tail = x[k0:n_end]
+    peak_db = 20 * np.log10(np.abs(tail).max() + 1e-20) if len(tail) else -200.0
+    assert abs(room_db - CL.C["ROOM_TONE_DBFS"]) <= 1.0, f"room at the join is {room_db:.1f} dBFS, not -72 +- 1"
+    assert peak_db <= -60.0, f"the review mix peaks at {peak_db:.1f} dBFS after the lockup's first frame"
+    return {"room_dbfs_last_s": round(room_db, 2), "peak_after_lockup_dbfs": round(peak_db, 2), "join_sample": n_end,
+            "room": "clean.room_bed(n, 'the-run'): the film's take continues it at join_sample, butt-joined"}
 
 
 def main():
@@ -191,6 +220,7 @@ def main():
     info["record_frames"] = [f_dis0, int(np.ceil((T["dip"] - DIP / 2) * fps - 1e-6)) - 1]
     info["dip"] = {"centre_frame": int(round(T["dip"] * fps)), "s": DIP}
     info["lockup_frame"] = int(round((T["dip"] + 1.5) * fps))
+    info["handover"] = handover(a.audio, T, fps) if a.audio else None
     (out_dir / "assembly.json").write_text(json.dumps(info, indent=1), encoding="utf-8")
     rate = f"{fpsv[0]}/{fpsv[1]}"
     if a.mp4:

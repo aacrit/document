@@ -58,8 +58,47 @@ def d_env() -> dict:
     return env
 
 
+RAM_MIN_GB = 6.0
+
+
 def c_free_ok() -> bool:
     return shutil.disk_usage("C:/").free / 1e9 >= C_MIN_GB
+
+
+def ram_free_gb() -> float:
+    o = subprocess.run(["powershell", "-NoProfile", "-Command",
+                        "(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory"], capture_output=True, text=True).stdout
+    return int(o.strip() or 0) / 1024 / 1024
+
+
+def machine_ok() -> tuple[bool, str]:
+    """The coordinator's gate before every heavy step: C: at least 6 GB free and at least 6 GB of RAM free."""
+    c = shutil.disk_usage("C:/").free / 1e9
+    r = ram_free_gb()
+    return (c >= C_MIN_GB and r >= RAM_MIN_GB), f"C: {c:.1f} GB free, RAM {r:.1f} GB free"
+
+
+def heavy(cmd: list[str], label: str, cwd=None) -> int:
+    """Run one heavy job (a MuJoCo bake, a Blender build or render) under HEAVY.lock: blockers waited out, C: and RAM
+    checked (waits while short), the lock named for the job and removed the moment it ends."""
+    while True:
+        wait_clear()
+        ok, why = machine_ok()
+        if ok:
+            break
+        print(f"{dt.datetime.now():%H:%M:%S} waiting on the machine: {why}", flush=True)
+        time.sleep(180)
+    proc = subprocess.Popen(cmd, cwd=cwd, env=d_env())
+    MY_LOCK.write_text(json.dumps({"group": "WG-4", "job": f"The Run ({label})", "pid": proc.pid,
+                                   "started": dt.datetime.now().isoformat(timespec="seconds")}), encoding="utf-8")
+    try:
+        rc = proc.wait()
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        MY_LOCK.unlink(missing_ok=True)
+    log(event="heavy", label=label, rc=rc, machine=machine_ok()[1])
+    return rc
 
 
 def d_dirty() -> bool:
@@ -135,7 +174,13 @@ def render(blend: Path, out_dir: Path, frames: list[int], label: str) -> list[fl
         sys.exit("D: has under 20 GB free: not rendering")
     if not c_free_ok():
         sys.exit(f"C: has under {C_MIN_GB} GB free: not rendering (report to the coordinator)")
-    wait_clear()
+    while True:
+        wait_clear()
+        ok, why = machine_ok()
+        if ok:
+            break
+        print(f"{dt.datetime.now():%H:%M:%S} waiting on the machine: {why}", flush=True)
+        time.sleep(180)
     args = [BL, "--background", str(blend), "--python", str(REPO / "design/title-sequence/blender/gpu.py"),
             "-o", str(out_dir / "####"), "-F", "PNG"]
     if len(frames) > 1 and frames == list(range(frames[0], frames[-1] + 1)):
@@ -246,6 +291,10 @@ def main():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 2 and sys.argv[1] == "--heavy":
+        # render_run.py --heavy <label> -- <command...>: one heavy job under the lock
+        lbl = sys.argv[2]
+        sys.exit(heavy(sys.argv[sys.argv.index("--") + 1:], lbl))
     try:
         main()
     finally:

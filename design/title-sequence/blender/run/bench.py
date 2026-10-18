@@ -1,97 +1,229 @@
-"""The Run, the full take: the bench's constants and the design's clock (stdlib only: MuJoCo, Blender and pytest all
-import it).
+"""The Run, v4: one dining table, its plan and the design's clock (stdlib only: MuJoCo, Blender and pytest all import
+it). Design: reports/briefs/document-title-run-v4-design.md (founder-approved 2026-10-18: the wide at the end only,
+tails of 252/264/276 frames, a 2.2 x 1.0 m oak table with breadboard ends).
 
-Everything is in title seconds (t = f / 24 for the design's 24 fps frame numbers), so one simulation and one camera
-serve the 24 fps master and the 30000/1001 master alike. World frame: x runs downhill along the bench (the marbles
-travel +x), y across it (the camera stands on the -y side), z up; the bench top is z = 0, metres throughout.
+Table coordinates, metres: the origin is the table top's near-left corner, x along the table's length (the fall line,
+toward the record: time), y across it (the camera side is y = 0), z up from the top. Everything is in title seconds
+(t = f / 24 for the design's 24 fps frame numbers), so one simulation and one camera serve both masters.
 
-The founder's 7-second pan guide (2026-10-17) caps the camera at 11 px a frame horizontally and 6 vertically at
-1080p24, so the camera can cross about 0.1 m/s at its highest and a few centimetres a second near the bench. The
-marbles' average speed has to match what the camera can follow, so the bench is laid at the scale the camera can
-honestly cross in one take (about 2.5 m from the disc to the felt, not the design's 7.2 m), and the run's speed is set
-by the bench's fall and each surface's rolling resistance (the design's "tuned in Proof 1" knobs), never by a ramp.
+Physics, measured before this plan was laid (work/v4proto): on a uniform 1.0 degree fall a free marble crossing the slope
+at 72 degrees curls downhill within about 0.3 m. The legs of the serpentine are therefore carried by the sheets' own
+cockle, laid as parallel troughs (paper cockles in waves along its grain) running with each leg, 1.5 to 4 mm deep at
+0.15 to 0.3 m (the design's cockle range). The U-turns are the named curls and lifts. Nothing is a wall or a ramp.
 """
 
 from __future__ import annotations
+
+import math
 
 FPS = 24
 NTSC = (30000, 1001)
 G = 9.81
 R = 0.008                                   # clay marble radius (16 mm)
 RHO_CLAY = 1900.0
-MASS = RHO_CLAY * 4.0 / 3.0 * 3.141592653589793 * R ** 3
+MASS = RHO_CLAY * 4.0 / 3.0 * math.pi * R ** 3
 
-# the bench's fall (along +x), and the latch's own steeper fall by the disc (founder, latch re-proof)
-FALL_DEG = 0.3
-LOWER_FALL_DEG = 0.5                         # the bench's lower half, from the card on: the stations take energy, the fall gives it back
-PIRI_FALL_DEG = 0.8                          # the design's fall, from Piri Reis's edge to the galley: the run gathers for the type
-LATCH_FALL_DEG = 2.5
-LATCH_ZONE_X = 0.0                          # the steeper fall ends at the disc's centre line
+# ------------------------------------------------------------------------------------------------ the table
 
-# rolling resistance as a ratio (MuJoCo's rolling friction is this times R, a length), per surface
+TABLE = {"size": (2.2, 1.0), "top": 0.04, "boards": 4, "board_w": 0.25, "chamfer": 0.003, "breadboard": 0.07,
+         "height": 0.75}
+FALL_DEG = 1.0                              # the one tuning knob: the floor out of level along +x, nothing shimmed
+FALL_RANGE = (0.8, 1.3)
+
+# rolling resistance as a ratio (MuJoCo's rolling friction is this times R), per surface (M1's coefficients)
 RR = {"oak": 0.004, "papyrus": 0.0078, "vellum": 0.0052, "parchment": 0.0050, "leaf": 0.006, "washi": 0.0070,
-      "tape": 0.0065, "card": 0.0065, "page": 0.0065, "chart": 0.0065, "felt": 0.035, "brass": 0.001, "bronze": 0.001}
+      "tape": 0.0065, "card": 0.0065, "page": 0.0065, "chart": 0.0065, "felt": 0.035, "brass": 0.001, "bronze": 0.001,
+      "film": 0.006}
 
-# the grounds in time order, each a sheet lying on the bench, the older one's downhill edge over the next (roof tiles).
-# level: the top of the sheet where the marble rolls (m); each edge steps down. size: the sheet's real size (m), its
-# length along x and its width along y; tex: the pinned manifest image; u_axis: the bench axis the image's width runs
-# along. The papyrus is stepped up onto from bare oak (the latch's approved 0.25 mm edge).
-GROUNDS = {
-    # size: (W along the image's width, H along its height), metres at real scale; psi: the preferred angle (deg)
-    # of the image's width from +x on the bench; under: how far (m, along the path) it lies under the sheet before
-    "papyrus": {"ledger": "T-02a", "tex": "T-02a_keyed", "surface": "papyrus", "level": 0.00025,
-                "size": (0.60, 0.60 * 1481 / 8192), "psi": 0.0, "alpha": True},
-    "atlas": {"ledger": "T-03", "tex": ("T-03_board1", "T-03_board2"), "surface": "vellum", "level": 0.00021,
-              "size": (0.50, 0.50 * 3800 / 2760), "psi": -14.0, "under": 0.03},
-    "piri": {"ledger": "T-04", "tex": "T-04_keyed", "surface": "parchment", "level": 0.00017,
-             "size": (0.65, 0.65 * 2619 / 1964), "psi": 9.0, "alpha": True, "under": 0.04},
-    "leaf": {"ledger": "T-06", "tex": "T-06_leaf", "surface": "leaf", "level": 0.00014,
-             "size": (0.30, 0.42), "psi": 90.0, "under": 0.04},
-    "ino": {"ledger": "T-08", "tex": "T-08_sheet", "surface": "washi", "level": 0.00011,
-            "size": (1.0, 1.0 * 4740 / 8192), "psi": -6.0, "under": 0.04},
-    "page": {"ledger": "T-18", "tex": "T-18_page", "surface": "page", "level": 0.00007,
-             "size": (0.216, 0.216 * 4429 / 3104), "psi": 62.0, "under": 0.03},
-    "chart": {"ledger": "T-20", "tex": "T-20_chart", "surface": "chart", "level": 0.00004,
-              "size": (1.0, 1.0 * 5529 / 8192), "psi": 4.0, "under": 0.04},
+# ------------------------------------------------------------------------------------------------ the latch
+
+# The approved latch (re-proof, founder 2026-10-17) is kept in its own local frame exactly: disc at the local origin,
+# the marble released from local (-0.031, 0), the papyrus's edge at local x 0.2305, the camera, lamp and card offsets.
+# The local frame is turned so the released marble's own path (local -10.5 degrees as v4's stiffer contact kicks it;
+# the proof's softer contact gave -6.5, latch-bake.json) heads
+# -53 degrees on the table, and the disc is set at LATCH["disc"]. The 2.5 degree zone runs along the release heading
+# to the papyrus's edge, as in the approved proof (the design's 0.12 m would change the approved frames f121-167).
+LATCH = {"disc": (0.37, 0.92), "heading_deg": -53.0, "path_local_deg": -10.5, "fall_deg": 2.5, "zone_len": 0.262,
+         "start_local": (-0.031, 0.0), "papyrus_local_x": 0.2305}
+LATCH["rot_deg"] = LATCH["heading_deg"] - LATCH["path_local_deg"]
+
+
+def latch_to_table(p):
+    """A point in the approved latch's local frame (disc at the origin) to table coordinates."""
+    a = math.radians(LATCH["rot_deg"])
+    x, y = p[0], p[1]
+    return (LATCH["disc"][0] + x * math.cos(a) - y * math.sin(a), LATCH["disc"][1] + x * math.sin(a) + y * math.cos(a))
+
+
+def heading_vec(deg):
+    return (math.cos(math.radians(deg)), math.sin(math.radians(deg)))
+
+
+# The tablet cannot lie where the plan drew it (x 0.02-0.32, y 0.63-0.93): the approved camera stands there, 4.6 cm
+# above its top, and the tablet would hide the disc. It lies at the near-left corner instead, behind the camera,
+# out of the latch's frame. The Atlas's first board takes the rest of that corner, so the tablet sits square to the
+# table's end and overhangs it by 5 cm (a sixth of its length; its weight is on the oak). It is in the wide.
+TABLET = {"ledger": "T-01", "size": (0.31, 0.305, 0.05), "centre": (0.105, 0.1545), "psi": 0.0}
+
+# ------------------------------------------------------------------------------------------------ the sheets
+
+# Each sheet at its real size: W along its image's width (local u, turned psi from +x), H along its height (local v).
+# t: thickness (m). layer: the order it was set down (1 first, lowest). date: for the roof-tile check. cockle: parallel
+# troughs {amp, lam, deg (the troughs' direction on the table), through (a table point on a trough's floor)}.
+# edges: named curls and lifts {edge: "-v"|"+v"|"-u"|"+u", crest, run} (crest m, over run m); corners: lifts (m).
+# The release line as the v4 simulation measures it (sim/v4 probe, f136-f146): the papyrus is laid on it, its head
+# where the approved proof had it (local x 0.2305 from the disc along the latch's own axis).
+LATCH["release_line"] = {"through": (0.429, 0.774), "deg": -51.0}
+_HD = heading_vec(LATCH["release_line"]["deg"])
+_START = latch_to_table(LATCH["start_local"])
+_PAP_L = 0.60
+_ax = heading_vec(LATCH["rot_deg"])
+_P0 = LATCH["release_line"]["through"]
+# the point on the release line at local x 0.2305 from the disc: (P0 + s HD - disc) . ax = 0.2305
+_s = (LATCH["papyrus_local_x"] - ((_P0[0] - LATCH["disc"][0]) * _ax[0] + (_P0[1] - LATCH["disc"][1]) * _ax[1])) /     (_HD[0] * _ax[0] + _HD[1] * _ax[1])
+_PAP_HEAD = (_P0[0] + _s * _HD[0], _P0[1] + _s * _HD[1])
+_PAP_C = (_PAP_HEAD[0] + _PAP_L / 2 * _HD[0], _PAP_HEAD[1] + _PAP_L / 2 * _HD[1])
+
+HINGE = {"lo": (0.920, 0.110), "deg": -66.0, "len": 0.688, "gap": 0.0015, "depth": 0.0015, "half_w": 0.025}
+_HV = heading_vec(HINGE["deg"])
+HINGE["hi"] = (HINGE["lo"][0] - HINGE["len"] * _HV[0], HINGE["lo"][1] - HINGE["len"] * _HV[1])
+_HMID = ((HINGE["lo"][0] + HINGE["hi"][0]) / 2, (HINGE["lo"][1] + HINGE["hi"][1]) / 2)
+_N2 = (-_HV[1], _HV[0]) if -_HV[1] > 0 else (_HV[1], -_HV[0])         # the board-2 side (+x)
+_ATLAS_W, _ATLAS_H = 0.50, 0.50 * 3800 / 2760
+
+SHEETS = {
+    "papyrus": {"ledger": "T-02a", "tex": "T-02a_keyed", "alpha": True, "date": -1153, "surface": "papyrus",
+                "size": (_PAP_L, _PAP_L * 1481 / 8192), "centre": _PAP_C, "psi": LATCH["release_line"]["deg"], "t": 0.00025,
+                "drape": 0.040,                      # stiff: it bridges a step like a beam, over about 10 cm
+                "backing": True,                     # the fragments are mounted on a backing (plain, the scan's margin colour)
+                "layer": 10,  # dried papyrus cups across its width: its cockle is one trough, 3 mm deep, crest to crest across the strip
+                "cockle": {"amp": 0.003, "lam": _PAP_L * 1481 / 8192, "deg": LATCH["release_line"]["deg"], "through": _PAP_C},
+                "edges": [{"edge": "+u", "crest": 0.002, "run": 0.03}], "corners": {}},
+    "atlas1": {"ledger": "T-03", "tex": "T-03_board1", "date": 1375, "surface": "vellum", "board": 0.0015,
+               "size": (_ATLAS_W, _ATLAS_H), "psi": math.degrees(math.atan2(_N2[1], _N2[0])), "t": 0.0017,
+               "centre": (_HMID[0] - (_ATLAS_W + HINGE["gap"]) / 2 * _N2[0], _HMID[1] - (_ATLAS_W + HINGE["gap"]) / 2 * _N2[1]),
+               "layer": 8, "cockle": None, "edges": [], "corners": {}},
+    "atlas2": {"ledger": "T-03", "tex": "T-03_board2", "date": 1375, "surface": "vellum", "board": 0.0015,
+               "size": (_ATLAS_W, _ATLAS_H), "psi": math.degrees(math.atan2(_N2[1], _N2[0])), "t": 0.0017,
+               "centre": (_HMID[0] + (_ATLAS_W + HINGE["gap"]) / 2 * _N2[0], _HMID[1] + (_ATLAS_W + HINGE["gap"]) / 2 * _N2[1]),
+               "layer": 4, "cockle": None, "edges": [], "corners": {}},
+    "piri": {"ledger": "T-04", "tex": "T-04_keyed", "alpha": True, "date": 1513, "surface": "parchment",
+             "size": (0.65, 0.65 * 2619 / 1964), "centre": (1.130, 0.4555), "psi": 180.0, "t": 0.0003, "layer": 6, "cockle_clear_hinge": 0.05,
+             "drape": 0.015,                         # parchment: stiffer than paper; the hinge dip survives under it
+             "cockle": {"amp": 0.0035, "lam": 0.20, "deg": 72.0, "through": (0.935, 0.060)},
+             # turned 180 degrees: the fragment's diagonal cut lies at the far right, its near edge is the straight top
+             # of the map (image +v is now the table's near side)
+             "edges": [{"edge": "+v", "crest": 0.015, "run": 0.05}], "corners": {"+u-v": 0.004, "-u-v": 0.004}},
+    "leaf": {"ledger": "T-06", "tex": "T-06_leaf", "date": 1455, "surface": "leaf", "size": (0.30, 0.42),
+             "centre": (1.160, 0.620), "psi": 60.0 - 90.0, "t": 0.00015, "layer": 7,
+             "cockle": {"amp": 0.0005, "lam": 0.15, "deg": 60.0, "through": (1.10, 0.50)}, "edges": [], "corners": {}},
+    "ino": {"ledger": "T-08", "tex": "T-08_sheet", "date": 1821, "surface": "washi", "size": (1.0, 1.0 * 4740 / 8192),
+            "centre": (1.175, 0.633), "psi": -8.0, "t": 0.00008, "layer": 3,
+            "cockle": {"amp": 0.0015, "lam": 0.25, "deg": -76.0, "through": (1.37, 0.85)},
+            "crease": {"from": (1.37, 0.85), "to": (1.49, 0.44), "depth": 0.003, "half_w": 0.03},
+            "edges": [{"edge": "+v", "crest": 0.010, "run": 0.04}], "corners": {}},
+    "page": {"ledger": "T-18", "tex": "T-18_page", "date": 1921, "surface": "page", "size": (0.216, 0.216 * 4429 / 3104),
+             "centre": (1.530, 0.175), "psi": 0.0, "t": 0.0001, "layer": 2,
+             "cockle": {"amp": 0.002, "lam": 0.18, "deg": -70.0, "through": (1.46, 0.30)}, "edges": [],
+             "corners": {"+u-v": 0.005}},
+    "chart": {"ledger": "T-20", "tex": "T-20_chart", "date": 1931, "surface": "chart", "size": (1.0, 1.0 * 5529 / 8192),
+              "centre": (1.435, 0.500), "psi": 90.0, "t": 0.00012, "layer": 1,
+              "cockle": {"amp": 0.003, "lam": 0.20, "deg": 70.0, "through": (1.58, 0.06)},
+              "edges": [{"edge": "-u", "crest": 0.020, "run": 0.06, "taper": (0.020, 0.006)}], "corners": {}},
+    # psi 90: -u is the near side; the roll is 20 mm at its x-far end (U3) and 6 mm at its x-near end, under Piri Reis
 }
-HINGE_GAP = 0.0015                          # the Catalan Atlas's two leaves meet with a 1.5 mm valley between boards
-TAPE = {"w": 0.012, "len": 0.012 * 8192 / 351, "t": 0.00008}        # Morse's tape (T-09), on Ino, in its valley
-CARD = {"len": 0.0826, "w": 0.187, "t": 0.000178, "level": 0.00009}   # a blank Hollerith card, 7 3/8 x 3 1/4 in, 0.007 in, across the path
-STRIP = {"w": 0.035, "len": 0.30, "t": 0.00014, "perf": (0.0028, 0.00198, 0.00475)}   # 35 mm: perf w, h, pitch
-PLATEN = {"r": 0.020, "len": 0.30}          # the Underwood's platen, a free roller lying beside the path (pinned)
-STICK = {"ledger": "T-19", "tex": "T-19_keyed", "size": (0.80, 0.80 * 7602 / 8192), "raise": 0.008, "rib_h": 0.005}
-KHIPU = {"cord_r": 0.0011, "knot_r": 0.0024, "knots": 7}
-QUAD = (0.00127, 0.00635, 0.01015)          # 36-pt 5-to-em thin space, half extents (2.54 x 12.7 x 20.3 mm)
-REEL_REG = {"r": 0.032, "h": 0.012, "mass": 0.012, "damp": 2.0e-6, "fric": 1.5e-6}    # the register's paper reel
-REEL_FILM = {"r": 0.045, "h": 0.010, "mass": 0.022, "damp": 3.0e-6, "fric": 2.0e-6}   # the Lumiere spool
+
+# Smaller paper, on the sheets (drawn and collided as thin layers of the same heightfield)
+SMALL = {
+    "tape": {"ledger": "T-09", "tex": "T-09_tape", "w": 0.012, "t": 0.00008, "on": "ino", "surface": "tape"},
+    "card": {"size": (0.187, 0.0826), "t": 0.000178, "on": "ino", "surface": "card", "corner_lift": 0.003},
+    "strip": {"ledger": "T-16", "w": 0.035, "len": 0.30, "t": 0.00014, "perf": (0.0028, 0.00198, 0.00475),
+              "on": "page", "surface": "film", "bow": 0.002},
+}
+
+# the roof-tile order is time order (older over newer), with the exceptions the path needs: the Atlas's second board
+# (1375) lies under the Gutenberg leaf (c. 1455) and Piri Reis (1513). The U1 return
+# climbs the parchment's drape back over board 2's end (design section 2: "board 2 under Piri Reis"; with board 2 on
+# top its 3 mm end would be a wall across the return). Pairs are (over, under).
+ROOF_EXCEPTIONS = {("piri", "atlas2"), ("leaf", "atlas2")}
+
+# U-turn banks: the named edges, read by relief.py and checked in the event log
+BANKS = {"U1": {"sheet": "piri", "edge": "+v", "crest": 0.015, "run": 0.050, "in": -72.0, "out": 72.0},
+         "U2": {"sheet": "ino", "edge": "+v", "crest": 0.010, "run": 0.040, "in": 60.0, "out": -76.0},
+         "U3": {"sheet": "chart", "edge": "-u", "crest": 0.020, "run": 0.060, "in": -70.0, "out": 70.0}}
+
+# props, at their plan positions (the simulation places rims and entries by roll-out within the design's tolerances)
+DISC = {"A": 0.0225, "T": 0.003}
+HINGE_GAP = HINGE["gap"]
+KHIPU = {"cord_r": 0.0011, "knot_r": 0.0024, "knots": 7, "span": ((0.93, 0.18), (0.98, 0.40)), "cord_deg_to_leg": 30.0}
+# 36-pt 8-to-em spaces, half extents (1.59 x 12.7 x 20.3 mm): blank sorts as the approved galley, thinner, so the row
+# falls to the strike of a marble at 0.15 m/s (the approved proof's 4-to-em spaces needed about 0.23; the legs of the
+# labyrinth hold 0.17 to 0.20; measured, work/galleytest)
+QUAD = (0.000794, 0.00635, 0.01015)
+# the galley on its line (as the roll-out lays it); a loaded brass galley presses the papers under it flat: no cockle
+# within half_w of its line, fading over 3 cm (relief.py)
+GALLEY = {"from": (1.07, 0.44), "to": (1.24, 0.67), "mouth_deg_to_leg": 12.0, "on": "leaf", "mouth_widen": 0.004,
+          "press_half_w": 0.06}
+REEL_REG = {"r": 0.032, "h": 0.012, "hub_r": 0.006, "hub_h": 0.012, "mass": 0.012, "damp": 2.0e-6, "fric": 1.5e-6,
+            "at": (1.52, 0.40)}
+REEL_FILM = {"r": 0.045, "h": 0.010, "hub_r": 0.008, "hub_h": 0.012, "mass": 0.022, "damp": 3.0e-6, "fric": 2.0e-6,
+             "at": (1.46, 0.18)}
+IMPACT_MIN = 0.45                           # the reels' glance: impact parameter (in units of R + r) at least this
+PLATEN = {"r": 0.020, "len": 0.30, "from": (1.60, 0.10), "to": (1.76, 0.35), "pinned": True}
+# The lattice is 0.80 x 0.74 m of sticks (the keyed photograph is lattice edge to edge) and cannot lie in the plan's
+# x 1.58-1.82: it would cover Ino's crease and the felt. It lies turned 90 degrees in the far corner, overhanging the
+# far edge by 0.30 m and the end by 0.08 m (its centre of mass well on the table), its near ribs at y 0.50 over the
+# chart's end and the oak: the marbles tick along those near ribs on their way to the brass.
+STICK = {"ledger": "T-19", "tex": "T-19_keyed", "size": (0.80, 0.80 * 7602 / 8192), "raise": 0.008, "rib_h": 0.005,
+         "centre": (1.910, 0.900), "psi": 90.0, "entry_tol": 0.05}
 BRASS = {"A": 0.025, "T": 0.0015, "rho": 8500.0, "lean_deg": 3.3, "C_HZ": 24.0 * (0.0225 / 0.025) ** 0.5,
-         "alpha_land_deg": 5.7}
+         "alpha_land_deg": 5.7, "at": (1.86, 0.45)}
 
-# the design's event clock (frames at 24 fps): the bake places each station where the lead marble is at its frame
-DESIGN = {
-    "lamp_up": 36, "slap": 120, "release": 121, "papyrus_edge": 167, "papyrus_fold": 204, "vellum_edge": 239,
-    "hinge": 312, "piri_edge": 383, "knots": [396, 399, 414, 426, 429, 432, 435], "leaf_edge": 448,
-    "quad1": 462, "ino_folds": [540, 552, 570], "tape": 600, "reel_reg": 618, "card": 656, "page_edge": 672,
-    "reel_film": 690, "strip": 700, "platen": 740, "chart_edge": 776, "lattice": 792, "oak_edge": 860,
-    "brass_hit": 866, "brass_slap": 926, "prefix_end": 935,
-}
-PREFIX_FRAMES = 936                         # f0..f935, 39.0 s
+# ------------------------------------------------------------------------------------------------ the dark, the felt
 
-# per film: the record, its class label, the tail's windows (approach, close, dissolve, tour) at 24 fps, and the
-# years crossed in the dark between the 1931 chart and the record (the oak and felt widths grow with them)
-FILMS = {
-    "S-130": {"film": "Not a Free Agent", "label": "Archive · 1947", "cls": "ARCHIVE", "year": 1947,
-              "tail": (72, 48, 24, 72), "tex": "R-S-130", "width_m": 0.30},
-    "S-16928": {"film": "The Next Village", "label": "Archive · 1976", "cls": "ARCHIVE", "year": 1976,
-                "tail": (84, 48, 24, 72), "tex": "R-S-16928", "width_m": 0.42},
-    "C20-METAR-0851": {"film": "Real World", "label": "Drawn · 2001", "cls": "DRAWN", "year": 2001,
-                       "tail": (96, 48, 24, 72), "tex": "R-C20-METAR-0851", "width_m": 0.20},
-}
-LOCKUP_FRAMES = 120
-OAK_PER_YEAR = 0.0015                       # m of bare oak per year after 1931 (the felt begins further on, later)
-FELT_LEN = 1.2
+DARK_X0 = 1.92                              # past the brass disc: the prefix keeps x > DARK_X0 black (the lamp's mask)
+OAK_PER_YEAR = 0.001                        # m of bare oak per year after 1931, from DARK_X0
+FELT = (0.30, 0.70)                         # nominal; it runs to FELT_X1, y 0.15-0.85
+FELT_X1 = 2.19
+FELT_Y = (0.06, 0.46)                       # below the lattice (the plan's y 0.15-0.85 lies under it)
 FELT_T = 0.0012
 RECORD_T = 0.00012
+
+# ------------------------------------------------------------------------------------------------ the clock
+
+# design frames at 24 fps (section 4); the bake replaces them, the prefix's length and the brass are fixed
+DESIGN = {
+    "lamp_up": 36, "slap": 120, "release": 121, "papyrus_edge": 167, "fold": 196, "vellum": 240, "hinge": 252,
+    "off_boards": 330, "U1": (336, 348), "knots": (372, 404), "quad1": 432, "row_end": 456, "stop": 458,
+    "pair": (460, 463), "leaf_exit": (492, 495), "U2": (516, 528), "tape": 552, "reel_reg": (576, 610), "card": 600,
+    "off_ino": 640, "reel_film": (654, 700), "perfs": (664, 676), "U3": (700, 712), "platen": 724, "ribs": (744, 800),
+    "off_chart": (850, 856), "brass_hit": 866, "brass_slap": 926, "prefix_end": 935,
+}
+BRASS_TOL = 12                              # f866 and f926, each within 12 frames, after tuning the fall only
+PREFIX_FRAMES = 936                         # f0..f935, 39.0 s
+
+# per film: the record, its class label, the years crossed in the dark, and the tail's windows at 24 fps:
+# (find, descend, close, dissolve, tour)
+FILMS = {
+    "S-130": {"film": "Not a Free Agent", "label": "Archive · 1947", "cls": "ARCHIVE", "year": 1947,
+              "tail": (72, 72, 24, 24, 60), "tex": "R-S-130", "width_m": 0.30, "img": (1284, 1987)},
+    "S-16928": {"film": "The Next Village", "label": "Archive · 1976", "cls": "ARCHIVE", "year": 1976,
+                "tail": (84, 72, 24, 24, 60), "tex": "R-S-16928", "width_m": 0.42, "img": (2874, 1686)},
+    "C20-METAR-0851": {"film": "Real World", "label": "Drawn · 2001", "cls": "DRAWN", "year": 2001,
+                       "tail": (96, 72, 24, 24, 60), "tex": "R-C20-METAR-0851", "width_m": 0.20, "img": (3840, 2160)},
+}
+LOCKUP_FRAMES = 120
+
+
+def record_size(rec):
+    """The record's (along x, along y) size on the table: laid across, its shorter side along x."""
+    F = FILMS[rec]
+    w, h = F["width_m"], F["width_m"] * F["img"][1] / F["img"][0]
+    return (min(w, h), max(w, h)), (w < h)        # (size, upright: the image's width runs along x)
+
+
+def felt_x0(rec):
+    return DARK_X0 + OAK_PER_YEAR * (FILMS[rec]["year"] - 1931)
 
 
 def t_of(frame: float, fps: float = FPS) -> float:
@@ -114,5 +246,97 @@ def fps_value(fps) -> float:
 
 def frames_at(seconds: float, fps) -> int:
     """The number of whole frames of a span of seconds at a rate (24 or 30000/1001): the frame count of a master."""
-    import math
     return int(math.floor(seconds * fps_value(fps) + 1e-6))
+
+
+# ------------------------------------------------------------------------------------------------ geometry helpers
+
+
+def corners(cx, cy, W, H, psi_deg):
+    """The four table corners of a W x H rectangle centred at (cx, cy), its u axis turned psi from +x: (-u-v), (+u-v),
+    (+u+v), (-u+v)."""
+    p = math.radians(psi_deg)
+    cu, su = math.cos(p), math.sin(p)
+    return [(cx + u * cu - v * su, cy + u * su + v * cu) for u, v in ((-W / 2, -H / 2), (W / 2, -H / 2),
+                                                                         (W / 2, H / 2), (-W / 2, H / 2))]
+
+
+def sheet_corners(name):
+    s = SHEETS[name]
+    return corners(s["centre"][0], s["centre"][1], s["size"][0], s["size"][1], s["psi"])
+
+
+def to_local(name, x, y):
+    s = SHEETS[name]
+    p = math.radians(s["psi"])
+    dx, dy = x - s["centre"][0], y - s["centre"][1]
+    return dx * math.cos(p) + dy * math.sin(p), -dx * math.sin(p) + dy * math.cos(p)
+
+
+def footprints():
+    """Every object's table footprint as a polygon, for the plan's checks."""
+    out = {n: sheet_corners(n) for n in SHEETS}
+    t = TABLET
+    out["tablet"] = corners(t["centre"][0], t["centre"][1], t["size"][0], t["size"][1], t["psi"])
+    out["stick"] = corners(STICK["centre"][0], STICK["centre"][1], STICK["size"][0], STICK["size"][1], STICK["psi"])
+    out["felt"] = [(FELT_X1 - FELT[0], FELT_Y[0]), (FELT_X1, FELT_Y[0]), (FELT_X1, FELT_Y[1]), (FELT_X1 - FELT[0], FELT_Y[1])]
+    a, d = DISC["A"], LATCH["disc"]
+    out["disc"] = [(d[0] - a, d[1] - a), (d[0] + a, d[1] - a), (d[0] + a, d[1] + a), (d[0] - a, d[1] + a)]
+    b = BRASS["at"]
+    out["brass"] = [(b[0] - 0.003, b[1] - 0.025), (b[0] + 0.003, b[1] - 0.025), (b[0] + 0.003, b[1] + 0.025),
+                    (b[0] - 0.003, b[1] + 0.025)]
+    return out
+
+
+# overhangs the plan names: Atlas board 1's near corner over the near edge, the stick chart over the far edge
+OVERHANGS = {"atlas1": {"y0": 0.11}, "stick": {"y1": 0.32, "x1": 0.10}, "tablet": {"x0": 0.06}}
+# props are set down on the sheets, never under them: the roof-tile check is for the sheets
+PROPS = {"tablet", "stick", "felt", "disc", "brass"}
+
+
+def overlap(poly_a, poly_b) -> bool:
+    """Separating-axis test for two convex polygons."""
+    for poly in (poly_a, poly_b):
+        n = len(poly)
+        for i in range(n):
+            x1, y1 = poly[i]
+            x2, y2 = poly[(i + 1) % n]
+            ax, ay = y2 - y1, x1 - x2
+            pa = [ax * x + ay * y for x, y in poly_a]
+            pb = [ax * x + ay * y for x, y in poly_b]
+            if max(pa) <= min(pb) or max(pb) <= min(pa):
+                return False
+    return True
+
+
+# ------------------------------------------------------------------------------------------------ the plan
+
+PLAN = [
+    {"beat": "1 latch", "object": "disc", "centre": LATCH["disc"], "psi": None, "heading_in": 0.0, "heading_out": -53.0,
+     "cause": "the bronze disc's rim (approved)"},
+    {"beat": "2 papyrus", "object": "papyrus", "centre": SHEETS["papyrus"]["centre"], "psi": SHEETS["papyrus"]["psi"],
+     "heading_in": -53.0, "heading_out": -53.0, "cause": "the papyrus's fold relief"},
+    {"beat": "3 atlas", "object": "atlas", "centre": _HMID, "psi": HINGE["deg"], "heading_in": -53.0, "heading_out": -72.0,
+     "cause": "the Atlas hinge (a 1.5 mm valley between 3 mm boards)"},
+    {"beat": "U1", "object": "piri", "centre": SHEETS["piri"]["centre"], "psi": 0.0, "heading_in": -72.0, "heading_out": 72.0,
+     "cause": "Piri Reis's parchment curl"},
+    {"beat": "4 cord", "object": "khipu", "centre": ((KHIPU["span"][0][0] + KHIPU["span"][1][0]) / 2,
+                                                     (KHIPU["span"][0][1] + KHIPU["span"][1][1]) / 2), "psi": None,
+     "heading_in": 72.0, "heading_out": 72.0, "cause": "the knots (ticks, no turn)"},
+    {"beat": "5 galley", "object": "galley", "centre": SHEETS["leaf"]["centre"], "psi": 60.0, "heading_in": 72.0,
+     "heading_out": 60.0, "cause": "the galley's brass walls (a 12 degree channel)"},
+    {"beat": "U2", "object": "ino", "centre": SHEETS["ino"]["centre"], "psi": -8.0, "heading_in": 60.0, "heading_out": -76.0,
+     "cause": "Ino's lifted fold edge"},
+    {"beat": "6 survey, wire, count", "object": "reel_reg", "centre": REEL_REG["at"], "psi": None, "heading_in": -76.0,
+     "heading_out": -88.0, "cause": "the register reel's rim (a glance that spins it)"},
+    {"beat": "7 reel, type", "object": "reel_film", "centre": REEL_FILM["at"], "psi": None, "heading_in": -88.0,
+     "heading_out": -70.0, "cause": "the Lumiere reel's rim"},
+    {"beat": "U3", "object": "chart", "centre": SHEETS["chart"]["centre"], "psi": 90.0, "heading_in": -70.0, "heading_out": 70.0,
+     "cause": "the chart's rolled edge"},
+    {"beat": "8 swell", "object": "stick", "centre": STICK["centre"], "psi": STICK["psi"], "heading_in": 70.0, "heading_out": 5.0,
+     "cause": "the platen, then the ribs"},
+    {"beat": "9 exhaust", "object": "brass", "centre": BRASS["at"], "psi": None, "heading_in": 5.0, "heading_out": 5.0,
+     "cause": "the disc"},
+    {"beat": "dark", "object": "felt", "centre": (FELT_X1 - FELT[0] / 2, sum(FELT_Y) / 2), "psi": None, "heading_in": 0.0,
+     "heading_out": 0.0, "cause": "the felt, then the record's edge"},
+]

@@ -75,10 +75,10 @@ def test_measure_reads_a_known_pan_in_pixels_a_frame():
 
 
 def test_frame_counts_at_both_rates():
-    assert B.frames_at(54.0, 24) == 1296
-    n = B.frames_at(54.0, B.NTSC)
-    assert abs(n * 1001 / 30000 - 54.0) <= 0.5 * 1001 / 30000
-    assert B.total_frames("C20-METAR-0851") == 1296 and B.total_frames("S-130") == 1272
+    assert B.frames_at(55.5, 24) == 1332
+    n = B.frames_at(55.5, B.NTSC)
+    assert abs(n * 1001 / 30000 - 55.5) <= 0.5 * 1001 / 30000
+    assert B.total_frames("C20-METAR-0851") == 1332 and B.total_frames("S-130") == 1308     # v4: 55.5 and 54.5 s
 
 
 def test_the_eye_sits_behind_the_target_at_its_distance_and_angle():

@@ -22,7 +22,7 @@ LEDGER = HERE.parents[1] / "run-sound-ledger.json"
 SFX = Path("D:/document-media/title-sequence/run/sfx")
 EVID = Path("D:/document-media/title-sequence/run/evidence")
 UA = {"User-Agent": "void-document-title/0.1 (aacrit@gmail.com)"}
-CHECKED = "2026-10-17"
+CHECKED = "2026-10-18"
 
 # id, preview path, use in the proofs
 WANT = [
@@ -30,6 +30,9 @@ WANT = [
     ("628997", "628/628997_13875907", "marbles knocking: clay rim taps, the papyrus edge, clay on type, clay on clay (low-passed, pitched down)"),
     ("458136", "458/458136_7254624", "a marble dropped onto a table and rolling: drops off the lip and edges; the rolling loop"),
     ("259553", "259/259553_2316086", "small metal object falling: the type falling on brass (pitched up 1.5x), the end stop"),
+    # v4 (design section 7): a small bearing's spin-down for the two reels, in place of the pitched coin stand-in
+    ("509902", None, "a spinning reel: the register reel's and the Lumiere reel's whir and settle (v4)"),
+    ("376517", None, "a spinning bearing: the second take for the reels' whir (v4)"),
 ]
 
 
@@ -52,6 +55,12 @@ def main():
         title = re.search(r"<title>Freesound - (.*?) by (.*?)</title>", html)
         name, uploader = (title.group(1).strip(), title.group(2).strip()) if title else ("?", "?")
         page_url = re.search(r'<link rel="canonical" href="([^"]+)"', html)
+        if prev is None:
+            # the preview's path is read from the sound's own page (it carries the uploader's id)
+            m = re.search(r"https://cdn\.freesound\.org/previews/(\d+/\d+_\d+)-hq\.mp3", html)
+            if not m:
+                sys.exit(f"{sid}: no HQ preview on its page")
+            prev = m.group(1)
         mp3 = SFX / f"{Path(prev).name}-hq.mp3"
         url = f"https://cdn.freesound.org/previews/{prev}-hq.mp3"
         if not mp3.exists():

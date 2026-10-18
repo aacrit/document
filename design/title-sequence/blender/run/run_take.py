@@ -1,5 +1,9 @@
-"""The Run, the full take: build the Blender scene from the one simulation, its layout and the camera plan. Nobody
-hand-edits the .blend.
+"""The Run v4, the full take: build the Blender scene from the one simulation, its layout, the relief and the camera
+plan. Nobody hand-edits the .blend. v4 (design sections 2, 3, 6): a real oak table with its boards, chamfer, breadboard
+ends, legs and floor; every sheet a displaced mesh with real thickness from relief.py's EXR (the same heightmap the
+simulation rolls on); reels on hubs with their coils' layers; the lamp's 48 degree cone with the dimmer ride, its
+rectangular iris keyed per beat and the dark past x 1.92 in the prefix. What follows is M1's description, which stands
+where v4 does not change it.
 
     blender -b --factory-startup --python design/title-sequence/blender/run/run_take.py -- \
         --window prefix|tail --record C20-METAR-0851 --fps 24|30000/1001 [--calib 1] --out <blend>
@@ -31,12 +35,14 @@ import camera_run as CR  # noqa: E402
 import run_scene as RS  # noqa: E402
 import sheetfit as SF  # noqa: E402
 
-SIM = Path("D:/document-media/title-sequence/run/sim")
+SIM = Path("D:/document-media/title-sequence/run/sim/v4")
+RELIEF = Path("D:/document-media/title-sequence/run/relief")
 
 
 def _args():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    a = {"window": "prefix", "record": "C20-METAR-0851", "fps": "24", "calib": "", "out": "", "samples": ""}
+    a = {"window": "prefix", "record": "C20-METAR-0851", "fps": "24", "calib": "", "out": "", "samples": "", "res": "",
+         "end": ""}
     for i, k in enumerate(argv):
         if k.startswith("--") and i + 1 < len(argv):
             a[k[2:]] = argv[i + 1]
@@ -398,45 +404,354 @@ def iris_lamp():
 # ------------------------------------------------------------------------------------------------ build
 
 
+def m_oak_v4(name="oak (table)", seed=0.0, across=False):
+    """The table's oak: the pinned CC0 photo-scan (C-02, Poly Haven Oak Wood Planks: diffuse, roughness, normal; founder
+    note 2026-10-18), each board taking its own stretch of the scan (offset by its seed), the breadboard ends with the
+    grain turned across; satin oil (roughness 0.3 to 0.5)."""
+    m, nt, b = RS._mat(name)
+    co = RS._n(nt, "ShaderNodeTexCoord")
+    mp = RS._n(nt, "ShaderNodeMapping")
+    mp.inputs["Scale"].default_value = (1 / 1.2, 1 / 1.2, 1)
+    mp.inputs["Location"].default_value = (seed * 0.41, seed * 0.73, 0.0)
+    mp.inputs["Rotation"].default_value = (0.0, 0.0, math.pi / 2 if across else 0.0)
+    nt.links.new(co.outputs["Object"], mp.inputs["Vector"])
+    for k, nc in (("diff", False), ("rough", True), ("nor_gl", True)):
+        t = RS._n(nt, "ShaderNodeTexImage")
+        t.image = RS.tex(f"C-02_{k}", nc)
+        nt.links.new(mp.outputs["Vector"], t.inputs["Vector"])
+        if k == "diff":
+            nt.links.new(t.outputs["Color"], b.inputs["Base Color"])
+        elif k == "rough":
+            mr = RS._n(nt, "ShaderNodeMapRange")
+            mr.inputs["To Min"].default_value, mr.inputs["To Max"].default_value = 0.30, 0.50
+            nt.links.new(t.outputs["Color"], mr.inputs["Value"])
+            nt.links.new(mr.outputs["Result"], b.inputs["Roughness"])
+        else:
+            nm = RS._n(nt, "ShaderNodeNormalMap", Strength=0.6)
+            nt.links.new(t.outputs["Color"], nm.inputs["Color"])
+            nt.links.new(nm.outputs["Normal"], b.inputs["Normal"])
+    return m
+
+
+def table_model():
+    """The 2.2 x 1.0 m oak table: four boards 0.25 m wide with visible joints along its length, breadboard ends, a 40
+    mm top with a 3 mm chamfer, four legs, and the dark grey floor 0.75 m below, out of the lamp."""
+    W, H = B.TABLE["size"]
+    top, bb, cham = B.TABLE["top"], B.TABLE["breadboard"], B.TABLE["chamfer"]
+    joint = 0.0008
+    parts = []
+    for k in range(B.TABLE["boards"]):
+        y0 = k * B.TABLE["board_w"]
+        ob = RS.box(f"oak board {k + 1}", (W - 2 * bb - joint, B.TABLE["board_w"] - joint, top),
+                    (W / 2, y0 + B.TABLE["board_w"] / 2, -top / 2), m_oak_v4(f"oak board {k + 1}", seed=k * 0.37), bevel=cham)
+        parts.append(ob)
+    for side, x in (("left", bb / 2), ("right", W - bb / 2)):
+        parts.append(RS.box(f"breadboard {side}", (bb - joint, H, top), (x, H / 2, -top / 2),
+                            m_oak_v4(f"breadboard {side}", seed=2.1 + x, across=True), bevel=cham))
+    leg = m_oak_v4("oak legs", seed=5.0)
+    for x in (0.08, W - 0.08):
+        for y in (0.08, H - 0.08):
+            RS.box("leg", (0.07, 0.07, B.TABLE["height"] - top), (x, y, -top - (B.TABLE["height"] - top) / 2), leg, 0.003)
+    bpy.ops.mesh.primitive_plane_add(size=12.0, location=(W / 2, H / 2, -B.TABLE["height"]))
+    fl = bpy.context.active_object
+    fl.name = "floor"
+    fl.data.materials.append(m_plain("floor (dark grey)", (0.035, 0.034, 0.033), 0.85))
+    return parts
+
+
+def fibre(name, rgb):
+    return m_plain(f"{name} (fibre, the scan's own margin colour)", rgb, 0.85, sheen=0.3)
+
+
+def scan_margin_colour(image, alpha):
+    """The median colour of the scan's opaque pixels within 3% of its outline: the method run_scene.CLAY uses."""
+    from PIL import Image as PI
+    from scipy.ndimage import binary_erosion
+    man = RS.MAN_C if image in RS.MAN_C else RS.MAN_V1
+    im = PI.open(man[image]["tex"]["file"]).convert("RGBA")
+    im.thumbnail((600, 600))
+    a = np.asarray(im, np.float32) / 255.0
+    m = a[..., 3] > 0.5 if alpha else np.ones(a.shape[:2], bool)
+    k = max(2, int(0.03 * max(m.shape)))
+    if alpha:
+        ring = m & ~binary_erosion(m, iterations=k)
+    else:
+        ring = np.zeros_like(m)
+        ring[:k, :] = ring[-k:, :] = ring[:, :k] = ring[:, -k:] = True
+    rgb = np.median(a[..., :3][ring], axis=0)
+    return tuple(float(((c + 0.055) / 1.055) ** 2.4 if c > 0.04045 else c / 12.92) for c in rgb)
+
+
+def sheet_mesh(name, top_mat, side_mat):
+    """A sheet from its relief EXR (relief.py): the top surface at its composed top (G), the underside at its composed
+    underside (B), and the walls between along its footprint's outline (A), so it has real thickness and lifts."""
+    s = B.SHEETS[name]
+    img = bpy.data.images.load(str(RELIEF / f"{name}.exr"), check_existing=False)
+    w_, h_ = img.size
+    px = np.array(img.pixels[:], dtype=np.float32).reshape(h_, w_, 4)[::-1]       # row 0 at +v
+    bpy.data.images.remove(img)
+    topz, botz, mask = px[..., 1], px[..., 2], px[..., 3] > 0.5
+    W, H = s["size"]
+    nv, nu = topz.shape
+    u = -W / 2 + (np.arange(nu) + 0.5) * W / nu
+    v = H / 2 - (np.arange(nv) + 0.5) * H / nv
+    U, V = np.meshgrid(u, v)
+    p = math.radians(s["psi"])
+    X = s["centre"][0] + U * math.cos(p) - V * math.sin(p)
+    Y = s["centre"][1] + U * math.sin(p) + V * math.cos(p)
+    idx = np.arange(nv * nu).reshape(nv, nu)
+    keep = mask[:-1, :-1] & mask[1:, :-1] & mask[:-1, 1:] & mask[1:, 1:]
+    jj, ii = np.nonzero(keep)
+    a_, b_, c_, d_ = idx[jj, ii], idx[jj, ii + 1], idx[jj + 1, ii + 1], idx[jj + 1, ii]
+    n = nv * nu
+    verts = np.concatenate([np.stack([X.ravel(), Y.ravel(), topz.ravel()], 1),
+                            np.stack([X.ravel(), Y.ravel(), botz.ravel()], 1)])
+    faces = [np.stack([a_, d_, c_, b_], 1), np.stack([a_ + n, b_ + n, c_ + n, d_ + n], 1)]
+    mats = [np.zeros(len(a_), np.int32), np.ones(len(a_), np.int32)]
+    # walls along the outline: an edge of a kept face whose neighbour across it is not kept
+    K = np.zeros((nv + 1, nu + 1), bool)
+    K[1:-1, 1:-1] = keep
+    for (dj, di), (e0, e1) in (((-1, 0), (lambda j, i: idx[j, i], lambda j, i: idx[j, i + 1])),
+                               ((1, 0), (lambda j, i: idx[j + 1, i + 1], lambda j, i: idx[j + 1, i])),
+                               ((0, -1), (lambda j, i: idx[j + 1, i], lambda j, i: idx[j, i])),
+                               ((0, 1), (lambda j, i: idx[j, i + 1], lambda j, i: idx[j + 1, i + 1]))):
+        edge = keep & ~K[1 + dj:nv + dj, 1 + di:nu + di]
+        ej, ei = np.nonzero(edge)
+        p0, p1 = e0(ej, ei), e1(ej, ei)
+        faces.append(np.stack([p0, p1, p1 + n, p0 + n], 1))
+        mats.append(np.ones(len(p0), np.int32))
+    faces = np.concatenate(faces)
+    mats = np.concatenate(mats)
+    used = np.unique(faces)
+    remap = np.full(2 * n, -1, np.int64)
+    remap[used] = np.arange(len(used))
+    faces = remap[faces]
+    verts = verts[used]
+    me = bpy.data.meshes.new(name)
+    me.vertices.add(len(verts))
+    me.vertices.foreach_set("co", verts.astype(np.float32).ravel())
+    me.loops.add(faces.size)
+    me.loops.foreach_set("vertex_index", faces.astype(np.int32).ravel())
+    me.polygons.add(len(faces))
+    me.polygons.foreach_set("loop_start", (np.arange(len(faces)) * 4).astype(np.int32))
+    me.polygons.foreach_set("material_index", mats)
+    me.update(calc_edges=True)
+    # UVs: the scan's own coordinates (u across, v up) for every vertex, top and bottom alike
+    uvv = np.concatenate([np.stack([(np.arange(nu)[None, :].repeat(nv, 0) + 0.5) / nu,
+                                    1 - (np.arange(nv)[:, None].repeat(nu, 1) + 0.5) / nv], -1).reshape(-1, 2)] * 2)[used]
+    uv = me.uv_layers.new()
+    uv.data.foreach_set("uv", uvv[faces.ravel()].astype(np.float32).ravel())
+    me.polygons.foreach_set("use_smooth", np.ones(len(faces), bool))
+    ob = bpy.data.objects.new(f"{name} ({s['tex']})", me)
+    bpy.context.scene.collection.objects.link(ob)
+    me.materials.append(top_mat)
+    me.materials.append(side_mat)
+    return ob
+
+
+def m_scan_on_backing(name, image, backing_rgb):
+    """The keyed papyrus over its plain backing: the scan where its alpha is, the backing's plain colour elsewhere."""
+    m, nt, b = RS._mat(name)
+    t = RS._n(nt, "ShaderNodeTexImage")
+    t.image = RS.tex(image)
+    t.interpolation = "Cubic"
+    mix = RS._n(nt, "ShaderNodeMix")
+    mix.data_type = "RGBA"
+    nt.links.new(t.outputs["Alpha"], mix.inputs[0])
+    mix.inputs[6].default_value = backing_rgb + (1.0,)
+    nt.links.new(t.outputs["Color"], mix.inputs[7])
+    nt.links.new(mix.outputs[2], b.inputs["Base Color"])
+    b.inputs["Roughness"].default_value = 0.75
+    b.inputs["Sheen Weight"].default_value = 0.2
+    return m
+
+
+def reel_v4(name, info, rows, f0, f1, kind):
+    """A reel on its hub: the hub stands on the paper, the flange and the coil above it, the coil's layers as fine
+    rings, so it reads as a cylinder from above."""
+    r, h, hub_r = info["r"], info["h"], info["hub_r"]
+    parts = []
+    bpy.ops.mesh.primitive_cylinder_add(vertices=48, radius=hub_r, depth=0.012, location=(0, 0, 0.006))
+    hub = bpy.context.active_object
+    hub.data.materials.append(BRASS_M)
+    parts.append(hub)
+    z0 = 0.0005
+    if kind == "reg":
+        bpy.ops.mesh.primitive_cylinder_add(vertices=128, radius=r * 0.92, depth=h * 0.8, location=(0, 0, z0 + h / 2))
+        coil = bpy.context.active_object
+        coil.data.materials.append(m_coil("register tape (wound)", (0.62, 0.55, 0.42), r))
+        parts.append(coil)
+        for zz in (z0 + 0.0004, z0 + h - 0.0004):
+            bpy.ops.mesh.primitive_cylinder_add(vertices=128, radius=r, depth=0.0008, location=(0, 0, zz))
+            fl = bpy.context.active_object
+            fl.data.materials.append(BRASS_M)
+            parts.append(fl)
+    else:
+        bpy.ops.mesh.primitive_cylinder_add(vertices=128, radius=r, depth=0.0012, location=(0, 0, z0 + 0.0006))
+        disc = bpy.context.active_object
+        disc.data.materials.append(STEEL_M)
+        for k in range(3):
+            a = 2 * math.pi * k / 3
+            bpy.ops.mesh.primitive_cylinder_add(vertices=48, radius=r * 0.22, depth=0.01,
+                                                location=(r * 0.68 * math.cos(a), r * 0.68 * math.sin(a), z0))
+            cut = bpy.context.active_object
+            cut.hide_render = cut.hide_viewport = True
+            bo = disc.modifiers.new(f"cut{k}", "BOOLEAN")
+            bo.object, bo.operation = cut, "DIFFERENCE"
+        parts.append(disc)
+        bpy.ops.mesh.primitive_cylinder_add(vertices=128, radius=r * 0.48, depth=h - 0.0012, location=(0, 0, z0 + 0.0012 + (h - 0.0012) / 2))
+        coil = bpy.context.active_object
+        coil.data.materials.append(m_coil("35 mm film (wound)", (0.06, 0.045, 0.03), r))
+        parts.append(coil)
+    bpy.ops.object.select_all(action="DESELECT")
+    for p_ in parts:
+        p_.select_set(True)
+    bpy.context.view_layer.objects.active = parts[0]
+    bpy.ops.object.join()
+    ob = bpy.context.active_object
+    ob.name = name
+    bpy.ops.object.shade_smooth_by_angle(angle=math.radians(40))
+    RS.bake_track(ob, rows, f0, f1)
+    return ob
+
+
+def m_coil(name, rgb, r):
+    """A wound coil: its layers as fine concentric rings on the top face (a wave texture, radial)."""
+    m, nt, b = RS._mat(name)
+    co = RS._n(nt, "ShaderNodeTexCoord")
+    wave = RS._n(nt, "ShaderNodeTexWave")
+    wave.wave_type, wave.rings_direction = "RINGS", "SPHERICAL"
+    wave.inputs["Scale"].default_value = 0.25 / r * 2.0
+    wave.inputs["Distortion"].default_value = 0.4
+    nt.links.new(co.outputs["Object"], wave.inputs["Vector"])
+    mr = RS._n(nt, "ShaderNodeMapRange")
+    mr.inputs["To Min"].default_value, mr.inputs["To Max"].default_value = 0.8, 1.0
+    nt.links.new(wave.outputs["Fac"], mr.inputs["Value"])
+    mul = RS._n(nt, "ShaderNodeMix")
+    mul.data_type, mul.blend_type = "RGBA", "MULTIPLY"
+    mul.inputs[0].default_value = 1.0
+    mul.inputs[6].default_value = rgb + (1.0,)
+    cmb = RS._n(nt, "ShaderNodeCombineColor")
+    for k in ("Red", "Green", "Blue"):
+        nt.links.new(mr.outputs["Result"], cmb.inputs[k])
+    nt.links.new(cmb.outputs[0], mul.inputs[7])
+    nt.links.new(mul.outputs[2], b.inputs["Base Color"])
+    b.inputs["Roughness"].default_value = 0.6
+    return m
+
+
+def stick_chart_v4(st):
+    """The lattice (T-19), its keyed photograph at real size raised on its shells, at the simulation's place."""
+    W, H = st["W"], st["H"]
+    me = bpy.data.meshes.new("T-19 stick chart")
+    co = B.corners(st["cx"], st["cy"], W, H, st["psi"])
+    zz = st["z"] + B.STICK["raise"] + B.STICK["rib_h"]
+    me.from_pydata([(x, y, zz) for x, y in co], [], [(0, 1, 2, 3)])
+    uv = me.uv_layers.new()
+    for li, c in zip(me.polygons[0].loop_indices, ((0, 0), (1, 0), (1, 1), (0, 1))):
+        uv.data[li].uv = c
+    ob = bpy.data.objects.new("T-19 stick chart", me)
+    bpy.context.scene.collection.objects.link(ob)
+    ob.data.materials.append(m_image_crop("T-19 stick chart", "T-19_keyed", rough=0.7, alpha=True, sheen=0.1, bump=0.4))
+    sol = ob.modifiers.new("t", "SOLIDIFY")
+    sol.thickness, sol.offset = B.STICK["rib_h"], -1
+    return ob
+
+
+def iris_lamp_v4():
+    """The bone lamp: a 48 degree spot with a rectangular iris in its own frame (half-angles iris_x, iris_y as
+    tangents) and the dark mask: no light lands where the table's x is past dark_x (the years after 1931 are crossed
+    in the dark). The lamp's position is keyed into its own node tree (lamp_x, lamp_y, lamp_z) so the mask is computed
+    on the table in world space."""
+    ob, vals = iris_lamp()
+    d = ob.data
+    d.spot_size = math.radians(48)
+    d.spot_blend = 0.15
+    d.shadow_soft_size = 0.05
+    nt = d.node_tree
+    em = nt.nodes["Emission"]
+    strength_in = em.inputs["Strength"].links[0].from_socket
+    tc = [n for n in nt.nodes if n.type == "TEX_COORD"][0]
+    vt = nt.nodes.new("ShaderNodeVectorTransform")
+    vt.vector_type, vt.convert_from, vt.convert_to = "VECTOR", "OBJECT", "WORLD"
+    nt.links.new(tc.outputs["Normal"], vt.inputs["Vector"])
+    sep = nt.nodes.new("ShaderNodeSeparateXYZ")
+    nt.links.new(vt.outputs["Vector"], sep.inputs[0])
+    for k in ("lamp_x", "lamp_z", "dark_x"):
+        v = nt.nodes.new("ShaderNodeValue")
+        v.name = k
+        vals[k] = v
+    vals["dark_x"].outputs[0].default_value = 99.0
+    # x on the table: lamp_x + dx * lamp_z / -dz
+    neg = nt.nodes.new("ShaderNodeMath")
+    neg.operation = "MULTIPLY"
+    neg.inputs[1].default_value = -1.0
+    nt.links.new(sep.outputs["Z"], neg.inputs[0])
+    mx = nt.nodes.new("ShaderNodeMath")
+    mx.operation = "MAXIMUM"
+    mx.inputs[1].default_value = 1e-4
+    nt.links.new(neg.outputs[0], mx.inputs[0])
+    dv = nt.nodes.new("ShaderNodeMath")
+    dv.operation = "DIVIDE"
+    nt.links.new(vals["lamp_z"].outputs[0], dv.inputs[0])
+    nt.links.new(mx.outputs[0], dv.inputs[1])
+    ml = nt.nodes.new("ShaderNodeMath")
+    ml.operation = "MULTIPLY_ADD"
+    nt.links.new(sep.outputs["X"], ml.inputs[0])
+    nt.links.new(dv.outputs[0], ml.inputs[1])
+    nt.links.new(vals["lamp_x"].outputs[0], ml.inputs[2])
+    sub = nt.nodes.new("ShaderNodeMath")
+    sub.operation = "SUBTRACT"
+    nt.links.new(ml.outputs[0], sub.inputs[0])
+    nt.links.new(vals["dark_x"].outputs[0], sub.inputs[1])
+    mr = nt.nodes.new("ShaderNodeMapRange")
+    mr.clamp = True
+    nt.links.new(sub.outputs[0], mr.inputs["Value"])
+    mr.inputs["From Min"].default_value, mr.inputs["From Max"].default_value = -0.004, 0.004
+    mr.inputs["To Min"].default_value, mr.inputs["To Max"].default_value = 1.0, 0.0
+    mul = nt.nodes.new("ShaderNodeMath")
+    mul.operation = "MULTIPLY"
+    nt.links.new(strength_in, mul.inputs[0])
+    nt.links.new(mr.outputs["Result"], mul.inputs[1])
+    nt.links.new(mul.outputs[0], em.inputs["Strength"])
+    return ob, vals
+
+
+# ------------------------------------------------------------------------------------------------ build
+
+
 def build():
     window, rec = A["window"], A["record"]
     bake = json.loads((SIM / "run-bake.json").read_text(encoding="utf-8"))
     lay = json.loads((SIM / "run-layout.json").read_text(encoding="utf-8"))
     P = bake["poses"]
     geoms = dict(lay["geoms"])
-    tail = None
     t_prefix_end = B.PREFIX_FRAMES / B.FPS
+    tb = None
+    F = B.FILMS[rec]
     if window == "tail":
         tb = json.loads((SIM / f"run-tail-{rec}-bake.json").read_text(encoding="utf-8"))
-        tail = tb
         for n, rows in tb["poses"].items():
             P[n] = [r for r in P.get(n, []) if r[0] <= t_prefix_end] + [r for r in rows if r[0] > t_prefix_end]
         geoms.update(tb["geoms"])
-        F = B.FILMS[rec]
         t0 = t_prefix_end
-        t1 = (B.PREFIX_FRAMES + F["tail"][0] + F["tail"][1]) / B.FPS
+        t1 = (B.PREFIX_FRAMES + sum(F["tail"][:3])) / B.FPS
     else:
-        t0, t1 = 36 / B.FPS, t_prefix_end
+        t0, t1 = 36 / B.FPS, (int(A["end"]) + 1) / B.FPS if A["end"] else t_prefix_end
     f0 = int(math.ceil(frame_of(t0) - 1e-6))
     f1 = int(math.ceil(frame_of(t1) - 1e-6)) - 1
     RS.FPS = 24
     sc = RS.reset(f0, f1)
-    # the room beyond the lamp: lighting only, and darker than the proofs' so the bench falls away into the dark
     sc.world.node_tree.nodes["Background"].inputs[0].default_value = (0.006, 0.006, 0.006, 1)
     RS.FPS = FPS
     sc.render.fps, sc.render.fps_base = FPSV
     cam_rows = json.loads((SIM / (f"camera-{rec}.json" if window == "tail" else "camera-prefix.json")).read_text(encoding="utf-8"))["rows"]
 
-    # the bench: oak planks the length of the run
-    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(2.0, 0.0, 0.0))
-    ob = bpy.context.active_object
-    ob.name = "oak bench"
-    ob.scale = (7.2, 1.6, 1)
-    bpy.ops.object.transform_apply(scale=True)
-    ob.data.materials.append(RS.m_oak())
-    # T-01 the Umma register beside the bronze disc
-    tab = RS.box("T-01 Umma register", (0.31, 0.305, 0.05), (-0.16, 0.215, 0.025),
+    table_model()
+    t = B.TABLET
+    tab = RS.box("T-01 Umma register", t["size"], (t["centre"][0], t["centre"][1], t["size"][2] / 2),
                  RS.m_image("T-01 obverse", "T-01_obverse", 0.85, bump=0.12), bevel=0.006)
+    tab.rotation_euler = (0, 0, math.radians(t["psi"]))
     RS.tablet_faces(tab)
 
     global BRASS_M, STEEL_M
@@ -446,64 +761,51 @@ def build():
     type_metal = m_worn("type metal", (0.42, 0.42, 0.43), 0.38, (0.20, 0.20, 0.21), scratch=0.25)
     clay = m_clay_mottled()
 
-    # the sheets, each its scan at real size, older on top
-    S = lay["sheets"]
-    tex = {"papyrus": ("T-02a_keyed", True), "atlas1": ("T-03_board1", False), "atlas2": ("T-03_board2", False),
-           "piri": ("T-04_keyed", True), "leaf": ("T-06_leaf", False), "ino": ("T-08_sheet", False),
-           "page": ("T-18_page", False), "chart": ("T-20_chart", False)}
-    for nm, s in S.items():
-        if nm == "card":
-            sheet("blank Hollerith card", s, m_plain("manila card", (0.66, 0.58, 0.42), 0.75, sheen=0.15), s["level"])
-            continue
-        img, alpha = tex[nm]
-        sheet(f"{nm} ({img})", s, m_image_crop(nm, img, rough=0.72, alpha=alpha, sheen=0.15, bump=0.2), s["level"])
+    # the sheets: displaced meshes with thickness, from relief.py's EXRs; the scans only
+    for nm, s in B.SHEETS.items():
+        alpha = bool(s.get("alpha"))
+        rgb = scan_margin_colour(s["tex"], alpha)
+        side = fibre(nm, rgb)
+        if s.get("backing"):
+            top = m_scan_on_backing(nm, s["tex"], rgb)
+        else:
+            top = m_image_crop(nm, s["tex"], rough=0.72, alpha=alpha, sheen=0.15, bump=0.15)
+        sheet_mesh(nm, top, side)
 
-    # the simulation's own collision geometry, drawn
-    cord_rgb = (0.36, 0.27, 0.17)
-    film_base = m_plain("film base", (0.10, 0.08, 0.06), 0.35)
     st = lay["stations"]
+    film_base = m_plain("film base", (0.10, 0.08, 0.06), 0.35)
+    cotton = m_plain("khipu cotton", (0.36, 0.27, 0.17), 0.9, sheen=0.4)
     for n, g in geoms.items():
-        if n in ("oak", "tablet") or n in S or n.startswith(("fold_", "atlas", "ribs")):
+        if g["type"] == "hfield" or n in ("oak", "tablet"):
             continue
         if window != "tail" and n in ("felt", "record"):
             continue                      # the prefix is shared: no film's felt or record in it
         if n.startswith(("galley", "rail", "step", "shelf")):
             geom_obj(n, g, BRASS_M)
         elif n.startswith(("knot", "cord")):
-            geom_obj(n, g, m_plain("khipu cotton", cord_rgb, 0.9, sheen=0.4) if n == "knot1" or n == "cord0" else
-                     bpy.data.materials.get("khipu cotton"))
+            geom_obj(n, g, cotton)
         elif n == "tape":
-            x0 = g["pos"][0] - g["size"][0]
-            x1 = g["pos"][0] + g["size"][0]
-            frac = (x1 - x0) / B.TAPE["len"]
-            s = {"cx": (x0 + x1) / 2, "cy": g["pos"][1], "W": x1 - x0, "H": B.TAPE["w"], "psi": 0.0}
-            sheet("T-09 Morse tape", s, m_image_crop("T-09 tape", "T-09_tape", u=(0.0, min(frac, 1.0)), rough=0.75),
-                  g["pos"][2] + g["size"][2])
+            s = {"cx": g["pos"][0], "cy": g["pos"][1], "W": 2 * g["size"][0], "H": 2 * g["size"][1],
+                 "psi": 2 * math.degrees(math.atan2(g["quat"][3], g["quat"][0]))}
+            sheet("T-09 Morse tape", s, m_image_crop("T-09 tape", "T-09_tape", rough=0.75), g["pos"][2] + g["size"][2] + 0.0001)
+        elif n == "card":
+            ob = geom_obj("blank Hollerith card", g, m_plain("manila card", (0.66, 0.58, 0.42), 0.75, sheen=0.15))
         elif n == "strip_c":
-            x0 = g["pos"][0] - g["size"][0]
-            s = {"cx": g["pos"][0], "cy": g["pos"][1], "W": 2 * g["size"][1], "H": 2 * g["size"][0], "psi": 90.0}
-            ln = 2 * g["size"][1]
-            frames_v = ln / (2 * g["size"][0] * 288 / 384) / 24
-            sheet("T-16 Grand Canal strip", s, m_image_crop("T-16 strip", "T-16_atlas", u=(0.0, 0.25),
-                                                             v=(0.0, min(frames_v, 1.0)), rough=0.3),
-                  g["pos"][2] + g["size"][2] + 0.00001)
+            ob = geom_obj("35 mm strip (picture band)", g, film_base)
         elif n.startswith("strip_p"):
             geom_obj(n, g, film_base)
         elif n == "platen":
-            ob = geom_obj(n, g, m_plain("platen rubber", (0.018, 0.017, 0.016), 0.55))
-            for sgn in (-1, 1):
-                gg = dict(g)
-                gg["size"] = (g["size"][0] * 0.55, 0.004)
-                gg["pos"] = (g["pos"][0], g["pos"][1] + sgn * (g["size"][1] + 0.004), g["pos"][2])
-                geom_obj(f"platen end {sgn}", gg, BRASS_M)
+            geom_obj(n, g, m_plain("platen rubber", (0.018, 0.017, 0.016), 0.55))
         elif n == "felt":
             geom_obj(n, g, m_felt())
         elif n == "record":
-            F = B.FILMS[rec]
             s = {"cx": g["pos"][0], "cy": g["pos"][1], "W": 2 * g["size"][0], "H": 2 * g["size"][1], "psi": 0.0}
+            rinfo = tb["meta"]["record"]
+            if not rinfo.get("upright"):
+                s = {"cx": s["cx"], "cy": s["cy"], "W": s["H"], "H": s["W"], "psi": 90.0}
             sheet(f"record {rec}", s, m_image_crop("record", F["tex"], rough=0.8, sheen=0.1), g["pos"][2] + g["size"][2])
     if "stick" in st:
-        stick_chart(st["stick"], st["stick"]["level"])
+        stick_chart_v4(st["stick"])
 
     # moving bodies
     bpy.ops.mesh.primitive_cylinder_add(vertices=128, radius=0.0225, depth=0.003)
@@ -519,8 +821,7 @@ def build():
             marble(f"clay marble {n}", P[n], f0, f1, clay)
     gl = st.get("galley")
     if gl:
-        qh = gl["quad_half"]
-        sh = gl["stop_half"]
+        qh, sh = gl["quad_half"], gl["stop_half"]
         for i in range(12):
             if P.get(f"quad{i + 1}"):
                 ob = RS.box(f"type {i + 1} (blank)", (2 * qh[0], 2 * qh[1], 2 * qh[2]), (0, 0, 0), type_metal, 0.0002)
@@ -530,7 +831,7 @@ def build():
             RS.bake_track(ob, P["stop"], f0, f1)
     for n, kind in (("reel_reg", "reg"), ("reel_film", "film")):
         if P.get(n) and n in st:
-            reel(n, st[n], P[n], f0, f1, kind)
+            reel_v4(n, st[n], P[n], f0, f1, kind)
     if P.get("brass"):
         A_, T_ = B.BRASS["A"], B.BRASS["T"]
         bpy.ops.mesh.primitive_cylinder_add(vertices=128, radius=A_, depth=2 * T_)
@@ -544,12 +845,12 @@ def build():
 
     # camera and lamp, keyed per frame from the plan (seconds)
     cam = RS.camera()
-    lamp, iris = iris_lamp()
+    lamp, iris = iris_lamp_v4()
     card = RS.bounce_card((0, 0, 0.1), (0, 0, 0))
     frames = list(range(f0 - 1, f1 + 2))
     eyes, tgts, focus, fst = [], [], [], []
     rec_g = geoms.get("record")
-    F = B.FILMS.get(rec)
+    a_, dsc, c_ = F["tail"][0], F["tail"][1], F["tail"][2]
     for f in frames:
         r = CR.at(cam_rows, f / FPS)
         eyes.append(Vector(r["eye"]))
@@ -557,42 +858,54 @@ def build():
         focus.append(r["focus"])
         fst.append(r["fstop"])
         T = Vector(r["target"])
-        Dd = r["D"]
-        t = f / FPS
-        # the lamp on the arm: above and behind the camera's left shoulder, scaled with the distance
-        lp = T + Vector((-0.96, -1.31, 1.83)) * Dd
-        aim = T
-        if window == "tail" and rec_g is not None:
-            # in the tail the lamp swings over the record so its iris can close square on it
-            rc = Vector((rec_g["pos"][0], rec_g["pos"][1], 0.0))
-            u = CR.smoothstep((t * B.FPS - 940) / 40.0)
-            over = rc + Vector((0, 0, 0.9))
-            lp = lp.lerp(over, u)
-            aim = T.lerp(rc, u)
+        Dd, yaw = r["D"], r["yaw"]
+        fd = f / FPS * B.FPS                                     # the design's frame (24 fps) for this instant
+        # on the arm: the latch's approved offset (behind the camera's left shoulder, 2.45 D) close in; at height the lamp
+        # rides beside the camera at 30 degrees off its axis, so relief and edges still throw shadows
+        ya = math.radians(yaw - 90.0)
+        def rot(v):
+            return Vector((v[0] * math.cos(ya) - v[1] * math.sin(ya), v[0] * math.sin(ya) + v[1] * math.cos(ya), v[2]))
+        near = T + rot((-0.96, -1.31, 1.83)) * Dd
+        far = Vector(r["eye"]) + rot((-0.45 * Dd, -0.35 * Dd, 0.05))
+        k = CR.smoothstep((Dd - 0.6) / 0.6)
+        lp = near.lerp(far, k)
         lamp.location = lp
-        lamp.rotation_quaternion = (aim - lp).to_track_quat("-Z", "Y")
-        dist = (aim - lp).length
+        lamp.rotation_quaternion = (T - lp).to_track_quat("-Z", "Y")
+        dist = (T - lp).length
+        # the dimmer rides with the distance squared so the exposure holds
         energy = 9.0 * (dist / 0.55) ** 2
-        k_up = CR.smoothstep((t * B.FPS - 36) / 12.0)
-        lamp.data.energy = energy * k_up
+        lamp.data.energy = energy * CR.smoothstep((fd - 36) / 12.0)
         lamp.keyframe_insert("location", frame=f)
         lamp.keyframe_insert("rotation_quaternion", frame=f)
         lamp.data.keyframe_insert("energy", frame=f)
-        a = b = 50.0
+        # the iris: from the latch's open pool to 1.4 times the frame's footprint on beats 2-8; in the tail it follows
+        # the frame, then closes to 5 mm inside the record
+        fw, fh = CR.KW * Dd, CR.KH * Dd
+        ia, ib = 1.4 * fw / 2 / dist, 1.4 * fh / 2 / dist
+        if fd < 167:
+            ia = ib = 50.0
+        elif fd < 230:
+            u = CR.smoothstep((fd - 167) / 63.0)
+            ia, ib = 50.0 + (ia - 50.0) * u, 50.0 + (ib - 50.0) * u
+        dark = B.DARK_X0
         if window == "tail" and rec_g is not None:
-            fc0 = B.PREFIX_FRAMES + F["tail"][0]
-            u = CR.smoothstep((t * B.FPS - fc0) / F["tail"][1])
-            h = 0.9 - rec_g["pos"][2]
-            a_end = (rec_g["size"][0] - 0.005) / h
-            b_end = (rec_g["size"][1] - 0.005) / h
-            a0 = math.tan(math.radians(40))
-            a = a0 + (a_end - a0) * u if t * B.FPS >= fc0 else 50.0
-            b = a0 + (b_end - a0) * u if t * B.FPS >= fc0 else 50.0
-        iris["X"].outputs[0].default_value = a
-        iris["Y"].outputs[0].default_value = b
-        iris["X"].outputs[0].keyframe_insert("default_value", frame=f)
-        iris["Y"].outputs[0].keyframe_insert("default_value", frame=f)
-        card.location = T + Vector((0.55, -0.35, 0.30)) * Dd
+            f_find = B.PREFIX_FRAMES
+            dark = B.DARK_X0 + (B.TABLE["size"][0] + 0.3 - B.DARK_X0) * CR.smoothstep((fd - f_find - 12) / (a_ - 12))
+            fc0 = B.PREFIX_FRAMES + a_ + dsc
+            if fd >= fc0:
+                u = CR.smoothstep((fd - fc0) / c_)
+                h = lp.z - rec_g["pos"][2]
+                ia_end = (rec_g["size"][0] - 0.005) / h
+                ib_end = (rec_g["size"][1] - 0.005) / h
+                ia, ib = ia + (ia_end - ia) * u, ib + (ib_end - ib) * u
+        iris["X"].outputs[0].default_value = ia
+        iris["Y"].outputs[0].default_value = ib
+        iris["lamp_x"].outputs[0].default_value = lp.x
+        iris["lamp_z"].outputs[0].default_value = lp.z
+        iris["dark_x"].outputs[0].default_value = dark
+        for key in ("X", "Y", "lamp_x", "lamp_z", "dark_x"):
+            iris[key].outputs[0].keyframe_insert("default_value", frame=f)
+        card.location = T + rot((0.55, -0.35, 0.30)) * min(Dd, 1.0)
         card.rotation_quaternion = (T - card.location).to_track_quat("Z", "Y")
         card.keyframe_insert("location", frame=f)
         card.keyframe_insert("rotation_quaternion", frame=f)
@@ -606,12 +919,13 @@ def build():
 def main():
     import time
     t0 = time.time()
-    # temp files on D:, never C: (C: is nearly full)
     Path("D:/document-media/title-sequence/run/tmp").mkdir(parents=True, exist_ok=True)
     bpy.context.preferences.filepaths.temporary_directory = "D:/document-media/title-sequence/run/tmp/"
     RS.ARGS["calib"] = A["calib"]
     sc, f0, f1 = build()
     RS.render_settings(sc)
+    if A["calib"] and A.get("res"):
+        sc.render.resolution_x, sc.render.resolution_y = (int(v) for v in A["res"].split("x"))
     if A["samples"]:
         sc.cycles.samples = int(A["samples"])
     sc.render.fps, sc.render.fps_base = FPSV

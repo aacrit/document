@@ -176,3 +176,18 @@ def corners(cx, cy, W, H, psi_deg, u_range=None):
     for u, v in ((u0, -H / 2), (u1, -H / 2), (u1, H / 2), (u0, H / 2)):
         out.append((cx + u * cu - v * su, cy + u * su + v * cu))
     return out
+
+
+def lay_by_plan(name):
+    """v4: a sheet at the plan's centre and turn (bench.SHEETS), with the sheets it overlaps, each marked over or
+    under by the layer order: {cx, cy, psi, W, H, corners, over: [...], under: [...]}."""
+    import bench as B
+    s = B.SHEETS[name]
+    W, H = s["size"]
+    poly = B.sheet_corners(name)
+    out = {"cx": s["centre"][0], "cy": s["centre"][1], "psi": s["psi"], "W": W, "H": H, "corners": poly,
+           "over": [], "under": []}
+    for other in B.SHEETS:
+        if other != name and B.overlap(poly, B.sheet_corners(other)):
+            out["over" if s["layer"] > B.SHEETS[other]["layer"] else "under"].append(other)
+    return out

@@ -1,10 +1,12 @@
-"""The Run: plan the camera from the bake and measure it against the pan guide (runs in the D: venv).
+"""The Run v4: plan the camera from the bake and measure it (runs in the D: venv).
 
     D:/document-media/tools/run-venv/Scripts/python.exe design/title-sequence/blender/run/plan_camera.py [--films ...]
 
-Writes D:/document-media/title-sequence/run/sim/camera-prefix.json (shared by every film) and camera-<record>.json
-(the prefix rows unchanged up to f935, then the tail), each with the measured pan-speed maxima per beat at 24 fps and,
-for the record, at 30000/1001; and whether the leading marble is in frame, per beat.
+Writes D:/document-media/title-sequence/run/sim/v4/camera-prefix.json (shared by every film) and camera-<record>.json
+(the prefix rows unchanged up to f935, then the tail), each with ticket 5's measures: the pan guide per beat at 24 and
+at 30000/1001 (the frame's centre, which the limiter holds, and a 3 x 3 ground grid), the lead marble's in-frame share
+on beats 2-3, the brass disc's through its settle, the whole table in the f935 frame with its margins, and in each tail
+whether the record fills the close's last frame with no felt in it.
 """
 
 from __future__ import annotations
@@ -21,71 +23,123 @@ sys.path.insert(0, str(HERE))
 import bench as B  # noqa: E402
 import camera_run as CR  # noqa: E402
 
-SIM = Path("D:/document-media/title-sequence/run/sim")
+SIM = Path("D:/document-media/title-sequence/run/sim/v4")
 
 
-def in_frame_share(rows, poses, f0, f1):
-    names = ["lead", "pair1", "pair2"]
+def in_frame_share(rows, track, f0, f1, margin=0.0):
     n = k = 0
     for f in range(f0, f1 + 1):
         t = f / 24
-        fr = CR.front_track(poses, names, [t])[0]
-        if fr is None:
+        if not track or t < track[0][0] or t > track[-1][0]:
             continue
+        p = CR.interp_track(track, t)
         n += 1
-        k += CR.in_frame(CR.at(rows, t), fr)
+        k += CR.in_frame(CR.at(rows, t), p, -margin)
     return round(k / n, 3) if n else None
+
+
+def table_margins(rows, f):
+    """The table's four corners in the frame at frame f, as fractions of the frame inside each side (positive inside)."""
+    r = CR.at(rows, f / 24)
+    W, H = B.TABLE["size"]
+    pts = [CR.project(r, (x, y, 0.0)) for x, y in ((0, 0), (W, 0), (W, H), (0, H))]
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    return {"left": round(min(xs) / 1920, 3), "right": round(1 - max(xs) / 1920, 3), "top": round(min(ys) / 1080, 3),
+            "bottom": round(1 - max(ys) / 1080, 3)}
+
+
+def record_fills(rows, f, rec):
+    """At frame f: the four frame corners land on the record (no felt in the frame)."""
+    r = CR.at(rows, f / 24)
+    ok = True
+    for px, py in ((0, 0), (1920, 0), (0, 1080), (1920, 1080)):
+        g = CR.ray_to_bench(r, px, py, z=rec["z"])
+        ok &= g is not None and rec["x0"] <= g[0] <= rec["x0"] + rec["W"] and abs(g[1] - rec["y"]) <= rec["H"] / 2
+    return bool(ok)
+
+
+def pan_report(rows, f_end, extra=()):
+    out = {}
+    for fps, key in ((24.0, "24"), (30000 / 1001, "2997")):
+        m = CR.beat_maxima(rows, f_end, fps=fps, extra=extra)
+        out[key] = m
+    return out
+
+
+def guide_met(pan, exempt=("2-3 papyrus, hinge (exempt)",)):
+    """The guide (11 px and 6 px a frame at 24p, 24p-equivalent at 29.97) on the frame's centre, every beat but the
+    exemption."""
+    bad = []
+    for key, beats in pan.items():
+        for b in beats:
+            if b["beat"] in exempt or b["beat"].startswith("0 "):
+                continue
+            if b["centre_x"] > 11.0 or b["centre_y"] > 6.0:
+                bad.append((key, b["beat"], b["centre_x"], b["centre_y"]))
+    return bad
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--films", default="C20-METAR-0851,S-130,S-16928")
+    ap.add_argument("--until-frame", type=int, default=0, help="the working stretch only (milestone A, reduced)")
     a = ap.parse_args()
+    f_end = a.until_frame or 935
     bake = json.loads((SIM / "run-bake.json").read_text(encoding="utf-8"))
     lay = json.loads((SIM / "run-layout.json").read_text(encoding="utf-8"))
     P = bake["poses"]
     t_pre = B.PREFIX_FRAMES / B.FPS
-    pre = CR.plan(P, lay, t_end=t_pre + 0.5)
-    pan = CR.beat_maxima(pre, 935)
-    pan_ntsc = CR.beat_maxima(pre, 935, fps=30000 / 1001)
-    share = {b[0]: in_frame_share(pre, P, max(b[1], 121), b[2]) for b in CR.BEATS[2:]}
-    (SIM / "camera-prefix.json").write_text(json.dumps({"rows": pre, "pan_24": pan, "pan_2997": pan_ntsc,
-                                                        "front_in_frame": share}), encoding="utf-8")
-    print("prefix pan (24p px/frame):")
-    for r in pan:
-        print("  ", r)
-    print("front marble in frame:", share)
+    pre = CR.plan(P, lay, t_end=(f_end + 12) / 24 if a.until_frame else t_pre + 0.5)
+    pan = pan_report(pre, f_end)
+    ck = lay.get("checks", {})
+    br = lay["stations"].get("brass", {})
+    f_settle = (int(br.get("frame_land", 866)), min(int(br.get("frame_slap", 926)) + 6, 935))
+    meas = {"pan": pan, "guide_violations": guide_met(pan),
+            "lead_in_frame_beats_2_3": in_frame_share(pre, P["lead"], 167, 330), "turns": ck.get("turns")}
+    if not a.until_frame:
+        meas["brass_in_frame_settle"] = in_frame_share(pre, P.get("brass", []), *f_settle)
+        meas["table_margins_f935"] = table_margins(pre, 935)
+        meas["wide_ok"] = all(v >= 0.05 for v in meas["table_margins_f935"].values())
+    shares = {}
+    for name, f0, f1 in CR.BEATS[2:]:
+        if f0 <= f_end:
+            shares[name] = in_frame_share(pre, P["lead"], max(f0, 121), min(f1, f_end))
+    if a.until_frame:
+        (SIM / "camera-prefix.json").write_text(json.dumps({"rows": pre, "measures": {**meas, "lead_in_frame_by_beat": shares}}),
+                                                encoding="utf-8")
+        print("WARP U1", (ck.get("turns") or [{}])[0].get("frame"), "quad1", lay["stations"].get("galley", {}).get("t_quad1"))
+        print("STRETCH " + json.dumps({k: v for k, v in {**meas, "lead_in_frame_by_beat": shares}.items() if k != "pan"}))
+        for b in pan["24"]:
+            print("  24p", b)
+        return
+    meas["lead_in_frame_by_beat"] = shares
+    (SIM / "camera-prefix.json").write_text(json.dumps({"rows": pre, "measures": meas}), encoding="utf-8")
+    print("PREFIX " + json.dumps({k: v for k, v in meas.items() if k != "pan"}))
+    for b in pan["24"]:
+        print("  24p", b)
     for rec in [r for r in a.films.split(",") if r]:
         p = SIM / f"run-tail-{rec}-bake.json"
         if not p.exists():
             continue
         tb = json.loads(p.read_text(encoding="utf-8"))
         F = B.FILMS[rec]
-        t_end = (B.PREFIX_FRAMES + F["tail"][0] + F["tail"][1]) / B.FPS + 0.5
+        fa, fd, fc = F["tail"][0], F["tail"][1], F["tail"][2]
+        t_end = (B.PREFIX_FRAMES + fa + fd + fc) / B.FPS + 0.5
         rows = CR.plan(P, lay, tail={"poses": tb["poses"], "record": tb["meta"]["record"], "windows": F["tail"]},
                        t_end=t_end)
-        # the prefix is shared: up to f935 the rows are the prefix's own; after it the tail's, eased onto them
-        ts = np.array([r["t"] for r in rows])
-        j = int(np.searchsorted(ts, t_pre))
-        p_end = CR.at(pre, t_pre)
-        d_eye = np.array(p_end["eye"]) - np.array(rows[j]["eye"])
-        d_tgt = np.array(p_end["target"]) - np.array(rows[j]["target"])
-        out = [r for r in pre if r["t"] < t_pre]
-        for r in rows[j:]:
-            u = CR.smoothstep((r["t"] - t_pre) / 1.5)
-            r = dict(r)
-            r["eye"] = (np.array(r["eye"]) + d_eye * (1 - u)).tolist()
-            r["target"] = (np.array(r["target"]) + d_tgt * (1 - u)).tolist()
-            out.append(r)
-        a_, c_ = F["tail"][0], F["tail"][1]
-        extra = [("13 approach", 936, 936 + a_ - 1), ("14 close", 936 + a_, 936 + a_ + c_ - 1)]
-        tpan = CR.beat_maxima(out, 936 + a_ + c_ - 1, extra=extra)[-2:]
-        tpan_n = CR.beat_maxima(out, 936 + a_ + c_ - 1, fps=30000 / 1001, extra=extra)[-2:]
-        Pt = {n: P[n] + [r for r in tb["poses"].get(n, []) if r[0] > P[n][-1][0]] for n in ("lead", "pair1", "pair2")}
-        (SIM / f"camera-{rec}.json").write_text(json.dumps({"rows": out, "pan_24": pan + tpan, "pan_2997": pan_ntsc + tpan_n,
-                                                            "front_in_frame_approach": in_frame_share(out, Pt, 936, 936 + a_ - 1)}),
-                                                encoding="utf-8")
-        print(rec, "tail pan:", tpan)
+        # the prefix is shared: up to f935 the rows are the prefix's own
+        out = [r for r in pre if r["t"] < t_pre] + [r for r in rows if r["t"] >= t_pre]
+        extra = [("13 find", 936, 935 + fa), ("14 descend", 936 + fa, 935 + fa + fd),
+                 ("15 close", 936 + fa + fd, 935 + fa + fd + fc)]
+        tpan = pan_report(out, 935 + fa + fd + fc, extra=extra)
+        tpan = {k: [b for b in v if b["beat"][:2] in ("13", "14", "15")] for k, v in tpan.items()}
+        last = 935 + fa + fd + fc
+        tm = {"pan": tpan, "guide_violations": guide_met(tpan, exempt=("14 descend", "15 close")),
+              "record_fills_close_end": record_fills(out, last, tb["meta"]["record"]),
+              "marbles_in_frame_find": in_frame_share(out, P["lead"] + [r for r in tb["poses"]["lead"] if r[0] > t_pre],
+                                                      936, 935 + fa)}
+        (SIM / f"camera-{rec}.json").write_text(json.dumps({"rows": out, "measures": tm}), encoding="utf-8")
+        print("TAIL", rec, json.dumps({k: v for k, v in tm.items() if k != "pan"}), json.dumps(tpan["24"]))
 
 
 if __name__ == "__main__":
