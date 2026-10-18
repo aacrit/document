@@ -547,3 +547,48 @@ def test_property_the_subject_pass_never_leaves_a_person_or_must_show_unseen(see
     if shot.get("no_zoom"):
         assert all(f["z"] == pytest.approx(1.0) for f in all_frames(cam, dur, 8.0))
     assert all(f["z"] >= 1.0 - 1e-9 for f in all_frames(cam, dur, 8.0))
+
+
+# --------------------------------------------------------------------------
+# Re-review: a matched whole sweep never comes back; holds fit the time; times only go forward
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("seed", range(48))
+def test_a_whole_sweep_opened_by_a_match_never_comes_back(seed):
+    rng = random.Random(seed)
+    size = rng.choice([L43, L32, PORTRAIT, WIDE, (1000, 750)])
+    item = {"people": rng.choice([False, "none visible"]), "class": rng.choice(["place", "crowd", "document"])}
+    cam, s = cam_for(item, size, rng.uniform(2.5, 20.0), _match_screen=[rng.random(), rng.random()], match="prev",
+                     fps=NTSC, no_zoom=rng.random() < 0.5)
+    assert cam["subject"]["src"] == "whole" and cam["subject"]["whole_mode"] == "sweep"
+    assert not T.reversals(cam["tour"])
+    assert cam["tour"]["stops"][0].get("match") == "prev"
+
+
+def test_a_whole_sweep_that_a7_needs_drops_a_match_that_cannot_show_it_all():
+    cam, s = engine({"people": "a crowd", "class": "crowd"}, L43, dur=8.0, fps=NTSC,
+                    _match_screen=[0.5, 0.5], match="prev")
+    assert not T.reversals(cam["tour"])
+    wins = [w for _, w in R.still_windows(cam, s, L43, W, H, hz=NTSC)]
+    assert T.people_check(wins, T.people_of(s["_item"]), L43)["ok"]
+
+
+@pytest.mark.parametrize("size,dur", [((1200, 1600), 2.5), ((1200, 1600), 1.2), ((1000, 750), 1.2)])
+def test_holds_on_people_fit_the_time_and_stop_times_only_go_forward(size, dur):
+    boxes = [(0.1 + 0.2 * k, 0.05 + 0.18 * k, 0.15 + 0.2 * k, 0.2 + 0.18 * k) for k in range(4)]
+    pose = {"z": 1.0, "x": 0.5, "y": 0.5}
+    wps = [dict(T.settle({"z": 1.0, "x": (b[0] + b[2]) / 2, "y": (b[1] + b[3]) / 2}, size, A), _hold=0.3)
+           for b in boxes]
+    stops, timing = T.subject_stops(size, A, dur, pose, arrive=dur, settle_s=1.0, need_whole=True,
+                                    waypoints=wps, hz=NTSC)
+    ts = [st["t"] for st in stops]
+    assert all(b >= a - 1e-9 for a, b in zip(ts, ts[1:])) and ts[-1] <= dur + 1e-9
+    moves = [(a, b) for a, b in zip(stops, stops[1:]) if not T._same(a, b)]
+    assert all(b["t"] > a["t"] for a, b in moves)            # every move takes time
+    T.build(stops, dur, size, A, 3.0)
+
+
+def test_build_refuses_engine_stop_times_that_go_back():
+    with pytest.raises(T.TourError, match="go back"):
+        T.build([{"t": 0.0, "z": 1, "x": .5, "y": .5}, {"t": 1.0, "z": 1, "x": .5, "y": .2},
+                 {"t": 0.5, "z": 1, "x": .5, "y": .8}], 2.0, L43, A, 3.0)

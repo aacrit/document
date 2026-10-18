@@ -677,7 +677,7 @@ def leg_min_s(a: dict, b: dict, size, aspect: float) -> float:
 
 def subject_stops(size, aspect: float, dur: float, pose: dict, *, arrive: float, settle_s: float,
                   need_whole: bool = False, start: dict | None = None, breath: bool = False,
-                  from_near: bool = False, waypoints=()) -> tuple[list[dict], dict]:
+                  from_near: bool = False, waypoints=(), hz: float = 24.0) -> tuple[list[dict], dict]:
     """A47's default pass, ending on the subject: it opens at the end of the
     picture's long axis furthest from the subject (or, ``start``, where a
     ``match: prev`` puts the subject), sweeps once and lands on ``pose`` at
@@ -693,7 +693,10 @@ def subject_stops(size, aspect: float, dur: float, pose: dict, *, arrive: float,
     late (A7 first). ``waypoints`` (framings with ``_hold`` seconds, used
     with ``need_whole``) are visited in order along the sweep between the far
     and the near end, and held there: a person the sweep would pass between
-    two frames is held whole in frame. Returns (stops, timing)."""
+    two frames is held whole in frame. The holds take at most half of the
+    time before the arrival, each at least one frame at ``hz``; when even
+    that does not fit, the arrival runs late, up to the cut (A7 first).
+    Returns (stops, timing), the stop times never going back."""
     ax = long_axis(size, aspect)
     pose = dict(pose, **settle(pose, size, aspect))
     pose.setdefault("from", "A47: the subject")
@@ -765,19 +768,29 @@ def subject_stops(size, aspect: float, dur: float, pose: dict, *, arrive: float,
             timing["why"] = "a short lead-in: the sweep opens as far out as the speed guides allow"
     timing.setdefault("why", "subject_at" if arrive < latest - EPS else "settled before the cut")
     dist = [sum(_leg_dist(a, b, size, aspect)) for a, b in legs]
-    holds = sum(float(b.get("_hold", 0.0)) for _, b in legs)
+    frame = 1.0 / float(hz)
+    hs = [float(b.get("_hold", 0.0)) for _, b in legs]
+    if sum(hs) > 0.5 * want + EPS:
+        nh = sum(1 for h in hs if h > 0)
+        if nh * frame > 0.5 * want:
+            want = min(dur, max(want, 2.0 * nh * frame))          # the arrival runs late (A7 first)
+            timing["why"] = "A7: the holds on the whole picture need the time, so the subject is reached late"
+        k = min(1.0, 0.5 * want / sum(hs))
+        hs = [max(frame, h * k) if h > 0 else 0.0 for h in hs]
+        if sum(hs) >= want:                                       # a shot too short for even one frame each
+            hs = [0.0 for _ in hs]
+    holds = sum(hs)
     total = sum(dist) or 1.0
     move = max(0.0, want - holds)
     out = [dict(path[0], t=0.0)]
     t = 0.0
-    for (_, b), d in zip(legs, dist):
+    for (_, b), d, h in zip(legs, dist, hs):
         t += move * d / total
-        h = float(b.get("_hold", 0.0))
         out.append(dict(b, t=t))
         if h > 0.0:
             t += h
             out.append(dict(b, t=t))
-    out[-1]["t"] = want
+    out[-1]["t"] = max(want, out[-2]["t"]) if len(out) > 1 else want
     for st in out:
         st.pop("_hold", None)
     timing["arrive_s"] = round(want, 3)
@@ -998,16 +1011,33 @@ def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], w
         stops, timing = [dict(pose, t=0.0)], {"arrive_s": 0.0, "why": "whole: held from the cut, one breath (a "
                                               "drift) and no other move"}
     elif whole and mode == "sweep":
-        stops, timing = subject_stops(size, aspect, dur, pose, arrive=arrive, settle_s=settle_s, need_whole=True,
-                                      start=start, breath=True, waypoints=waypoints)
-        timing["why"] = "whole: one sweep end to end, then a drift"
+        sweep_whole = True
+        if start is not None:
+            # founder ruling (c): one sweep, never back. A match opens it, so it runs from the opening to the end
+            # farther from it, the ruling's end when that is the farther one; that shows the whole picture only
+            # when the opening is at the other end. When A7 needs the whole and it is not, the match gives way
+            ax = long_axis(size, aspect)
+            ends = [settle({"z": 1.0, "x": 0.5, "y": 0.5, ax: v}, size, aspect) for v in (0.0, 1.0)]
+            s0 = settle(start, size, aspect)
+            far = max(ends, key=lambda e: abs(e[ax] - s0[ax]))
+            near = min(ends, key=lambda e: abs(e[ax] - s0[ax]))
+            from_end = abs(s0[ax] - near[ax]) * (size[0] if ax == "x" else size[1]) <= 0.5 and s0["z"] <= 1.0 + EPS
+            if need_whole and not from_end:
+                start, match_err, opens = None, None, "the match gives way: A7 needs the whole picture swept"
+            else:
+                pose.update(x=far["x"], y=far["y"], z=far["z"])
+                sweep_whole = False
+        stops, timing = subject_stops(size, aspect, dur, pose, arrive=arrive, settle_s=settle_s,
+                                      need_whole=sweep_whole, start=start, breath=True, waypoints=waypoints, hz=hz)
+        timing["why"] = "whole: one sweep end to end, then a drift" if sweep_whole else (
+            "whole: one sweep from the match opening to the farther end, then a drift")
     else:
         stops = timing = None
         tries = (False, True) if not need_whole and start is None and seeing else (False,)
         for near in tries:
             stops, timing = subject_stops(size, aspect, dur, pose, arrive=arrive, settle_s=settle_s,
                                           need_whole=need_whole, start=start, breath=True, from_near=near,
-                                          waypoints=waypoints)
+                                          waypoints=waypoints, hz=hz)
             if not seeing or need_whole:
                 break
             tl = build(stops, dur, size, aspect, zmax, no_zoom=no_zoom)
@@ -1019,7 +1049,7 @@ def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], w
             # A47 and A7: no single sweep ending on the subject shows every located person and must_show region
             need_whole = True
             stops, timing = subject_stops(size, aspect, dur, pose, arrive=arrive, settle_s=settle_s,
-                                          need_whole=True, start=start, breath=True, waypoints=waypoints)
+                                          need_whole=True, start=start, breath=True, waypoints=waypoints, hz=hz)
             opens = "both ends: no single sweep ending on the subject shows every person and must_show region"
     if opens:
         timing["opens"] = opens
@@ -1201,6 +1231,11 @@ def build(stops: list[dict], dur: float, size, aspect: float, zmax: float, *, no
     the picture first."""
     if not stops:
         raise TourError("a path needs at least one stop")
+    for a, b in zip(stops, stops[1:]):
+        if float(b["t"]) < float(a["t"]) - 1e-6 and not (authored(a) or authored(b)):
+            # an engine bug, never a silent path (a written path out of order is tour-path's to refuse)
+            raise TourError(f"stop times go back: {b.get('from')} at {float(b['t']):.3f} s after "
+                            f"{a.get('from')} at {float(a['t']):.3f} s")
     pts = [dict(settle(s, size, aspect), t=float(s["t"]), hold=float(s.get("hold", 0.0))) for s in stops]
     after = TOUR["hold_creep_after_s"]
     segs: list[dict] = []

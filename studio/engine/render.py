@@ -980,13 +980,15 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
         held = [p["box"] for p in people["boxes"] if not T.seen(wins, p["box"], size)]
         held += [T.roi_box(r) for r in item.get("roi") or [] if isinstance(r, dict) and r.get("name") in names]
         cam = still_camera(s, size, W, H, words=words, cover="whole", fps=fps, hold_on=held)
+        wins, pc = check(cam)                 # the held pass, checked again (tour-people judges it as drawn)
     if journal is not None:
         journal.decision("motion", f"{s['id']}: {macro} made a covering pass of the whole picture, ending on the "
                          "subject", "A41, A7 and A47: as written a person or a must_show region would go unseen; "
                          "the pass shows the whole picture" + (", holding on each it would pass between frames"
                                                                 if held else "") + ", then settles on the subject",
                          unit=s["id"], evidence={"people": people, "kind": s["kind"], "missed": missed,
-                                                 "must_show_missed": ms, "held_on": len(held)})
+                                                 "must_show_missed": ms, "held_on": len(held),
+                                                 "now_shows_everyone": pc["ok"]})
     return cam
 
 
