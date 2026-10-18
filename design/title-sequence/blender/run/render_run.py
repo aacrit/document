@@ -45,6 +45,23 @@ def log(**kw):
     print(json.dumps(kw), flush=True)
 
 
+TMP = Path("D:/document-media/title-sequence/run/tmp")
+C_MIN_GB = 6.0
+
+
+def d_env() -> dict:
+    """The environment for Blender and helpers: temp files on D:, never C: (C: is nearly full)."""
+    TMP.mkdir(parents=True, exist_ok=True)
+    env = dict(os.environ)
+    for k in ("TEMP", "TMP", "TMPDIR"):
+        env[k] = str(TMP)
+    return env
+
+
+def c_free_ok() -> bool:
+    return shutil.disk_usage("C:/").free / 1e9 >= C_MIN_GB
+
+
 def d_dirty() -> bool:
     return "NOT Dirty" not in subprocess.run(["fsutil", "dirty", "query", "D:"], capture_output=True, text=True).stdout
 
@@ -116,6 +133,8 @@ def render(blend: Path, out_dir: Path, frames: list[int], label: str) -> list[fl
         sys.exit("D: is dirty: not rendering")
     if shutil.disk_usage("D:/").free < 20e9:
         sys.exit("D: has under 20 GB free: not rendering")
+    if not c_free_ok():
+        sys.exit(f"C: has under {C_MIN_GB} GB free: not rendering (report to the coordinator)")
     wait_clear()
     args = [BL, "--background", str(blend), "--python", str(REPO / "design/title-sequence/blender/gpu.py"),
             "-o", str(out_dir / "####"), "-F", "PNG"]
@@ -124,7 +143,8 @@ def render(blend: Path, out_dir: Path, frames: list[int], label: str) -> list[fl
     else:
         args += ["-f", ",".join(map(str, frames))]
     t0 = time.time()
-    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
+                            env=d_env())
     MY_LOCK.write_text(json.dumps({"group": "WG-4", "job": f"The Run ({label})", "pid": proc.pid,
                                    "started": dt.datetime.now().isoformat(timespec="seconds")}), encoding="utf-8")
     lines = []

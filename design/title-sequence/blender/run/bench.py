@@ -23,13 +23,13 @@ MASS = RHO_CLAY * 4.0 / 3.0 * 3.141592653589793 * R ** 3
 
 # the bench's fall (along +x), and the latch's own steeper fall by the disc (founder, latch re-proof)
 FALL_DEG = 0.3
-LOWER_FALL_DEG = 0.5                         # the bench's lower half, from Ino on: the stations take energy, the fall gives it back
+LOWER_FALL_DEG = 0.5                         # the bench's lower half, from the card on: the stations take energy, the fall gives it back
 PIRI_FALL_DEG = 0.8                          # the design's fall, from Piri Reis's edge to the galley: the run gathers for the type
 LATCH_FALL_DEG = 2.5
 LATCH_ZONE_X = 0.0                          # the steeper fall ends at the disc's centre line
 
 # rolling resistance as a ratio (MuJoCo's rolling friction is this times R, a length), per surface
-RR = {"oak": 0.004, "papyrus": 0.0098, "vellum": 0.0050, "parchment": 0.0035, "leaf": 0.006, "washi": 0.0082,
+RR = {"oak": 0.004, "papyrus": 0.0078, "vellum": 0.0052, "parchment": 0.0050, "leaf": 0.006, "washi": 0.0070,
       "tape": 0.0065, "card": 0.0065, "page": 0.0065, "chart": 0.0065, "felt": 0.035, "brass": 0.001, "bronze": 0.001}
 
 # the grounds in time order, each a sheet lying on the bench, the older one's downhill edge over the next (roof tiles).
@@ -64,7 +64,7 @@ KHIPU = {"cord_r": 0.0011, "knot_r": 0.0024, "knots": 7}
 QUAD = (0.00127, 0.00635, 0.01015)          # 36-pt 5-to-em thin space, half extents (2.54 x 12.7 x 20.3 mm)
 REEL_REG = {"r": 0.032, "h": 0.012, "mass": 0.012, "damp": 2.0e-6, "fric": 1.5e-6}    # the register's paper reel
 REEL_FILM = {"r": 0.045, "h": 0.010, "mass": 0.022, "damp": 3.0e-6, "fric": 2.0e-6}   # the Lumiere spool
-BRASS = {"A": 0.025, "T": 0.0015, "rho": 8500.0, "lean_deg": 3.0, "C_HZ": 24.0 * (0.0225 / 0.025) ** 0.5,
+BRASS = {"A": 0.025, "T": 0.0015, "rho": 8500.0, "lean_deg": 3.3, "C_HZ": 24.0 * (0.0225 / 0.025) ** 0.5,
          "alpha_land_deg": 5.7}
 
 # the design's event clock (frames at 24 fps): the bake places each station where the lead marble is at its frame

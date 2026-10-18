@@ -53,7 +53,16 @@ def crop_from_camera(rec, cam_rows, t, img_size):
         v = (g[1] - (r["y"] - r["H"] / 2)) / r["H"]
         pts.append((u * w, (1 - v) * h))
     (x0, y0), (x1, y1) = pts
-    return [min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)]
+    c = [min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)]
+    # A41: nothing but the scan inside the frame. If the camera's last pose saw past the sheet's edge, the matching
+    # crop is moved (and if need be shrunk, keeping 16:9) to lie inside the scan; the shift is logged
+    cw, ch = c[2] - c[0], c[3] - c[1]
+    k = min(1.0, w / cw, h / ch)
+    cw, ch = cw * k, ch * k
+    cx, cy = (c[0] + c[2]) / 2, (c[1] + c[3]) / 2
+    cx = min(max(cx, cw / 2), w - cw / 2)
+    cy = min(max(cy, ch / 2), h - ch / 2)
+    return [cx - cw / 2, cy - ch / 2, cx + cw / 2, cy + ch / 2]
 
 
 def final_crop(w, h):

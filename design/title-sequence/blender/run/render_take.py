@@ -35,7 +35,7 @@ def build(window, rec, fps, calib, out):
             "--window", window, "--record", rec, "--fps", fps, "--out", str(out).replace("\\", "/")]
     if calib:
         args += ["--calib", "1"]
-    r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=RR.REPO)
+    r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=RR.REPO, env=RR.d_env())
     m = re.search(r"^RUN-BUILD (.*)$", r.stdout, re.M)
     if r.returncode != 0 or not m:
         sys.exit(f"build {window} failed:\n{r.stdout[-4000:]}\n{r.stderr[-2000:]}")
@@ -52,6 +52,8 @@ def render_chunks(blend, out_dir, f0, f1, label):
         g = min(f + CHUNK - 1, f1)
         todo = [k for k in range(f, g + 1) if not (out_dir / f"{k:04d}.png").exists()]
         if todo:
+            if not RR.c_free_ok():
+                sys.exit(f"C: is under {RR.C_MIN_GB} GB free before chunk {todo[0]}: stopped (report to the coordinator)")
             times = RR.render(blend, out_dir, list(range(todo[0], g + 1)), f"{label}-{todo[0]}")
             stats.append({"frames": [todo[0], g], "mean_s": round(sum(times) / len(times), 2) if times else None})
             if g < f1:
@@ -85,7 +87,7 @@ def main():
     all_stats["tail"] = render_chunks(bt, tail_dir, *info["frames"], f"{a.tag}-tail")
     snd = MEDIA / "masters" / a.tag
     r = subprocess.run([RR.VPY, str(HERE / "foley_take.py"), "--record", rec, "--out-dir", str(snd)],
-                       capture_output=True, text=True, cwd=RR.REPO)
+                       capture_output=True, text=True, cwd=RR.REPO, env=RR.d_env())
     if r.returncode != 0:
         sys.exit(f"foley failed:\n{r.stdout[-2000:]}\n{r.stderr[-3000:]}")
     RR.log(event="foley", record=rec, report=r.stdout.strip().splitlines()[-1][:1500])
@@ -94,7 +96,7 @@ def main():
     r = subprocess.run([RR.VPY, str(HERE / "assemble_take.py"), "--record", rec, "--fps", fps, "--size", size,
                         "--prefix", str(pre_dir), "--tail", str(tail_dir), "--audio", str(snd / "title.review-mix.wav"),
                         "--mp4", str(mp4), "--keep", str(base / f"comp-{rec}-{suffix}")],
-                       capture_output=True, text=True, cwd=RR.REPO)
+                       capture_output=True, text=True, cwd=RR.REPO, env=RR.d_env())
     if r.returncode != 0:
         sys.exit(f"assemble failed:\n{r.stdout[-2000:]}\n{r.stderr[-3000:]}")
     RR.log(event="assembled", mp4=str(mp4), stats=all_stats, info=r.stdout.strip().splitlines()[-1][:1500])

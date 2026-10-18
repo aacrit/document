@@ -606,6 +606,9 @@ def build():
 def main():
     import time
     t0 = time.time()
+    # temp files on D:, never C: (C: is nearly full)
+    Path("D:/document-media/title-sequence/run/tmp").mkdir(parents=True, exist_ok=True)
+    bpy.context.preferences.filepaths.temporary_directory = "D:/document-media/title-sequence/run/tmp/"
     RS.ARGS["calib"] = A["calib"]
     sc, f0, f1 = build()
     RS.render_settings(sc)

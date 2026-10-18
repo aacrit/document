@@ -29,9 +29,10 @@ LATCH = {"eye_off": (0.035, -0.205, 0.096), "aim_off": (0.019, 0.0, 0.006), "a0"
 
 # the crane, (frame at 24 fps, distance to the target m, pitch down deg, yaw deg: the azimuth the camera looks along,
 # f-stop); between keys a smoothstep in seconds
-CRANE = [(130, 0.22446, 23.639, 94.463, 4.0), (167, 0.22446, 23.639, 94.463, 4.0), (230, 0.42, 22.0, 92.0, 4.0), (300, 0.50, 26.0, 92.0, 4.0),
-         (383, 0.62, 32.0, 90.0, 4.0), (456, 0.80, 45.0, 90.0, 4.5), (528, 1.10, 65.0, 90.0, 5.0),
-         (600, 1.35, 82.0, 90.0, 5.6), (684, 1.50, 89.0, 90.0, 5.6), (935, 1.50, 89.0, 90.0, 5.6)]
+CRANE = [(130, 0.22446, 23.639, 94.463, 4.0), (167, 0.22446, 23.639, 94.463, 4.0), (230, 0.55, 22.0, 92.0, 4.0),
+         (300, 0.72, 28.0, 91.0, 4.5), (383, 0.88, 36.0, 90.0, 4.5), (456, 1.02, 46.0, 90.0, 5.0),
+         (528, 1.25, 65.0, 90.0, 5.6), (600, 1.45, 82.0, 90.0, 5.6), (684, 1.60, 89.0, 90.0, 5.6),
+         (935, 1.60, 89.0, 90.0, 5.6)]
 
 
 def smoothstep(u):
@@ -191,7 +192,7 @@ def plan(prefix_poses, layout, tail=None, t_end=None, dt=1 / 240):
         # final close pose: a 16:9 crop inside the record, 5 mm in from its near (left) edge, at 70% of its width
         fw_end = min(0.70 * rec["W"], (rec["H"] - 0.012) * 16 / 9)
         end_c = np.array([rec["x0"] + 0.005 + fw_end / 2 + 0.004, rec["y"]])
-        D_app = max(min((rec["W"] * 1.55) / KW, 1.5), 0.35)
+        D_app = max(min((rec["W"] * 1.55) / KW, 1.6), 0.35)
         D920 = keyed(CRANE, 920 / FPS, 1)
         for i, t in enumerate(ts):
             f = t * FPS

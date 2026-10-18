@@ -156,7 +156,8 @@ class Run:
             extra = f' hfield="{s["hfield"]}"' if s["type"] == "hfield" else ""
             g.append(f'<geom name="{n}" type="{s["type"]}"{"" if s["type"] == "hfield" else f" size={chr(34)}{size}{chr(34)}"}'
                      f'{extra} pos="{" ".join(f"{v:.7g}" for v in s["pos"])}" quat="{" ".join(f"{v:.9g}" for v in s["quat"])}" '
-                     f'friction="{fr_resolve(s["friction"])}" condim="{s["condim"]}"/>')
+                     f'friction="{fr_resolve(s["friction"])}" condim="{s["condim"]}"'
+                     f'{" contype=" + chr(34) + "0" + chr(34) + " conaffinity=" + chr(34) + "0" + chr(34) if s.get("ghost") else ""}/>')
         assets = "".join(f'<hfield name="{n}" file="{h["file"]}" size="{h["size"]}"/>' for n, h in self.hfields.items())
         free = []
         for i, b in enumerate(FREE):
@@ -398,6 +399,12 @@ class Run:
 
     # ------------------------------------------------------------------ sheets
 
+    def keep_out(self):
+        """The bare oak the approved latch is framed on: the bronze disc, the tablet and the marble's start, and the
+        lamp's spill around them. No sheet may lie there."""
+        x_pap = getattr(self.v, "x_pap", 0.2)
+        return [(-0.45, min(0.12, x_pap - 0.004), -0.12, 0.45)]
+
     def sheet_prov(self, gid, x0, yp, name=None, psi=0.0):
         """A provisional sheet from x0 far downhill, until its own edge is laid."""
         g = B.GROUNDS[gid]
@@ -467,7 +474,7 @@ class Run:
             xe = float(p[0])
             fit = None
             while fit is None and xe > float(self.pos(self.d)[0]) + 0.01:
-                fit = SF.fit_sheet(*g["size"], g["psi"], float(p[1]), xe, x_entry=V.x_pap)
+                fit = SF.fit_sheet(*g["size"], g["psi"], float(p[1]), xe, x_entry=V.x_pap, span=70, keep_out=self.keep_out())
                 if fit is None:
                     xe -= 0.005
             if fit is None:
@@ -498,11 +505,16 @@ class Run:
             self.checkpoint(4)
         if resume < 5:
             # 5 off the Atlas onto Piri Reis: fit both boards to the hinge and this edge
+            # the boards are real size (0.5 x 0.69 m each) and may not lie on the latch's bare oak, so the hinge alone
+            # places them and the path leaves board 2 where its edge falls (as near the clock's f383 as the boards
+            # allow); the khipu and the galley then keep their spacing from that edge (V.delay)
             p, v = self.lead_at(B.DESIGN["piri_edge"])
             W, H = gA["size"]
-            fit = SF.fit_hinged(W, H, B.HINGE_GAP, gA["psi"], float(p[1]), V.xh, float(p[0]), V.x239 - gA["under"])
+            fit = SF.fit_hinged_free(W, H, B.HINGE_GAP, gA["psi"], float(p[1]), V.xh, float(p[0]), V.x239 - gA["under"],
+                                     float(self.pos(self.d)[0]) + 0.02, keep_out=self.keep_out())
             if fit is None:
                 sys.exit("atlas: no fit")
+            p = np.array([fit["exit"], p[1], p[2]])
             L["sheets"]["atlas1"] = self.sheet_fit("atlas", fit, 2 * W + B.HINGE_GAP, H, name="atlas1",
                                                    u_range=(-W - B.HINGE_GAP / 2, -B.HINGE_GAP / 2))
             L["sheets"]["atlas2"] = self.sheet_fit("atlas", fit, 2 * W + B.HINGE_GAP, H, name="atlas2",
@@ -512,8 +524,13 @@ class Run:
             self.zones.append({"kind": "fall", "x0": V.x383, "x1": V.x383 + FAR, "deg": B.PIRI_FALL_DEG})
             self.compile()
             st["piri_edge"] = {"x": V.x383, "y": float(p[1]), "v": v, "hinge_fit": fit["hinge"]}
-            self.log("piri edge", x=V.x383, v=v, fit={k: fit[k] for k in ("psi", "hinge", "score")})
-            self.advance(tf(388))
+            _, trk = self.rollout(tf(560), track=["lead"])
+            t_exit = next((r[0] for r in trk["lead"] if r[1] > V.x383), tf(383))
+            V.delay = max(0.0, t_exit * B.FPS - B.DESIGN["piri_edge"])
+            st["piri_edge"]["frame"] = t_exit * B.FPS
+            self.log("piri edge", x=V.x383, v=v, frame=t_exit * B.FPS, delay=V.delay,
+                     fit={k: fit[k] for k in ("psi", "hinge", "score")})
+            self.advance(tf(B.DESIGN["piri_edge"] + V.delay + 5))
 
             self.checkpoint(5)
         if resume < 6:
@@ -523,6 +540,7 @@ class Run:
             dcontact = math.sqrt((R + rk) ** 2 - (R - rk) ** 2)
             knots = []
             for i, f in enumerate(B.DESIGN["knots"]):
+                f = f + V.delay
                 p, v = self.lead_at(f)
                 dy = 0.0074
                 dx = math.sqrt(max(dcontact ** 2 - dy ** 2, 0.0))
@@ -543,13 +561,13 @@ class Run:
                                       "quat": q, "friction": "0.7 0.002 0.0002"})
             self.compile()
             st["khipu"] = {"knots": knots, "cord": pts}
-            self.advance(tf(436))
+            self.advance(tf(436 + V.delay))
 
             self.checkpoint(6)
         if resume < 7:
             # 7 the galley on the Gutenberg leaf; Piri Reis's edge onto the leaf before it
             self.lay_galley()
-            self.advance(tf(505))
+            self.advance(tf(505 + V.delay))
 
             self.checkpoint(7)
         if resume < 8:
@@ -578,6 +596,9 @@ class Run:
             p, v = self.lead_at(B.DESIGN["tape"])
             V.x_tape = float(p[0]) + 0.0012
             self.box("tape", V.x_tape, V.x_tape + 1.0, V.yv - B.TAPE["w"] / 2, V.yv + B.TAPE["w"] / 2, V.lvI, V.lvI + B.TAPE["t"], fr("tape"))
+            # the tape is 0.08 mm of paper: drawn, not collided. As a box its long edge, with a marble pressed
+            # against it by the valley, rubbed the slow lead marble to a crawl (a box-edge artefact, found in the bake)
+            self.geoms["tape"]["ghost"] = True
             self.compile()
             st["tape"] = {"x0": V.x_tape, "y": V.yv, "v": v}
             self.log("tape", x=V.x_tape, v=v)
@@ -595,7 +616,7 @@ class Run:
             # its downhill side over the page), laid across the path, its short side along it; the tape ends before
             p, v = self.lead_at(B.DESIGN["card"])
             V.x_card = float(p[0])
-            fit = SF.fit_sheet(*V.gI["size"], V.gI["psi"], V.yv, V.x_card, x_under=V.x_ino0 - V.gI["under"])
+            fit = SF.fit_sheet(*V.gI["size"], V.gI["psi"], V.yv, V.x_card, x_under=V.x_ino0 - V.gI["under"], keep_out=self.keep_out())
             if fit is None:
                 sys.exit("ino: no fit")
             L["sheets"]["ino"] = self.sheet_fit("ino", fit, *V.gI["size"])
@@ -603,8 +624,10 @@ class Run:
             # past Ino the bench's own top keeps the file: an old bench is worn very slightly hollow along its middle
             # (here 0.35 degrees across, under any visible depth), so the three marbles stay near one line
             self.zones.append({"kind": "valley", "x0": V.x_card, "x1": V.x_card + FAR, "y": V.yv, "deg": 0.35, "w": 0.006})
+            self.zones.append({"kind": "fall", "x0": V.x_card, "x1": V.x_card + FAR, "deg": B.LOWER_FALL_DEG})
             self.box("tape", V.x_tape, V.x_card - 0.012, V.yv - B.TAPE["w"] / 2, V.yv + B.TAPE["w"] / 2, V.lvI,
                      V.lvI + B.TAPE["t"], fr("tape"))
+            self.geoms["tape"]["ghost"] = True
             lvK = B.CARD["level"]
             self.box("card", V.x_card - 0.01, V.x_card - 0.01 + B.CARD["len"], V.yv - B.CARD["w"] / 2,
                      V.yv + B.CARD["w"] / 2, 0.0, lvK, fr("card"))
@@ -630,7 +653,7 @@ class Run:
             fit = None
             V.x_ce = float(p[0])
             while V.x_ce > x_pe + 0.02:
-                fit = SF.fit_sheet(*gG["size"], gG["psi"], float(p[1]), V.x_ce, x_under=x_pe - gG["under"], span=70)
+                fit = SF.fit_sheet(*gG["size"], gG["psi"], float(p[1]), V.x_ce, x_under=x_pe - gG["under"], span=70, keep_out=self.keep_out())
                 if fit is not None:
                     break
                 V.x_ce -= 0.005
@@ -696,7 +719,7 @@ class Run:
             p, v = self.lead_at(B.DESIGN["oak_edge"])
             gC = B.GROUNDS["chart"]
             x_oe = max(float(p[0]), st["stick"]["x_end"] + 0.03)
-            fit = SF.fit_sheet(*gC["size"], gC["psi"], float(p[1]), x_oe, x_under=V.x_ce - gC["under"])
+            fit = SF.fit_sheet(*gC["size"], gC["psi"], float(p[1]), x_oe, x_under=V.x_ce - gC["under"], keep_out=self.keep_out())
             if fit is None:
                 sys.exit("chart: no fit")
             L["sheets"]["chart"] = self.sheet_fit("chart", fit, *gC["size"])
@@ -719,17 +742,18 @@ class Run:
         st = self.layout["stations"]
         GL = galley_local()
         lvL = B.GROUNDS["leaf"]["level"]
-        p, v = self.lead_at(B.DESIGN["quad1"], b="lead")
+        dly = getattr(self.v, "delay", 0.0)
+        p, v = self.lead_at(B.DESIGN["quad1"] + dly, b="lead")
         xg, yg = float(p[0]) + R + QUAD[0] + 0.001, float(p[1]) - LEAD_LINE_Y
-        tgt = tf(B.DESIGN["quad1"])
+        tgt = tf(B.DESIGN["quad1"] + dly)
         for it in range(6):
             self.galley_geoms(xg, yg, lvL, GL)
-            p448, _ = self.lead_at(B.DESIGN["leaf_edge"], b="lead")
+            p448, _ = self.lead_at(B.DESIGN["leaf_edge"] + dly, b="lead")
             leaf_x0 = xg + LEAF_EDGE_LOCAL - 0.42
             x_pe = min(max(float(p448[0]), leaf_x0 + 0.04), xg - 0.075)
             x_pe = max(x_pe, float(self.pos(self.d)[0]) + 0.012)
             gP = B.GROUNDS["piri"]
-            fit = SF.fit_sheet(*gP["size"], gP["psi"], float(p448[1]), x_pe, x_under=st["piri_edge"]["x"] - gP["under"])
+            fit = SF.fit_sheet(*gP["size"], gP["psi"], float(p448[1]), x_pe, x_under=st["piri_edge"]["x"] - gP["under"], keep_out=self.keep_out())
             if fit is None:
                 sys.exit("piri: no fit")
             self.layout["sheets"]["piri"] = self.sheet_fit("piri", fit, *gP["size"])
@@ -745,13 +769,12 @@ class Run:
             xg -= v * (tc - tgt) * 0.9
         for z in self.zones:
             if z["kind"] == "fall" and z["deg"] == B.PIRI_FALL_DEG:
-                z["x1"] = xg + LEAF_EDGE_LOCAL
+                z["x1"] = xg + LEAF_EDGE_LOCAL    # the galley keeps the design's fall (as the approved proof)
         st["galley"] = {"x": xg, "y": yg, "level": lvL, "leaf_exit": xg + LEAF_EDGE_LOCAL, "t_quad1": tc,
                         "piri_exit": x_pe, "local": {k: (list(v_) if isinstance(v_, (list, tuple)) else v_)
                                                      for k, v_ in GL.items()}, "floor_t": FLOOR_T, "step_h": STEP_H,
                         "quad_half": QUAD, "stop_half": STOP, "stop_y": STOP_Y}
         self.sheet_prov("ino", xg + LEAF_EDGE_LOCAL - 0.01, yg)
-        self.zones.append({"kind": "fall", "x0": xg + LEAF_EDGE_LOCAL, "x1": xg + LEAF_EDGE_LOCAL + FAR, "deg": B.LOWER_FALL_DEG})
         self.compile()
 
     def galley_geoms(self, xg, yg, z0, GL):

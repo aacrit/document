@@ -224,6 +224,8 @@
    "id": "T-06",
    "title": "Gutenberg Bible (B42), Genesis 1",
    "date": "c. 1455",
+   "content_date": "c. 1455",
+   "content_basis": "the Gutenberg Bible (B42) was printed at Mainz and complete by 1455; this leaf is a page of it",
    "module_date": "1455",
    "holder": "copy per the Commons source chain",
    "use": "texture",
