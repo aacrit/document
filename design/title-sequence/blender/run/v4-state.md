@@ -22,3 +22,9 @@ The Run v4, state at the pause (2026-10-18; paused for Real World's score work)
 - **Lockup:** option (a). A separate CARD shot after the one-shot title, joined by a hard CUT, with no dip. The master ends on the record pose and holds no lockup.
 - **titles.py:** WG-4 changes it after the animatic. `dip: null`, no lockup_frame, the CARD out of the master's timeline, the handover cut and cut, with tests, through the gate.
 - **A7 under constant light:** measure it on the first tail. If it fails, fix it physically (the record in the constant lamp's pool from the start of the tail, or laid flatter), never with a grade or a fade.
+
+## Founder notes on stretch A (2026-10-18), decided by the coordinator
+- **Slower:** the lead's cruise is about 30% slower, by physics (the fall toward 0.8° and/or paper rolling resistance), never a time remap. The hand-offs must still work.
+- **Followable:** the camera stays on the lead within 40 px a frame, and the lead is always identifiable in frame.
+- **Three balls:** the galley's two released balls are a different real material (steel or brass), so the clay lead reads as the protagonist. The release is framed so the lead's strike is seen to set them going.
+- **Light:** one constant lamp plus a smooth camera auto-exposure (metered, eased over 0.5-1 s, clamped); the record sits in the lamp's pool.
