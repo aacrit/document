@@ -151,6 +151,7 @@ NARRATOR_GROUP_MIN = 2              # a group of one is a single line, which may
 NARRATOR_DRIFT_WARN_ST, NARRATOR_DRIFT_BLOCK_ST = 1.0, 2.0
 NARRATOR_DRIFT_WARN_CENTROID, NARRATOR_DRIFT_BLOCK_CENTROID = 0.15, 0.25
 NARRATOR_PROFILE = Path(__file__).resolve().parents[1] / "narrator-profile.json"   # optional anchor: the approved audition
+NARRATOR_SHIFT_TOL_ST = 0.005        # a declared shift within this of a stored variant's is the same shift (float noise)
 NEUTRALISE = "colour cast removed"  # A14: the alteration a neutralised colour cast is marked with
 NEUTRALISE_FILTER = "hue=s=0"       # chroma to neutral, luma kept, before scaling and pillarboxing
 VOICE_LIMIT_MARGIN_DB = 0.3         # the per-line limiter's ceiling sits this far under VOICE_TP
@@ -5403,7 +5404,10 @@ def load_narrator_profile(narrator_voice: dict | None, path: Path | None = None)
     unshifted profile; an undeclared voice is held to the unshifted one.
     A variant may also be another voice (a film's narrator chosen by the
     founder: Zoe for "Real World", 2026-10-16): the reference is the stored
-    entry whose engine, voice and shift all match the film's narrator."""
+    entry whose engine, voice and shift all match the film's narrator.
+    The shift match is within NARRATOR_SHIFT_TOL_ST (a declared shift may be
+    a computed figure, e.g. 12*log2(f_target/f_raw), that lands a float
+    epsilon from the stored key)."""
     path = NARRATOR_PROFILE if path is None else path
     if not path or not Path(path).exists():
         return None, f"no stored profile at {path}"
@@ -5421,7 +5425,7 @@ def load_narrator_profile(narrator_voice: dict | None, path: Path | None = None)
         return None, f"the narrator's pitch_shift_st {(narrator_voice or {}).get('pitch_shift_st')!r} is not a number"
     for cand in cands:
         cv = cand.get("voice") or {}
-        if key(cv) == want and _voice_shift(cv) == shift:
+        if key(cv) == want and abs(_voice_shift(cv) - shift) < NARRATOR_SHIFT_TOL_ST:
             return cand, f"drift reference {Path(path).name} ({_voice_name(cv)})"
     stored = ", ".join(_voice_name(c.get("voice") or {}) for c in cands)
     return None, (f"the film's narrator is {_voice_name(dict(want, pitch_shift_st=shift))}; the stored profiles are "
@@ -5430,17 +5434,23 @@ def load_narrator_profile(narrator_voice: dict | None, path: Path | None = None)
 
 def narrator_profile_from_takes(takes: list[tuple[Path, str]], voice: dict) -> dict:
     """A stored narrator profile from approved takes (WAV, spoken text): each
-    take levelled to DIALOGUE_LUFS and profiled as narration lines are, then
-    the median f0 and centroid (the drift check's reference)."""
+    take cleaned (A19's clean_voice) then levelled to DIALOGUE_LUFS and
+    profiled, in the same order process_take measures a narration line's
+    own A14 profile (cleaned, then levelled, then profiled, before any EQ),
+    so the reference is measured on the same signal the drift check judges
+    against. Then the median f0 and centroid (the drift check's
+    reference)."""
     per = {}
     for path, text in takes:
         x = _read_wav(Path(path))
+        x, _cleaned = clean_voice(x)
         g, _ = level_gain(x, DIALOGUE_LUFS)
         per[Path(path).name] = dict(voice_profile(x * 10 ** (g / 20), len(WORD_RE.findall(text))),
                                     sha256=sha256_file(path)[:16])
     base = {k: round(float(np.median([p[k] for p in per.values()])), 2) for k in ("f0_hz", "centroid_hz")}
     return {"voice": voice, "baseline": base, "takes": per,
-            "method": "studio.engine.render.voice_profile on each take levelled to -20 LUFS; median over the takes"}
+            "method": "studio.engine.render.clean_voice (A19) then voice_profile on each take levelled to -20 LUFS, "
+                      "the same order process_take measures a narration line's own profile; median over the takes"}
 
 
 def narrator_drift(baseline: dict, stored: dict | None) -> dict:

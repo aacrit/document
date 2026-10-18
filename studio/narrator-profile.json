@@ -392,6 +392,73 @@
     }
    },
    "method": "studio.engine.render.voice_profile on each take levelled to -20 LUFS; median over the takes"
+  },
+  {
+   "_note": "Tara at pitch_shift_st +0.76 (founder ruling 2026-10-18, \"Real World\"): the key is the film's declared shift, not a PSOLA step applied to these takes. The screenplay's raw lines (unshifted Orpheus tara) measured a median f0 of 159.64 Hz against the approved audition sound's 166.76 Hz: 12*log2(166.76/159.64) = +0.76 semitones, declared as pitch_shift_st on every line so A14 compares against the approved sound rather than the raw synthesis. The reference is the approved audition takes, pre-mastering (the same stage as the film's narration lines: no warm EQ, levelling or peak control baked in), D:/document-media/rw-narrator-audition/takes/tara-1st__P1.wav, __P2.wav, __P3a.wav, __P3b.wav (sha256 7dfc95e1f19bbfd3, a9177bcb90e10fa0, e343145e90abc3d1, 85399e52cf45106d). Replaces the pitch_shift_st -1 entry above, keyed to the earlier reading of this ruling. Made by narrator_profile_from_takes (which now cleans each take with A19's clean_voice before levelling, matching the order process_take measures a narration line's own profile) with the spoken lines of document-media/rw-narrator-audition/scripts/lines.json. Generated 2026-10-18.",
+   "voice": {
+    "engine": "orpheus",
+    "voice": "tara",
+    "pitch_shift_st": 0.76
+   },
+   "baseline": {
+    "f0_hz": 167.28,
+    "centroid_hz": 1052.78
+   },
+   "takes": {
+    "tara-1st__P1.wav": {
+     "f0_hz": 168.91,
+     "f0_p10_hz": 155.9,
+     "f0_p90_hz": 216.6,
+     "f0_range_hz": 60.7,
+     "centroid_hz": 1065.25,
+     "words": 27,
+     "speech_s": 8.52,
+     "wps": 3.17,
+     "voiced_frames": 576,
+     "active_frames": 679,
+     "sha256": "7dfc95e1f19bbfd3"
+    },
+    "tara-1st__P2.wav": {
+     "f0_hz": 165.66,
+     "f0_p10_hz": 152.82,
+     "f0_p90_hz": 216.66,
+     "f0_range_hz": 63.84,
+     "centroid_hz": 1050.57,
+     "words": 41,
+     "speech_s": 14.44,
+     "wps": 2.84,
+     "voiced_frames": 944,
+     "active_frames": 1156,
+     "sha256": "a9177bcb90e10fa0"
+    },
+    "tara-1st__P3a.wav": {
+     "f0_hz": 169.44,
+     "f0_p10_hz": 154.89,
+     "f0_p90_hz": 238.34,
+     "f0_range_hz": 83.45,
+     "centroid_hz": 1054.99,
+     "words": 14,
+     "speech_s": 4.35,
+     "wps": 3.22,
+     "voiced_frames": 314,
+     "active_frames": 396,
+     "sha256": "e343145e90abc3d1"
+    },
+    "tara-1st__P3b.wav": {
+     "f0_hz": 159.28,
+     "f0_p10_hz": 145.35,
+     "f0_p90_hz": 244.98,
+     "f0_range_hz": 99.64,
+     "centroid_hz": 886.34,
+     "words": 14,
+     "speech_s": 2.8,
+     "wps": 5.0,
+     "voiced_frames": 243,
+     "active_frames": 277,
+     "sha256": "85399e52cf45106d"
+    }
+   },
+   "method": "studio.engine.render.clean_voice (A19) then voice_profile on each take levelled to -20 LUFS, the same order process_take measures a narration line's own profile; median over the takes"
   }
  ]
 }
