@@ -33,3 +33,11 @@ The Run v4, state at the pause (2026-10-18; paused for Real World's score work)
 - **Where:** the latch, U1, U2, U3 (each climb and roll-back), the galley strike, and the brass settle.
 - **How:** low and close (a macro feel, shallow depth of field, focus on the marble), then back to the follow.
 - **Constraints:** one continuous camera, eased moves, inside the caps. Report the frame ranges.
+
+## Founder ruling (2026-10-18): the collector's desk
+"the artifacts stacked on top of each other don't look natural; scatter them. The obstacles feel random; organize it like a real table: a bronze globe, a coin collection that gets dominoed, a paper holder. Real-life objects."
+- **Records:** scattered side by side, with small overlaps, some on a book, oak between them; time order along the fall line.
+- **Real objects:** the bronze globe (far corner); historical coins on edge in a tray, dominoed; a letter rack; brass scale weights and/or old books as walls. NO gold.
+- **U-turn causes:** a record OR a real study object. Everything else holds.
+- **Sources:** every object from a pinned real scan.
+- **First:** a one-screen layout to WG-4 before any re-tuning.
