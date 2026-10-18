@@ -5,6 +5,7 @@
    "item": {
     "no_zoom": true,
     "people": "two distant, unidentifiable living onlookers on a rooftop (about 8 px tall); no figure at any window",
+    "seen": "The north tower burning, its antenna up; the fireball bursting from the south tower behind it; brick buildings of the Village in the foreground; two distant figures on a rooftop at the right edge.",
     "title": "United Airlines 175 strikes the south tower, seen from Greenwich Village"
    },
    "measure": {
@@ -62,6 +63,7 @@
    "item": {
     "no_zoom": false,
     "people": "the President",
+    "seen": "The President standing behind his desk, hands on hips, looking up (at a screen out of frame); presidential seal on the bulkhead, a window.",
     "title": "The President in his office aboard Air Force One, Sarasota to Barksdale"
    },
    "measure": {
@@ -154,6 +156,7 @@
    "item": {
     "no_zoom": false,
     "people": "the President, partly in shadow",
+    "seen": "The dim cabin of Air Force One: the President leaning over a sofa to a window, a lamp and a leather chair; bright windows along the wall.",
     "title": "The President looks out at the F-16 escort, Sarasota to Barksdale"
    },
    "measure": {
@@ -252,6 +255,7 @@
    "item": {
     "no_zoom": false,
     "people": "one identifiable living man, close",
+    "seen": "A man with a cloth over his mouth and nose walks past the camera on a street covered with dust and paper; a fire engine and smoke behind.",
     "title": "A man walking out with a mask over his face"
    },
    "measure": {
@@ -350,6 +354,7 @@
    "item": {
     "no_zoom": false,
     "people": "crew on deck, tiny",
+    "seen": "A red-hulled Army Corps boat, HOCKING on the stern, crossing the harbour toward the skyline and the smoke.",
     "title": "Patrol Boat Hocking heads toward Lower Manhattan"
    },
    "measure": {

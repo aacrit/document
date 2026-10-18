@@ -14,10 +14,12 @@ of every cached result's key.
 
 The measurements (``studio.engine.vision``): MediaPipe person boxes with a
 score, faces, the pose landmarks that give a person's facing, and a
-spectral-residual saliency box with its concentration. The local VL model is
-not used (A45: it was not byte-identical across two runs at temperature 0
-with a fixed seed), so a picture's class also reads the ledger's own words
-(its title, caption and ``seen``), deterministically.
+spectral-residual saliency box with its concentration; and, when cached, the
+local VL's normalized place and object regions (``vl_subject``: a region the
+ledger's own words or a ``subject_at`` cue name; never a person). A
+picture's class reads the ledger's own words (its title, caption and
+``seen``) and the people found, deterministically; the VL's class is not
+read.
 """
 
 from __future__ import annotations
@@ -26,7 +28,8 @@ import re
 
 from studio.engine import motion as M
 
-RULEBOOK_VERSION = "3"     # 2: a bare title is one name; 3: a run is a place by its first or last word only
+RULEBOOK_VERSION = "4"     # 2: a bare title is one name; 3: a run is a place by its first or last word only;
+                           # 4: a VL place or object region named by a cue or the caption is the subject
 CLASSES = ("person", "crowd", "place", "document", "map", "painting", "object")
 RECORDS = ("document", "map", "painting", "object")       # composed centred: the picture is a record
 FLOOR = M.CINE["auto_confidence_floor"]                   # a box under it is not a subject (A43)
@@ -416,11 +419,56 @@ def subject(cls: str, people: list[dict], meas: dict, unlocated: int) -> tuple[d
             f"saliency concentration {conc:.2f}")
 
 
-def fields(item: dict, meas: dict | None, model: str) -> dict:
+# --------------------------------------------------------------------------
+# VL place and object regions (founder ruling (b), 2026-10-17)
+# --------------------------------------------------------------------------
+
+VL_KINDS_USED = ("place", "object", "text")          # the VL never creates or names a person
+VL_CONFIDENCE = 0.8          # a VL region the ledger's own words name; above the floor, under a strong detection
+VL_MIN_SIDE = 0.01           # a box thinner than this share of the picture is malformed, never a subject
+STOP = {"the", "a", "an", "of", "and", "from", "over", "in", "on", "at", "to", "with", "by", "for", "into", "its",
+        "his", "her", "their", "seen", "view", "toward", "towards", "after", "before", "near", "one", "two"}
+
+
+def content_words(text: str) -> list[str]:
+    ws = [w.strip(_EDGE).lower() for w in str(text or "").replace("-", " ").split()]
+    return [w for w in ws if len(w) >= 3 and w.isalpha() and w not in STOP]
+
+
+def vl_subject(cls: str, vl: dict | None, item: dict, cues) -> tuple[dict | None, str]:
+    """A VL region as the subject of a place, object, map or document still:
+    the first region (cue matches first, then the VL's canonical order) whose
+    label shares a content word with a ``subject_at`` cue of a shot showing
+    it, else with the item's own caption or title. A person or group region
+    is never used (people come from MediaPipe alone), and a degenerate box
+    never. None when nothing matches (the still stays whole)."""
+    if not vl or cls in ("person", "crowd"):
+        return None, "no VL region for this class" if vl else "no VL measurement"
+    cue_w = {w for c in cues or () for w in content_words(c)}
+    cap_w = set(content_words(item.get("caption") or item.get("title") or ""))
+    best = None
+    for k, g in enumerate(vl.get("regions") or []):
+        if g.get("kind") not in VL_KINDS_USED or g["w"] < VL_MIN_SIDE or g["h"] < VL_MIN_SIDE:
+            continue
+        lw = set(content_words(g.get("label")))
+        rank = 0 if lw & cue_w else (1 if lw & cap_w else None)
+        if rank is not None and (best is None or (rank, k) < best[0]):
+            best = ((rank, k), g, sorted(lw & (cue_w if rank == 0 else cap_w)))
+    if best is None:
+        return None, "no VL region's label is named by a cue or the caption"
+    (rank, _), g, words = best
+    return ({"x": g["x"], "y": g["y"], "w": g["w"], "h": g["h"], "kind": g["kind"], "confidence": VL_CONFIDENCE,
+             "label": g["label"]},
+            f"VL region {g['label']!r} named by the {'subject_at cue' if rank == 0 else 'caption'} ({', '.join(words)})")
+
+
+def fields(item: dict, meas: dict | None, model: str, vl: dict | None = None, cues=(), vl_model: str = "") -> dict:
     """The rulebook: one ledger item and its measurement to the auto fields
     and the reasons ({fields, why}). ``meas`` None (nothing measured: the
     detector is missing here) gives no fields at all, so the still is planned
-    exactly as without the pipeline (the A41 default and guards)."""
+    exactly as without the pipeline (the A41 default and guards). ``vl`` is
+    the cached, normalized VL answer when there is one, and ``cues`` the
+    ``subject_at`` cues of the shots that show the item."""
     why: dict = {}
     out: dict = {}
     if meas is None:
@@ -444,6 +492,11 @@ def fields(item: dict, meas: dict | None, model: str) -> dict:
     if people is not item.get("people"):
         out["people"] = people
     sub, why["subject"] = subject(cls, framed, meas, unloc)
+    sub_model = model
+    if sub is None and vl is not None:
+        vsub, why["vl"] = vl_subject(cls, vl, item, cues)
+        if vsub is not None:
+            sub, why["subject"], sub_model = vsub, why["vl"], vl_model or model
     if sub is not None and item.get("no_zoom") is True:
         sub = dict(sub, **_no_zoom(sub, meas["size"]))
         why["no_zoom"] = "no_zoom: the subject is the z 1 window about it (drift only)"
@@ -451,7 +504,7 @@ def fields(item: dict, meas: dict | None, model: str) -> dict:
         out["whole"] = True
     else:
         e = {"name": "subject", **{k: sub[k] for k in ("x", "y", "w", "h")}, "kind": sub["kind"],
-             "source": "auto", "confidence": sub["confidence"], "model": model}
+             "source": "auto", "confidence": sub["confidence"], "model": sub_model}
         if sub.get("facing"):
             e["facing"] = sub["facing"]
         out["roi"] = [e]

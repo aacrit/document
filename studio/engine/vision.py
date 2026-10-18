@@ -7,11 +7,11 @@ measure -> cache -> rulebook -> overlay:
 - **Measure.** MediaPipe on CPU (``mediapipe`` Tasks API: ObjectDetector for
   people, FaceDetector, PoseLandmarker for facing), the models pinned by
   sha256 in ``studio/vision-models.json`` and kept outside git; plus a
-  pure-numpy spectral-residual saliency (``saliency_box``). The local
-  Qwen2.5-VL is not used: measured on 10 Real World stills at temperature 0
-  with a fixed seed it was cheap (about 3 GPU seconds a still) but not
-  byte-identical across two runs (5 of 10 answers moved a box by a pixel or
-  changed a region), so A45 runs MediaPipe and saliency only.
+  pure-numpy spectral-residual saliency (``saliency_box``). With ``--vl``,
+  the local Qwen2.5-VL labels place and object regions only (never people),
+  cold (unloaded before every still: the warm prompt cache moved boxes
+  between runs) and normalized before caching (``vl_normalize``); it runs
+  under HEAVY.lock and never at render.
 - **Cache.** Every measurement goes into the ledger's sidecar
   (``<ledger stem>.vision.json`` next to it: film data, never in git) keyed
   by (image sha256, model key). The rulebook's fields are recorded beside it
@@ -36,10 +36,15 @@ proof; the test suite is hermetic and never runs MediaPipe).
 from __future__ import annotations
 
 import argparse
+import base64
+import decimal
 import hashlib
+import io
 import json
 import os
 import sys
+import time
+import urllib.request
 import uuid
 from pathlib import Path
 
@@ -303,6 +308,153 @@ def inside(a, b, share: float = 0.8) -> bool:
 
 
 # --------------------------------------------------------------------------
+# Qwen2.5-VL through the local Ollama: place and object region labels only
+# (founder ruling (b), 2026-10-17). Cold: the model is unloaded before every
+# still, so no prompt cache survives from one answer to the next (the warm
+# cache was what moved boxes by a pixel between runs); the answer is
+# normalized before it is cached. Measured only by the CLI (--vl), under
+# HEAVY.lock; never at render.
+# --------------------------------------------------------------------------
+
+VL_NORM_VERSION = "1"
+VL_GRID = decimal.Decimal("0.005")       # boxes snap to half a percent of the picture, rounded half-even
+VL_CLASSES = ("person", "crowd", "place", "document", "map", "painting", "object")
+VL_KINDS = ("person", "group", "text", "object", "place")
+VL_SCHEMA = {"type": "object", "properties": {
+    "class": {"type": "string", "enum": list(VL_CLASSES)},
+    "regions": {"type": "array", "maxItems": 6, "items": {"type": "object", "properties": {
+        "label": {"type": "string"}, "kind": {"type": "string", "enum": list(VL_KINDS)},
+        "box": {"type": "array", "items": {"type": "integer"}, "minItems": 4, "maxItems": 4}},
+        "required": ["label", "kind", "box"]}}},
+    "required": ["class", "regions"]}
+
+
+def vl_prompt(w: int, h: int) -> str:
+    return ("You label an archival photograph so a documentary camera knows where to look. Answer only with JSON "
+            "matching the schema.\n"
+            "class: person (one to three people are what the picture is about), crowd (many people), place (a scene, "
+            "building, street, landscape, skyline or sky), document (paper, a sign or printed or handwritten text is "
+            "the subject), map, painting (a painting, drawing or print), object (a thing photographed as evidence).\n"
+            f"regions: at most 6, the most important first. Each is {{label, kind, box}}: label is 2 to 5 plain words "
+            f"saying what it is, never a person's name; kind is person, group, text, object or place; box is "
+            f"[x0, y0, x1, y1] in pixels of this {w} x {h} image. Never identify anyone.")
+
+
+def vl_prompt_sha() -> str:
+    return hashlib.sha256(vl_prompt(0, 0).encode()).hexdigest()
+
+
+def vl_model_key(man: dict | None = None) -> str:
+    vl = (man or manifest())["vl"]
+    o = vl["options"]
+    return (f"vl:{vl['name']}@{vl['digest'][:12]}:s{o['seed']}:t{o['temperature']}:k{o['top_k']}:c{o['num_ctx']}"
+            f":ka{vl['keep_alive']}:{vl['cache']}:n{VL_NORM_VERSION}:p{vl_prompt_sha()[:12]}")
+
+
+def vl_header(man: dict | None, ollama: str | None) -> dict:
+    vl = (man or manifest())["vl"]
+    return {"model": vl["name"], "digest": vl["digest"], "ollama": ollama, "options": vl["options"],
+            "keep_alive": vl["keep_alive"], "cache": vl["cache"], "image_long_side": vl["image_long_side"],
+            "norm_version": VL_NORM_VERSION, "grid": str(VL_GRID), "prompt_sha256": vl_prompt_sha(),
+            "key": vl_model_key(man)}
+
+
+def vl_image(img: Image.Image, long_side: int) -> tuple[bytes, int, int]:
+    """The picture as the VL sees it: the long side ``long_side``, both sides
+    multiples of 28 (the model's patch), Lanczos, PNG (lossless)."""
+    W, H = img.size
+    sc = long_side / max(W, H)
+    w, h = max(28, round(W * sc / 28) * 28), max(28, round(H * sc / 28) * 28)
+    buf = io.BytesIO()
+    img.resize((w, h), Image.Resampling.LANCZOS).save(buf, format="PNG", compress_level=6)
+    return buf.getvalue(), w, h
+
+
+def _snap(v: float) -> float:
+    q = (decimal.Decimal(repr(float(v))) / VL_GRID).quantize(decimal.Decimal(1), rounding=decimal.ROUND_HALF_EVEN)
+    return float(format(q * VL_GRID, ".3f"))
+
+
+def vl_normalize(raw: str, w: int, h: int) -> dict:
+    """The VL's answer, canonical: boxes in picture fractions snapped to the
+    grid, labels trimmed and lower case, regions sorted by (kind, y, x,
+    label); the class as returned. A malformed answer is no regions."""
+    try:
+        a = json.loads(raw)
+    except ValueError:
+        return {"class": None, "regions": [], "malformed": True}
+    regs = []
+    for g in a.get("regions") or []:
+        b = g.get("box") if isinstance(g, dict) else None
+        if g.get("kind") not in VL_KINDS or not (isinstance(b, list) and len(b) == 4
+                                                  and all(isinstance(v, (int, float)) for v in b)):
+            continue
+        x0, y0, x1, y1 = (max(0.0, min(1.0, float(v) / d)) for v, d in zip(b, (w, h, w, h)))
+        regs.append({"kind": g["kind"], "label": str(g.get("label") or "").strip().lower()[:60],
+                     "x": _snap(x0), "y": _snap(y0), "w": _snap(max(0.0, x1 - x0)), "h": _snap(max(0.0, y1 - y0))})
+    regs.sort(key=lambda r: (r["kind"], r["y"], r["x"], r["label"]))
+    return {"class": a.get("class") if a.get("class") in VL_CLASSES else None, "regions": regs}
+
+
+class VL:
+    """The pinned VL through the local Ollama, cold for every still."""
+
+    def __init__(self, man: dict | None = None):
+        self.man = man or manifest()
+        self.vl = self.man["vl"]
+        host = self.vl["host"]
+        try:
+            tags = json.loads(urllib.request.urlopen(host + "/api/tags", timeout=10).read())
+            self.ollama = json.loads(urllib.request.urlopen(host + "/api/version", timeout=10).read())["version"]
+        except OSError as e:
+            raise MissingModel(f"Ollama is not answering at {host} ({e})") from e
+        dig = next((m["digest"] for m in tags.get("models", []) if m["name"] == self.vl["name"]), None)
+        if dig != self.vl["digest"]:
+            raise MissingModel(f"{self.vl['name']} digest {str(dig)[:12]} is not the pinned {self.vl['digest'][:12]}")
+        self.key = vl_model_key(self.man)
+
+    def _post(self, path: str, body: dict) -> dict:
+        req = urllib.request.Request(self.vl["host"] + path, data=json.dumps(body).encode(),
+                                     headers={"Content-Type": "application/json"})
+        return json.loads(urllib.request.urlopen(req, timeout=600).read())
+
+    def unload(self) -> None:
+        self._post("/api/generate", {"model": self.vl["name"], "keep_alive": 0})
+
+    def measure(self, img: Image.Image) -> dict:
+        png, w, h = vl_image(img, self.vl["image_long_side"])
+        self.unload()                       # cold: nothing cached from the last still
+        out = self._post("/api/chat", {
+            "model": self.vl["name"], "stream": False, "format": VL_SCHEMA, "options": self.vl["options"],
+            "keep_alive": self.vl["keep_alive"],
+            "messages": [{"role": "user", "content": vl_prompt(w, h), "images": [base64.b64encode(png).decode()]}]})
+        return dict(vl_normalize(out["message"]["content"], w, h), model=self.key)
+
+
+class HeavyLock:
+    """C:/Users/aacri/document-work/HEAVY.lock (DOCUMENT_HEAVY_LOCK): one heavy
+    job on the machine at a time. Refuses when another live job holds it."""
+
+    def __init__(self, job: str):
+        self.path = Path(os.environ.get("DOCUMENT_HEAVY_LOCK") or "C:/Users/aacri/document-work/HEAVY.lock")
+        self.job = job
+
+    def __enter__(self):
+        if self.path.exists():
+            raise MissingModel(f"HEAVY.lock is held: {self.path.read_text(encoding='utf-8', errors='replace')[:200]}"
+                               " (wait for it; never break another group's lock)")
+        self.path.write_text(json.dumps({"group": "WG-2", "job": self.job, "pid": os.getpid(),
+                                         "started": time.strftime("%Y-%m-%dT%H:%M:%S")}), encoding="utf-8")
+        return self
+
+    def __exit__(self, *exc):
+        try:
+            self.path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+# --------------------------------------------------------------------------
 # Sidecar cache
 # --------------------------------------------------------------------------
 
@@ -318,10 +470,11 @@ def read_sidecar(path: Path) -> dict:
             d = json.loads(path.read_text(encoding="utf-8"))
             if d.get("version") == SIDECAR_VERSION and isinstance(d.get("measure"), dict):
                 d.setdefault("items", {})
+                d.setdefault("vl", {})
                 return d
         except ValueError:
             pass
-    return {"version": SIDECAR_VERSION, "measure": {}, "items": {}}
+    return {"version": SIDECAR_VERSION, "measure": {}, "items": {}, "vl": {}}
 
 
 def dump_sidecar(d: dict) -> str:
@@ -357,6 +510,19 @@ def still_items(play: dict, assets: dict) -> list[dict]:
     return out
 
 
+def shot_cues(shots) -> dict:
+    """Item id to the ``subject_at`` cues of the shots that show it."""
+    out: dict = {}
+    for s in shots:
+        sa = s.get("subject_at")
+        at = sa.get("at") if isinstance(sa, dict) else sa
+        if isinstance(at, str) and at.strip() and s.get("asset"):
+            out.setdefault(s["asset"], [])
+            if at not in out[s["asset"]]:
+                out[s["asset"]].append(at)
+    return out
+
+
 def human_item(item: dict) -> dict:
     return {k: v for k, v in item.items() if not str(k).startswith("_")}
 
@@ -366,13 +532,37 @@ class Measurer:
     the first miss; when MediaPipe or a pinned model is missing it is never
     made and ``why`` says so (the still then goes without boxes, held whole)."""
 
-    def __init__(self, allow: bool = True):
+    def __init__(self, allow: bool = True, vl: bool = False):
         self.man = manifest()
         self.key = cpu_model_key(self.man)
+        self.vl_key = vl_model_key(self.man)
         self.allow = allow
         self.cpu: CPU | None = None
         self.why: str | None = None if allow else "measuring is off here"
         self.measured: list[str] = []
+        self.allow_vl = vl
+        self.vlm: VL | None = None
+        self.vl_why: str | None = None
+        self.vl_measured: list[str] = []
+
+    def get_vl(self, cache: dict, sha: str, path) -> dict | None:
+        """The cached VL answer, or (``--vl`` only) a cold measurement of it."""
+        k = f"{sha}|{self.vl_key}"
+        if k in cache["vl"]:
+            return cache["vl"][k]
+        if not self.allow_vl or self.vl_why:
+            return None
+        if self.vlm is None:
+            try:
+                self.vlm = VL(self.man)
+            except MissingModel as e:
+                self.vl_why = str(e)
+                return None
+            cache["vl_header"] = vl_header(self.man, self.vlm.ollama)
+        m = self.vlm.measure(load_rgb(path))
+        cache["vl"][k] = m
+        self.vl_measured.append(sha)
+        return m
 
     def get(self, cache: dict, sha: str, path) -> dict | None:
         k = f"{sha}|{self.key}"
@@ -392,19 +582,22 @@ class Measurer:
         return m
 
 
-def apply(items: list[dict], meas: Measurer, caches: dict) -> list[dict]:
+def apply(items: list[dict], meas: Measurer, caches: dict, cues: dict | None = None) -> list[dict]:
     """Measure (through the cache) and run the rulebook on each item. Returns
-    one record per item: {id, sha256, measured, fields, why, merged, used}."""
+    one record per item: {id, sha256, measured, fields, why, merged, used}.
+    ``cues``: item id to the ``subject_at`` cues of the shots that show it."""
     out = []
     for it in items:
         sc = caches.setdefault(it["_ledger_file"], read_sidecar(sidecar_path(it["_ledger_file"])))
         sha = sha256_file(it["_path"])
         m = meas.get(sc, sha, it["_path"])
-        res = RB.fields(human_item(it), m, meas.key)
+        v = meas.get_vl(sc, sha, it["_path"]) if m is not None else None
+        res = RB.fields(human_item(it), m, meas.key, vl=v, cues=(cues or {}).get(it["id"], ()), vl_model=meas.vl_key)
         merged, used = RB.overlay(it, res["fields"])
         if "people" in used:
             merged["_people_words"] = it.get("people")   # A45: an auto binding needs the ledger's own words to name them
         sc["items"][it["id"]] = {"sha256": sha, "model": meas.key if m is not None else None,
+                                 "vl": meas.vl_key if v is not None else None,
                                  "rulebook": RB.RULEBOOK_VERSION, "fields": res["fields"], "why": res["why"]}
         out.append({"id": it["id"], "sha256": sha, "measured": m is not None, "fields": res["fields"],
                     "why": res["why"], "merged": merged, "used": used})
@@ -454,7 +647,8 @@ def plan_overlay(stills: list[dict], journal=None, lint=None) -> dict:
         by_item.setdefault(it["id"], []).append(s)
     if not by_item:
         return {"stills": [], "degraded": None}
-    recs = apply([shots[0]["_item"] for shots in by_item.values()], meas, caches)
+    cues = {iid: shot_cues(shots).get(shots[0].get("asset"), []) for iid, shots in by_item.items()}
+    recs = apply([shots[0]["_item"] for shots in by_item.values()], meas, caches, cues)
     for rec in recs:
         for s in by_item[rec["id"]]:
             priv = {k: v for k, v in s["_item"].items() if str(k).startswith("_")}
@@ -505,22 +699,34 @@ def check(film: Path) -> dict:
             "ok": all(r["twice_identical"] and r["cache"] is not False for r in out)}
 
 
-def run(film: Path, write: bool) -> dict:
+def run(film: Path, write: bool, vl: bool = False) -> dict:
     from studio.engine import render as R
     play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
     items = still_items(play, R.load_ledgers(film, play))
-    meas = Measurer(True)
+    cues = shot_cues(s for part in play.get("parts", []) for s in part.get("shots", []))
+    meas = Measurer(True, vl=vl)
     caches: dict = {}
-    recs = apply(items, meas, caches)
+    if vl:
+        with HeavyLock("A45 vision --vl (cold, one still at a time)"):
+            recs = apply(items, meas, caches, cues)
+            try:
+                if meas.vlm is not None:
+                    meas.vlm.unload()
+            except OSError:
+                pass
+    else:
+        recs = apply(items, meas, caches, cues)
     wrote = []
     if write:
         for lf, sc in caches.items():
             # only what this film's stills use now: a measurement under an old model key or of a replaced image goes
-            sc["measure"] = {k: v for k, v in sc["measure"].items()
-                             if any(k == f"{e['sha256']}|{meas.key}" for e in sc["items"].values())}
+            shas = {e["sha256"] for e in sc["items"].values()}
+            sc["measure"] = {k: v for k, v in sc["measure"].items() if k in {f"{h}|{meas.key}" for h in shas}}
+            sc["vl"] = {k: v for k, v in sc["vl"].items() if k in {f"{h}|{meas.vl_key}" for h in shas}}
             if write_sidecar(sidecar_path(lf), sc):
                 wrote.append(str(sidecar_path(lf)))
     return {"film": str(film), "model": meas.key, "rulebook": RB.RULEBOOK_VERSION, "measured_now": len(meas.measured),
+            "vl_model": meas.vl_key, "vl_measured_now": len(meas.vl_measured), "vl_degraded": meas.vl_why,
             "degraded": meas.why, "written": wrote, "stills": [summary(r) for r in recs],
             "sidecars": {str(sidecar_path(lf)): hashlib.sha256(dump_sidecar(sc).encode()).hexdigest()
                          for lf, sc in caches.items()}}
@@ -532,6 +738,8 @@ def main(argv=None) -> int:
     ap.add_argument("film", type=Path)
     ap.add_argument("--write", action="store_true", help="write the sidecar cache next to each stills ledger")
     ap.add_argument("--json", type=Path, help="write the report here as JSON")
+    ap.add_argument("--vl", action="store_true",
+                    help="also measure place and object regions with the pinned VL (GPU, cold, under HEAVY.lock)")
     ap.add_argument("--check", action="store_true",
                     help="measure every still twice from scratch; compare with each other and with the cache")
     a = ap.parse_args(argv)
@@ -542,7 +750,11 @@ def main(argv=None) -> int:
                   f"{'-' if r['cache'] is None else ('same' if r['cache'] else 'DIFFERENT')}")
         print(f"model {rep['model']}: {'deterministic' if rep['ok'] else 'NOT deterministic'}")
         return 0 if rep["ok"] else 1
-    rep = run(a.film.resolve(), a.write)
+    try:
+        rep = run(a.film.resolve(), a.write, a.vl)
+    except MissingModel as e:
+        print(f"refused: {e}")
+        return 2
     for s in rep["stills"]:
         sub = s["subject"]
         what = "whole" if s["whole"] else (f"subject {sub['kind']}" if sub else "-")
@@ -550,6 +762,8 @@ def main(argv=None) -> int:
               f"{what:<16} names {s['caption_names']}")
     print(f"model {rep['model']}, rulebook {rep['rulebook']}, measured now {rep['measured_now']}"
           + (f", degraded: {rep['degraded']}" if rep["degraded"] else "")
+          + (f", VL measured now {rep['vl_measured_now']}" if a.vl else "")
+          + (f", VL degraded: {rep['vl_degraded']}" if rep["vl_degraded"] else "")
           + (f", wrote {', '.join(rep['written'])}" if rep["written"] else ", nothing written"))
     for k, v in rep["sidecars"].items():
         print(f"sidecar {k} sha256 {v}")

@@ -524,3 +524,106 @@ def test_an_auto_region_does_not_make_the_default_the_authors_path():
     shot = dict(shot, _item=human)
     cam = R.engine_cover(shot, R.still_camera(shot, LANDSCAPE43, W, H), LANDSCAPE43, W, H, [], None)
     assert not cam["covering"]
+
+
+# --------------------------------------------------------------------------
+# The VL: place and object regions only, normalized, cold, from the cache (founder ruling (b))
+# --------------------------------------------------------------------------
+
+RECORDED_VL = json.loads((Path(__file__).resolve().parent / "fixture" / "vision-vl.json").read_text(encoding="utf-8"))
+
+
+def test_vl_normalization_snaps_sorts_and_is_canonical():
+    raw = json.dumps({"class": "place", "regions": [
+        {"label": " Smoke Plume ", "kind": "object", "box": [100, 50, 600, 300]},
+        {"label": "city skyline", "kind": "place", "box": [0, 280, 1000, 400]},
+        {"label": "a man", "kind": "person", "box": [10, 10, 20, 40]},
+        {"label": "bad", "kind": "vehicle", "box": [0, 0, 5, 5]}]})
+    n = V.vl_normalize(raw, 1000, 800)
+    assert [r["kind"] for r in n["regions"]] == ["object", "person", "place"]        # kind, then y, x, label
+    plume = n["regions"][0]
+    assert plume == {"kind": "object", "label": "smoke plume", "x": 0.1, "y": 0.06, "w": 0.5, "h": 0.31}
+    # half-even on the 0.005 grid: 0.0625 -> 0.06 (12.5 rounds to 12), 0.0675 -> 0.07 (13.5 rounds to 14)
+    assert V._snap(0.0625) == 0.06 and V._snap(0.0675) == 0.07
+    swapped = json.dumps({"class": "place", "regions": list(reversed(json.loads(raw)["regions"]))})
+    assert V.vl_normalize(swapped, 1000, 800) == n
+    assert V.vl_normalize("not json", 10, 10)["regions"] == []
+
+
+def test_vl_regions_never_make_a_person_and_a_cue_beats_the_caption():
+    vl = {"class": "place", "regions": [
+        {"kind": "group", "label": "people on the tower", "x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
+        {"kind": "object", "label": "smoke plume", "x": 0.3, "y": 0.1, "w": 0.3, "h": 0.3},
+        {"kind": "place", "label": "south tower", "x": 0.6, "y": 0.2, "w": 0.1, "h": 0.4},
+        {"kind": "place", "label": "thin line", "x": 0.0, "y": 0.9, "w": 1.0, "h": 0.0}]}
+    item = {"title": "The plume over the tower", "people": "none"}
+    sub, why = RB.vl_subject("place", vl, item, ["south tower"])
+    assert sub["kind"] == "place" and sub["x"] == 0.6 and "cue" in why
+    sub, why = RB.vl_subject("place", vl, item, [])
+    assert sub["kind"] == "object" and "plume" in why                     # the caption names the plume
+    assert RB.vl_subject("place", vl, {"title": "Sky", "people": "none"}, [])[0] is None
+    assert RB.vl_subject("crowd", vl, item, ["south tower"])[0] is None     # people come from MediaPipe alone
+    f = RB.fields(item, meas(), MODEL, vl=vl, cues=["south tower"], vl_model="vl:x")["fields"]
+    assert f["roi"][0]["model"] == "vl:x" and f["roi"][0]["confidence"] == RB.VL_CONFIDENCE and "whole" not in f
+    assert not T.item_schema(RB.overlay(item, f)[0])[0]
+
+
+@pytest.mark.parametrize("shot, cls, subject", [
+    ("3.6", "place", ("object", "smoke plume")),     # the plume over Lower Manhattan (no_zoom: drift only)
+    ("5.7", "object", ("object", "damaged car")),    # the police car in the debris
+    ("5.9ba", "place", ("object", "boat")),          # the Hocking crossing; its crew still unlocated, so shown whole
+    ("1.4", "place", None), ("2.8", "place", None), ("3.7", "map", None),
+    ("4.2", "person", ("person", None)),             # people: MediaPipe alone, the VL is not read
+])
+def test_the_rulebook_on_recorded_vl_answers(shot, cls, subject):
+    rec = RECORDED_VL["stills"][shot]
+    run = lambda: RB.fields(rec["item"], rec["measure"], rec["measure"]["model"], vl=rec["vl"], cues=rec["cues"],
+                            vl_model=rec["vl"]["model"])
+    a, b = run(), run()
+    assert json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
+    f = a["fields"]
+    assert f["class"] == cls
+    if subject is None:
+        assert f.get("whole") is True and "roi" not in f
+    else:
+        sub = f["roi"][0]
+        assert sub["kind"] == subject[0]
+        if subject[1]:
+            assert subject[1] in a["why"]["vl"] and sub["model"] == V.vl_model_key()
+    if rec["item"].get("no_zoom") and "roi" in f:
+        assert T.roi_stop(f["roi"][0], tuple(rec["measure"]["size"]), 16 / 9, 3.0)["z"] == pytest.approx(1.0)
+
+
+def test_the_recorded_vl_answers_carry_the_pinned_key():
+    assert {r["vl"]["model"] for r in RECORDED_VL["stills"].values()} == {V.vl_model_key()}
+
+
+def test_plan_reads_a_cached_vl_answer_with_the_shot_s_cue_and_never_calls_the_vl(film, monkeypatch):
+    def never(*a, **k):
+        raise AssertionError("a plan must never call the VL")
+    monkeypatch.setattr(V, "VL", never)
+    monkeypatch.setattr(V, "CPU", never)
+    _item(film, "FX-STILL-A", lambda i: i.update(people="none visible", title="A test picture"))
+    _edit(film, lambda p: next(s for q in p["parts"] for s in q["shots"] if s["id"] == "S3").update(subject_at="tower"))
+    _seed(film, "FX-STILL-A", meas([], size=(1500, 1050)))
+    path = film / "stills" / "FX-STILL-A.png"
+    sc = V.read_sidecar(V.sidecar_path(film / "stills-ledger.json"))
+    sc["vl"][f"{V.sha256_file(path)}|{V.vl_model_key()}"] = {"class": "place", "model": V.vl_model_key(), "regions": [
+        {"kind": "place", "label": "radio tower", "x": 0.6, "y": 0.1, "w": 0.1, "h": 0.5}]}
+    V.write_sidecar(V.sidecar_path(film / "stills-ledger.json"), sc)
+    plan, j = _plan(film)
+    it = _shot(plan, "S3")["_item"]
+    assert it["roi"][0]["name"] == "subject" and it["roi"][0]["x"] == 0.6 and it["roi"][0]["model"] == V.vl_model_key()
+
+
+def test_the_vl_cli_refuses_when_another_job_holds_the_heavy_lock(tmp_path, monkeypatch):
+    lock = tmp_path / "HEAVY.lock"
+    lock.write_text('{"group": "WG-4", "pid": 1}', encoding="utf-8")
+    monkeypatch.setenv("DOCUMENT_HEAVY_LOCK", str(lock))
+    with pytest.raises(V.MissingModel):
+        with V.HeavyLock("test"):
+            pass
+    lock.unlink()
+    with V.HeavyLock("test"):
+        assert json.loads(lock.read_text(encoding="utf-8"))["group"] == "WG-2"
+    assert not lock.exists()
