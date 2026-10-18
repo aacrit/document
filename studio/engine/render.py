@@ -1083,7 +1083,7 @@ def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int,
          evidence={"problems": anchor, "fix": None if not anchor else
                    "anchor to a word the narration over this shot speaks (a word index or a cue), or give t"})
     if cam.get("tour") and cam.get("cine") is not None:
-        cine_lints(lint, journal, s, cam)
+        cine_lints(lint, journal, s, cam, fps=fps)
     L = M.Layout(W, H)
     wins, bad, z_min = [], [], math.inf
     for k in range(int(math.floor(dur * fps)) + 1):          # every frame at the film's master rate (A44)
@@ -1156,7 +1156,7 @@ def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int,
                                                            "from touring the whole surface)"})
 
 
-def cine_lints(lint, journal: Journal, s: dict, cam: dict) -> None:
+def cine_lints(lint, journal: Journal, s: dict, cam: dict, fps: float = FPS) -> None:
     """A43 at plan time, inside every preflight (founder ruling 2: automatic,
     deterministic framing, a human optional; degrade, never block on missing
     human input). Blocking: ``face-cap-live`` (a stop that frames a face or a
