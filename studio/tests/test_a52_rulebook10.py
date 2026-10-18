@@ -122,7 +122,7 @@ def test_a_label_that_holds_the_quote_wins_over_a_generic_one():
 def test_the_one_generic_text_region_holds_the_quote():
     vl = {"regions": [{"kind": "text", "label": "sign", "x": 0.4, "y": 0.4, "w": 0.2, "h": 0.1},
                       {"kind": "object", "label": "bridge", "x": 0.0, "y": 0.5, "w": 1.0, "h": 0.3}]}
-    regs, why = RB.quoted_must_show(vl, {"title": "\"All crossings to New York closed\""})
+    regs, why = RB.quoted_must_show(vl, {"title": "A sign reading \"All crossings to New York closed\""})
     assert len(regs) == 1 and "the one text region" in why
     r = regs[0]                                       # padded by a fifth of its size each side
     assert (r["x"], r["y"], r["w"], r["h"]) == (0.36, 0.38, 0.28, 0.14)
@@ -137,11 +137,59 @@ def test_nothing_quoted_or_no_vl_adds_nothing():
 
 def test_a_quote_on_a_whole_still_is_must_show_beside_whole():
     vl = {"regions": [{"kind": "text", "label": "sign", "x": 0.4, "y": 0.4, "w": 0.2, "h": 0.1}]}
-    res = _fields({"title": "\"Closed\"", "people": "none"}, vl)
+    item = {"title": "\"Closed\"", "seen": "A shop door, a hand-painted sign in the window.", "people": "none"}
+    res = _fields(item, vl)
     f = res["fields"]
     assert f["whole"] is True and [r["name"] for r in f["roi"]] == ["text-1"]
-    merged, used = RB.overlay({"title": "\"Closed\"", "people": "none"}, f)
+    merged, used = RB.overlay(item, f)
     assert merged["whole"] is True and "roi" in used and "whole" in used
+
+
+# Review, 2026-10-18: quoted speech is never lettering in the picture (A0)
+SIGN = {"regions": [{"kind": "text", "label": "sign", "x": 0.1, "y": 0.1, "w": 0.2, "h": 0.05}]}
+
+
+@pytest.mark.parametrize("title", [
+    'The President said "We will find those who did this" at the site',
+    'A firefighter shouts "get back" near the barrier',
+    "The Mayor's words, 'New York is open for business', on the steps",
+])
+def test_quoted_speech_never_makes_a_sign_must_show(title):
+    regs, why = RB.quoted_must_show(SIGN, {"title": title})
+    assert regs == [] and "quoted speech" in why
+    f = _fields({"title": title, "people": "none"}, SIGN)["fields"]
+    assert not [r for r in f.get("roi") or [] if r.get("must_show")]
+    assert RB.quote_marks({"title": title})[0][1] == "speech"
+
+
+def test_quoted_speech_still_binds_a_label_that_holds_its_words():
+    vl = {"regions": [{"kind": "text", "label": "we will find those who did", "x": 0.1, "y": 0.1, "w": 0.2, "h": 0.05}]}
+    regs, _ = RB.quoted_must_show(vl, {"title": 'The President said "We will find those who did this"'})
+    assert len(regs) == 1
+
+
+@pytest.mark.parametrize("item, mark", [
+    ({"title": 'A banner "We Will Never Forget" over the street'}, "lettering"),
+    ({"title": 'A storefront, the words "God Bless America"'}, "lettering"),
+    ({"title": '"Ground Zero" on the barrier'}, "lettering"),
+    ({"title": '"Ground Zero", the barrier'}, "unmarked"),
+])
+def test_quote_marks_read_lettering_beside_the_quote(item, mark):
+    assert RB.quote_marks(item)[0][1] == mark
+    regs, _ = RB.quoted_must_show(SIGN, item)
+    assert bool(regs) == (mark == "lettering")
+
+
+def test_an_unmarked_quote_takes_a_fallback_only_when_seen_names_lettering():
+    item = {"title": '"Ground Zero", the barrier'}
+    assert RB.quoted_must_show(SIGN, item)[0] == []
+    assert len(RB.quoted_must_show(SIGN, dict(item, seen="A barrier with a painted sign."))[0]) == 1
+    assert RB.quote_marks(LOC_0129)[0][1] == "unmarked" and RB.quote_visible(LOC_0129, "unmarked")
+
+
+def test_a_crowd_is_never_an_event_people_stay_mediapipe_s():
+    assert "crowd" not in RB.EVENT_WORDS
+    assert RB.event_clause({"title": "The station and the crowd outside"}) == set()
 
 
 # --------------------------------------------------------------------------

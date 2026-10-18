@@ -536,7 +536,8 @@ TEXT_PAD = 0.2               # a quoted text region grows by this share of its o
                              # the ink on a 0.005 grid, and the words are whole only with their first and last letter
 INSIDE_SHARE = 0.8           # a text region this share inside a region is on it ("on the police car")
 # The event a caption's second clause names ("X and the smoke over Y", "X with Y behind"): the picture is about it
-EVENT_WORDS = frozenset({"smoke", "plume", "fire", "fires", "flame", "flames", "debris", "dust", "crowd"})
+# (never a crowd: people are MediaPipe's alone, and a VL label naming them is never a candidate, rulebook 8)
+EVENT_WORDS = frozenset({"smoke", "plume", "fire", "fires", "flame", "flames", "debris", "dust"})
 _TWO_THINGS = (re.compile(r"^(?P<x>.+?)\s+(?:and|with)\s+the\s+(?P<y>[^,;:()]+)", re.I),
                re.compile(r"^(?P<x>.+?)\s+with\s+(?P<y>[^,;:()]+?)\s+behind\b", re.I))
 # A monument the photographer stood at or beside is where the picture was made from, not what it shows
@@ -546,6 +547,21 @@ _VANTAGE = re.compile(r"(?<![\w-])(?:(?:seen|viewed|photographed|taken|shot) fro
 _VANTAGE_END = {"and", "with", "over", "toward", "towards", "as", "while", "after", "before", "in", "on", "into",
                 "across", "to", "under", "behind", "during"}
 BOXK = ("x", "y", "w", "h")
+# A quote is VISIBLE LETTERING (review, 2026-10-18) only when the item's own words say so: one of these right before it
+# ("a sign reading", "the words"), "on the <thing>" right after it, or the item's ``seen`` (what the editor saw in the
+# picture) naming lettering. Quoted speech is never written in the picture (A0): a speech word round the quote
+# forbids every fallback, so only a VL label that holds the words themselves can bind it.
+LETTERING_BEFORE = frozenset({"reading", "reads", "read", "lettered", "inscribed", "painted", "sign", "banner",
+                              "headline", "placard", "lettering", "inscription", "motto", "slogan", "poster",
+                              "plaque", "stencilled", "stenciled", "printed", "marked"})
+LETTERING_SEEN = re.compile(r"(?<![\w-])(?:lettered|lettering|inscribed|inscription|painted|reading|reads|sign|"
+                            r"signs|banner|headline|placard|motto|slogan|plaque|stencil(?:l)?ed|the words)(?![\w-])")
+_ON_THING = re.compile(r"^[\s,.;:]*on\s+(?:the|a|an|its|his|her|their)\s+\w+", re.I)
+SPEECH = frozenset({"said", "says", "say", "saying", "shouts", "shouted", "shout", "shouting", "told", "tells",
+                    "tell", "called", "calls", "call", "calling", "asked", "asks", "ask", "declared", "declares",
+                    "announced", "announces", "cried", "cries", "yelled", "yells", "replied", "replies", "spoke",
+                    "speaks", "speech", "remarks", "promised", "vowed", "warned", "added", "words"})
+SPEECH_WINDOW = (4, 3)       # words before and after a quote searched for a speech word
 
 
 def quoted(item: dict) -> list[str]:
@@ -560,6 +576,49 @@ def quoted(item: dict) -> list[str]:
                 if q and q not in out:
                     out.append(q)
     return out
+
+
+def quote_marks(item: dict) -> list[tuple[str, str]]:
+    """Each quote (``quoted``'s order) with how the item's own words mark it:
+    ``"speech"`` (a ``SPEECH`` word within ``SPEECH_WINDOW`` of it; "the
+    words" alone is lettering, "the Mayor's words" speech), ``"lettering"``
+    (a ``LETTERING_BEFORE`` word right before it, or "on the <thing>" right
+    after it), or ``"unmarked"``. A quote marked twice keeps the stronger
+    mark: speech over lettering over unmarked."""
+    rank = {"unmarked": 0, "lettering": 1, "speech": 2}
+    marks: dict[str, str] = {}
+    for k in ("title", "caption", "why"):
+        v = item.get(k)
+        for text in (v if isinstance(v, list) else [v]):
+            text = str(text or "")
+            for m in QUOTES.finditer(text):
+                q = next(g for g in m.groups() if g is not None).strip()
+                if not q:
+                    continue
+                before = [w.strip(_EDGE).lower() for w in text[:m.start()].split()]
+                after = [w.strip(_EDGE).lower() for w in text[m.end():].split()]
+                before = [w for w in before if w]
+                near = before[-SPEECH_WINDOW[0]:] + [w for w in after if w][:SPEECH_WINDOW[1]]
+                the_words = len(before) >= 2 and before[-1] == "words" and before[-2] == "the"
+                if any(w in SPEECH for w in near) and not (the_words and not any(
+                        w in SPEECH - {"words"} for w in near)):
+                    mark = "speech"
+                elif (before and before[-1] in LETTERING_BEFORE) or the_words or _ON_THING.match(text[m.end():]):
+                    mark = "lettering"
+                else:
+                    mark = "unmarked"
+                if q not in marks or rank[mark] > rank[marks[q]]:
+                    marks[q] = mark
+    return [(q, marks[q]) for q in quoted(item) if q in marks]
+
+
+def quote_visible(item: dict, mark: str) -> bool:
+    """Whether a quote may take a fallback region (the lone generic text
+    region, or the one on the thing the caption names): never speech; else
+    marked as lettering beside it, or the item's ``seen`` names lettering."""
+    if mark == "speech":
+        return False
+    return mark == "lettering" or LETTERING_SEEN.search(str(item.get("seen") or "").lower()) is not None
 
 
 def _generic_text(label) -> bool:
@@ -596,9 +655,11 @@ def _usable(g: dict) -> bool:
 def quoted_must_show(vl: dict | None, item: dict) -> tuple[list[dict], str]:
     """Rulebook 10 (A52): text the item's own words quote is in the picture
     and must be read, so the VL ``text`` region that holds it becomes a
-    ``must_show`` region. For each quote (``quoted``): the text region
+    ``must_show`` region. For each quote (``quote_marks``): the text region
     whose label holds at least ``QUOTE_MATCH`` of the quote's content words
-    (the most, then the VL's order); else, when the VL labels its text
+    (the most, then the VL's order) binds outright. The fallbacks apply only
+    to a quote the item's words mark as visible lettering (``quote_visible``;
+    never quoted speech): when the VL labels its text
     regions only as writing ("text", "sign", "lettering"), the one such
     region in the picture; else, of several, the one lying on the thing the
     caption names (``INSIDE_SHARE`` of it inside a VL region whose label the
@@ -607,7 +668,7 @@ def quoted_must_show(vl: dict | None, item: dict) -> tuple[list[dict], str]:
     the why; the A41 guards stand). Each region found grows by ``TEXT_PAD``
     on each side, so its words are whole. Returns (regions as {x, y, w, h,
     label}, why)."""
-    qs = quoted(item)
+    qs = quote_marks(item)
     if not qs:
         return [], "nothing quoted"
     if not vl:
@@ -619,7 +680,7 @@ def quoted_must_show(vl: dict | None, item: dict) -> tuple[list[dict], str]:
     bearers = [g for g in regs if g.get("kind") != "text" and match_words(g.get("label")) & cap_w]
     out: list[dict] = []
     whys: list[str] = []
-    for q in qs:
+    for q, mark in qs:
         qw = set(content_words(q))
         if not qw:
             continue
@@ -629,6 +690,11 @@ def quoted_must_show(vl: dict | None, item: dict) -> tuple[list[dict], str]:
             if share >= QUOTE_MATCH - 1e-9 and (best is None or (-share, k) < best[0]):
                 best = ((-share, k), g)
         pick, how = (best[1], f"its label holds {-best[0][0]:.0%} of the quote's words") if best else (None, "")
+        visible = quote_visible(item, mark)
+        if pick is None and not visible:
+            whys.append(f"{q!r}: no text label holds its words, and the item's words do not mark it as lettering"
+                        + (" (quoted speech)" if mark == "speech" else ""))
+            continue
         if pick is None and len(generic) == 1:
             pick, how = generic[0], "the one text region, labelled only as writing"
         if pick is None and len(generic) > 1:

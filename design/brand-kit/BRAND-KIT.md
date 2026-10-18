@@ -514,8 +514,8 @@ A still shown whole under `fill_exception` may move in to one DETAIL inside its 
 
 | Part | Numbers |
 |---|---|
-| Quoted text | quotes in the item's title, caption or `why`; a VL `text` label holding 60% of the quote's content words (`QUOTE_MATCH`); else the one text region labelled only as writing; else the one 80% inside a region the caption names (`INSIDE_SHARE`); grown by 0.2 of its own size each side (`TEXT_PAD`); a human region at IoU 0.5 or more (or holding 80% of it) wins |
-| Two things named | "X and the Y", "X with (the) Y behind": the event in Y (smoke, plume, fire, flames, debris, dust, crowd) is the caption's subject; none found: whole |
+| Quoted text | quotes in the item's title, caption or `why`; a VL `text` label holding 60% of the quote's content words (`QUOTE_MATCH`); binds outright; the fallbacks only for a quote marked as lettering (a word before it, "on the <thing>" after it, or `seen` naming lettering) and never for speech (a speech word within 4 words before or 3 after): the one text region labelled only as writing; else the one 80% inside a region the caption names (`INSIDE_SHARE`); grown by 0.2 of its own size each side (`TEXT_PAD`); a human region at IoU 0.5 or more (or holding 80% of it) wins |
+| Two things named | "X and the Y", "X with (the) Y behind": the event in Y (smoke, plume, fire, flames, debris, dust; never a crowd) is the caption's subject; none found: whole |
 | A monument as vantage | statue, monument, memorial, landmark, obelisk, pedestal, column, arch after "from", "seen from", "beside", "next to", "at", "at the foot of": never the subject |
 | The opening | the far or near end searched along the fill's travel in 2.5% steps toward the subject (`tour.travel_search`, `whole_pose`'s own search), the end kept when it is already clear |
 
