@@ -42,13 +42,15 @@ def _lockup(W, H):
     return img
 
 
-def make_master(path, record_png, *, burned=True, glyph_on_hold=True, n=N):
+def make_master(path, record_png, *, burned=True, glyph_on_hold=True, n=N, pose=None):
     """A short master in the real ones' shape: the machine (DRAWN), a cut to the record held whole (ARCHIVE), a dip
-    and the lockup (CARD), the marks burned in as assemble.py burns them (or none)."""
+    and the lockup (CARD), the marks burned in as assemble.py burns them (or none). ``pose`` (window, from_frame): the
+    record beat tours to that window of the scan filling the frame and rests there from from_frame (A7 under A41)."""
     W, H = TS.SIZE
     fonts = M.Fonts()
     machine, rec, lock = _machine(W, H), TS.hold_fit(Image.open(record_png), W, H), _lockup(W, H)
     black = Image.new("RGB", (W, H), (0, 0, 0))
+    toured = TS.pose_fit(Image.open(record_png), pose[0], W, H) if pose is not None else None
     item = {"marks": TL, "dip": DIP, "frames": n}
     holds = TS.dip_hold_frames(item)
     shots = [{"start": m["frame"] / 24, "cls": m["cls"], "label": m.get("label", "")} for m in TL]
@@ -58,6 +60,8 @@ def make_master(path, record_png, *, burned=True, glyph_on_hold=True, n=N):
     for k in range(n):
         t = k / 24
         pic = machine if k < 36 else rec if k < 60 else lock
+        if pose is not None and pose[1] <= k < 60:
+            pic = toured
         if t0 <= t < t0 + DIP["s"]:
             pic = Image.blend(black, pic, M.dip_level(t - t0, DIP["s"]))
         if burned and (glyph_on_hold or k not in holds):
@@ -468,3 +472,91 @@ def test_a40_marks_alone_on_the_dip_hold_warn_and_a_picture_there_does_not_pass(
     pic = black.copy()
     pic[500:520, 900:960] = 200                                                             # picture on the hold
     assert TS.check_frame(pic, item, k) == "fail"
+
+
+# --------------------------------------------------------------------------
+# A7 under A41 (founder, 2026-10-17): the record beat may tour the scan; its resting pose is the scan's declared 16:9
+# window filling the frame, and A7 compares those frames with that crop, nothing but the scan in the frame
+# --------------------------------------------------------------------------
+
+def _scan(tmp_path, w=1600, h=1200):
+    y, x = np.mgrid[0:h, 0:w]
+    a = np.stack([(x * 255 // w), (y * 255 // h), ((x // 40 + y // 40) % 2) * 200], axis=2).astype(np.uint8)
+    p = tmp_path / "scan.png"
+    Image.fromarray(a).save(p)
+    return p
+
+
+def test_a7_under_a41_the_resting_pose_matches_its_window(tmp_path):
+    p = _scan(tmp_path)
+    W, H = TS.SIZE
+    win = (0.1, 0.2, 0.9, 0.2 + 0.8 * 1600 / 1200 * 9 / 16)            # 16:9 in the scan's pixels
+    assert TS.pose_problem(win, (1600, 1200), W, H) is None
+    with Image.open(p) as im:
+        frame = np.asarray(TS.pose_fit(im, win, W, H))
+        whole = np.asarray(TS.hold_fit(im, W, H))
+    assert TS.record_difference(frame, str(p), win) < 1.0                # the toured pose is the scan's crop
+    assert TS.record_difference(whole, str(p), win) > TS.RECORD_LIMIT    # a pillarboxed hold is not that pose
+    assert TS.record_difference(whole, str(p)) < 1.0                     # without a pose, A7 as written still holds
+
+
+def test_a7_under_a41_the_pose_is_the_scan_alone_and_unstretched():
+    W, H = TS.SIZE
+    assert "leaves the scan" in TS.pose_problem((-0.05, 0.0, 0.9, 0.6), (1600, 1200), W, H)
+    assert "aspect" in TS.pose_problem((0.0, 0.0, 1.0, 1.0), (1600, 1200), W, H)
+    assert "four numbers" in TS.pose_problem(None, (1600, 1200), W, H)
+
+
+WIN_B = [0.0, 0.0, 1.0, round(395 / 316 * 9 / 16, 6)]     # a 16:9 window of FX-STILL-B (395 x 316 px)
+
+
+def _pose_problem(j):
+    return lints(j, "title-record-pose")[-1]["evidence"]["problem"]
+
+
+def test_a7_under_a41_a_declared_pose_is_checked_in_the_plan(tmp_path, masters):
+    # the fixture's record is not 16:9, so its whole sheet as a window would be stretched to fill the frame
+    plan, j = plan_of(titled_film(tmp_path / "a", masters, item={"record_pose": {"window": [0.0, 0.0, 1.0, 1.0],
+                                                                                "from_frame": 40}}))
+    assert isinstance(plan, R.Refused) and "aspect" in _pose_problem(j)
+    for k, (ff_, says) in enumerate(((5, "outside the record beat"), (51, "outside the record beat"),
+                                     (50, "holds at least"), (40.5, "whole frame"), (None, "whole frame"))):
+        plan, j = plan_of(titled_film(tmp_path / f"b{k}", masters, item={"record_pose": {"window": WIN_B, "from_frame": ff_}}))
+        assert isinstance(plan, R.Refused) and says in _pose_problem(j), (ff_, _pose_problem(j))
+    plan, j = plan_of(titled_film(tmp_path / "c", masters, item={"record_pose": [0, 0, 1, 1]}))      # malformed: no crash
+    assert isinstance(plan, R.Refused) and "object" in _pose_problem(j)
+
+
+def test_a7_under_a41_a_toured_master_resting_on_its_window_passes(tmp_path, masters, film):
+    rec = film / "stills" / "FX-STILL-B.png"
+    toured = dict(masters, toured=make_master(masters["dir"] / "toured.mkv", rec, pose=(WIN_B, 38)))
+    # the pose rests from f38 so it holds its 0.5 s (POSE_HOLD_S) before the dip begins (f51)
+    plan, j = plan_of(titled_film(tmp_path / "a", toured, master="toured",
+                                  item={"record_frames": [38, 50], "record_pose": {"window": WIN_B, "from_frame": 38}}))
+    assert passed(j, "title-record-pose"), [x["evidence"] for x in lints(j, "title-record-pose")]
+    assert passed(j, "title-record-pixels"), [x["evidence"] for x in lints(j, "title-record-pixels")]
+    ev = lints(j, "title-record-pixels")[-1]["evidence"]
+    assert "resting pose" in ev["measure"] and max(ev["edge_difference"].values()) <= TS.POSE_EDGE_LIMIT
+    # the same master declared as held whole (no pose) fails A7 as written
+    plan, j = plan_of(titled_film(tmp_path / "b", toured, master="toured", item={"record_frames": [38, 50]}))
+    assert isinstance(plan, R.Refused) and failed(j, "title-record-pixels")
+
+
+def test_a7_under_a41_an_alternate_rate_master_never_inherits_the_pose():
+    item = {"file": "a.mkv", "fps": 24, "record_frames": [40, 50], "record_pose": {"window": WIN_B, "from_frame": 40},
+            "masters": {"30000/1001": {"file": "b.mkv", "frames": 120, "record_frames": [50, 62]}}}
+    alt, how = TS.select_master(item, 30000 / 1001)
+    assert how == "alternate" and "record_pose" not in alt
+    item["masters"]["30000/1001"]["record_pose"] = {"window": WIN_B, "from_frame": 50}
+    assert TS.select_master(item, 30000 / 1001)[0]["record_pose"]["from_frame"] == 50
+
+
+def test_a7_under_a41_an_overshoot_onto_black_fails_the_edge_check(tmp_path):
+    p = _scan(tmp_path)
+    W, H = TS.SIZE
+    win = (0.1, 0.2, 0.9, 0.2 + 0.8 * 1600 / 1200 * 9 / 16)
+    with Image.open(p) as im:
+        frame = np.asarray(TS.pose_fit(im, win, W, H)).copy()
+    assert TS.pose_edge_difference(frame, str(p), win) < 1.0
+    frame[:, :40] = 0                                                  # 40 px of black at the left: past the scan
+    assert TS.pose_edge_difference(frame, str(p), win) > TS.POSE_EDGE_LIMIT
