@@ -177,7 +177,7 @@ def test_a_pale_scan_past_the_gain_cap_is_shown_as_held(black, floored):
         assert fp["gain"] <= LV.LEVELS_MAX_GAIN and rec["applied"]
     else:
         assert LV.gain(black) > LV.LEVELS_MAX_GAIN and rec["applied"] is False and rec["pale"] is True
-        assert rec["why"].startswith("pale scan: floor would be a grade")
+        assert rec["why"].startswith("pale scan, left as held")
 
 
 def test_the_copy_claims_exactly_what_the_map_does():

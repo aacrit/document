@@ -31,7 +31,7 @@ by that factor; the hue angle of a pixel no channel clips is kept up to the
 8-bit rounding, so a sepia stays a sepia. ``k`` is at most ``LEVELS_MAX_GAIN``
 (1.35, so ``black_in`` at most 73): a paler scan would be stretched, not
 floored, a grade rather than a level, and is shown as held and journaled
-("pale scan: floor would be a grade"). A map on luma alone with the chroma
+("pale scan, left as held"; founder ruling, 2026-10-17). A map on luma alone with the chroma
 kept moves a pixel off the line through its own colour in RGB and can leave
 gamut in the darks; per-channel black points would neutralise a cast, which is
 a grade, not a floor.
@@ -86,7 +86,7 @@ from PIL import Image
 VERSION = 2                 # bump when the measure, the map or the rules change: old segments are not reused
 P2_MAX = 24                 # a still whose luma p2 is above this (8-bit) is floored
 BLACK_OUT = 10              # the black point (min-channel p0.5) goes here (10/255)
-LEVELS_MAX_GAIN = 1.35      # the gain k past which a floor is a grade: a pale scan is shown as held
+LEVELS_MAX_GAIN = 1.35      # founder ruling 2026-10-17: past this gain a floor is a grade; the scan is left as held
 WHITE = 255                 # the white point stays
 GRADE_JUMP = 20             # grade-jump: a p2 delta across a cut above this warns
 ELIGIBLE_KIND = "archive_still"
@@ -94,7 +94,7 @@ ELIGIBLE_MARKS = ("ARCHIVE", "RECONSTRUCTED")
 MATERIALITY = "non-material (GRAMMAR 4.2: a level adjustment, one straight line the same on every channel; A46)"
 WHAT = ("black level set: the scan's grey floor taken down to near black by one straight-line level, the same on "
         "every colour, which raises contrast and colour strength by the same small factor; the white point kept")
-PALE_WHY = "pale scan: floor would be a grade"
+PALE_WHY = "pale scan, left as held"     # founder ruling 2026-10-17: past the cap a floor would be a grade
 RECONSTRUCTED_WHY = ("a RECONSTRUCTED still is still a scan of a real photograph; its named alteration is apart from "
                      "its black level, and a flat level adds no alteration (GRAMMAR 4.2)")
 SIDECAR_SUFFIX = ".levels.json"
@@ -326,7 +326,7 @@ def plan_levels(shots: list[dict], journal, *, write: bool = True) -> list[dict]
                              f"(p2 {lv['p2']} -> {lv['p2_after']})", f"A46 (founder ruling 4): {MATERIALITY}",
                              unit=s["id"], levels=lv)
         elif lv and lv.get("pale"):
-            journal.decision("motion", f"{s['id']}: shown as held, {PALE_WHY}", f"A46: {lv['why']}", unit=s["id"])
+            journal.decision("motion", f"{s['id']}: {PALE_WHY}", f"A46: {lv['why']}", unit=s["id"])
         elif lv and lv.get("opt_out"):
             journal.decision("motion", f"{s['id']}: shown as held (levels: none, p2 {lv['p2']})",
                              f"A46: {lv.get('reason')}", unit=s["id"])
