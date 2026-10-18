@@ -114,7 +114,7 @@ def test_the_committed_profile_holds_tara_lowered_one_semitone():
     # every take carries its provenance: a (truncated) sha256 of the exact source file
     for name, take in t1["takes"].items():
         assert len(take["sha256"]) == 16
-    assert "rw-narrator-audition/final/tara-1st__P1.wav" in t1["_note"]
+    assert "rw-narrator-audition/takes/tara-1st__P1.wav" in t1["_note"]   # pre-chain: shift only, no warm EQ baked in
     assert "2026-10-18" in t1["_note"]
 
 
