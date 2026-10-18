@@ -90,6 +90,7 @@ def limit(path, ts, cap_x, cap_y, ease_s=0.8, locked=None):
     early enough to arrive (it anticipates, as the design's lookahead does) instead of lagging."""
     n = len(ts)
     lk = np.zeros(n, bool) if locked is None else np.asarray(locked)
+    es = np.broadcast_to(np.asarray(ease_s, dtype=float), (n,))
     dt = np.diff(ts, prepend=ts[0] - (ts[1] - ts[0]))
     out = path.copy()
     for axis, cap in ((0, cap_x), (1, cap_y)):
@@ -99,7 +100,7 @@ def limit(path, ts, cap_x, cap_y, ease_s=0.8, locked=None):
         v2 = np.zeros(n)
         for i in range(n - 2, -1, -1):
             vmax = cap[i]
-            amax = vmax / ease_s
+            amax = vmax / es[i]
             want = (y[i + 1] - path[i, axis]) / dt[i + 1]
             want = (path[i + 1, axis] - path[i, axis]) / dt[i + 1] if lk[i] else (y[i + 1] - path[i, axis]) / dt[i + 1]
             lo, hi = v2[i + 1] - amax * dt[i + 1], v2[i + 1] + amax * dt[i + 1]
@@ -113,13 +114,88 @@ def limit(path, ts, cap_x, cap_y, ease_s=0.8, locked=None):
                 v[i] = (x[i] - x[i - 1]) / dt[i]
                 continue
             vmax = cap[i]
-            amax = vmax / ease_s
+            amax = vmax / es[i]
             want = (y[i] - x[i - 1]) / dt[i]
             lo, hi = v[i - 1] - amax * dt[i], v[i - 1] + amax * dt[i]
             v[i] = min(max(want, lo, -vmax), hi, vmax)
             x[i] = x[i - 1] + v[i] * dt[i]
         out[:, axis] = x
     return out
+
+
+EXEMPT = (168, 383)                         # beats 2-3, the founder's exemption from the pan guide
+EXEMPT_CAP = 0.40                           # m/s there (enough to hold the lead marble in frame)
+
+
+def exempt_weight(f):
+    """1 inside beats 2-3, easing over 18 frames either side on the house rostrum's ramp (smoothstep)."""
+    a, b = EXEMPT
+    return smoothstep((f - (a - 6)) / 18.0) * (1 - smoothstep((f - b) / 18.0))
+
+
+def bump(f, fa, fb, ramp):
+    return smoothstep((f - (fa - ramp)) / ramp) * (1 - smoothstep((f - fb) / ramp))
+
+
+def first_cross(poses, names, x):
+    """The first title second any marble passes x."""
+    best = None
+    for n in names:
+        for r in poses.get(n) or []:
+            if r[1] >= x:
+                best = r[0] if best is None else min(best, r[0])
+                break
+    return best
+
+
+def stations(st, poses, names):
+    """(from frame, to frame, anchor xy, close distance) for the stations framed closer."""
+    out = []
+    kh = st.get("khipu")
+    if kh:
+        k = np.array(kh["knots"])
+        f0 = first_cross(poses, names, k[0, 0] - 0.02)
+        f1 = first_cross(poses, names, k[-1, 0] + 0.01)
+        if f0 and f1:
+            out.append((f0 * FPS, f1 * FPS, (float(k[:, 0].mean()), float(k[:, 1].mean())), 0.42))
+    g = st.get("galley")
+    if g:
+        tq = g.get("t_quad1") or 19.3
+        out.append((tq * FPS - 6, tq * FPS + 34, (g["x"] + 0.07, g["y"] + 0.012), 0.55))
+    for nm in ("reel_reg", "reel_film"):
+        r = st.get(nm)
+        if r:
+            c = r["centre"]
+            tc = first_cross(poses, names, c[0] - r["r"])
+            if tc:
+                out.append((tc * FPS - 8, tc * FPS + 30, (c[0] - 0.01, c[1] + 0.02), 0.80))
+    return out
+
+
+def a7_window(rec):
+    """The tour's resting pose (the A7 window): the largest 16:9 crop of the sheet, centred across; a sheet taller
+    than 16:9 shows its full width and its top (masthead, title block), one wider its full height, centred. Returned
+    in bench metres (x0, y0, x1, y1) and as fractions of the scan (x0, y0, x1, y1, image rows from the top)."""
+    W, H = rec["W"], rec["H"]
+    x0b, yb = rec["x0"], rec["y"] - H / 2
+    if W / H >= 16 / 9:
+        cw, ch = H * 16 / 9, H
+        bx0, by1 = x0b + (W - cw) / 2, yb + H
+    else:
+        cw, ch = W, W * 9 / 16
+        bx0, by1 = x0b, yb + H
+    bench = (bx0, by1 - ch, bx0 + cw, by1)
+    frac = ((bx0 - x0b) / W, 0.0, (bx0 - x0b + cw) / W, ch / H)
+    return bench, frac
+
+
+def close_pose(rec):
+    """Where the close ends: 82% of the A7 window, its left side 5 mm inside the record's near edge (the marbles'
+    side), centred on the window vertically; the marbles lie outside it."""
+    (bx0, by0, bx1, by1), _ = a7_window(rec)
+    fw = 0.82 * (bx1 - bx0)
+    cx = max(bx0, rec["x0"] + 0.005) + fw / 2
+    return np.array([cx, (by0 + by1) / 2]), fw
 
 
 def gauss(x, ts, sigma):
@@ -165,6 +241,12 @@ def plan(prefix_poses, layout, tail=None, t_end=None, dt=1 / 240):
     fstop = np.array([keyed(CRANE, t, 4) for t in ts])
     # lead room: the marble sits a little left of centre, the frame ahead of it
     want[:, 0] += 0.12 * KW * D
+    # on beats 2-3 the camera tracks the lead marble itself (the founder's exemption), not the file's middle
+    for i, t in enumerate(ts):
+        w = exempt_weight(t * FPS)
+        if w > 0:
+            m = interp_track(poses["lead"], min(t + 0.15, poses["lead"][-1][0]))
+            want[i] = want[i] * (1 - w) + np.array([m[0] + 0.06 * KW * D[i], m[1]]) * w
     # holds and hand-offs
     m167 = interp_track(poses["lead"], 167 / FPS)
     a0 = np.array(LATCH["a0"][:2])
@@ -182,45 +264,60 @@ def plan(prefix_poses, layout, tail=None, t_end=None, dt=1 / 240):
             # hold on the brass disc through its settle, the marbles running on out of the frame's right side
             k = smoothstep((f - 852) / 14.0) * (1 - smoothstep((f - 928) / 12.0))
             want[i] = want[i] * (1 - k) + (b_xy + np.array([0.10 * KW * D[i], 0.0])) * k
-    # the tail: approach, then the record, then the descent that fills the frame with it
+    # closer on the stations (founder, M1 notes): the knots, the type, the two reels. The crane dips toward each,
+    # the frame centred on it, and rises again; under the pan guide the marbles cross the frame there
+    for (fa, fb, anchor, Dc) in stations(st, poses, names):
+        for i, t in enumerate(ts):
+            w = bump(t * FPS, fa, fb, 30.0)
+            if w > 0:
+                D[i] = D[i] + (min(Dc, D[i]) - D[i]) * w
+                want[i] = want[i] * (1 - w) + np.asarray(anchor) * w
+    locked = ts * FPS <= 167
+    # the tail: the camera follows the file onto the felt, frames the record as the marbles reach it, lands over the
+    # record before the lamp closes, then only descends (a straight dolly down: the frame's centre holds still)
     if tail:
         rec = tail["record"]
         a_, c_, d_, tour_ = tail["windows"]
-        f_app0, f_close0 = 936, 936 + a_
-        f_close1 = f_close0 + c_
+        f_close0 = 936 + a_
+        f_land0 = f_close0 - 54
         rec_c = np.array([rec["x0"] + rec["W"] / 2, rec["y"]])
-        # final close pose: a 16:9 crop inside the record, 5 mm in from its near (left) edge, at 70% of its width
-        fw_end = min(0.70 * rec["W"], (rec["H"] - 0.012) * 16 / 9)
-        end_c = np.array([rec["x0"] + 0.005 + fw_end / 2 + 0.004, rec["y"]])
-        D_app = max(min((rec["W"] * 1.55) / KW, 1.6), 0.35)
+        end_c, fw_end = close_pose(rec)
+        D_app = max(min((rec["W"] * 1.30) / KW, 1.6), 0.30)
         D920 = keyed(CRANE, 920 / FPS, 1)
         for i, t in enumerate(ts):
             f = t * FPS
             if f >= 920:
-                # the crane stays up while the camera travels to the record, and comes down over the approach's
-                # last second and a half
-                u = smoothstep((f - (f_close0 - 36)) / 36.0)
-                D[i] = D920 + (D_app - D920) * u
                 pitch[i], yaw[i] = 89.0, 90.0
-                # frame the record in the right two thirds as it arrives, the marbles entering from the left
-                hold = rec_c + np.array([-0.18 * KW * D[i], 0.0])
-                k = smoothstep((f - 948) / 40.0)
+                u = smoothstep((f - 936) / (f_land0 - 936))
+                D[i] = D920 + (D_app - D920) * u
+                hold = rec_c + np.array([-0.15 * KW * D[i], 0.0])
+                k = smoothstep((f - 940) / 36.0)
                 want[i] = want[i] * (1 - k) + hold * k
+            if f >= f_land0:
+                u = smoothstep((f - f_land0) / (f_close0 - 6 - f_land0))
+                hold = rec_c + np.array([-0.15 * KW * D_app, 0.0])
+                want[i] = hold + (end_c - hold) * u
+            if f >= f_close0 - 6:
+                want[i] = end_c
+                locked[i] = True
             if f >= f_close0:
                 u = smoothstep((f - f_close0) / c_)
                 D[i] = D_app + (fw_end / KW - D_app) * u
-                hold = rec_c + np.array([-0.18 * KW * D_app, 0.0])
-                want[i] = hold + (end_c - hold) * u
                 fstop[i] = 5.6 + (8.0 - 5.6) * u
     smooth = gauss(want, ts, 0.5)
     fw = KW * D
     fh_ground = KH * D / np.maximum(np.sin(np.radians(pitch)), 0.2)
     cap_x = CAP_X_PX * FPS / 1920 * fw
     cap_y = CAP_Y_PX * FPS / 1080 * fh_ground
+    # the founder's exemption (2026-10-17, motivated motion): on beats 2-3 (papyrus and Atlas) the camera may exceed
+    # the pan guide to keep the lead marble in frame; the cap rises and falls on rostrum ramps either side
+    ex = np.array([exempt_weight(t * FPS) for t in ts])
+    cap_x = cap_x * (1 - ex) + EXEMPT_CAP * ex
+    cap_y = cap_y * (1 - ex) + EXEMPT_CAP * ex
+    ease = 0.8 * (1 - ex) + 0.45 * ex
     # the latch is the approved proof's framing exactly: pinned through f167, the limiter carries on from it
-    locked = ts * FPS <= 167
     smooth[locked] = want[locked]
-    tgt2 = limit(smooth, ts, cap_x, cap_y, locked=locked)
+    tgt2 = limit(smooth, ts, cap_x, cap_y, locked=locked, ease_s=ease)
     rows = []
     for i, t in enumerate(ts):
         f = t * FPS

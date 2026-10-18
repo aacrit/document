@@ -966,6 +966,10 @@ class Run:
         img = {"R-S-130": (1284, 1987), "R-S-16928": (2874, 1686), "R-C20-METAR-0851": (3840, 2160)}[F["tex"]]
         Hr = Wr * img[1] / img[0]
         x_rec = x_stop + math.sqrt(2 * R * B.RECORD_T) - 0.0002
+        # the marble comes to rest at the record's near edge low down, by its lower corner, clear of the text (founder,
+        # M1 notes): the record lies with its lower edge 12 mm below the marble's line
+        y_stop = float(a[rest, 2])
+        yv = y_stop + Hr / 2 - 0.012
         self.box("record", x_rec, x_rec + Wr, yv - Hr / 2, yv + Hr / 2, B.FELT_T, B.FELT_T + B.RECORD_T, fr("page"))
         self.compile()
         self.contacts, self.poses = [], {b: [] for b in self.poses}
