@@ -82,7 +82,7 @@ def test_5_7_the_quoted_motto_is_must_show_and_covers_the_human_lettering():
     assert t["name"] == "text-1" and t["kind"] == "text" and t["must_show"] is True and t["source"] == "auto"
     assert t["model"] == VLM
     # the VL's two text regions are both labelled "text": the one on the police car (the VL's "van") is the motto
-    assert "the one text region on the 'van' the caption names" in res["why"]["quoted"]
+    assert "the one text region on the 'van' the item's words name" in res["why"]["quoted"]
     # the human box lies wholly inside the rule's region; IoU 0.669 (the VL's own box, unpadded: 0.775)
     assert RB._inside(LETTERING, t) == pytest.approx(1.0)
     assert RB.iou(LETTERING, t) == pytest.approx(0.669, abs=0.002)
@@ -137,7 +137,7 @@ def test_nothing_quoted_or_no_vl_adds_nothing():
 
 def test_a_quote_on_a_whole_still_is_must_show_beside_whole():
     vl = {"regions": [{"kind": "text", "label": "sign", "x": 0.4, "y": 0.4, "w": 0.2, "h": 0.1}]}
-    item = {"title": "\"Closed\"", "seen": "A shop door, a hand-painted sign in the window.", "people": "none"}
+    item = {"title": "\"Closed\"", "seen": "A shop door, a hand-painted sign reading Closed in the window.", "people": "none"}
     res = _fields(item, vl)
     f = res["fields"]
     assert f["whole"] is True and [r["name"] for r in f["roi"]] == ["text-1"]
@@ -180,11 +180,48 @@ def test_quote_marks_read_lettering_beside_the_quote(item, mark):
     assert bool(regs) == (mark == "lettering")
 
 
-def test_an_unmarked_quote_takes_a_fallback_only_when_seen_names_lettering():
+def test_seen_naming_lettering_allows_only_the_region_on_a_named_thing():
     item = {"title": '"Ground Zero", the barrier'}
     assert RB.quoted_must_show(SIGN, item)[0] == []
-    assert len(RB.quoted_must_show(SIGN, dict(item, seen="A barrier with a painted sign."))[0]) == 1
-    assert RB.quote_marks(LOC_0129)[0][1] == "unmarked" and RB.quote_visible(LOC_0129, "unmarked")
+    # seen names lettering somewhere: the lone generic region is not enough, it must lie on a thing named
+    seen = dict(item, seen="A barrier with a painted sign.")
+    assert RB.quote_visible(seen, "Ground Zero", "unmarked") == "bearer"
+    assert RB.quoted_must_show(SIGN, seen)[0] == []
+    on = {"regions": SIGN["regions"] + [{"kind": "object", "label": "barrier", "x": 0.05, "y": 0.05, "w": 0.4,
+                                          "h": 0.2}]}
+    assert len(RB.quoted_must_show(on, seen)[0]) == 1
+    # seen that holds the quote's own words: the lone generic region binds
+    words = dict(item, seen="A barrier, Ground Zero painted across it.")
+    assert RB.quote_visible(words, "Ground Zero", "unmarked") == "all"
+    assert len(RB.quoted_must_show(SIGN, words)[0]) == 1
+    # 5.7: the bearer route (the motto on the car the title names)
+    assert RB.quote_marks(LOC_0129)[0][1] == "unmarked"
+    assert RB.quote_visible(LOC_0129, RB.quoted(LOC_0129)[0], "unmarked") == "bearer"
+
+
+@pytest.mark.parametrize("title, seen", [
+    ('Rescuers named it "the pile"', "graffiti lettered on a wall"),
+    ('They knew it as "Ground Zero" by nightfall', "a street sign at right"),
+])
+def test_a_naming_quote_never_binds_a_sign(title, seen):
+    item = {"title": title, "seen": seen, "people": "none"}
+    assert RB.quote_marks(item)[0][1] == "speech"
+    assert RB.quoted_must_show(SIGN, item)[0] == []
+    f = _fields(item, SIGN)["fields"]
+    assert not [r for r in f.get("roi") or [] if r.get("must_show")]
+
+
+def test_a_seen_only_quote_with_no_naming_verb_takes_no_lone_region():
+    for title, seen in (('"the pile", the site', "graffiti lettered on a wall"),
+                        ('"Ground Zero" by nightfall', "a street sign at right")):
+        assert RB.quoted_must_show(SIGN, {"title": title, "seen": seen})[0] == []
+
+
+def test_a_marker_in_the_clause_before_a_colon_is_lettering():
+    item = {"title": 'The headline the next day: "We Will Rebuild"'}
+    assert RB.quote_marks(item)[0][1] == "lettering"
+    assert len(RB.quoted_must_show(SIGN, item)[0]) == 1
+    assert RB.quote_marks({"title": 'The day after, he said: "We Will Rebuild"'})[0][1] == "speech"
 
 
 def test_a_crowd_is_never_an_event_people_stay_mediapipe_s():

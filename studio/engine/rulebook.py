@@ -560,7 +560,10 @@ _ON_THING = re.compile(r"^[\s,.;:]*on\s+(?:the|a|an|its|his|her|their)\s+\w+", r
 SPEECH = frozenset({"said", "says", "say", "saying", "shouts", "shouted", "shout", "shouting", "told", "tells",
                     "tell", "called", "calls", "call", "calling", "asked", "asks", "ask", "declared", "declares",
                     "announced", "announces", "cried", "cries", "yelled", "yells", "replied", "replies", "spoke",
-                    "speaks", "speech", "remarks", "promised", "vowed", "warned", "added", "words"})
+                    "speaks", "speech", "remarks", "promised", "vowed", "warned", "added", "words",
+                    # naming is not lettering either ("named it", "knew it as", "dubbed")
+                    "named", "names", "naming", "dubbed", "nicknamed", "christened", "knew", "know", "known",
+                    "termed"})
 SPEECH_WINDOW = (4, 3)       # words before and after a quote searched for a speech word
 
 
@@ -600,10 +603,16 @@ def quote_marks(item: dict) -> list[tuple[str, str]]:
                 before = [w for w in before if w]
                 near = before[-SPEECH_WINDOW[0]:] + [w for w in after if w][:SPEECH_WINDOW[1]]
                 the_words = len(before) >= 2 and before[-1] == "words" and before[-2] == "the"
-                if any(w in SPEECH for w in near) and not (the_words and not any(
+                # a marker in the clause right before a colon counts too ("The headline the next day: ...")
+                head = text[:m.start()].rstrip()
+                clause = []
+                if head.endswith(":"):
+                    clause = [w.strip(_EDGE).lower() for w in re.split(r"[,;:.!?]", head[:-1])[-1].split()]
+                if any(w in SPEECH for w in near + clause) and not (the_words and not any(
                         w in SPEECH - {"words"} for w in near)):
                     mark = "speech"
-                elif (before and before[-1] in LETTERING_BEFORE) or the_words or _ON_THING.match(text[m.end():]):
+                elif (before and before[-1] in LETTERING_BEFORE) or the_words or _ON_THING.match(text[m.end():]) or (
+                        any(w in LETTERING_BEFORE for w in clause)):
                     mark = "lettering"
                 else:
                     mark = "unmarked"
@@ -612,13 +621,24 @@ def quote_marks(item: dict) -> list[tuple[str, str]]:
     return [(q, marks[q]) for q in quoted(item) if q in marks]
 
 
-def quote_visible(item: dict, mark: str) -> bool:
-    """Whether a quote may take a fallback region (the lone generic text
-    region, or the one on the thing the caption names): never speech; else
-    marked as lettering beside it, or the item's ``seen`` names lettering."""
+def quote_visible(item: dict, q: str, mark: str) -> str | None:
+    """Which fallbacks a quote may take (re-review, 2026-10-18): ``None``
+    for speech or naming, or with no evidence it is lettering; ``"all"``
+    (the lone generic text region, or the one on a named thing) when the
+    item's words mark it as lettering beside it, or its ``seen`` holds the
+    quote's own words (``QUOTE_MATCH`` of them); ``"bearer"`` (only the
+    text region lying on a thing the caption or ``seen`` names, as 5.7's
+    motto lies on the car) when the only evidence is ``seen`` naming
+    lettering somewhere in the picture."""
     if mark == "speech":
-        return False
-    return mark == "lettering" or LETTERING_SEEN.search(str(item.get("seen") or "").lower()) is not None
+        return None
+    if mark == "lettering":
+        return "all"
+    seen = str(item.get("seen") or "")
+    qw = set(content_words(q))
+    if qw and len(qw & set(content_words(seen))) / len(qw) >= QUOTE_MATCH - 1e-9:
+        return "all"
+    return "bearer" if LETTERING_SEEN.search(seen.lower()) is not None else None
 
 
 def _generic_text(label) -> bool:
@@ -676,7 +696,7 @@ def quoted_must_show(vl: dict | None, item: dict) -> tuple[list[dict], str]:
     regs = [g for g in vl.get("regions") or [] if _usable(g) and not vl_person_like(g.get("label"))]
     texts = [g for g in regs if g.get("kind") == "text"]
     generic = [g for g in texts if _generic_text(g.get("label"))]
-    cap_w = match_words(item.get("caption") or item.get("title") or "")
+    cap_w = match_words(item.get("caption") or item.get("title") or "") | match_words(item.get("seen") or "")
     bearers = [g for g in regs if g.get("kind") != "text" and match_words(g.get("label")) & cap_w]
     out: list[dict] = []
     whys: list[str] = []
@@ -690,18 +710,18 @@ def quoted_must_show(vl: dict | None, item: dict) -> tuple[list[dict], str]:
             if share >= QUOTE_MATCH - 1e-9 and (best is None or (-share, k) < best[0]):
                 best = ((-share, k), g)
         pick, how = (best[1], f"its label holds {-best[0][0]:.0%} of the quote's words") if best else (None, "")
-        visible = quote_visible(item, mark)
+        visible = quote_visible(item, q, mark)
         if pick is None and not visible:
             whys.append(f"{q!r}: no text label holds its words, and the item's words do not mark it as lettering"
                         + (" (quoted speech)" if mark == "speech" else ""))
             continue
-        if pick is None and len(generic) == 1:
+        if pick is None and visible == "all" and len(generic) == 1:
             pick, how = generic[0], "the one text region, labelled only as writing"
-        if pick is None and len(generic) > 1:
+        if pick is None and (len(generic) > 1 or visible == "bearer"):
             on = [g for g in generic if any(_inside(g, b) >= INSIDE_SHARE - 1e-9 for b in bearers)]
             if len(on) == 1:
                 b = next(b for b in bearers if _inside(on[0], b) >= INSIDE_SHARE - 1e-9)
-                pick, how = on[0], f"the one text region on the {b['label']!r} the caption names"
+                pick, how = on[0], f"the one text region on the {b['label']!r} the item's words name"
         if pick is None:
             whys.append(f"{q!r}: no text region holds it")
             continue
