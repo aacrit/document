@@ -441,6 +441,28 @@ Do: write regions of interest once per image (`roi`) and let `tour` visit each a
 | Machine boxes | `source: auto` under confidence 0.5 is set aside: the person counts as unlocated and the whole picture is toured |
 | One person | a face inside its figure (80% of the face box inside) is one person, for the binding rule |
 
+### 14c. The camera ends on the subject (2026-10-17, cinematography pass ticket #2; GRAMMAR A47)
+
+The tilt to the bottom edge is retired. A still's default pass opens at the end of the picture furthest from its subject, sweeps once and ends on it: the ledger's `subject`, else the shot's `focus`, else the whole picture. `motion.CINE` holds the numbers; `studio/engine/tour.py` draws it.
+
+| Beat | Numbers |
+|---|---|
+| Arrive | before the `subject_at` cue's onset: 0.5 s (measured words, or estimated ones); 1.0 s on estimated words when the subject is a person the cue names, held through the name. With no `subject_at`, settled before the shot's last line ends; with no narration, settled before the cut |
+| Settle | the subject's stop is reached at least 1.0 s before the cut; 1.5 s for text, a face or a person |
+| Pace | each leg within A41's guides: a third of the frame a second, 15% scale a second; a pass with too little time opens nearer the subject |
+| Golden | person, crowd, place: the subject's centre at phi, 0.382 or 0.618 of the window (thirds, 1/3 and 2/3, the fallback), inside the band 0.30 to 0.44 or 0.56 to 0.70 on each axis with room; the subject whole, 2% inside the frame |
+| Facing | left or right: placed behind the centre, room ahead at least the room behind |
+| Eyes | 12% down a person box, 40% down a face box, as near the upper third as the band allows |
+| Centred | document, map, painting, object (`compose: centred:<reason>`): the subject's centre within 0.06 of the middle where there is room |
+| Depth | as deep as the placement allows; the 3x softness cap; a face or person at most z 1.3; z 1 under `no_zoom` |
+| Whole | the fill, z 1, at 0.38 of the window's travel from the top (person, crowd, place) or 0.5 (records); a wide picture is centred across |
+| Breath | the hold on the subject creeps once: 1.5% scale a second, at most 6% in all (1.06), so 0.1 to 0.15% a second over 40 to 60 s; one way, a push or a drift (1% a second, at most 6% of the window), never a pull; never past the depth that keeps the subject whole |
+| `no_zoom` | every stop at z 1; every creep a drift; no push layered on a slow pass |
+| Reversal | none where every person is located: the far end, or the near end when only it shows them all; both ends and back only for a person the ledger has not located, or when no single sweep shows everyone (`in-shot-reversal` warns on the second) |
+| Match | `match: "prev"` across a cut: the subject opens where the previous still left its own on the screen |
+
+Do: let the subject decide the direction; let a whole picture breathe. Don't: end on the floor of the picture because the geometry ran out; sweep and come back when you know where the people are; push a burning tower.
+
 ## 15. The series titles: `void document · As It Was` (2026-10-17; GRAMMAR A40)
 
 The founder: "a cinematic ... intro ... after the hook of each video like it's a documentary episode." The series titles are the archive machine (`design/title-sequence/`: 12 beats, 57.0 s, G2 approved 2026-10-16), rendered once per film with that film's own record, and played by the engine as they are.
