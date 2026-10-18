@@ -41,6 +41,7 @@ import decimal
 import hashlib
 import io
 import json
+import math
 import os
 import sys
 import time
@@ -316,28 +317,32 @@ def inside(a, b, share: float = 0.8) -> bool:
 # HEAVY.lock; never at render.
 # --------------------------------------------------------------------------
 
-VL_NORM_VERSION = "1"
+VL_NORM_VERSION = "2"     # 2 (prompt v2): no class; kinds place, object and text only; a person-like label is dropped
+VL_PROMPT_VERSION = "2"   # 2: up to VL_MAX_REGIONS distinct visible things, tight boxes, never the whole picture
 VL_GRID = decimal.Decimal("0.005")       # boxes snap to half a percent of the picture, rounded half-even
-VL_CLASSES = ("person", "crowd", "place", "document", "map", "painting", "object")
-VL_KINDS = ("person", "group", "text", "object", "place")
+VL_MAX_REGIONS = 8
+VL_KINDS = ("place", "object", "text")   # the VL is never asked for, and never kept for, a person (A45)
 VL_SCHEMA = {"type": "object", "properties": {
-    "class": {"type": "string", "enum": list(VL_CLASSES)},
-    "regions": {"type": "array", "maxItems": 6, "items": {"type": "object", "properties": {
+    "regions": {"type": "array", "maxItems": VL_MAX_REGIONS, "items": {"type": "object", "properties": {
         "label": {"type": "string"}, "kind": {"type": "string", "enum": list(VL_KINDS)},
         "box": {"type": "array", "items": {"type": "integer"}, "minItems": 4, "maxItems": 4}},
         "required": ["label", "kind", "box"]}}},
-    "required": ["class", "regions"]}
+    "required": ["regions"]}
 
 
 def vl_prompt(w: int, h: int) -> str:
-    return ("You label an archival photograph so a documentary camera knows where to look. Answer only with JSON "
-            "matching the schema.\n"
-            "class: person (one to three people are what the picture is about), crowd (many people), place (a scene, "
-            "building, street, landscape, skyline or sky), document (paper, a sign or printed or handwritten text is "
-            "the subject), map, painting (a painting, drawing or print), object (a thing photographed as evidence).\n"
-            f"regions: at most 6, the most important first. Each is {{label, kind, box}}: label is 2 to 5 plain words "
-            f"saying what it is, never a person's name; kind is person, group, text, object or place; box is "
-            f"[x0, y0, x1, y1] in pixels of this {w} x {h} image. Never identify anyone.")
+    """Prompt v2 (A47 amendment, WG-3: Real World C0's plume): the distinct
+    visible things, each with a tight box, never a person."""
+    return ("You mark the distinct things that can be seen in an archival photograph, so a documentary camera knows "
+            "where to look. Answer only with JSON matching the schema.\n"
+            f"regions: up to {VL_MAX_REGIONS} different things that are really in this picture, the most prominent "
+            "first. Name only what you can see, and leave out anything that is not there. Each is {label, kind, box}: "
+            "label names that one thing in 1 to 4 plain words of your own; kind is place (land, water, sky, a "
+            "building, a street), object (a thing in the scene) or text (writing, a sign, a caption); box is "
+            f"[x0, y0, x1, y1] in pixels of this {w} x {h} image, drawn tight around that thing alone. A long thin "
+            "thing, such as a trail of smoke, a road or a river, is one thing, boxed from end to end. Never give a "
+            "box for the whole picture. Never label a person, a face or a group of people, and never identify "
+            "anyone.")
 
 
 def vl_prompt_sha() -> str:
@@ -348,23 +353,34 @@ def vl_model_key(man: dict | None = None) -> str:
     vl = (man or manifest())["vl"]
     o = vl["options"]
     return (f"vl:{vl['name']}@{vl['digest'][:12]}:s{o['seed']}:t{o['temperature']}:k{o['top_k']}:c{o['num_ctx']}"
-            f":ka{vl['keep_alive']}:{vl['cache']}:n{VL_NORM_VERSION}:p{vl_prompt_sha()[:12]}")
+            f":np{o['num_predict']}:px{vl['min_pixels']}:ka{vl['keep_alive']}:{vl['cache']}:n{VL_NORM_VERSION}"
+            f":p{vl_prompt_sha()[:12]}")
 
 
 def vl_header(man: dict | None, ollama: str | None) -> dict:
     vl = (man or manifest())["vl"]
     return {"model": vl["name"], "digest": vl["digest"], "ollama": ollama, "options": vl["options"],
-            "keep_alive": vl["keep_alive"], "cache": vl["cache"], "image_long_side": vl["image_long_side"],
-            "norm_version": VL_NORM_VERSION, "grid": str(VL_GRID), "prompt_sha256": vl_prompt_sha(),
+            "keep_alive": vl["keep_alive"], "cache": vl["cache"], "min_pixels": vl["min_pixels"],
+            "norm_version": VL_NORM_VERSION, "prompt_version": VL_PROMPT_VERSION, "grid": str(VL_GRID),
+            "prompt_sha256": vl_prompt_sha(),
             "key": vl_model_key(man)}
 
 
-def vl_image(img: Image.Image, long_side: int) -> tuple[bytes, int, int]:
-    """The picture as the VL sees it: the long side ``long_side``, both sides
-    multiples of 28 (the model's patch), Lanczos, PNG (lossless)."""
-    W, H = img.size
-    sc = long_side / max(W, H)
-    w, h = max(28, round(W * sc / 28) * 28), max(28, round(H * sc / 28) * 28)
+def vl_size(W: int, H: int, min_pixels: int) -> tuple[int, int]:
+    """The size the VL answers in, for a W x H picture: the picture scaled to
+    at least ``min_pixels`` (the model's floor, 1024 patches of 28 x 28), both
+    sides rounded up to multiples of 28, as Qwen2.5-VL's own resize does to a
+    smaller picture. Sent at exactly this size, the picture is not resized
+    again, so the boxes come back in its pixels (#2b: at 896 x 588 the model
+    upscaled to 1120 x 728 and answered in those pixels, so every v1 box was
+    about 1.25 times too far right and down, then clamped)."""
+    sc = math.sqrt(min_pixels / (W * H))
+    return max(28, math.ceil(W * sc / 28) * 28), max(28, math.ceil(H * sc / 28) * 28)
+
+
+def vl_image(img: Image.Image, min_pixels: int) -> tuple[bytes, int, int]:
+    """The picture as the VL sees it (``vl_size``), Lanczos, PNG (lossless)."""
+    w, h = vl_size(*img.size, min_pixels)
     buf = io.BytesIO()
     img.resize((w, h), Image.Resampling.LANCZOS).save(buf, format="PNG", compress_level=6)
     return buf.getvalue(), w, h
@@ -375,25 +391,39 @@ def _snap(v: float) -> float:
     return float(format(q * VL_GRID, ".3f"))
 
 
+def vl_person_like(label: str) -> bool:
+    """A label that names a person, people or a face: the rulebook's own
+    test (``rulebook.vl_person_like``), applied here too so a person's label
+    is never cached; the rulebook applies it again when it reads the cache."""
+    return RB.vl_person_like(label)
+
+
 def vl_normalize(raw: str, w: int, h: int) -> dict:
-    """The VL's answer, canonical: boxes in picture fractions snapped to the
-    grid, labels trimmed and lower case, regions sorted by (kind, y, x,
-    label); the class as returned. A malformed answer is no regions."""
+    """The VL's answer, canonical (normalization v2): boxes in picture
+    fractions snapped to the grid, labels trimmed and lower case, regions
+    sorted by (kind, y, x, label). A region of another kind (a person or a
+    group), a person-like label (``vl_person_like``) or a malformed box is
+    dropped. A malformed answer is no regions."""
     try:
         a = json.loads(raw)
     except ValueError:
-        return {"class": None, "regions": [], "malformed": True}
+        return {"regions": [], "malformed": True}
+    if not isinstance(a, dict):
+        return {"regions": [], "malformed": True}
     regs = []
     for g in a.get("regions") or []:
         b = g.get("box") if isinstance(g, dict) else None
-        if g.get("kind") not in VL_KINDS or not (isinstance(b, list) and len(b) == 4
-                                                  and all(isinstance(v, (int, float)) for v in b)):
+        if not isinstance(g, dict) or g.get("kind") not in VL_KINDS or not (
+                isinstance(b, list) and len(b) == 4 and all(isinstance(v, (int, float)) for v in b)):
+            continue
+        label = str(g.get("label") or "").strip().lower()[:60]
+        if vl_person_like(label):
             continue
         x0, y0, x1, y1 = (max(0.0, min(1.0, float(v) / d)) for v, d in zip(b, (w, h, w, h)))
-        regs.append({"kind": g["kind"], "label": str(g.get("label") or "").strip().lower()[:60],
+        regs.append({"kind": g["kind"], "label": label,
                      "x": _snap(x0), "y": _snap(y0), "w": _snap(max(0.0, x1 - x0)), "h": _snap(max(0.0, y1 - y0))})
     regs.sort(key=lambda r: (r["kind"], r["y"], r["x"], r["label"]))
-    return {"class": a.get("class") if a.get("class") in VL_CLASSES else None, "regions": regs}
+    return {"regions": regs}
 
 
 class VL:
@@ -408,6 +438,9 @@ class VL:
             self.ollama = json.loads(urllib.request.urlopen(host + "/api/version", timeout=10).read())["version"]
         except OSError as e:
             raise MissingModel(f"Ollama is not answering at {host} ({e})") from e
+        if self.ollama != self.vl["ollama"]:
+            raise MissingModel(f"Ollama {self.ollama} is not the pinned {self.vl['ollama']} (vl_size's floor and the "
+                               f"answers were proved on it)")
         dig = next((m["digest"] for m in tags.get("models", []) if m["name"] == self.vl["name"]), None)
         if dig != self.vl["digest"]:
             raise MissingModel(f"{self.vl['name']} digest {str(dig)[:12]} is not the pinned {self.vl['digest'][:12]}")
@@ -422,7 +455,7 @@ class VL:
         self._post("/api/generate", {"model": self.vl["name"], "keep_alive": 0})
 
     def measure(self, img: Image.Image) -> dict:
-        png, w, h = vl_image(img, self.vl["image_long_side"])
+        png, w, h = vl_image(img, self.vl["min_pixels"])
         self.unload()                       # cold: nothing cached from the last still
         out = self._post("/api/chat", {
             "model": self.vl["name"], "stream": False, "format": VL_SCHEMA, "options": self.vl["options"],
@@ -555,12 +588,25 @@ class Measurer:
         self.vlm: VL | None = None
         self.vl_why: str | None = None
         self.vl_measured: list[str] = []
+        self.vl_stale: list[str] = []
+
+    def vl_cache_valid(self, cache: dict) -> bool:
+        """The cached VL answers count only when the sidecar's header says they
+        were measured under the pinned Ollama version (A48: ``vl_size`` and the
+        determinism proof hold for it); else they are stale, never read."""
+        return (cache.get("vl_header") or {}).get("ollama") == self.man["vl"]["ollama"]
 
     def get_vl(self, cache: dict, sha: str, path) -> dict | None:
         """The cached VL answer, or (``--vl`` only) a cold measurement of it."""
         k = f"{sha}|{self.vl_key}"
         if k in cache["vl"]:
-            return cache["vl"][k]
+            if self.vl_cache_valid(cache):
+                return cache["vl"][k]
+            self.vl_stale.append(sha)
+            if not self.allow_vl:
+                return None
+            cache["vl"] = {}                  # measured again under the pinned version, never mixed
+            cache.pop("vl_header", None)
         if not self.allow_vl or self.vl_why:
             return None
         if self.vlm is None:
@@ -666,6 +712,16 @@ def plan_overlay(stills: list[dict], journal=None, lint=None) -> dict:
             s["_item"] = dict(rec["merged"], **priv)
             s["_vision"] = summary(rec)
     unmeasured = [r["id"] for r in recs if not r["measured"]]
+    shas = {r["sha256"]: r["id"] for r in recs}
+    stale = sorted({shas[h] for h in meas.vl_stale if h in shas})
+    if journal is not None and stale:
+        journal.decision("motion", f"A48: {len(stale)} still(s)' VL answers measured under another Ollama: not read",
+                         "the box frame and the determinism proof hold for the pinned version only",
+                         evidence={"stills": stale, "pinned": meas.man["vl"]["ollama"]})
+    if lint is not None and stale:
+        lint("vision-cache", False, severity="review", stage="motion", grammar="A48",
+             evidence={"vl_stale": stale, "pinned_ollama": meas.man["vl"]["ollama"],
+                       "fix": "run python -m studio.engine.vision <film> --write --vl under the pinned Ollama"})
     if journal is not None:
         journal.decision("motion", f"A45: {len(recs)} still(s) through rulebook {RB.RULEBOOK_VERSION} from the cache",
                          "founder ruling 2: automatic, deterministic subject finding; the human ledger's fields win",

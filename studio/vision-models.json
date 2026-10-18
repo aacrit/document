@@ -23,6 +23,7 @@
     "name": "qwen2.5vl:7b",
     "digest": "5ced39dfa4bac325dc183dd1e4febaa1c46b3ea28bce48896c8e69c1e79611cc",
     "host": "http://127.0.0.1:11434",
+    "ollama": "0.40.4",
     "options": {
       "temperature": 0,
       "seed": 20011,
@@ -33,7 +34,7 @@
     },
     "keep_alive": 0,
     "cache": "cold",
-    "image_long_side": 896,
-    "_note": "Place and object region labels only (founder ruling (b)); cold: the model is unloaded before every still, so no prompt cache survives (proof 2026-10-17: 10/10 byte-identical twice cold, 5/10 raw and 8/10 normalized warm). Ollama 0.40.4."
+    "min_pixels": 802816,
+    "_note": "Place, object and text regions only, never a person (founder ruling (b), A48); cold: the model is unloaded before every still, so no prompt cache survives (proof 2026-10-17: 10/10 byte-identical twice cold, 5/10 raw and 8/10 normalized warm; prompt v2: 32 stills, then 10 again from cold, the same sidecar bytes). min_pixels: each picture is sent at the smallest size of its shape at or over 1024 patches of 28 x 28, the model's own floor, so its boxes are in the picture's pixels (A48). Ollama 0.40.4."
   }
 }
