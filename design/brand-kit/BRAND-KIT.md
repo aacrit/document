@@ -455,10 +455,13 @@ The tilt to the bottom edge is retired. A still's default pass opens at the end 
 | Eyes | 12% down a person box, 40% down a face box, as near the upper third as the band allows |
 | Centred | document, map, painting, object (`compose: centred:<reason>`): the subject's centre within 0.06 of the middle where there is room |
 | Depth | as deep as the placement allows; the 3x softness cap; a face or person at most z 1.3; z 1 under `no_zoom` |
-| Whole | the fill, z 1, at 0.38 of the window's travel from the top (person, crowd, place) or 0.5 (records); a wide picture is centred across |
-| Breath | the hold on the subject creeps once: 1.5% scale a second, at most 6% in all (1.06), so 0.1 to 0.15% a second over 40 to 60 s; one way, a push or a drift (1% a second, at most 6% of the window), never a pull; never past the depth that keeps the subject whole |
-| `no_zoom` | every stop at z 1; every creep a drift; no push layered on a slow pass |
-| Reversal | none where every person is located: the far end, or the near end when only it shows them all; both ends and back only for a person the ledger has not located, or when no single sweep shows everyone (`in-shot-reversal` warns on the second) |
+| Whole | founder ruling (c), `WHOLE_HOLD_MIN_SHOWN` 0.90: when the fill shows 90% or more of the picture (and everyone and every `must_show` region), the fill, z 1, at 0.38 of the window's travel from the top (person, crowd, place) or 0.5 (records), a wide picture centred across; under 90%, one sweep end to end, never back: rising for person, crowd, place; top to bottom for records; left to right for wide pictures; toward the next shot's subject when it says `match: "prev"` |
+| Whole breath | a drift inside the fill (1% a second, at most 6% of the window), never a push; a picture of the frame's own shape, with no room to drift, breathes in to at most 1.06 |
+| Breath | the hold on the subject creeps once: 1.5% scale a second, at most 6% in all (1.06), so 0.1 to 0.15% a second over 40 to 60 s; one way, a push or a drift (1% a second, at most 6% of the window), never a pull; never past the depth that keeps the subject whole; the drift keeps the subject, and for a person or group every located person it frames, in frame |
+| `no_zoom` | every stop at z 1; every creep a drift; a zooming preset keeps only its moves; no push layered on a slow pass |
+| Reversal | none where every person is located: the far end, or the near end when only it shows them all and every `must_show` region; both ends (each held 0.1 s) and back only for a person the ledger has not located, or when no single sweep shows everyone (`in-shot-reversal` warns on the second) |
+| Held | a person or `must_show` region a covering sweep would pass between two frames: held whole in frame for 0.3 s on the way |
+| Synonyms | rulebook 6, cue to VL label: plume, smoke; tower, building, skyscraper; ship, vessel, boat; statue, monument |
 | Match | `match: "prev"` across a cut: the subject opens where the previous still left its own on the screen |
 
 Do: let the subject decide the direction; let a whole picture breathe. Don't: end on the floor of the picture because the geometry ran out; sweep and come back when you know where the people are; push a burning tower.
