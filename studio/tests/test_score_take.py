@@ -499,3 +499,43 @@ def test_the_take_may_span_the_titles_only_with_the_handover_rest(tmp_path, mast
     plan, j = plan_of(film)
     assert isinstance(plan, R.Refused) and failed(j, "title-audio-slot")
 
+
+
+# --------------------------------------------------------------------------
+# The house motif inside the take (founder, 2026-10-17): it keeps its place on the title card's first frame, so the
+# A40 handover rest may end where the verbatim house motif begins; any other span there still fails
+# --------------------------------------------------------------------------
+
+def _motif_case(flag: bool):
+    motif = {"id": "motif-title", "role": "featured", "start_s": 4.0, "end_s": 8.5, "marks_moment": "brand",
+             "house_motif": flag}
+    y = _room(40.0)
+    s = _swell(4.5, amp=0.05, rise=0.4, fall=1.0, hz=(392.0, 587.33))
+    y[int(4.0 * RATE): int(4.0 * RATE) + len(s)] += s
+    rests = [{"id": "h", "start_s": 0.0, "end_s": 4.0, "why": "A40 handover: the title carries the room"}] + RESTS[1:]
+    return SC.take_analysis(y, _take(spans=[motif] + SPANS, rests=rests), titles=[(0.0, 4.0)])
+
+
+def test_the_handover_ends_where_the_house_motif_begins():
+    tk = _take(spans=[{"id": "m", "role": "featured", "start_s": 20.0, "end_s": 30.0, "house_motif": True}] + SPANS[1:])
+    assert SC.handover_end(tk, 20.0) == 20.0                       # the motif follows the titles directly
+    assert SC.handover_end(_take(), 20.0) == 28.0                  # otherwise the full 8 s
+    late = _take(spans=[{"id": "m", "role": "featured", "start_s": 15.0, "end_s": 18.0, "house_motif": True}])
+    assert SC.handover_end(late, 20.0) == 28.0                     # a motif before the titles' end is no exemption
+
+
+def test_the_house_motif_may_follow_the_titles_but_nothing_else_may():
+    ok = _get(SC.take_checks(_motif_case(True), STD), "take-handover", "score")
+    assert ok["ok"], ok
+    bad = _get(SC.take_checks(_motif_case(False), STD), "take-handover", "score")
+    assert not bad["ok"]                                           # the same notes as a plain span: the rest is short
+
+
+def test_the_house_motif_in_the_take_is_judged_as_the_motif():
+    an = _motif_case(True)
+    m = next(c for c in an["cues"] if c["id"] == "motif-title")
+    assert m["role"] == "motif"                                    # BRAND: recurs by design, verbatim entry
+    checks = SC.take_checks(an, STD)
+    assert not [c for c in checks if c["unit"] == "motif-title" and c["rule"] in ("music-entry", "music-exit")]
+    plain = next(c for c in _motif_case(False)["cues"] if c["id"] == "motif-title")
+    assert plain["role"] == "featured"                             # unmarked, the same notes are judged as composed
