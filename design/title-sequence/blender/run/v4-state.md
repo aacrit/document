@@ -17,3 +17,8 @@ The Run v4, state at the pause (2026-10-18; paused for Real World's score work)
 - **Light and cuts:** no fades, no hidden cuts, no time remaps. The lamp stays constant unless something physical moves it. The iris "closing onto the record" and the lamp "finding" cues are OUT, so record legibility must come from constant light.
 - **Breeze:** a gentle MuJoCo wind on light bodies only (the khipu cord, the 35 mm strip, the Morse tape), and only where cheap. Skip it if it needs cloth for the sheets or perturbs a hand-off, and say so.
 - **Open, waiting on the coordinator:** does the lockup (dip to `void document · As It Was`) stay after the shot, as a separate card outside the title shot? Until answered, build the shot to end on the record pose.
+
+## Decided 2026-10-18 (coordinator, delegated)
+- **Lockup:** option (a). A separate CARD shot after the one-shot title, joined by a hard CUT, with no dip. The master ends on the record pose and holds no lockup.
+- **titles.py:** WG-4 changes it after the animatic. `dip: null`, no lockup_frame, the CARD out of the master's timeline, the handover cut and cut, with tests, through the gate.
+- **A7 under constant light:** measure it on the first tail. If it fails, fix it physically (the record in the constant lamp's pool from the start of the tail, or laid flatter), never with a grade or a fade.
