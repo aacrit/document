@@ -163,7 +163,8 @@ def test_a_whole_sweep_ends_toward_the_next_shot_s_matched_subject():
     nxt = {"id": "N", "kind": "archive_still", "match": "prev", "transition_in": {"type": "cut"},
            "_item": {"people": False, "roi": [subject(0.6, 0.6, 0.2, 0.2)]}}
     assert R.next_subject(nxt) == pytest.approx([0.7, 0.7])
-    assert R.next_subject(dict(nxt, transition_in={"type": "dissolve"})) is None
+    assert R.next_subject(dict(nxt, transition_in={"type": "dissolve"})) == pytest.approx([0.7, 0.7])  # A53
+    assert R.next_subject(dict(nxt, transition_in={"type": "dip"})) is None
     assert R.next_subject(dict(nxt, match=None)) is None
 
 
@@ -423,14 +424,17 @@ def test_match_prev_opens_with_the_subject_where_the_last_shot_left_its_own(tmp_
     assert cam["subject"]["match_error"] < 0.05
     assert tl["stops"][0].get("match") == "prev"
     assert cam["subject"]["last"]["inside"]                  # and it still ends on its own subject
-    # a dissolve waits for #9; a clip before gives no position: warnings, and the default pass
+    # A53: a dissolve matches the same way as a cut; a dip, or a clip before, gives no position: warnings
     s2 = dict(s, transition_in={"type": "dissolve", "s": 0.75})
     R.match_prev(j, s2, ps)
+    assert s2["_match_screen"] == screen
+    s2b = dict(s, transition_in={"type": "dip", "s": 0.75})
+    R.match_prev(j, s2b, ps)
     s3 = dict(s)
     R.match_prev(j, s3, {"id": "C", "kind": "archive_video"})
-    assert "_match_screen" not in s2 and "_match_screen" not in s3
+    assert "_match_screen" not in s2b and "_match_screen" not in s3
     warn = [e for e in J.read(j.path) if e["kind"] == "lint" and e.get("rule") == "cine-match"]
-    assert [e["status"] for e in warn] == ["pass", "fail", "fail"]
+    assert [e["status"] for e in warn] == ["pass", "pass", "fail", "fail"]
 
 
 # --------------------------------------------------------------------------

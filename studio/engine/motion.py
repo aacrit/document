@@ -1917,6 +1917,12 @@ TOUR = dict(hold_creep_after_s=1.5, creep_scale_per_s=0.015, creep_drift_per_s=0
 #   face_under_text_share   A51 (doctrine section 4, "faces never"): a face reads as under live text (an active LT
 #                           or SUB zone) at any overlap past this share; 0.0 is "never"
 #   head_share              A51: a located person with no face box has its head in the top this share of its box
+#   A53 (the dissolve keeps its subject; cinematography ticket #9, doctrine 2.9's "three joints"):
+#   dissolve_default_s      the `dissolve: true` shorthand's own duration when the shot states none (inside
+#                           7.3's 0.5 to 1.5 s, the house's narrower 0.75 to 1.0 s target)
+#   dissolve_budget_s       the house guidance budget: about one dissolve every this many seconds of film
+#   dissolve_match_tol      `dissolve-rule`'s position-match tolerance, a share of the frame, read against
+#                           `tour.match_start`'s own leftover error (doctrine 2.9: matched within about 5%)
 WHOLE_HOLD_MIN_SHOWN = 0.90
 CINE = dict(face_zmax=1.3, framed_share=0.5, auto_confidence_floor=0.5, anchor_early_s=0.8, anchor_late_s=0.25,
             anchor_estimated_lead_s=1.0, anchor_lead_s=0.5, nest_share=0.8,
@@ -1925,7 +1931,8 @@ CINE = dict(face_zmax=1.3, framed_share=0.5, auto_confidence_floor=0.5, anchor_e
             whole_hold_min_shown=WHOLE_HOLD_MIN_SHOWN, waypoint_hold_s=0.3, end_hold_s=0.1,
             thirds=(1 / 3, 2 / 3), action_safe=0.035, graphics_safe=0.05, under_text_share=0.10,
             under_text_block_share=0.90, whole_share=0.8, detail_share=0.4,
-            face_under_text_share=0.0, head_share=0.22)
+            face_under_text_share=0.0, head_share=0.22,
+            dissolve_default_s=0.9, dissolve_budget_s=180.0, dissolve_match_tol=0.05)
 
 # A50 (cinematography ticket #12; founder ruling 3, 2026-10-17: "Detail stop in a fill_exception shot: (b). One DETAIL
 # stop within 3x, bracketed by the whole picture at both ends"): a still held whole under fill_exception may move in

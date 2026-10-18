@@ -519,6 +519,17 @@ A still shown whole under `fill_exception` may move in to one DETAIL inside its 
 | A monument as vantage | statue, monument, memorial, landmark, obelisk, pedestal, column, arch after "from", "seen from", "beside", "next to", "at", "at the foot of": never the subject |
 | The opening | the far or near end searched along the fill's travel in 2.5% steps toward the subject (`tour.travel_search`, `whole_pose`'s own search), the end kept when it is already clear |
 
+### 14h. The dissolve keeps its subject (2026-10-18, cinematography pass ticket #9; GRAMMAR A53)
+
+| Part | Numbers |
+|---|---|
+| `dissolve: true` | shorthand for `transition_in: {type: "dissolve", s}`; `s` the shot's own stated duration, else the house default 0.9 s (`CINE["dissolve_default_s"]`), inside 7.3's 0.5 to 1.5 s and this amendment's 0.75 to 1.0 s target; a stated `transition_in` of a different type is a contradiction (`dissolve-flag-conflict`, blocking) |
+| Implied match | `dissolve: true` implies `match: "prev"`, stated or not: the incoming shot's first stop opens where the outgoing shot left its own subject on the screen (A47's `match_start`), the same mechanism a cut already used, now read for `transition_in.type == "dissolve"` too (`render.match_prev`, `render.next_subject`) |
+| During the overlap | the outgoing shot's own camera keeps running through it (`render.compose`'s blend), so the two subjects sit at the same screen place while the pictures cross-fade (`motion.dissolve_weight`, sine in-out) |
+| The move after | counts as continuing one already running across the cut: `min-move-after-cut`'s exemption and the subject pass's own opening-hold waiver both read `transition_in.type == "dissolve"` the same way they read `match: "prev"` (`tourlint.continues_across_cut`, `tour.subject_stops`'s `continues`) |
+| `dissolve-rule` (guidance) | warns on: a different mark class (also a BLOCK elsewhere, `dissolve-same-class`, 4.4); a different picture class or named subject (the ledger's own `roi` or `people` name); no narration or testimony line spanning the join; a position match left off by more than `CINE["dissolve_match_tol"]` (0.05, about 5% of the frame). Never blocks (A39) |
+| The film budget (guidance) | about one dissolve every `CINE["dissolve_budget_s"]` (180) seconds of film; a film short of that density is never a problem, only a denser one warns |
+
 ## 15. The series titles: `void document · As It Was` (2026-10-17; GRAMMAR A40)
 
 The founder: "a cinematic ... intro ... after the hook of each video like it's a documentary episode." The series titles are the archive machine (`design/title-sequence/`: 12 beats, 57.0 s, G2 approved 2026-10-16), rendered once per film with that film's own record, and played by the engine as they are.

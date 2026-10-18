@@ -430,6 +430,91 @@ def continues_across_cut(cam: dict, s: dict) -> bool:
     return stops[0].get("match") == "prev" or (s.get("transition_in") or {}).get("type") == "dissolve"
 
 
+# --------------------------------------------------------------------------
+# dissolve-rule (guidance, GRAMMAR A53, cinematography ticket #9): doctrine
+# 2.9's "three joints" for the dissolve, "the same subject, same mark class,
+# under one continuous reading, matched position"
+# --------------------------------------------------------------------------
+
+DISSOLVE_MATCH_TOL = M.CINE["dissolve_match_tol"]       # ~5% of the frame (doctrine 2.9)
+DISSOLVE_BUDGET_S = M.CINE["dissolve_budget_s"]         # about one dissolve every this many seconds
+
+
+def _dissolve_subject_name(item: dict, box) -> str | None:
+    """A name for a still's subject, when the ledger names one: the ``roi``
+    or ``people`` entry whose box is the subject's own box (``tour.
+    resolve_subject``'s, by exact match, since that is where the box came
+    from). None for a subject with no box (``whole``, a bare ``focus``) or
+    one the ledger never named (the rulebook's own ``subject`` ROI is
+    always named "subject", never a person)."""
+    if box is None:
+        return None
+    for coll in (item.get("roi"), item.get("people")):
+        if not isinstance(coll, list):
+            continue
+        for r in coll:
+            if not isinstance(r, dict) or not r.get("name") or r.get("name") == "subject":
+                continue
+            rb = T.roi_box(r)
+            if rb is not None and all(abs(a - b) <= 1e-6 for a, b in zip(rb, box)):
+                return r["name"]
+    return None
+
+
+def _spans_join(lines: Sequence[dict], lo: float, hi: float) -> bool:
+    """Whether one narration or testimony line (``render.tour_lines``'s own
+    shape, ``{start, dur, ...}`` in film seconds, a take's measured length
+    or an estimate) covers the whole overlap window ``[lo, hi]``: doctrine
+    2.9's "one continuous reading" carrying the viewer across the join."""
+    return any(float(ln["start"]) - 1e-6 <= lo and float(ln["start"]) + float(ln["dur"]) + 1e-6 >= hi
+               for ln in lines or [])
+
+
+def dissolve_join(prev: dict, s: dict, lines: Sequence[dict] | None = None) -> dict:
+    """``dissolve-rule`` for one dissolve, ``s`` joined to the ``prev`` shot
+    before it, against doctrine 2.9: the same mark class (also a BLOCK
+    elsewhere, ``dissolve-same-class``, GRAMMAR 4.4; restated here since
+    this check, and the standalone report ``check_film``, never depends on
+    a full plan having already refused for it), the same picture class and
+    named subject where the ledger names one, a narration line spanning the
+    join, and the position match ``render.match_prev`` already tried,
+    within ``DISSOLVE_MATCH_TOL`` of the frame. Returns ``{ok, reasons}``;
+    never blocks (pacing and the story's own joints are the founder's to
+    judge, A39)."""
+    reasons: list[str] = []
+    if prev.get("mark") != s.get("mark"):
+        reasons.append(f"mark class differs: {prev.get('mark')} into {s.get('mark')}")
+    pi, si = prev.get("_item") or {}, s.get("_item") or {}
+    pcls, scls = pi.get("class"), si.get("class")
+    if pcls and scls and pcls != scls:
+        reasons.append(f"picture class differs: {pcls} into {scls}")
+    psub, ssub = (prev.get("_cam") or {}).get("subject") or {}, (s.get("_cam") or {}).get("subject") or {}
+    pname, sname = _dissolve_subject_name(pi, psub.get("box")), _dissolve_subject_name(si, ssub.get("box"))
+    if pname is not None and sname is not None and pname != sname:
+        reasons.append(f"subject differs: {pname!r} into {sname!r}")
+    elif psub.get("kind") and ssub.get("kind") and psub["kind"] != ssub["kind"] and "whole" not in (
+            psub["kind"], ssub["kind"]):
+        reasons.append(f"subject kind differs: {psub['kind']} into {ssub['kind']}")
+    lo, hi = float(s.get("start_s", 0.0)), float(prev.get("end_s", 0.0))
+    if hi > lo and not _spans_join(lines or [], lo, hi):
+        reasons.append("no narration line spans the join: not one continuous reading")
+    err = ssub.get("match_error")
+    if err is not None and err > DISSOLVE_MATCH_TOL + 1e-9:
+        reasons.append(f"subject position differs by {err:.3f} of the frame, over {DISSOLVE_MATCH_TOL:g}")
+    return {"ok": not reasons, "reasons": reasons}
+
+
+def dissolve_budget(shots: Sequence[dict]) -> dict:
+    """The film-level dissolve budget (doctrine 2.9, "about one per three
+    minutes"): a warning only (pacing is guidance, A39). ``shots`` in film
+    order, each with ``end_s`` and ``transition_in``."""
+    n = sum(1 for s in shots if (s.get("transition_in") or {}).get("type") == "dissolve")
+    total_s = float(shots[-1]["end_s"]) if shots else 0.0
+    budget = math.ceil(total_s / DISSOLVE_BUDGET_S) if total_s > 0 else 0
+    return {"ok": n <= budget, "count": n, "minutes": round(total_s / 60.0, 2), "budget": budget,
+            "per_s": DISSOLVE_BUDGET_S}
+
+
 def check_still(s: dict, cam: dict, size, *, fps: float, text_spans: Sequence[dict] | None = None,
                  must_show_boxes: Sequence[dict] | None = None, settle_kinds: dict | None = None,
                  continues_across_cut: bool = False, faces: Sequence[dict] | None = None) -> dict:

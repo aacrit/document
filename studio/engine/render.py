@@ -1194,12 +1194,13 @@ def _steer_from_text(s, cam, size, W, H, words, journal, fps, avoid, text_spans,
 
 
 def next_subject(nxt: dict | None):
-    """A47: where the next shot's subject sits in its own picture (fractions),
-    when that shot is a still joined by a cut that says ``match: "prev"``;
-    a ``whole`` still that sweeps ends on that side. None otherwise."""
+    """A47 and A53: where the next shot's subject sits in its own picture
+    (fractions), when that shot is a still joined by a cut or a dissolve
+    that says ``match: "prev"`` (A53: a dissolve implies it); a ``whole``
+    still that sweeps ends on that side. None otherwise."""
     if not nxt or nxt.get("kind") not in ("archive_still", "drawn") or nxt.get("match") != "prev":
         return None
-    if (nxt.get("transition_in") or {}).get("type", "cut") != "cut":
+    if (nxt.get("transition_in") or {}).get("type", "cut") not in ("cut", "dissolve"):
         return None
     item = nxt.get("_item") or {}
     subj = T.resolve_subject(T.effective_regions(item)["roi"], nxt.get("focus"))
@@ -1210,12 +1211,16 @@ def next_subject(nxt: dict | None):
 
 
 def match_prev(journal: Journal | None, s: dict, prev: dict | None) -> None:
-    """A47: a still that says ``match: "prev"`` (on the shot, or on its first
-    stop) opens with its subject where the previous shot left its own on the
-    screen, across a cut (``_match_screen``, read by ``tour.subject_plan``).
-    A dissolve waits for #9, and a previous shot with no subject (a clip, a
-    card, an authored path) gives no position: both are warnings, and the
-    still opens as the default does."""
+    """A47 and A53: a still that says ``match: "prev"`` (on the shot, or on
+    its first stop; A53: a ``dissolve: true`` shot says it too) opens with
+    its subject where the previous shot left its own on the screen, across
+    a cut or a dissolve (``_match_screen``, read by ``tour.subject_plan``):
+    during a dissolve's overlap the two subjects sit at the same screen
+    place, since the previous shot's own camera keeps running through it
+    (``render.compose``) while this one's opens there. A previous shot with
+    no subject (a clip, a card, an authored path) gives no position, and an
+    authored path places its own first stop regardless: both are warnings,
+    and the still opens as the default does."""
     cam0 = s.get("camera")
     asked = s.get("match") == "prev" or (isinstance(cam0, list) and cam0 and isinstance(cam0[0], dict)
                                          and cam0[0].get("match") == "prev")
@@ -1226,8 +1231,8 @@ def match_prev(journal: Journal | None, s: dict, prev: dict | None) -> None:
     pc = (prev or {}).get("_cam") or {}
     screen = (pc.get("subject") or {}).get("screen")
     why = None
-    if tr != "cut":
-        why = f"a {tr} joins it to the shot before: a match across a dissolve is #9's"
+    if tr not in ("cut", "dissolve"):
+        why = f"a {tr} joins it to the shot before: match: \"prev\" matches across a cut or a dissolve only"
     elif screen is None:
         why = "the shot before leaves no subject on the screen (not a still, or an authored path)"
     elif isinstance(cam0, list):
@@ -1822,6 +1827,27 @@ def continuity_lints(journal: Journal, shots: list[dict], W: int, H: int) -> Non
                                                   "in_velocity": [round(v, 4) for v in vb],
                                                   "fix": None if not rev else "continue the last move's direction, or "
                                                   "land the cut on a stop"})
+
+
+def dissolve_rule_lints(journal: Journal, shots: list[dict], words: list[dict] | None) -> None:
+    """``dissolve-rule`` (guidance, GRAMMAR A53, cinematography ticket #9):
+    doctrine 2.9's "three joints" for every dissolve in the film
+    (``tourlint.dissolve_join``, same mark class, same picture class and
+    named subject, a narration line spanning the join, and the position
+    match ``match_prev`` tried, within about 5% of the frame), plus the
+    film-level guidance budget (``tourlint.dissolve_budget``, about one
+    dissolve per three minutes). Never blocks (A39: pacing and the story's
+    own joints are the founder's to judge); run after every still's camera
+    and ``match_prev`` have both already set ``_cam``."""
+    for a, b in zip(shots, shots[1:]):
+        if (b.get("transition_in") or {}).get("type") != "dissolve":
+            continue
+        r = TL.dissolve_join(a, b, words)
+        journal.lint("dissolve-rule", r["ok"], stage="motion", unit=b["id"], severity="warn", grammar="A53",
+                     phase="preflight", evidence={"prev": a["id"], "reasons": r["reasons"]})
+    bud = TL.dissolve_budget(shots)
+    journal.lint("dissolve-rule", bud["ok"], stage="motion", unit="film", severity="warn", grammar="A53",
+                 phase="preflight", evidence={"check": "about one dissolve per 3 minutes of film", **bud})
 
 
 def fill_safe(fill: dict) -> bool:
@@ -2516,6 +2542,24 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         for k, s in enumerate(part.get("shots", [])):
             s = dict(s)
             s["_part"], s["_part_kind"], s["_first_in_part"] = part["id"], part.get("kind", ""), k == 0
+            if s.get("dissolve") is True:
+                # A53 (cinematography ticket #9): `dissolve: true` is the shorthand for the full
+                # `transition_in` a dissolve has always taken (GRAMMAR 7.3), and it implies `match: "prev"`
+                # (doctrine 2.9: a dissolve keeps its subject). An explicit `transition_in` or `match` the
+                # shot already carries wins over the shorthand's own default (0.9 s, inside 7.3's 0.5 to
+                # 1.5 s). A bare default cut (``{"type": "cut"}``, no stated duration: every shot's own
+                # written or filled-in default) carries no information the shorthand could contradict, so
+                # it is read as absent, the same as no `transition_in` at all; a stated dip, or any other
+                # stated type, is a real contradiction, refused.
+                tr = dict(s.get("transition_in") or {})
+                if tr.get("type") == "cut" and "s" not in tr:
+                    tr = {}
+                lint("dissolve-flag-conflict", tr.get("type", "dissolve") == "dissolve", unit=s.get("id"),
+                     evidence={"dissolve": True, "transition_in": s.get("transition_in")}, grammar="A53")
+                tr.setdefault("type", "dissolve")
+                tr.setdefault("s", M.CINE["dissolve_default_s"])
+                s["transition_in"] = tr
+                s.setdefault("match", "prev")
             shots.append(s)
         lines += [dict(x, _part=part["id"]) for x in part.get("lines", [])]
         cues += [dict(x, _part=part["id"]) for x in part.get("cues", [])]
@@ -2695,8 +2739,11 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     # shot, the resampler (A5), fill_ok for the reviewer.
     words_src = None
     stills = [s for s in shots if s["kind"] in ("archive_still", "drawn") and s.get("_item", {}).get("_path")]
-    if stills:
-        # A41 anchors, and A47: the default pass lands its subject by the shot's last line (or its subject_at)
+    has_dissolve = any((s.get("transition_in") or {}).get("type") == "dissolve" for s in shots)
+    if stills or has_dissolve:
+        # A41 anchors, and A47: the default pass lands its subject by the shot's last line (or its subject_at).
+        # A53: a dissolve between two clips (no stills in the film at all) still needs this for dissolve-rule's
+        # "one continuous reading" check, so a dissolve alone is enough to ask for it.
         words_src = tour_lines(play, film)
     # A45 (founder ruling 2): the rulebook's fields under the human ledger's, from the cache only (a render never infers;
     # a miss is planned under the A41 default, journaled, with a reviewer item; never refused)
@@ -2788,6 +2835,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     # the film: build_plan never writes into the film folder unless its caller asks it to.
     LV.plan_levels(shots, journal, write=write_overlays)
     continuity_lints(journal, shots, W, H)
+    dissolve_rule_lints(journal, shots, words_src)   # A53 (cinematography ticket #9): guidance only
     OV.lints(lint, shots, W, H, play)                # A32: marks drawn over a georeferenced archive sheet
     if lint_fail:
         raise Refused("lint failed: " + "; ".join(lint_fail))
