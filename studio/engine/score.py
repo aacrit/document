@@ -941,8 +941,10 @@ def load_take(film: Path, c: dict) -> tuple[dict | None, list[str]]:
             elif not (_number(sp.get("start_s")) and _number(sp.get("end_s")) and 0 <= float(sp["start_s"]) < float(sp["end_s"])):
                 problems.append(f"spans {sp['id']}: start_s and end_s are numbers, 0 <= start_s < end_s")
             else:
+                if sp.get("house_motif") and sp["role"] != "featured":
+                    problems.append(f"spans {sp['id']}: house_motif is the house's verbatim figure, a featured span")
                 spans.append({"id": sp["id"], "role": sp["role"], "start_s": float(sp["start_s"]), "end_s": float(sp["end_s"]),
-                              "marks_moment": sp.get("marks_moment")})
+                              "marks_moment": sp.get("marks_moment"), "house_motif": bool(sp.get("house_motif"))})
         ids = [sp["id"] for sp in spans]
         if len(set(ids)) != len(ids):
             problems.append("spans: every id is the film's once")
@@ -1003,13 +1005,25 @@ def take_cue_problems(c: dict, duration_s: float, wav_s: float | None = None) ->
     return out
 
 
+def handover_end(take: dict | None, t1: float) -> float:
+    """Where the A40 handover rest must reach: HANDOVER_AFTER_S after the titles' last frame (``t1``), or the first
+    note of the house motif if it follows the titles sooner (founder, 2026-10-17: the motif keeps its place on the
+    title card's first frame, inside the take; the exemption is the verbatim house motif's alone)."""
+    end = t1 + HANDOVER_AFTER_S
+    for sp in (take or {}).get("spans", []):
+        if sp.get("house_motif") and t1 - TAKE_EDGE_TOL_S <= sp["start_s"] < end:
+            end = sp["start_s"]
+    return end
+
+
 def take_handover(take: dict | None, t0: float, t1: float) -> dict | None:
     """S7, the A40 handover: the rest in the take's map that says why ``A40
     handover`` and covers the series titles from their first frame (``t0``) to
-    HANDOVER_AFTER_S after their last (``t1``); None when there is none."""
+    HANDOVER_AFTER_S after their last (``t1``), or to the house motif's first
+    note when it follows them sooner (handover_end); None when there is none."""
     for r in (take or {}).get("rests", []):
         if (str(r.get("why", "")).startswith(HANDOVER_WHY) and r["start_s"] <= t0 + TAKE_EDGE_TOL_S
-                and r["end_s"] >= t1 + HANDOVER_AFTER_S - TAKE_EDGE_TOL_S):
+                and r["end_s"] >= handover_end(take, t1) - TAKE_EDGE_TOL_S):
             return r
     return None
 
@@ -1312,7 +1326,7 @@ def take_checks(take: dict, std: dict, *, silences=(), own_sound=(), voice100: n
     for t0, t1 in take["titles"]:
         i0, i1 = max(0, int(math.floor(t0 / HOP_S + 1e-6))), min(n, int(math.ceil(t1 / HOP_S - 1e-6)))
         over = float(np.max(band[i0:i1])) - floor_db if i1 > i0 else None
-        j1 = min(n, int(math.ceil((t1 + HANDOVER_AFTER_S) / HOP_S - 1e-6)))
+        j1 = min(n, int(math.ceil(handover_end(take, t1) / HOP_S - 1e-6)))     # the house motif may follow directly
         after = float(np.max(_smooth_db(band[i1:j1], ks))) - floor_db if j1 > i1 else None   # 1 s: the room's flutter
         r = take_handover(take, t0, t1)
         ok = (r is not None and (over is None or over <= ROOM_MARGIN_DB + 1e-9)
