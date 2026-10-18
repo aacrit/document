@@ -1,0 +1,777 @@
+{
+ "_note": "A45: recorded, normalized Qwen2.5-VL answers (cold) and MediaPipe measurements of ten Real World stills (numbers and labels, no pixels), from the 2026-10-17 re-proof; the hermetic suite runs the rulebook on them.",
+ "stills": {
+  "1.4": {
+   "cues": [],
+   "item": {
+    "no_zoom": true,
+    "people": "two distant, unidentifiable living onlookers on a rooftop (about 8 px tall); no figure at any window",
+    "seen": "The north tower burning, its antenna up; the fireball bursting from the south tower behind it; brick buildings of the Village in the foreground; two distant figures on a rooftop at the right edge.",
+    "title": "United Airlines 175 strikes the south tower, seen from Greenwich Village"
+   },
+   "measure": {
+    "faces": [
+     {
+      "h": 0.3376,
+      "kp": [
+       [
+        0.4308,
+        0.4873
+       ],
+       [
+        0.4492,
+        0.5059
+       ],
+       [
+        0.4282,
+        0.5803
+       ],
+       [
+        0.3877,
+        0.5898
+       ],
+       [
+        0.3634,
+        0.3694
+       ],
+       [
+        0.405,
+        0.4032
+       ]
+      ],
+      "score": 0.6167,
+      "w": 0.2112,
+      "x": 0.2904,
+      "y": 0.3291
+     }
+    ],
+    "model": "mp:1.1.1:ad2abbf2b4e1:b4578f35940b:5134a3aad27a+sr1+m1",
+    "people": [],
+    "saliency": {
+     "concentration": 0.1397,
+     "h": 0.5375,
+     "w": 0.9062,
+     "x": 0.0781,
+     "y": 0.45
+    },
+    "size": [
+     1515,
+     948
+    ]
+   },
+   "vl": {
+    "class": "place",
+    "model": "vl:qwen2.5vl:7b@5ced39dfa4ba:s20011:t0:k1:c4096:ka0:cold:n1:pa27ed7333f29",
+    "regions": [
+     {
+      "h": 0.86,
+      "kind": "object",
+      "label": "smoke",
+      "w": 0.79,
+      "x": 0.0,
+      "y": 0.14
+     },
+     {
+      "h": 0.29,
+      "kind": "object",
+      "label": "fire",
+      "w": 0.215,
+      "x": 0.38,
+      "y": 0.675
+     },
+     {
+      "h": 1.0,
+      "kind": "place",
+      "label": "sky",
+      "w": 1.0,
+      "x": 0.0,
+      "y": 0.0
+     },
+     {
+      "h": 0.68,
+      "kind": "place",
+      "label": "building",
+      "w": 0.385,
+      "x": 0.0,
+      "y": 0.32
+     },
+     {
+      "h": 0.435,
+      "kind": "place",
+      "label": "building",
+      "w": 0.165,
+      "x": 0.595,
+      "y": 0.565
+     },
+     {
+      "h": 0.13,
+      "kind": "place",
+      "label": "building",
+      "w": 0.0,
+      "x": 1.0,
+      "y": 0.87
+     }
+    ]
+   }
+  },
+  "2.8": {
+   "cues": [],
+   "item": {
+    "no_zoom": true,
+    "people": "one rescuer by an ambulance, seen from the side, small; no injured, no remains",
+    "seen": "The collapsed section of the west face, floors folded down; ambulances (Walter Reed, Arlington) and Montgomery County Rescue 29; a guard rail and lawn in front.",
+    "title": "The Pentagon west face, the gash"
+   },
+   "measure": {
+    "faces": [],
+    "model": "mp:1.1.1:ad2abbf2b4e1:b4578f35940b:5134a3aad27a+sr1+m1",
+    "people": [
+     {
+      "h": 0.0351,
+      "pose": null,
+      "score": 0.3232,
+      "w": 0.0095,
+      "x": 0.0875,
+      "y": 0.8552
+     },
+     {
+      "h": 0.0259,
+      "pose": null,
+      "score": 0.308,
+      "w": 0.0115,
+      "x": 0.763,
+      "y": 0.8262
+     },
+     {
+      "h": 0.0701,
+      "pose": null,
+      "score": 0.2966,
+      "w": 0.0235,
+      "x": 0.189,
+      "y": 0.6517
+     }
+    ],
+    "saliency": {
+     "concentration": 0.0924,
+     "h": 0.0952,
+     "w": 0.7578,
+     "x": 0.0312,
+     "y": 0.7619
+    },
+    "size": [
+     2000,
+     1312
+    ]
+   },
+   "vl": {
+    "class": "place",
+    "model": "vl:qwen2.5vl:7b@5ced39dfa4ba:s20011:t0:k1:c4096:ka0:cold:n1:pa27ed7333f29",
+    "regions": [
+     {
+      "h": 0.215,
+      "kind": "object",
+      "label": "smoke",
+      "w": 0.91,
+      "x": 0.09,
+      "y": 0.0
+     },
+     {
+      "h": 0.985,
+      "kind": "object",
+      "label": "street sign",
+      "w": 0.0,
+      "x": 1.0,
+      "y": 0.015
+     },
+     {
+      "h": 0.885,
+      "kind": "object",
+      "label": "damaged building",
+      "w": 1.0,
+      "x": 0.0,
+      "y": 0.115
+     },
+     {
+      "h": 0.04,
+      "kind": "object",
+      "label": "emergency vehicles",
+      "w": 1.0,
+      "x": 0.0,
+      "y": 0.96
+     },
+     {
+      "h": 0.0,
+      "kind": "place",
+      "label": "grass field",
+      "w": 1.0,
+      "x": 0.0,
+      "y": 1.0
+     }
+    ]
+   }
+  },
+  "3.6": {
+   "cues": [
+    "south tower"
+   ],
+   "item": {
+    "no_zoom": true,
+    "people": "a car with a driver, unidentifiable",
+    "seen": "A white plume rising from Lower Manhattan where the towers stood; a fence and a road in Hoboken; a dark car passing.",
+    "title": "The plume over Lower Manhattan, from Hoboken"
+   },
+   "measure": {
+    "faces": [],
+    "model": "mp:1.1.1:ad2abbf2b4e1:b4578f35940b:5134a3aad27a+sr1+m1",
+    "people": [],
+    "saliency": {
+     "concentration": 0.3252,
+     "h": 0.1647,
+     "w": 0.7188,
+     "x": 0.2188,
+     "y": 0.4941
+    },
+    "size": [
+     1188,
+     792
+    ]
+   },
+   "vl": {
+    "class": "place",
+    "model": "vl:qwen2.5vl:7b@5ced39dfa4ba:s20011:t0:k1:c4096:ka0:cold:n1:pa27ed7333f29",
+    "regions": [
+     {
+      "h": 0.515,
+      "kind": "object",
+      "label": "smoke plume",
+      "w": 0.53,
+      "x": 0.425,
+      "y": 0.13
+     },
+     {
+      "h": 0.26,
+      "kind": "object",
+      "label": "car",
+      "w": 0.385,
+      "x": 0.385,
+      "y": 0.72
+     },
+     {
+      "h": 0.435,
+      "kind": "place",
+      "label": "bridge",
+      "w": 1.0,
+      "x": 0.0,
+      "y": 0.565
+     },
+     {
+      "h": 0.245,
+      "kind": "place",
+      "label": "city skyline",
+      "w": 1.0,
+      "x": 0.0,
+      "y": 0.585
+     },
+     {
+      "h": 0.155,
+      "kind": "place",
+      "label": "road",
+      "w": 1.0,
+      "x": 0.0,
+      "y": 0.845
+     }
+    ]
+   }
+  },
+  "3.7": {
+   "cues": [],
+   "item": {
+    "no_zoom": false,
+    "people": "none",
+    "seen": "A black-and-white satellite view of the north-east coast and Hurricane Erin offshore, with an inset box at upper left enlarging New York and its plume; burned-in caption \"Hurricane Erin and the New York Twin Towers / GOES-8 11 September 2001 1439 UTC\".",
+    "title": "GOES-8, 14:39 UTC: Hurricane Erin and the plume over New York"
+   },
+   "measure": {
+    "faces": [],
+    "model": "mp:1.1.1:ad2abbf2b4e1:b4578f35940b:5134a3aad27a+sr1+m1",
+    "people": [
+     {
+      "h": 0.984,
+      "pose": null,
+      "score": 0.3074,
+      "w": 0.9829,
+      "x": 0.0,
+      "y": 0.0
+     }
+    ],
+    "saliency": {
+     "concentration": 0.0278,
+     "h": 0.8514,
+     "w": 0.6016,
+     "x": 0.1328,
+     "y": 0.1351
+    },
+    "size": [
+     1287,
+     748
+    ]
+   },
+   "vl": {
+    "class": "document",
+    "model": "vl:qwen2.5vl:7b@5ced39dfa4ba:s20011:t0:k1:c4096:ka0:cold:n1:pa27ed7333f29",
+    "regions": [
+     {
+      "h": 0.0,
+      "kind": "text",
+      "label": "hurricane erin",
+      "w": 0.16,
+      "x": 0.175,
+      "y": 1.0
+     },
+     {
+      "h": 0.0,
+      "kind": "text",
+      "label": "goes-8",
+      "w": 0.085,
+      "x": 0.25,
+      "y": 1.0
+     },
+     {
+      "h": 0.0,
+      "kind": "text",
+      "label": "11 september 2001",
+      "w": 0.21,
+      "x": 0.355,
+      "y": 1.0
+     },
+     {
+      "h": 0.0,
+      "kind": "text",
+      "label": "new york twin towers",
+      "w": 0.385,
+      "x": 0.615,
+      "y": 1.0
+     },
+     {
+      "h": 0.0,
+      "kind": "text",
+      "label": "1439 utc",
+      "w": 0.185,
+      "x": 0.81,
+      "y": 1.0
+     }
+    ]
+   }
+  },
+  "4.2": {
+   "cues": [
+    "President"
+   ],
+   "item": {
+    "no_zoom": false,
+    "people": "the President",
+    "seen": "The President standing behind his desk, hands on hips, looking up (at a screen out of frame); presidential seal on the bulkhead, a window.",
+    "title": "The President in his office aboard Air Force One, Sarasota to Barksdale"
+   },
+   "measure": {
+    "faces": [
+     {
+      "h": 0.321,
+      "kp": [
+       [
+        0.425,
+        0.3213
+       ],
+       [
+        0.448,
+        0.3056
+       ],
+       [
+        0.4966,
+        0.3537
+       ],
+       [
+        0.4883,
+        0.4282
+       ],
+       [
+        0.3149,
+        0.4089
+       ],
+       [
+        0.3797,
+        0.3556
+       ]
+      ],
+      "score": 0.63,
+      "w": 0.214,
+      "x": 0.309,
+      "y": 0.229
+     }
+    ],
+    "model": "mp:1.1.1:ad2abbf2b4e1:b4578f35940b:5134a3aad27a+sr1+m1",
+    "people": [
+     {
+      "h": 0.369,
+      "pose": {
+       "l_ear": [
+        0.5533,
+        -0.2916,
+        1.0
+       ],
+       "l_sh": [
+        0.6594,
+        -0.202,
+        1.0
+       ],
+       "nose": [
+        0.4854,
+        -0.5137,
+        1.0
+       ],
+       "r_ear": [
+        0.4275,
+        -0.2867,
+        1.0
+       ],
+       "r_sh": [
+        0.3159,
+        -0.1716,
+        1.0
+       ]
+      },
+      "score": 0.9036,
+      "w": 0.181,
+      "x": 0.4233,
+      "y": 0.1835
+     }
+    ],
+    "saliency": {
+     "concentration": 0.3151,
+     "h": 0.5765,
+     "w": 0.25,
+     "x": 0.5,
+     "y": 0.0235
+    },
+    "size": [
+     3000,
+     2000
+    ]
+   },
+   "vl": {
+    "class": "person",
+    "model": "vl:qwen2.5vl:7b@5ced39dfa4ba:s20011:t0:k1:c4096:ka0:cold:n1:pa27ed7333f29",
+    "regions": [
+     {
+      "h": 0.655,
+      "kind": "object",
+      "label": "door",
+      "w": 0.17,
+      "x": 0.105,
+      "y": 0.255
+     },
+     {
+      "h": 0.295,
+      "kind": "object",
+      "label": "chair",
+      "w": 0.205,
+      "x": 0.735,
+      "y": 0.405
+     },
+     {
+      "h": 0.22,
+      "kind": "object",
+      "label": "window",
+      "w": 0.0,
+      "x": 1.0,
+      "y": 0.45
+     },
+     {
+      "h": 0.33,
+      "kind": "object",
+      "label": "desk",
+      "w": 0.665,
+      "x": 0.335,
+      "y": 0.67
+     },
+     {
+      "h": 0.455,
+      "kind": "person",
+      "label": "man standing",
+      "w": 0.22,
+      "x": 0.525,
+      "y": 0.225
+     },
+     {
+      "h": 0.235,
+      "kind": "place",
+      "label": "ceiling",
+      "w": 0.915,
+      "x": 0.0,
+      "y": 0.0
+     }
+    ]
+   }
+  },
+  "5.7": {
+   "cues": [],
+   "item": {
+    "no_zoom": false,
+    "people": "none visible inside or near the car (checked at master scan)",
+    "seen": "A crushed, dust-covered NYPD car, its motto lettered on the door; rubble, a burned-out car and the smoke beyond.",
+    "title": "\"Courtesy, Professionalism, Respect\": a police car in the debris"
+   },
+   "measure": {
+    "faces": [],
+    "model": "mp:1.1.1:ad2abbf2b4e1:b4578f35940b:5134a3aad27a+sr1+m1",
+    "people": [
+     {
+      "h": 0.1038,
+      "pose": null,
+      "score": 0.6738,
+      "w": 0.0253,
+      "x": 0.3047,
+      "y": 0.5794
+     },
+     {
+      "h": 0.0689,
+      "pose": null,
+      "score": 0.3289,
+      "w": 0.019,
+      "x": 0.2473,
+      "y": 0.6109
+     },
+     {
+      "h": 0.0462,
+      "pose": null,
+      "score": 0.3114,
+      "w": 0.02,
+      "x": 0.214,
+      "y": 0.6144
+     },
+     {
+      "h": 0.303,
+      "pose": null,
+      "score": 0.2501,
+      "w": 0.207,
+      "x": 0.644,
+      "y": 0.0098
+     }
+    ],
+    "saliency": {
+     "concentration": 0.0948,
+     "h": 0.4253,
+     "w": 0.7578,
+     "x": 0.1719,
+     "y": 0.3908
+    },
+    "size": [
+     3000,
+     2033
+    ]
+   },
+   "vl": {
+    "class": "object",
+    "model": "vl:qwen2.5vl:7b@5ced39dfa4ba:s20011:t0:k1:c4096:ka0:cold:n1:pa27ed7333f29",
+    "regions": [
+     {
+      "h": 0.775,
+      "kind": "object",
+      "label": "damaged car",
+      "w": 0.58,
+      "x": 0.42,
+      "y": 0.225
+     },
+     {
+      "h": 0.35,
+      "kind": "object",
+      "label": "debris",
+      "w": 0.645,
+      "x": 0.015,
+      "y": 0.65
+     },
+     {
+      "h": 0.35,
+      "kind": "object",
+      "label": "debris",
+      "w": 0.645,
+      "x": 0.015,
+      "y": 0.65
+     },
+     {
+      "h": 0.65,
+      "kind": "place",
+      "label": "building",
+      "w": 0.59,
+      "x": 0.41,
+      "y": 0.0
+     },
+     {
+      "h": 0.525,
+      "kind": "place",
+      "label": "smoke",
+      "w": 0.82,
+      "x": 0.015,
+      "y": 0.02
+     },
+     {
+      "h": 0.525,
+      "kind": "place",
+      "label": "smoke",
+      "w": 0.82,
+      "x": 0.015,
+      "y": 0.02
+     }
+    ]
+   }
+  },
+  "5.9ba": {
+   "cues": [
+    "across"
+   ],
+   "item": {
+    "no_zoom": false,
+    "people": "crew on deck, tiny",
+    "seen": "A red-hulled Army Corps boat, HOCKING on the stern, crossing the harbour toward the skyline and the smoke.",
+    "title": "Patrol Boat Hocking heads toward Lower Manhattan"
+   },
+   "measure": {
+    "faces": [],
+    "model": "mp:1.1.1:ad2abbf2b4e1:b4578f35940b:5134a3aad27a+sr1+m1",
+    "people": [
+     {
+      "h": 0.1133,
+      "pose": null,
+      "score": 0.7945,
+      "w": 0.0371,
+      "x": 0.7334,
+      "y": 0.4674
+     },
+     {
+      "h": 0.1042,
+      "pose": {
+       "l_ear": [
+        0.7045,
+        0.0939,
+        0.9991
+       ],
+       "l_sh": [
+        0.5462,
+        0.4415,
+        0.9995
+       ],
+       "nose": [
+        0.7541,
+        -0.2148,
+        0.9993
+       ],
+       "r_ear": [
+        0.646,
+        -0.5423,
+        0.9991
+       ],
+       "r_sh": [
+        0.4566,
+        -0.8369,
+        0.9997
+       ]
+      },
+      "score": 0.6472,
+      "w": 0.0264,
+      "x": 0.6943,
+      "y": 0.4766
+     },
+     {
+      "h": 0.0716,
+      "pose": null,
+      "score": 0.3961,
+      "w": 0.0293,
+      "x": 0.7881,
+      "y": 0.526
+     },
+     {
+      "h": 0.0286,
+      "pose": null,
+      "score": 0.2663,
+      "w": 0.0146,
+      "x": 0.4893,
+      "y": 0.4297
+     },
+     {
+      "h": 0.0234,
+      "pose": null,
+      "score": 0.2526,
+      "w": 0.0186,
+      "x": 0.541,
+      "y": 0.375
+     }
+    ],
+    "saliency": {
+     "concentration": 0.2842,
+     "h": 0.4583,
+     "w": 0.4219,
+     "x": 0.4922,
+     "y": 0.3229
+    },
+    "size": [
+     1024,
+     768
+    ]
+   },
+   "vl": {
+    "class": "place",
+    "model": "vl:qwen2.5vl:7b@5ced39dfa4ba:s20011:t0:k1:c4096:ka0:cold:n1:pa27ed7333f29",
+    "regions": [
+     {
+      "h": 0.35,
+      "kind": "object",
+      "label": "smoke",
+      "w": 0.26,
+      "x": 0.2,
+      "y": 0.035
+     },
+     {
+      "h": 0.6,
+      "kind": "object",
+      "label": "boat",
+      "w": 0.52,
+      "x": 0.48,
+      "y": 0.265
+     },
+     {
+      "h": 0.035,
+      "kind": "object",
+      "label": "bridge",
+      "w": 0.145,
+      "x": 0.735,
+      "y": 0.385
+     },
+     {
+      "h": 0.12,
+      "kind": "object",
+      "label": "flag",
+      "w": 0.035,
+      "x": 0.915,
+      "y": 0.58
+     },
+     {
+      "h": 0.11,
+      "kind": "place",
+      "label": "city skyline",
+      "w": 1.0,
+      "x": 0.0,
+      "y": 0.315
+     },
+     {
+      "h": 0.58,
+      "kind": "place",
+      "label": "water",
+      "w": 1.0,
+      "x": 0.0,
+      "y": 0.42
+     }
+    ]
+   }
+  }
+ }
+}

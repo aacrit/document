@@ -79,6 +79,7 @@ from studio.engine import policy as POL
 from studio.engine import score as SC
 from studio.engine import titles as TS
 from studio.engine import tour as T
+from studio.engine import vision as VIS
 from studio.engine import voicing as VO
 from studio.engine.journal import Journal, sha256_file
 
@@ -899,7 +900,11 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
     people = T.people_of(item, kind=s["kind"])
     wins = [w for _, w in still_windows(cam, s, size, W, H, hz=fps)]       # every frame at the master rate (A44)
     pc = T.people_check(wins, people, size)
-    authored = bool(item.get("roi") or item.get("must_show")) or cam["macro"] == "TOUR"
+    # A45: a region the rulebook found (source: auto) does not make a preset or the default the author's path; only a
+    # person's region or must_show does
+    roi = item.get("roi")
+    human_roi = [r for r in roi if isinstance(r, dict) and T.source_of(r) == "human"] if isinstance(roi, list) else roi
+    authored = bool(human_roi or item.get("must_show")) or cam["macro"] == "TOUR"
     why = ("a person would go unseen" if not pc["ok"] else
            None if pc["whole_shown"] or authored else
            f"it shows {100 * T.coverage(wins, size):.0f}% of the picture")
@@ -2128,6 +2133,9 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     stills = [s for s in shots if s["kind"] in ("archive_still", "drawn") and s.get("_item", {}).get("_path")]
     if any(x.get("camera") is not None or x.get("subject_at") is not None for x in stills):
         words_src = tour_lines(play, film)
+    # A45 (founder ruling 2): the rulebook's fields under the human ledger's, from the cache only (a render never infers;
+    # a miss is planned under the A41 default, journaled, with a reviewer item; never refused)
+    VIS.plan_overlay(stills, journal, lint)
     # A43: the cinematography fields against the schema first; a malformed box or list refuses before any camera
     cine_schema_lints(lint, journal, stills, lambda x: T.shot_words(words_src or [], x["start_s"], x["end_s"]))
     if lint_fail:

@@ -1,0 +1,39 @@
+{
+  "_note": "A45: the house vision stack, pinned. Model files live outside git (DOCUMENT_VISION_MODELS, default model_dir); each is checked against its sha256 before use, and a mismatch is a missing model (the pipeline degrades, never blocks). The VL is pinned by its Ollama digest. Bump a pin only with a new sha256 and a rulebook note: every cached measurement is keyed by these.",
+  "model_dir": "D:/document-media/models/mediapipe",
+  "mediapipe": {
+    "package": "mediapipe==1.1.1",
+    "object": {
+      "file": "efficientdet_lite2.tflite",
+      "url": "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite2/float32/1/efficientdet_lite2.tflite",
+      "sha256": "ad2abbf2b4e10585e15176fd7b5ef03c28dda959ae26fc142549fdd1814db91d"
+    },
+    "face": {
+      "file": "blaze_face_short_range.tflite",
+      "url": "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite",
+      "sha256": "b4578f35940bf5a1a655214a1cce5cab13eba73c1297cd78e1a04c2380b0152f"
+    },
+    "pose": {
+      "file": "pose_landmarker_full.task",
+      "url": "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task",
+      "sha256": "5134a3aad27a58b93da0088d431f366da362b44e3ccfbe3462b3827a839011b1"
+    }
+  },
+  "vl": {
+    "name": "qwen2.5vl:7b",
+    "digest": "5ced39dfa4bac325dc183dd1e4febaa1c46b3ea28bce48896c8e69c1e79611cc",
+    "host": "http://127.0.0.1:11434",
+    "options": {
+      "temperature": 0,
+      "seed": 20011,
+      "top_k": 1,
+      "top_p": 1,
+      "num_predict": 600,
+      "num_ctx": 4096
+    },
+    "keep_alive": 0,
+    "cache": "cold",
+    "image_long_side": 896,
+    "_note": "Place and object region labels only (founder ruling (b)); cold: the model is unloaded before every still, so no prompt cache survives (proof 2026-10-17: 10/10 byte-identical twice cold, 5/10 raw and 8/10 normalized warm). Ollama 0.40.4."
+  }
+}
