@@ -822,7 +822,7 @@ def authored(st: dict) -> bool:
 
 
 def enforce_face_cap(stops: list[dict], persons: list[dict], dur: float, size, aspect: float, zmax: float, *,
-                     no_zoom: bool = False) -> tuple[list[dict], list[dict]]:
+                     no_zoom: bool = False, hz: float | None = None) -> tuple[list[dict], list[dict]]:
     """The engine's side of ``face-cap-live``: build the path, and where any
     framing of it (a move included) frames a face past the cap, pull the
     engine-placed stops around it back to ``CINE['face_zmax']`` and build
@@ -832,7 +832,7 @@ def enforce_face_cap(stops: list[dict], persons: list[dict], dur: float, size, a
     pulled = []
     for _ in range(len(stops) + 2):
         tl = build(stops, dur, size, aspect, zmax, no_zoom=no_zoom)
-        bad = face_cap_check(tl, persons)
+        bad = face_cap_check(tl, persons, hz)        # hz: the film's master rate (A44); None: TOUR sample_hz
         idx = sorted({i for v in bad for i in v["stops"]
                       if tl["stops"][i]["z"] > cap + EPS and not tl["stops"][i].get("z_authored")})
         if not idx:
