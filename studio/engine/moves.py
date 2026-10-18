@@ -39,6 +39,7 @@ END = {("WHOLE", None): "whole", ("PAN", "far"): "const", ("PAN", "near"): "cons
        ("SURVEY", "forward"): "whole", ("SURVEY", "reverse"): "whole", ("READ", None): "detail",
        ("EXPLAIN", None): "detail", ("REVEAL", None): "whole", ("CUTIN", None): "detail"}
 DEFAULT_VARIANT = {"PAN": "far", "PORTRAIT": "reveal", "SURVEY": "forward"}
+PAGE = "page (whole)"           # READ's whole-page region, for a document that names none
 MAX_RUN = 2                       # no more than this many stills in a row with one move, or one direction
 CHOOSABLE_PRESETS = (None, "HOLD")
 
@@ -114,6 +115,11 @@ def base_choice(shot: dict, item: dict, size) -> dict:
                    or subj is None):
         return out("SURVEY", f"{n} located people: each person or group in reading order, then the whole",
                    flips=[("SURVEY", "reverse"), ("REVEAL", None)])
+    if cls == "document" and not texts:
+        # a page: its subject when the rulebook found text there, else the whole page is the text it reads
+        if subj is not None and subj.get("kind") == "text":
+            return out("READ", "a document: read its text at reading pace", target="subject")
+        return out("READ", "a document with no text region: the whole page read at reading pace", target=PAGE)
     if texts:
         t0 = texts[0]
         if cls == "document" or isinstance(t0.get("lines"), int):
