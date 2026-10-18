@@ -49,8 +49,8 @@ def test_the_profile_is_chosen_by_the_films_declared_shift():
     assert deep["voice"] == DEEP and "shifted -2 st" in why
     assert deep["baseline"]["f0_hz"] < stock["baseline"]["f0_hz"]
     assert R.load_narrator_profile(dict(TARA, pitch_shift_st=0))[0]["voice"] == TARA   # 0 is the stock voice
-    none, why = R.load_narrator_profile(dict(TARA, pitch_shift_st=-1))   # no variant: no reference, never the stock one
-    assert none is None and "none has that shift" in why
+    none, why = R.load_narrator_profile(dict(TARA, pitch_shift_st=-3))   # no variant: no reference, never the stock one
+    assert none is None and "none has that shift" in why                # (-1 st is now a stored variant: test_real_world)
     bad, why = R.load_narrator_profile(dict(TARA, pitch_shift_st="low"))
     assert bad is None and "not a number" in why
     other, why = R.load_narrator_profile({"engine": "orpheus", "voice": "leah", "pitch_shift_st": -2})

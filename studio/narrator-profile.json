@@ -392,6 +392,73 @@
     }
    },
    "method": "studio.engine.render.voice_profile on each take levelled to -20 LUFS; median over the takes"
+  },
+  {
+   "_note": "Tara lowered 1 semitone (founder ruling 2026-10-18, \"Real World\": after a narrator audition across six candidates run through the film's own chain, the founder chose Orpheus tara, PSOLA -1 st (Praat overlap-add, formants and timing kept), with the film's warm narrator EQ; supersedes the Zoe -2 st entry above for this film): the chosen audition takes, D:/document-media/rw-narrator-audition/final/tara-1st__P1.wav, __P2.wav, __P3a.wav, __P3b.wav (sha256 51c50341d3a6f981, 6143141035d548a9, 5505a4630d1cc2b5, 0a707c600e510e5f), already shifted -1 st and EQ'd by the film's own chain, measured as delivered (no further shift applied here). A film whose narrator cast voice is orpheus:tara with pitch_shift_st -1 is held to this; made by narrator_profile_from_takes with the spoken lines of document-media/rw-narrator-audition/scripts/lines.json. Generated 2026-10-18.",
+   "voice": {
+    "engine": "orpheus",
+    "voice": "tara",
+    "pitch_shift_st": -1
+   },
+   "baseline": {
+    "f0_hz": 167.45,
+    "centroid_hz": 871.2
+   },
+   "takes": {
+    "tara-1st__P1.wav": {
+     "f0_hz": 169.13,
+     "f0_p10_hz": 155.94,
+     "f0_p90_hz": 216.35,
+     "f0_range_hz": 60.4,
+     "centroid_hz": 877.52,
+     "words": 27,
+     "speech_s": 8.52,
+     "wps": 3.17,
+     "voiced_frames": 590,
+     "active_frames": 676,
+     "sha256": "51c50341d3a6f981"
+    },
+    "tara-1st__P2.wav": {
+     "f0_hz": 165.77,
+     "f0_p10_hz": 152.75,
+     "f0_p90_hz": 216.39,
+     "f0_range_hz": 63.64,
+     "centroid_hz": 871.45,
+     "words": 41,
+     "speech_s": 14.44,
+     "wps": 2.84,
+     "voiced_frames": 964,
+     "active_frames": 1152,
+     "sha256": "6143141035d548a9"
+    },
+    "tara-1st__P3a.wav": {
+     "f0_hz": 169.97,
+     "f0_p10_hz": 154.98,
+     "f0_p90_hz": 234.28,
+     "f0_range_hz": 79.3,
+     "centroid_hz": 870.95,
+     "words": 14,
+     "speech_s": 4.35,
+     "wps": 3.22,
+     "voiced_frames": 333,
+     "active_frames": 392,
+     "sha256": "5505a4630d1cc2b5"
+    },
+    "tara-1st__P3b.wav": {
+     "f0_hz": 159.45,
+     "f0_p10_hz": 145.39,
+     "f0_p90_hz": 249.73,
+     "f0_range_hz": 104.34,
+     "centroid_hz": 753.15,
+     "words": 14,
+     "speech_s": 2.79,
+     "wps": 5.02,
+     "voiced_frames": 246,
+     "active_frames": 274,
+     "sha256": "0a707c600e510e5f"
+    }
+   },
+   "method": "studio.engine.render.voice_profile on each take levelled to -20 LUFS; median over the takes"
   }
  ]
 }
