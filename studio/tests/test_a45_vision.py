@@ -116,6 +116,7 @@ def test_a_bare_title_is_one_name_and_a_titled_name_is_the_person(text, names):
     ("the President and named White House staff (NARA note); officials, not at risk", None),
     ("none visible", 0), ("none resolvable", 0), (False, 0), ([], 0), (None, None), (True, None),
     ([{"name": "Rahima Banu"}], 1),
+    ("President Bush", 1), ("Bush and Card", 2),      # words that are only names: one person per name
 ])
 def test_count_people(people, n):
     assert RB.count_people(people) == n
@@ -627,3 +628,18 @@ def test_the_vl_cli_refuses_when_another_job_holds_the_heavy_lock(tmp_path, monk
     with V.HeavyLock("test"):
         assert json.loads(lock.read_text(encoding="utf-8"))["group"] == "WG-2"
     assert not lock.exists()
+
+
+def test_two_acquirers_of_the_heavy_lock_in_one_process_the_second_fails(tmp_path, monkeypatch):
+    lock = tmp_path / "HEAVY.lock"
+    monkeypatch.setenv("DOCUMENT_HEAVY_LOCK", str(lock))
+    first = V.HeavyLock("first").__enter__()
+    with pytest.raises(V.MissingModel, match="held"):
+        V.HeavyLock("second").__enter__()
+    assert json.loads(lock.read_text(encoding="utf-8"))["job"] == "first"      # the loser never overwrote it
+    first.__exit__(None, None, None)
+    assert not lock.exists()
+    # another job's lock (another pid) is never removed by our exit
+    lock.write_text(json.dumps({"group": "WG-4", "pid": -1}), encoding="utf-8")
+    V.HeavyLock("x").__exit__(None, None, None)
+    assert lock.exists()

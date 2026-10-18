@@ -28,8 +28,9 @@ import re
 
 from studio.engine import motion as M
 
-RULEBOOK_VERSION = "4"     # 2: a bare title is one name; 3: a run is a place by its first or last word only;
+RULEBOOK_VERSION = "5"     # 2: a bare title is one name; 3: a run is a place by its first or last word only;
                            # 4: a VL place or object region named by a cue or the caption is the subject
+                           # 5: people words that are only names count one person per name
 CLASSES = ("person", "crowd", "place", "document", "map", "painting", "object")
 RECORDS = ("document", "map", "painting", "object")       # composed centred: the picture is a record
 FLOOR = M.CINE["auto_confidence_floor"]                   # a box under it is not a subject (A43)
@@ -211,6 +212,12 @@ def count_people(people) -> int | None:
         if not words:
             continue
         if words[0] in ("no", "none", "nobody"):
+            continue
+        # a clause that is only names ("President Bush", "Bush and Card") counts one person per name
+        names = caption_names(clause)
+        name_words = {w.strip(_EDGE).lower() for n in names for w in n.split()}
+        if names and all(w in name_words or w == "and" for w in words):
+            total += len(names)
             continue
         has_person = any(w in PERSON_NOUNS for w in words)
         first = words[0]

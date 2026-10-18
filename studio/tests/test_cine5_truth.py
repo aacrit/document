@@ -508,6 +508,34 @@ def test_plan_ruling_2_probe_a_fully_automatic_tour_is_never_refused(film):
     assert any(e["kind"] == "decision" and e.get("unit") == "S3" and "re-framed" in e.get("what", "") for e in evs)
 
 
+def test_plan_ruling_2_probe_auto_only_binds_from_the_ledger_s_words_and_the_rulebook_s_box(film):
+    # A45, auto-only: the ledger gives the people only as words ("President Bush"); the box is the rulebook's, from a
+    # recorded MediaPipe measurement of Real World 4.2 (one figure); the narration's "President Bush" binds, no refusal
+    from pathlib import Path as _P
+    from studio.engine import vision as V
+    rec = json.loads((_P(__file__).resolve().parent / "fixture" / "vision-measure.json").read_text(encoding="utf-8"))
+    m = dict(rec["stills"]["4.2"]["measure"], size=[1500, 1050], model=V.cpu_model_key())
+    path = film / "stills" / "FX-STILL-A.png"
+    sc = V.read_sidecar(V.sidecar_path(film / "stills-ledger.json"))
+    sc["measure"][f"{V.sha256_file(path)}|{V.cpu_model_key()}"] = m
+    V.write_sidecar(V.sidecar_path(film / "stills-ledger.json"), sc)
+    _edit(film, lambda p: _line(p, "L1").update(text="A test tone stands in for President Bush."))
+    _item(film, "FX-STILL-A", lambda i: i.update(title="President Bush at the school", people="President Bush"))
+    _edit(film, lambda p: _shot(p, "S3").update(preset=None, camera=[{"t": 0}, {"roi": "subject", "at": "President Bush",
+                                                                          "lead_s": 1.0}]))
+    plan, j = _plan(film, "cine5-auto-only")
+    evs = J.read(j.path)
+    assert [e["status"] for e in lints(evs, "anchor-identity") if e["unit"] == "S3"] == ["pass"]
+    s3 = next(s for s in plan["shots"] if s["id"] == "S3")
+    it, cam = s3["_item"], s3["_cam"]
+    sub = next(r for r in it["roi"] if r["name"] == "subject")
+    assert sub["source"] == "auto" and it["caption_names"] == ["President Bush"]
+    assert T.people_of(it)["unlocated"] == 0 and T.located_persons(cam["cine"]["persons"]) == 1
+    st = cam["tour"]["stops"][1]
+    assert st["roi"] == "subject" and not cam["cine"]["reframed"]
+    assert not T.binding_check(it, ["President", "Bush"], sub, cam["cine"]["persons"])
+
+
 # --------------------------------------------------------------------------
 # An engine path can never fail tour-people (re-review)
 # --------------------------------------------------------------------------

@@ -440,17 +440,28 @@ class HeavyLock:
         self.job = job
 
     def __enter__(self):
-        if self.path.exists():
-            raise MissingModel(f"HEAVY.lock is held: {self.path.read_text(encoding='utf-8', errors='replace')[:200]}"
-                               " (wait for it; never break another group's lock)")
-        self.path.write_text(json.dumps({"group": "WG-2", "job": self.job, "pid": os.getpid(),
-                                         "started": time.strftime("%Y-%m-%dT%H:%M:%S")}), encoding="utf-8")
+        # taken atomically: created only if absent (O_EXCL), so two jobs can never both hold it
+        body = json.dumps({"group": "WG-2", "job": self.job, "pid": os.getpid(),    # the Windows PID on Windows
+                           "started": time.strftime("%Y-%m-%dT%H:%M:%S")})
+        try:
+            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                held = self.path.read_text(encoding="utf-8", errors="replace")[:200]
+            except OSError:
+                held = "(unreadable)"
+            raise MissingModel(f"HEAVY.lock is held: {held} (wait for it; never break another group's lock)") from None
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(body)
+        self.held = True
         return self
 
     def __exit__(self, *exc):
+        """Removes the lock only while it is still this process's."""
         try:
-            self.path.unlink()
-        except FileNotFoundError:
+            if json.loads(self.path.read_text(encoding="utf-8")).get("pid") == os.getpid():
+                self.path.unlink()
+        except (FileNotFoundError, ValueError):
             pass
 
 
