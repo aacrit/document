@@ -250,7 +250,8 @@ PRESET_ZMAX = {"HOLD": 1.0, "PUSH": 1.12, "PULL": 1.12, "DRIFT": 1.15, "TILT": 1
 # or more across fills 1080p; a 640x480 reel, already 2.25x in its plain fit (A5), stays whole and is journaled.
 FILL = "FILL"
 TOUR = "TOUR"                       # A41: a still's camera is a path of stops (studio/engine/tour.py)
-COVERABLE = ("HOLD", "PUSH", "PULL", "DRIFT", "TILT", "DETAIL", "FILL", "DEFAULT")   # A41: not authored paths
+COVERABLE = ("HOLD", "PUSH", "PULL", "DRIFT", "TILT", "DETAIL", "FILL", "DEFAULT",
+            *T.RICH_MACROS)          # A41: not authored paths; ticket #10's READ, PORTRAIT, SURVEY (A54) too
 FILL_MAX_UPSCALE = 1.6
 FILL_ASPECT_TOL = 0.01              # narrower than 16:9 by more than 1% (a 1.77 transfer is 16:9)
 FILL_SAFE = (0.04, 0.05, 0.96, 0.75)   # the focus at the end framing: inside the marks' insets, above the lower thirds
@@ -900,7 +901,17 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
                 stops = subject_pass()
     elif preset in T.MACROS:
         macro = preset
-        stops = T.macro_stops(preset, shot, dur)
+        if preset in T.RICH_MACROS:
+            # ticket #10 (A54): READ, PORTRAIT, SURVEY. Built from the ledger; never refused: a still with none
+            # of what the macro needs (or no time for its pacing) takes the A47 subject pass instead, journaled
+            # (``tour_lints``, from ``rich_macro_why``)
+            stops, why = T.rich_macro_stops(preset, shot, item, roi, persons, words or [], dur, img_size, aspect,
+                                            zmax)
+            if stops is None:
+                shot["_rich_macro_why"] = {"preset": preset, "reason": why}
+                stops, macro = subject_pass(), "DEFAULT"
+        else:
+            stops = T.macro_stops(preset, shot, dur)
         clamped = [st for st in stops if st["z"] > zmax + 1e-9]
         for st in clamped:                    # a preset stops at the softness cap, as FILL did (A34): never softer
             st["z"], st["capped"] = zmax, True
@@ -963,6 +974,7 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
             "tour": tl, "W": W, "H": H, "opens_whole": False, "problems": problems, "zcap": zcap, "cap": cap,
             "covering": covering, "cover": (("whole" if cover is True else cover) if covering else None),
             "capped": any(st.get("capped") for st in stops), "subject": subject, "settle_kinds": settle_kinds,
+            "rich_macro_why": shot.get("_rich_macro_why"),   # ticket #10 (A54): None unless a rich macro fell back
             "cine": {"persons": persons, "regions": roi_by_name, "ignored": eff["ignored"], "reframed": reframed,
                      "pulled": pulled, "merged": merged}}
 
@@ -1472,6 +1484,13 @@ def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int,
                                                            for k, v in st.items()} for st in cam["tour"]["stops"]],
                                                  "segments": [g["kind"] for g in cam["tour"]["segments"]],
                                                  "speed": sp})
+        why = cam.get("rich_macro_why")
+        if why:
+            # ticket #10 (A54): READ, PORTRAIT or SURVEY had none of what it needed (or no time for its pacing);
+            # the A47 subject pass stood in instead (never refused, ruling 2)
+            journal.decision("motion", f"{s['id']}: {why['preset']} made the A47 subject pass",
+                             f"ticket #10 ({why['preset']}): {why['reason']}", unit=s["id"],
+                             evidence={"preset": why["preset"], "reason": why["reason"]})
     item = s.get("_item") or {}
     win = [w for _, w in wins]
     people = T.people_of(item, kind=s.get("kind", "archive_still"))
