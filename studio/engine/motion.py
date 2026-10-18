@@ -1850,8 +1850,21 @@ TOUR = dict(hold_creep_after_s=1.5, creep_scale_per_s=0.015, creep_drift_per_s=0
 #                           through the name
 #   anchor_lead_s           how early the engine's own person stop arrives on measured timings (the schema's default)
 #   nest_share              a person box this much inside another (a face inside its figure) is the same person
+#   A47 (the camera ends on the subject; studio/engine/tour.py subject_stops, end_pose):
+#   settle_s                the subject stop is reached at least this long before the cut
+#   settle_read_s           ... this long when it is text, a face or a person (read, then cut)
+#   whole_weight            where a ``whole`` still holds along the axis its fill window can travel, as a share of
+#                           that travel from the top (or the left): upper-weighted for a person, crowd or place
+#   whole_weight_record     ... centred for a record (a document, map, painting or object, or compose centred:)
+#   golden_band             the band (and its mirror, 1 - band) the subject's centre sits in on each axis (golden)
+#   phi                     the first placement tried (0.382 and 0.618); thirds (1/3, 2/3) is the fallback
+#   compose_edge            the subject box stays this share of the window inside its edges at the end pose
+#   eye_person, eye_face    where the eyes sit in a person box and a face box, from the top (eyes near the upper third)
+#   centred_band            a subject centre within this of 0.5 reads as centred (the records' verdict)
 CINE = dict(face_zmax=1.3, framed_share=0.5, auto_confidence_floor=0.5, anchor_early_s=0.8, anchor_late_s=0.25,
-            anchor_estimated_lead_s=1.0, anchor_lead_s=0.5, nest_share=0.8)
+            anchor_estimated_lead_s=1.0, anchor_lead_s=0.5, nest_share=0.8,
+            settle_s=1.0, settle_read_s=1.5, whole_weight=0.38, whole_weight_record=0.5, golden_band=(0.30, 0.44),
+            phi=0.382, compose_edge=0.02, eye_person=0.12, eye_face=0.4, centred_band=0.06)
 
 
 def still_view(size, L: Layout, *, z: float = 1.0, cx: float = 0.5, cy: float = 0.5, clamp: str = "frame"):

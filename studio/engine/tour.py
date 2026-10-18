@@ -321,11 +321,15 @@ def whole_box(size, aspect: float) -> tuple[float, float, float, float]:
     return (mx, my, 1.0 - mx, 1.0 - my)
 
 
-def default_stops(size, aspect: float, dur: float, direction: str = "", zmax: float | None = None) -> list[dict]:
-    """The default tour (A41): open at the fill on one end of the long axis
+def default_stops(size, aspect: float, dur: float, direction: str = "", zmax: float | None = None, *,
+                  no_zoom: bool = False) -> list[dict]:
+    """A41's geometric pass: open at the fill on one end of the long axis
     and make one slow pass to the other over the shot (top to bottom, left to
     right; ``direction`` up or rl reverses it). A picture of the frame's own
-    shape holds at the fill, creeping."""
+    shape holds at the fill, creeping. A47 retired it as the default (the
+    default now ends on the subject, ``subject_stops``); it stays for the
+    callers that ask for a plain pass. ``no_zoom`` (burning and collapse
+    stills, founder ruling): the pass never layers a push; it is a drift."""
     ax = long_axis(size, aspect)
     if ax is None:
         return [{"t": 0.0, "z": 1.0, "x": 0.5, "y": 0.5, "from": "default tour: the fill"}]
@@ -335,7 +339,7 @@ def default_stops(size, aspect: float, dur: float, direction: str = "", zmax: fl
     first = {"t": 0.0, "z": 1.0, "x": 0.5, "y": 0.5, "from": "default tour: open"}
     last = {"t": dur, "z": 1.0, "x": 0.5, "y": 0.5, "from": "default tour: pass"}
     first[ax], last[ax] = a, b
-    mid = _layer_creep(first, last, size, aspect, dur, ax, zmax)
+    mid = None if no_zoom else _layer_creep(first, last, size, aspect, dur, ax, zmax)
     return [first, mid, last] if mid else [first, last]
 
 
@@ -361,7 +365,8 @@ def _layer_creep(first: dict, last: dict, size, aspect: float, dur: float, ax: s
     return mid
 
 
-def covering_stops(size, aspect: float, dur: float, focus=None, zmax: float | None = None) -> list[dict]:
+def covering_stops(size, aspect: float, dur: float, focus=None, zmax: float | None = None, *,
+                   no_zoom: bool = False) -> list[dict]:
     """A pass that shows the whole picture: the default tour, and with a
     ``focus`` it starts at the end farther from the focus, passes to the other
     end and comes back to settle on the focus. The shot's time is shared by
@@ -369,7 +374,7 @@ def covering_stops(size, aspect: float, dur: float, focus=None, zmax: float | No
     cruise) instead of rushing the settle."""
     ax = long_axis(size, aspect)
     if ax is None or focus is None:
-        return default_stops(size, aspect, dur, zmax=zmax)
+        return default_stops(size, aspect, dur, zmax=zmax, no_zoom=no_zoom)
     fx, fy = float(focus[0]), float(focus[1])
     f = fx if ax == "x" else fy
     a, b = (0.0, 1.0) if f >= 0.5 else (1.0, 0.0)          # from the far end, through the near one
@@ -413,6 +418,510 @@ def macro_stops(preset: str, shot: dict, dur: float) -> list[dict]:
         out.append({"t": t, "z": float(k.get("z", 1.0)), "x": float(k.get("x", 0.5)), "y": float(k.get("y", 0.5)),
                     "from": preset})
     return out
+
+
+# --------------------------------------------------------------------------
+# A47: the camera ends on the subject (cinematography ticket #2)
+# --------------------------------------------------------------------------
+
+RECORD_CLASSES = ("document", "map", "painting", "object")
+READ_KINDS = ("text", "face", "person")          # settled 1.5 s: read, then cut
+
+
+def _focus_point(focus) -> tuple[float, float] | None:
+    if (isinstance(focus, (list, tuple)) and len(focus) == 2 and all(
+            isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and 0.0 <= v <= 1.0
+            for v in focus)):
+        return float(focus[0]), float(focus[1])
+    return None
+
+
+def is_record(item: dict) -> bool:
+    """A record (a document, map, painting or object, or a still the ledger
+    composes ``centred:``): composed centred, never upper-weighted."""
+    comp = item.get("compose")
+    if isinstance(comp, str):
+        return comp.startswith("centred:")
+    return item.get("class") in RECORD_CLASSES
+
+
+def resolve_subject(roi: list[dict], focus=None) -> dict:
+    """What the still is about, in A47's order: the ledger's ``subject``
+    region (a person's or the rulebook's, as ``effective_regions`` keeps it),
+    else the shot's ``focus`` (a point), else ``whole`` (the whole picture is
+    the subject). Returns {src, box (picture fractions x0, y0, x1, y1; None
+    for whole), kind, facing, name}."""
+    for r in roi or []:
+        if isinstance(r, dict) and r.get("name") == "subject" and roi_box(r) is not None:
+            return {"src": "subject", "box": roi_box(r), "kind": r.get("kind"), "facing": r.get("facing"),
+                    "name": "subject"}
+    pt = _focus_point(focus)
+    if pt is not None:
+        return {"src": "focus", "box": (pt[0], pt[1], pt[0], pt[1]), "kind": "focus", "facing": None, "name": None}
+    return {"src": "whole", "box": None, "kind": "whole", "facing": None, "name": None}
+
+
+def subject_point(subj: dict, pose: dict) -> tuple[float, float]:
+    """The picture point that stands for the subject: its box's centre, or
+    for ``whole`` the centre of its held window."""
+    b = subj.get("box")
+    if b is None:
+        return pose["x"], pose["y"]
+    return (b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0
+
+
+def subject_facing(subj: dict, persons: list[dict]) -> str | None:
+    """The way the subject faces: its own ``facing``, else that of the
+    largest located person whose centre lies in the subject's box."""
+    if subj.get("facing") in FACINGS:
+        return subj["facing"]
+    b = subj.get("box")
+    if b is None:
+        return None
+    best = None
+    for q in persons or []:
+        e = q.get("entry") or {}
+        if e.get("facing") not in FACINGS:
+            continue
+        qb = q["box"]
+        cx, cy = (qb[0] + qb[2]) / 2.0, (qb[1] + qb[3]) / 2.0
+        if b[0] - EPS <= cx <= b[2] + EPS and b[1] - EPS <= cy <= b[3] + EPS:
+            if best is None or _area(qb) > _area(best[0]):
+                best = (qb, e["facing"])
+    return best[1] if best else None
+
+
+def settle_for(subj: dict) -> float:
+    """How long the subject stop is held, settled, before the cut: 1.5 s for
+    text, a face or a person, else 1.0 s (``CINE``)."""
+    return CINE["settle_read_s"] if subj.get("kind") in READ_KINDS else CINE["settle_s"]
+
+
+def whole_pose(size, aspect: float, record: bool) -> dict:
+    """``whole``: the fill (z 1), upper-weighted along the axis its window can
+    travel (``CINE['whole_weight']`` of the travel from the top), centred for
+    a record. A wide picture is centred across (it has no upper weight); a
+    picture of the frame's own shape is the fill."""
+    ih = float(size[1])
+    _, fh = fill_window(size, aspect)
+    wgt = CINE["whole_weight_record"] if record else CINE["whole_weight"]
+    p = {"z": 1.0, "x": 0.5, "y": 0.5}
+    if long_axis(size, aspect) == "y":
+        p["y"] = (wgt * (ih - fh) + fh / 2.0) / ih
+    return p
+
+
+def _place(c: float, s: float, win: float, full: float, t: float) -> tuple[float, float]:
+    """One axis, picture px: the window (``win`` long inside ``full``) that
+    puts a subject centred at ``c`` (``s`` long) at ``t`` of the window, the
+    subject kept ``compose_edge`` inside it; then clamped inside the
+    picture. Returns (the window's start, the subject centre's share of it)."""
+    e = CINE["compose_edge"]
+    frac = s / win if win > 0 else 0.0
+    if frac >= 1.0 - 2 * e:
+        t = 0.5
+    else:
+        t = min(max(t, frac / 2.0 + e), 1.0 - frac / 2.0 - e)
+    a = min(max(c - t * win, 0.0), max(0.0, full - win))
+    return a, ((c - a) / win if win > 0 else 0.5)
+
+
+def _in_band(v: float) -> bool:
+    lo, hi = CINE["golden_band"]
+    return lo - 1e-6 <= v <= hi + 1e-6 or 1.0 - hi - 1e-6 <= v <= 1.0 - lo + 1e-6
+
+
+def _eyes(subj: dict) -> float | None:
+    """Where a person's eyes sit (picture fraction, from the top), or None."""
+    if subj.get("kind") not in PERSON_KINDS or subj.get("box") is None:
+        return None
+    y0, y1 = subj["box"][1], subj["box"][3]
+    return y0 + (y1 - y0) * (CINE["eye_face"] if subj["kind"] == "face" else CINE["eye_person"])
+
+
+def end_pose(subj: dict, size, aspect: float, zlim: float, *, record: bool, facing: str | None = None,
+             no_zoom: bool = False) -> dict:
+    """The subject stop (A47): as deep as the subject allows and never past
+    ``zlim`` (the softness cap, and the face cap for people; z 1 under
+    ``no_zoom``: drift only), the window inside the picture, composed by
+    class. Golden: the subject's centre on phi (0.382 or 0.618 of the window)
+    on each axis that has room, thirds the fallback, the subject whole in
+    frame; a subject facing left or right sits on the side behind it, so the
+    room ahead is the larger; a person's eyes sit nearest the upper third.
+    Centred for a record. ``whole`` is the upper-weighted fill
+    (``whole_pose``). Returns {z, x, y}."""
+    if subj["box"] is None:
+        return whole_pose(size, aspect, record)
+    iw, ih = float(size[0]), float(size[1])
+    fw, fh = fill_window(size, aspect)
+    x0, y0, x1, y1 = subj["box"]
+    bw, bh = (x1 - x0) * iw, (y1 - y0) * ih
+    cx, cy = (x0 + x1) / 2.0 * iw, (y0 + y1) / 2.0 * ih
+    phi, e = CINE["phi"], CINE["compose_edge"]
+    if record:
+        tx, ty, share = [0.5], [0.5], 0.8      # roi_stop's margin: the region whole, with room round it
+    else:
+        if facing == "right":
+            tx = [phi, 1 / 3]                  # left of centre: the room ahead is on the right
+        elif facing == "left":
+            tx = [1 - phi, 2 / 3]
+        else:
+            tx = [phi, 1 / 3] if cx <= iw / 2.0 else [1 - phi, 2 / 3]
+        ty = ([phi, 1 - phi, 1 / 3, 2 / 3] if subj.get("kind") in PERSON_KINDS else
+              [phi, 1 / 3] if cy <= ih / 2.0 else [1 - phi, 2 / 3])
+        share = 2 * (phi - e)                  # the subject fits whole with its centre on phi
+    z = 1.0
+    if not no_zoom:
+        zs = [max(1.0, zlim)]
+        if bw > 0:
+            zs.append(fw * share / bw)
+        if bh > 0:
+            zs.append(fh * share / bh)
+        z = max(1.0, min(zs))
+    ww, wh = fw / z, fh / z
+    eye = _eyes(subj)
+    best = None
+    for t_y in ty:
+        for t_x in tx:
+            ax_, px = _place(cx, bw, ww, iw, t_x)
+            ay_, py = _place(cy, bh, wh, ih, t_y)
+            if record:
+                miss = 0
+            else:
+                miss = int(not (_in_band(px) or ww >= iw - 0.5)) + int(not (_in_band(py) or wh >= ih - 0.5))
+            key = (miss, round(abs((eye * ih - ay_) / wh - 1 / 3), 6) if eye is not None else 0.0)
+            if best is None or key < best[0]:
+                best = (key, ax_, ay_)
+    _, ax_, ay_ = best
+    return {"z": z, "x": (ax_ + ww / 2.0) / iw, "y": (ay_ + wh / 2.0) / ih}
+
+
+def compose_verdict(p: dict, subj: dict, size, aspect: float, *, record: bool, facing: str | None = None) -> dict:
+    """What a framing {z, x, y} does with the subject (A47; #4's
+    ``end-pose-composition`` reads the same numbers): the subject's centre
+    as a share of the window on each axis (None where the window spans the
+    picture: no room to place it), whether its box is whole in frame, the
+    room ahead and behind on the axis it faces, its eyes' height, and the
+    verdict: golden, centred, whole, or what kept it off."""
+    iw, ih = float(size[0]), float(size[1])
+    a0, b0, a1, b1 = window(size, aspect, p["z"], p["x"], p["y"])
+    ww, wh = a1 - a0, b1 - b0
+    out = {"window": [round(a0 / iw, 4), round(b0 / ih, 4), round(a1 / iw, 4), round(b1 / ih, 4)]}
+    if subj["box"] is None:
+        out.update(verdict="whole", inside=True, centre_in_frame=True, shown=1.0, flush=[], edge_not_subject=[])
+        return out
+    x0, y0, x1, y1 = subj["box"]
+    cx, cy = (x0 + x1) / 2.0 * iw, (y0 + y1) / 2.0 * ih
+    room_x, room_y = ww < iw - 0.5, wh < ih - 0.5
+    px, py = (cx - a0) / ww, (cy - b0) / wh
+    tol = 0.5                                  # half a source pixel
+    flush = [n for n, hit in (("left", room_x and a0 <= tol), ("right", room_x and a1 >= iw - tol),
+                              ("top", room_y and b0 <= tol), ("bottom", room_y and b1 >= ih - tol)) if hit]
+    # an edge the window rests on is the subject's when the subject reaches into that half of the window
+    near = {"left": x0 * iw <= a0 + 0.5 * ww, "right": x1 * iw >= a1 - 0.5 * ww,
+            "top": y0 * ih <= b0 + 0.5 * wh, "bottom": y1 * ih >= b1 - 0.5 * wh}
+    out.update(subject_x=round(px, 4), subject_y=round(py, 4), room_x=room_x, room_y=room_y,
+               inside=(x0 * iw >= a0 - tol and y0 * ih >= b0 - tol and x1 * iw <= a1 + tol and y1 * ih <= b1 + tol),
+               centre_in_frame=0.0 <= px <= 1.0 and 0.0 <= py <= 1.0, flush=flush,
+               shown=round(_inside_share(subj["box"], (a0 / iw, b0 / ih, a1 / iw, b1 / ih)), 4),
+               edge_not_subject=[n for n in flush if not near[n]])
+    eye = _eyes(subj)
+    if eye is not None:
+        out["eyes_y"] = round((eye * ih - b0) / wh, 4)
+    if facing in ("left", "right"):
+        behind = (x0 * iw - a0) if facing == "right" else (a1 - x1 * iw)
+        ahead = (a1 - x1 * iw) if facing == "right" else (x0 * iw - a0)
+        out.update(facing=facing, lead_room=round(ahead / ww, 4), room_behind=round(behind / ww, 4),
+                   lead_ok=ahead >= behind - 0.5)
+    cb = CINE["centred_band"]
+    axes = [v for v, r in ((px, room_x), (py, room_y)) if r]
+    if not axes:
+        out["verdict"] = "no room (the window spans the picture)"
+    elif record:
+        out["verdict"] = ("centred" if all(abs(v - 0.5) <= cb + 1e-6 for v in axes) else
+                          "off-centre (the subject sits at the picture's edge)" if flush else "off-centre")
+    elif all(_in_band(v) for v in axes):
+        out["verdict"] = "golden"
+    elif all(abs(v - 0.5) <= cb + 1e-6 for v in axes):
+        out["verdict"] = "centred (too large for phi)"
+    else:
+        out["verdict"] = "past the band (the subject sits at the picture's edge)" if flush else "off"
+    return out
+
+
+def _leg_dist(a: dict, b: dict, size, aspect: float) -> tuple[float, float]:
+    """A leg's travel: (the larger of its pan and tilt in the smaller of its
+    two windows' widths or heights, as ``speed_report`` judges it at the
+    tight end; its zoom as a log ratio)."""
+    wa = window(size, aspect, a["z"], a["x"], a["y"])
+    wb = window(size, aspect, b["z"], b["x"], b["y"])
+    ww, wh = min(wa[2] - wa[0], wb[2] - wb[0]), min(wa[3] - wa[1], wb[3] - wb[1])
+    pan = max(abs((wb[0] + wb[2]) - (wa[0] + wa[2])) / 2.0 / ww, abs((wb[1] + wb[3]) - (wa[1] + wa[3])) / 2.0 / wh)
+    return pan, abs(math.log(b["z"] / a["z"]))
+
+
+def leg_min_s(a: dict, b: dict, size, aspect: float) -> float:
+    """The shortest leg on the rostrum curve whose cruise stays inside the
+    speed guides (A41: a third of the frame a second, 15% scale a second)."""
+    pan, zl = _leg_dist(a, b, size, aspect)
+    need = max(pan / TOUR["pan_guide_per_s"], zl / math.log(1.0 + TOUR["zoom_guide_per_s"]))
+    if need <= EPS:
+        return 0.0
+    # the cruise covers 1 / (T - ramp) of the leg a second, the ramp min(0.9 s, 30% of T) (motion.rostrum)
+    return need / 0.7 if need / 0.7 <= 3.0 else need + 0.9
+
+
+def subject_stops(size, aspect: float, dur: float, pose: dict, *, arrive: float, settle_s: float,
+                  need_whole: bool = False, start: dict | None = None, breath: bool = False,
+                  from_near: bool = False) -> tuple[list[dict], dict]:
+    """A47's default pass, ending on the subject: it opens at the end of the
+    picture's long axis furthest from the subject (or, ``start``, where a
+    ``match: prev`` puts the subject), sweeps once and lands on ``pose`` at
+    ``arrive`` (shot seconds), never later than ``settle_s`` before the cut,
+    and holds there to the cut, creeping (one ``breath`` on a ``whole``
+    still). It never comes back on itself unless ``need_whole``: the A7
+    guard needs the whole picture shown (a person the ledger has not
+    located), so it passes the far end, then the near end, then settles on
+    the subject. ``from_near`` opens at the near end instead (a located
+    person there that the far end's sweep would never show). No leg is
+    faster than the speed guides allow: a pass that cannot reach the subject
+    in time starts nearer it, or, when the whole picture is needed, arrives
+    late (A7 first). Returns (stops, timing)."""
+    ax = long_axis(size, aspect)
+    pose = dict(pose, **settle(pose, size, aspect))
+    pose.setdefault("from", "A47: the subject")
+    if breath:
+        pose["breath"] = True
+    latest = max(0.0, dur - settle_s)
+    want = min(max(0.0, arrive), latest)
+    timing = {"asked_s": round(arrive, 3), "latest_s": round(latest, 3)}
+    pts: list[dict] = []
+    if start is not None:
+        pts.append(dict(settle(start, size, aspect), **{"from": "A47: match prev"}))
+    ends: list[dict] = []
+    if ax is not None:
+        a = settle({"z": 1.0, "x": 0.5, "y": 0.5, ax: 0.0}, size, aspect)
+        b = settle({"z": 1.0, "x": 0.5, "y": 0.5, ax: 1.0}, size, aspect)
+        far, near = (a, b) if abs(pose[ax] - a[ax]) >= abs(pose[ax] - b[ax]) else (b, a)
+        ends = [dict(far, **{"from": "A47: the far end"}), dict(near, **{"from": "A47: the near end"})]
+    if need_whole and ends:
+        pts += ends
+    elif start is None:
+        pts.append(ends[1 if from_near else 0] if ends else {"z": 1.0, "x": 0.5, "y": 0.5, "from": "A47: the fill"})
+    pts.append(pose)
+    path = [pts[0]]
+    for q in pts[1:]:
+        if not _same(path[-1], q):
+            path.append(q)
+    if len(path) == 1:
+        timing.update(arrive_s=0.0, why="the shot opens on the subject: held from the cut")
+        return [dict(path[0], t=0.0)], timing
+    legs = list(zip(path, path[1:]))
+    need = sum(leg_min_s(a, b, size, aspect) for a, b in legs)
+    if want + EPS < need:
+        if need_whole or start is not None:
+            want = min(need, latest)
+            timing["why"] = ("A7: the whole picture is shown before the subject" if need_whole else
+                             "the match opening keeps to the speed guides")
+        elif want <= 0.5:
+            timing.update(arrive_s=0.0, why="no time to sweep before the subject: held on it from the cut")
+            return [dict(pose, t=0.0)], timing
+        else:
+            a0 = path[0]
+
+            def out_at(k):
+                return {"z": pose["z"] * (a0["z"] / pose["z"]) ** k, "x": pose["x"] + (a0["x"] - pose["x"]) * k,
+                        "y": pose["y"] + (a0["y"] - pose["y"]) * k, "from": "A47: as far out as the time allows"}
+            lo, hi = 0.0, 1.0                   # a shorter lead-in: as far out as the speed guides allow
+            for _ in range(40):
+                mid = (lo + hi) / 2.0
+                if leg_min_s(out_at(mid), pose, size, aspect) <= want:
+                    lo = mid
+                else:
+                    hi = mid
+            st = out_at(lo)
+            path, legs = [st, pose], [(st, pose)]
+            timing["why"] = "a short lead-in: the sweep opens as far out as the speed guides allow"
+    timing.setdefault("why", "subject_at" if arrive < latest - EPS else "settled before the cut")
+    dist = [sum(_leg_dist(a, b, size, aspect)) for a, b in legs]
+    total = sum(dist) or 1.0
+    out = [dict(path[0], t=0.0)]
+    acc = 0.0
+    for (_, b), d in zip(legs, dist):
+        acc += d
+        out.append(dict(b, t=want * acc / total))
+    out[-1]["t"] = want
+    timing["arrive_s"] = round(want, 3)
+    return out, timing
+
+
+def reversals(tl: dict) -> list[dict]:
+    """``in-shot-reversal`` (A47, guidance): a move that turns back on an
+    axis the move before it travelled (a pass that sweeps and comes back).
+    Creeps are not moves. Returns [{t, axis}]."""
+    size, aspect = tl["size"], tl["aspect"]
+    out, prev = [], None
+    for g in tl["segments"]:
+        if g["kind"] != "move":
+            continue
+        wa = window(size, aspect, g["a"]["z"], g["a"]["x"], g["a"]["y"])
+        wb = window(size, aspect, g["b"]["z"], g["b"]["x"], g["b"]["y"])
+        v = ((wb[0] + wb[2]) - (wa[0] + wa[2]), (wb[1] + wb[3]) - (wa[1] + wa[3]))
+        if prev is not None:
+            for k, name in enumerate(("x", "y")):
+                if abs(prev[k]) > 1.0 and abs(v[k]) > 1.0 and (prev[k] > 0) != (v[k] > 0):
+                    out.append({"t": round(g["t0"], 3), "axis": name})
+        prev = v
+    return out
+
+
+def screen_of(tl: dict, point: tuple[float, float], t: float | None = None) -> tuple[float, float]:
+    """Where a picture point (fractions) sits on the screen (frame
+    fractions) at shot time ``t`` (the last frame by default): what ``match:
+    prev`` carries across a cut."""
+    size, aspect = tl["size"], tl["aspect"]
+    f = at(tl, tl["dur"] if t is None else t)
+    a0, b0, a1, b1 = window(size, aspect, f["z"], f["x"], f["y"])
+    return (point[0] * float(size[0]) - a0) / (a1 - a0), (point[1] * float(size[1]) - b0) / (b1 - b0)
+
+
+def match_start(point: tuple[float, float], screen, size, aspect: float, zs=(1.0,)) -> tuple[dict, float]:
+    """``match: prev`` (A47, on a cut): the opening framing that puts the
+    picture point ``point`` where the previous shot left its subject on the
+    screen (``screen``, frame fractions), at the zoom of ``zs`` that comes
+    nearest inside the picture. Returns (framing, the error left in frame
+    fractions)."""
+    iw, ih = float(size[0]), float(size[1])
+    fw, fh = fill_window(size, aspect)
+    best = None
+    for z in zs:
+        ww, wh = fw / z, fh / z
+        c = settle({"z": z, "x": (point[0] * iw + (0.5 - screen[0]) * ww) / iw,
+                    "y": (point[1] * ih + (0.5 - screen[1]) * wh) / ih}, size, aspect)
+        a0, b0, a1, b1 = window(size, aspect, c["z"], c["x"], c["y"])
+        err = math.hypot((point[0] * iw - a0) / (a1 - a0) - screen[0], (point[1] * ih - b0) / (b1 - b0) - screen[1])
+        if best is None or err < best[1] - 1e-9:
+            best = (c, err)
+    return best
+
+
+def fit_zmax(box, pose: dict, size, aspect: float) -> float:
+    """The deepest zoom about the pose's own centre that keeps the subject's
+    box whole in the window (the creep on the subject stop pushes no
+    further, so the hold never cuts what it landed on)."""
+    iw, ih = float(size[0]), float(size[1])
+    fw, fh = fill_window(size, aspect)
+    a0, b0, a1, b1 = window(size, aspect, pose["z"], pose["x"], pose["y"])
+    cx, cy = (a0 + a1) / 2.0, (b0 + b1) / 2.0
+    hx = max(cx - box[0] * iw, box[2] * iw - cx, EPS)
+    hy = max(cy - box[1] * ih, box[3] * ih - cy, EPS)
+    return max(1.0, min(fw / (2.0 * hx), fh / (2.0 * hy)))
+
+
+def people_check_boxes(item: dict) -> dict:
+    """The located people only (``people_of`` without the unlocated): what a
+    single sweep must show."""
+    pe = people_of(item)
+    return {"boxes": pe["boxes"], "unlocated": 0, "known": pe["known"]} if pe["boxes"] else {}
+
+
+def subject_arrival(shot: dict, item: dict, subj: dict, persons: list[dict], words: list[dict], t0: float,
+                    dur: float, settle_s: float) -> tuple[float, dict | None, str]:
+    """When the subject stop arrives (shot seconds), the narration span it is
+    anchored to, and why. With ``subject_at`` (a cue the narration speaks
+    over the shot): before the cue's onset by the A43 lead, 0.5 s on
+    measured words and on estimated ones, 1.0 s on estimated words when the
+    subject is a person the cue names (the binding: arrive early, hold
+    through the name). Without it: settled ``settle_s`` before the shot's
+    last line ends, so the subject holds through the end of the line and the
+    breath after it; a shot with no narration lands it ``settle_s`` before
+    the cut."""
+    sa = shot.get("subject_at")
+    if sa is not None:
+        at_, line = (sa.get("at"), sa.get("line")) if isinstance(sa, dict) else (sa, None)
+        sp = anchor_span(at_, words, line=line, t0=t0)
+        if sp is not None and t0 - EPS <= sp["t"] <= t0 + dur + EPS:
+            spoken = [w["w"] for w in sp["words"]]
+            person = subj.get("kind") in PERSON_KINDS and names_a_person(spoken, item, persons)
+            lead = CINE["anchor_lead_s"] if sp["measured"] or not person else CINE["anchor_estimated_lead_s"]
+            why = (f"subject_at {at_!r}: {lead:g} s before its onset"
+                   f" ({'measured' if sp['measured'] else 'estimated'} words{', a person it names' if person else ''})")
+            return sp["t"] - t0 - lead, sp, why
+    ends = [w["e"] - t0 for w in words if t0 - EPS <= w["t"] <= t0 + dur + EPS]
+    if ends:
+        return min(dur, max(ends)) - settle_s, None, "settled before the shot's last line ends: held through it"
+    return dur, None, "no narration over the shot: settled before the cut"
+
+
+def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], words: list[dict], size,
+                 aspect: float, dur: float, t0: float, zmax: float, *, need_whole: bool, focus=None,
+                 match_screen=None) -> tuple[list[dict], dict]:
+    """A47's default for a still: the subject (``resolve_subject``), its end
+    pose composed by class (``end_pose``), when it arrives
+    (``subject_arrival``), and the pass that ends on it (``subject_stops``).
+    ``whole`` holds at the upper-weighted fill with one breath and no other
+    move, unless the A7 guard needs the whole picture (``need_whole``) or a
+    ``match: prev`` opens elsewhere. ``no_zoom`` keeps every stop at z 1
+    (drift only). Returns (stops, info) for the journal and the lints."""
+    subj = resolve_subject(roi, shot.get("focus") if focus is None else focus)
+    record = is_record(item)
+    facing = subject_facing(subj, persons)
+    no_zoom = shot.get("no_zoom") is True
+    zlim = max(1.0, zmax)
+    if subj.get("kind") in PERSON_KINDS or subj.get("kind") == "group":
+        zlim = min(zlim, CINE["face_zmax"])
+    pose = end_pose(subj, size, aspect, zlim, record=record, facing=facing, no_zoom=no_zoom)
+    if pose["z"] > CINE["face_zmax"] + EPS and persons and framed_persons(pose, persons, size, aspect):
+        pose = end_pose(subj, size, aspect, CINE["face_zmax"], record=record, facing=facing, no_zoom=no_zoom)
+    settle_s = settle_for(subj)
+    arrive, sp, why = subject_arrival(shot, item, subj, persons, words, t0, dur, settle_s)
+    pose.update(placed="engine", breath=True, **{"from": f"A47: the subject ({subj['src']})"})
+    if subj["src"] == "subject":
+        pose["roi"] = "subject"
+    if subj["box"] is not None:
+        pose["keep"] = tuple(subj["box"])
+        if not no_zoom:
+            pose["fit_zmax"] = max(pose["z"], fit_zmax(subj["box"], pose, size, aspect))
+    if sp is not None:
+        pose.update(_anchor_fields(sp, t0), at=sp["words"][0]["w"] if len(sp["words"]) == 1 else
+                    " ".join(w["w"] for w in sp["words"]))
+    start, match_err = None, None
+    if match_screen is not None:
+        start, match_err = match_start(subject_point(subj, pose), match_screen, size, aspect,
+                                       zs=(1.0,) if no_zoom else (1.0, pose["z"]))
+        start = dict(start, placed="engine", match="prev")
+    whole = subj["src"] == "whole"
+    if whole and not need_whole and start is None:
+        stops, timing = [dict(pose, t=0.0, breath=True)], {"arrive_s": 0.0, "why": "whole: held from the cut, "
+                                                           "one breath and no other move"}
+    else:
+        located = people_check_boxes(item)
+        stops = timing = None
+        for near in ((False, True) if not need_whole and start is None and located else (False,)):
+            stops, timing = subject_stops(size, aspect, dur, pose, arrive=arrive, settle_s=settle_s,
+                                          need_whole=need_whole, start=start, breath=True, from_near=near)
+            if not located or need_whole:
+                break
+            tl = build(stops, dur, size, aspect, zmax, no_zoom=no_zoom)
+            if people_check(windows_of(tl, 24.0), located, size)["ok"]:
+                if near:
+                    timing["opens"] = "the near end: the far end's sweep would leave a located person unseen"
+                break
+        else:
+            # A47 and A7: no single sweep ending on the subject shows every located person; sweep both ends
+            need_whole = True
+            stops, timing = subject_stops(size, aspect, dur, pose, arrive=arrive, settle_s=settle_s,
+                                          need_whole=True, start=start, breath=True)
+            timing["opens"] = "both ends: no single sweep ending on the subject shows every located person"
+        timing.setdefault("anchor", why)
+    for st in stops:
+        st.setdefault("placed", "engine")
+    info = {"src": subj["src"], "kind": subj["kind"], "box": None if subj["box"] is None else
+            [round(v, 4) for v in subj["box"]], "compose": "centred" if record else "golden", "record": record,
+            "facing": facing, "no_zoom": no_zoom, "settle_s": settle_s, "need_whole": need_whole,
+            "timing": timing, "match_error": None if match_err is None else round(match_err, 4),
+            "point": subject_point(subj, pose), "subj": subj}
+    return stops, info
 
 
 # --------------------------------------------------------------------------
@@ -511,21 +1020,31 @@ def _same(a: dict, b: dict) -> bool:
     return abs(math.log(b["z"] / a["z"])) < 1e-6 and abs(a["x"] - b["x"]) < 1e-6 and abs(a["y"] - b["y"]) < 1e-6
 
 
-def creep(p: dict, h: float, size, aspect: float, zmax: float, *, prefer=None, no_zoom: bool = False) -> tuple[dict, str]:
+def creep(p: dict, h: float, size, aspect: float, zmax: float, *, prefer=None, no_zoom: bool = False,
+          breath: bool = False, keep=None) -> tuple[dict, str]:
     """Where a stop held ``h`` seconds has crept to, and how: a push of
     ``creep_scale_per_s`` while under the cap, else a pull while above the
     fill, else a slow drift along the axis with room (``prefer`` is the last
     move's direction, (dx, dy)). ``no_zoom`` (a shot that must not be zoomed)
-    drifts only. ``held`` when nothing can move (a 16:9 picture at the cap)."""
+    drifts only. ``held`` when nothing can move (a 16:9 picture at the cap).
+    ``breath`` (A47, the hold on a ``whole`` still): one breath over the
+    hold, never more than ``whole_creep_max`` of the window in all (1.5% a
+    second on a short hold, 0.1 to 0.15% a second on a 40 to 60 s one), a
+    push or a drift and never a pull, so it runs one way. ``keep`` (a box,
+    picture fractions: the subject the stop landed on) is never drifted out
+    of a window it fits inside."""
     c = TOUR["creep_scale_per_s"] * h
+    cd = TOUR["creep_drift_per_s"] * h
+    if breath:
+        c, cd = min(c, TOUR["whole_creep_max"] - 1.0), min(cd, TOUR["whole_creep_max"] - 1.0)
     if not no_zoom and p["z"] * (1.0 + c) <= zmax + EPS:
         return dict(p, z=p["z"] * (1.0 + c)), "push"
-    if not no_zoom and p["z"] / (1.0 + c) >= 1.0 - EPS:
+    if not no_zoom and not breath and p["z"] / (1.0 + c) >= 1.0 - EPS:
         return dict(p, z=p["z"] / (1.0 + c)), "pull"
     iw, ih = float(size[0]), float(size[1])
     x0, y0, x1, y1 = window(size, aspect, p["z"], p["x"], p["y"])
     room = {"x": (x0, iw - x1), "y": (y0, ih - y1)}             # room before and after, picture px
-    d = {"x": TOUR["creep_drift_per_s"] * h * (x1 - x0), "y": TOUR["creep_drift_per_s"] * h * (y1 - y0)}
+    d = {"x": cd * (x1 - x0), "y": cd * (y1 - y0)}
     order = sorted(("x", "y"), key=lambda a: -max(room[a]))
     if prefer is not None:
         px, py = prefer
@@ -540,8 +1059,20 @@ def creep(p: dict, h: float, size, aspect: float, zmax: float, *, prefer=None, n
             if abs(v) > EPS and (hi if v > 0 else lo) >= 0.5:
                 sign = 1.0 if v > 0 else -1.0
         step = min(d[ax], hi if sign > 0 else lo)
+        if keep is not None:
+            n_ = iw if ax == "x" else ih
+            k0, k1 = (keep[0] * n_, keep[2] * n_) if ax == "x" else (keep[1] * n_, keep[3] * n_)
+            w0, w1 = (x0, x1) if ax == "x" else (y0, y1)
+            if k1 - k0 < (w1 - w0) - 1.0:
+                step = min(step, (k0 - w0) if sign > 0 else (w1 - k1))
+                if step < 0.5:
+                    continue
         n = iw if ax == "x" else ih
         return dict(p, **{ax: p[ax] + sign * step / n}), "drift"
+    if keep is not None:
+        # a subject that fills its window leaves no room to drift inside it: a frozen frame is worse (no dead
+        # holds, founder 2026-10-17), so the breath drifts and the subject's edge goes by a few per cent at most
+        return creep(p, h, size, aspect, zmax, prefer=prefer, no_zoom=no_zoom, breath=breath)
     return dict(p), "held"
 
 
@@ -566,10 +1097,11 @@ def build(stops: list[dict], dur: float, size, aspect: float, zmax: float, *, no
             segs.append({"t0": t0, "t1": t1, "a": p, "b": p, "kind": "hold"})
             return p
         # A43: a stop that frames a face or a person creeps under the face cap, not only the softness cap
-        zm = min(zmax, float(p.get("face_cap", math.inf)))
+        zm = min(zmax, float(p.get("face_cap", math.inf)), float(p.get("fit_zmax", math.inf)))
         if p["z"] > zm + EPS:
             zm = p["z"]                       # an authored depth past the cap: the lint refuses it; never pushed further
-        q, how = creep(p, t1 - t0, size, aspect, zm, prefer=prefer, no_zoom=no_zoom)
+        q, how = creep(p, t1 - t0, size, aspect, zm, prefer=prefer, no_zoom=no_zoom, breath=bool(p.get("breath")),
+                       keep=p.get("keep"))
         if how == "held":
             held.append({"t0": round(t0, 3), "t1": round(t1, 3)})
         q = settle(q, size, aspect)
