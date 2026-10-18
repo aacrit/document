@@ -539,3 +539,17 @@ def test_the_house_motif_in_the_take_is_judged_as_the_motif():
     assert not [c for c in checks if c["unit"] == "motif-title" and c["rule"] in ("music-entry", "music-exit")]
     plain = next(c for c in _motif_case(False)["cues"] if c["id"] == "motif-title")
     assert plain["role"] == "featured"                             # unmarked, the same notes are judged as composed
+
+
+def test_issue_26_a_gap_of_exactly_the_hold_is_released_by_both():
+    # a 1.20 s gap read on the 10 ms max-pooled grid as 1.19 s (or 1.18 s) is the hold, released (duck_gain does)
+    grid, hold = SC.DUCK_GRID_S, 1.2
+    for gap_steps in (120, 119, 118):
+        act = np.zeros(400, bool)
+        act[:100] = True
+        act[100 + gap_steps:] = True
+        assert not SC.held_gaps(act, [], hold, grid), gap_steps
+    act = np.zeros(400, bool)
+    act[:100] = True
+    act[210:] = True                                      # 1.10 s: shorter than the hold, held
+    assert SC.held_gaps(act, [], hold, grid)

@@ -582,6 +582,9 @@ def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
     return list(zip(np.flatnonzero(d == 1).tolist(), np.flatnonzero(d == -1).tolist()))
 
 
+HOLD_GRID_TOL = 2                   # issue #26: grid steps of slack at the hold boundary (see held_gaps)
+
+
 def held_gaps(active: np.ndarray, spans: list[tuple[float, float]], hold_s: float, grid_s: float) -> list[tuple[int, int, str]]:
     """The voice gaps the duck must hold through, on a grid of ``grid_s``:
     every gap between two voiced stretches that is shorter than ``hold_s``,
@@ -596,7 +599,10 @@ def held_gaps(active: np.ndarray, spans: list[tuple[float, float]], hold_s: floa
     for (_, e0), (s1, _) in zip(v, v[1:]):
         if e0 >= s1:
             continue
-        if (s1 - e0) * grid_s < hold_s - 1e-9:
+        # issue #26: the voice is read here on a max-pooled grid, so a gap of exactly the hold can read up to two
+        # steps short; render.duck_gain releases it at the sample. The boundary is duck_gain's: a gap within
+        # HOLD_GRID_TOL steps of the hold is released here too, so the two never disagree there
+        if (s1 - e0) * grid_s < hold_s - HOLD_GRID_TOL * grid_s - 1e-9:
             out.append((e0, s1, "shorter than the hold"))
         elif inside[e0:s1].all():
             out.append((e0, s1, "a pause inside a line"))
