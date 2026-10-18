@@ -151,7 +151,6 @@ NARRATOR_GROUP_MIN = 2              # a group of one is a single line, which may
 NARRATOR_DRIFT_WARN_ST, NARRATOR_DRIFT_BLOCK_ST = 1.0, 2.0
 NARRATOR_DRIFT_WARN_CENTROID, NARRATOR_DRIFT_BLOCK_CENTROID = 0.15, 0.25
 NARRATOR_PROFILE = Path(__file__).resolve().parents[1] / "narrator-profile.json"   # optional anchor: the approved audition
-NARRATOR_SHIFT_TOL_ST = 0.005        # a declared shift within this of a stored variant's is the same shift (float noise)
 NEUTRALISE = "colour cast removed"  # A14: the alteration a neutralised colour cast is marked with
 NEUTRALISE_FILTER = "hue=s=0"       # chroma to neutral, luma kept, before scaling and pillarboxing
 VOICE_LIMIT_MARGIN_DB = 0.3         # the per-line limiter's ceiling sits this far under VOICE_TP
@@ -5404,10 +5403,7 @@ def load_narrator_profile(narrator_voice: dict | None, path: Path | None = None)
     unshifted profile; an undeclared voice is held to the unshifted one.
     A variant may also be another voice (a film's narrator chosen by the
     founder: Zoe for "Real World", 2026-10-16): the reference is the stored
-    entry whose engine, voice and shift all match the film's narrator.
-    The shift match is within NARRATOR_SHIFT_TOL_ST (a declared shift may be
-    a computed figure, e.g. 12*log2(f_target/f_raw), that lands a float
-    epsilon from the stored key)."""
+    entry whose engine, voice and shift all match the film's narrator."""
     path = NARRATOR_PROFILE if path is None else path
     if not path or not Path(path).exists():
         return None, f"no stored profile at {path}"
@@ -5425,7 +5421,7 @@ def load_narrator_profile(narrator_voice: dict | None, path: Path | None = None)
         return None, f"the narrator's pitch_shift_st {(narrator_voice or {}).get('pitch_shift_st')!r} is not a number"
     for cand in cands:
         cv = cand.get("voice") or {}
-        if key(cv) == want and abs(_voice_shift(cv) - shift) < NARRATOR_SHIFT_TOL_ST:
+        if key(cv) == want and _voice_shift(cv) == shift:
             return cand, f"drift reference {Path(path).name} ({_voice_name(cv)})"
     stored = ", ".join(_voice_name(c.get("voice") or {}) for c in cands)
     return None, (f"the film's narrator is {_voice_name(dict(want, pitch_shift_st=shift))}; the stored profiles are "
@@ -5434,23 +5430,17 @@ def load_narrator_profile(narrator_voice: dict | None, path: Path | None = None)
 
 def narrator_profile_from_takes(takes: list[tuple[Path, str]], voice: dict) -> dict:
     """A stored narrator profile from approved takes (WAV, spoken text): each
-    take cleaned (A19's clean_voice) then levelled to DIALOGUE_LUFS and
-    profiled, in the same order process_take measures a narration line's
-    own A14 profile (cleaned, then levelled, then profiled, before any EQ),
-    so the reference is measured on the same signal the drift check judges
-    against. Then the median f0 and centroid (the drift check's
-    reference)."""
+    take levelled to DIALOGUE_LUFS and profiled as narration lines are, then
+    the median f0 and centroid (the drift check's reference)."""
     per = {}
     for path, text in takes:
         x = _read_wav(Path(path))
-        x, _cleaned = clean_voice(x)
         g, _ = level_gain(x, DIALOGUE_LUFS)
         per[Path(path).name] = dict(voice_profile(x * 10 ** (g / 20), len(WORD_RE.findall(text))),
                                     sha256=sha256_file(path)[:16])
     base = {k: round(float(np.median([p[k] for p in per.values()])), 2) for k in ("f0_hz", "centroid_hz")}
     return {"voice": voice, "baseline": base, "takes": per,
-            "method": "studio.engine.render.clean_voice (A19) then voice_profile on each take levelled to -20 LUFS, "
-                      "the same order process_take measures a narration line's own profile; median over the takes"}
+            "method": "studio.engine.render.voice_profile on each take levelled to -20 LUFS; median over the takes"}
 
 
 def narrator_drift(baseline: dict, stored: dict | None) -> dict:
@@ -7245,6 +7235,111 @@ def black_dip_lints(journal: Journal, plan: dict, *, draft: bool = False) -> lis
     return out
 
 
+# A55 (P0, founder ruling 2026-10-18: "black screen with the text of what the narrator is saying - this is REAL
+# SLOP. KILL/Replace with image P0."): voice-over-black, amending A30. Any narrator line, reader line or
+# tape/archival audio span audible while the picture is black refuses, named by shot, line(s) and overlap seconds.
+# "Black" is a black or card shot's own run (A30's BLACK_KINDS: a narrator-text card or a "silent" text card over
+# black is black like any other; a `fill_exception` DRAWN document-reading still is never in BLACK_KINDS, so
+# reading it aloud is not voice-over-black) and a dip's own transitional black hold at a cut (``motion.dip_hold_s``).
+# `black_reason` (A30 refined) no longer excuses a voiced black; only the closed `intent` list's own lower-third
+# rule and the dip-budget pacing guide are unchanged (A30 stays, read with this). Voiceless black is untouched here:
+# a beat of VOICE_OVER_BLACK_VOICELESS_BEAT_S or less is unremarkable, and longer is pacing guidance elsewhere
+# (A39's still-hold and voiceless-floor), never this lint's concern.
+VOICE_OVER_BLACK_VOICELESS_BEAT_S = 2.0      # named per the ticket; informational here, enforced by A39's own guides
+# A dip's black hold stays a few frames under GRAMMAR's own 0.5-1.0 s dip range (A28(b), 7.3): 1 to 3 frames at
+# 24-30 fps. A hold past this many frames is not a transitional blip (an authored dip abnormally long enough to
+# smuggle real black time past the sustained-black check below), so a voice over it is judged exactly like
+# sustained black: any overlap at all refuses.
+DIP_HOLD_EXCEPTION_MAX_FRAMES = 4
+
+
+def _voice_spans(plan: dict) -> list[tuple[float, float, dict]]:
+    """Each narration or testimony line's audible span (a tape/archival span's own cut, else its WAV length), start
+    and end in seconds. Shared with ``dark_voice_runs``; a line with neither is left out (no WAV is refused on its
+    own elsewhere unless --draft)."""
+    film = Path(plan["film"])
+    out = []
+    for ln in plan["lines"]:
+        if ln.get("kind") not in VOICE_KINDS:
+            continue
+        if archival_span(ln):
+            d = max(0.0, float(ln.get("out_s", 0)) - float(ln.get("in_s", 0)))
+        elif voice_wav(film, ln).exists():
+            d = wav_seconds(voice_wav(film, ln))
+        else:
+            continue
+        a = float(ln["start_s"])
+        out.append((a, a + d, ln))
+    return out
+
+
+def voice_over_black_lints(journal: Journal, plan: dict, *, draft: bool = False) -> list[str]:
+    """voice-over-black (A55, amending A30, P0 founder ruling 2026-10-18): refuses a narrator, reader or
+    tape/archival line heard while the picture is black (a black or card shot's own run, or a dip's own black hold
+    at a cut), naming the shot, the line(s) heard and the overlap seconds; the fix is always a picture
+    ("replace with an image (founder P0)"). `black_reason` no longer excuses it. Passes voiceless black (untimed
+    here; A39's pacing guides judge its length) and a dip hold whose own seconds are a few frames
+    (DIP_HOLD_EXCEPTION_MAX_FRAMES). Blocking on a final render, a warning under --draft/--audio-only/--until
+    (``draft``). Returns the reasons to refuse."""
+    out = []
+    sev = "warn" if draft else "block"
+    fps = fps_of(plan)
+    voice = _voice_spans(plan)
+
+    def overlap_hits(a: float, b: float) -> list[tuple[str, float]]:
+        hits = [(ln["id"], max(0.0, min(b, y) - max(a, x))) for x, y, ln in voice if x < b and y > a]
+        return [(i, round(d, 3)) for i, d in hits if d > 1e-9]
+
+    def report(s: dict, kind_label: str, a: float, b: float, hits: list[tuple[str, float]], *, extra: dict | None = None):
+        ok = not hits
+        journal.lint("voice-over-black", ok, stage="scout", phase="preflight", unit=s["id"], severity=sev,
+                     grammar="A30, A55",
+                     evidence=dict({"kind": kind_label, "from_s": round(a, 3), "to_s": round(b, 3),
+                                    "lines": [i for i, _ in hits], "overlap_s": {i: d for i, d in hits},
+                                    "fix": None if ok else "replace with an image (founder P0)"}, **(extra or {})))
+        if not ok and not draft:
+            out.append(f"voice-over-black ({s['id']}: {', '.join(i for i, _ in hits)} audible "
+                       f"{', '.join(f'{d:g} s' for _, d in hits)} over {kind_label}; replace with an image (founder P0))")
+
+    # Sustained black: every black or card shot's own run (A30's BLACK_KINDS). A fill_exception DRAWN document page
+    # is an ordinary still, never kind black or card, so it never reaches this loop.
+    for s in plan["shots"]:
+        if s["kind"] not in BLACK_KINDS:
+            continue
+        a, b = s["f0"] / fps, s["f1"] / fps
+        hits = overlap_hits(a, b)
+        if hits:
+            report(s, "black", a, b, hits)
+        else:
+            journal.lint("voice-over-black", True, stage="scout", phase="preflight", unit=s["id"], severity=sev,
+                         grammar="A30, A55", evidence={"kind": "black", "from_s": round(a, 3), "to_s": round(b, 3),
+                                                       "lines": [], "overlap_s": {}, "fix": None})
+
+    # Dip holds: a cut's own transitional black. A hold of a few frames (GRAMMAR's own dip range) that overlaps a
+    # line's own tail or onset passes, since the overlap can never exceed the hold's own seconds; a hold longer
+    # than that (an authored dip abnormally long) is judged like sustained black.
+    for s in plan["shots"]:
+        ti = s.get("transition_in") or {}
+        if ti.get("type") != "dip":
+            continue
+        dur = float(ti.get("s", 0))
+        hold = M.dip_hold_s(dur, fps=fps)
+        cut = s["f0"] / fps
+        a, b = cut - hold / 2.0, cut + hold / 2.0
+        hits = overlap_hits(a, b)
+        if not hits:
+            continue
+        if round(hold * fps) > DIP_HOLD_EXCEPTION_MAX_FRAMES + 1e-9:
+            report(s, "dip", a, b, hits, extra={"hold_s": round(hold, 3), "dip_s": dur})
+        else:
+            journal.lint("voice-over-black", True, stage="scout", phase="preflight", unit=s["id"], severity=sev,
+                         grammar="A30, A55",
+                         evidence={"kind": "dip", "from_s": round(a, 3), "to_s": round(b, 3), "hold_s": round(hold, 3),
+                                   "lines": [i for i, _ in hits], "overlap_s": {i: d for i, d in hits}, "fix": None,
+                                   "why": "the dip's own hold is a few frames; the overlap cannot exceed it"})
+    return out
+
+
 def credits_roll_lints(journal: Journal, plan: dict, *, draft: bool = False) -> list[str]:
     """credits-roll (E15): the roll finishes inside the credits shot: at the
     roll's constant speed, its last line has fully entered the frame at least
@@ -8126,6 +8221,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         lt_refusals = (lower_third_time_lints(journal, plan, draft=advisory) + credits_roll_lints(journal, plan, draft=advisory)
                        + label_rate_lint(journal, plan, draft=advisory) + phone_legibility_lint(journal, plan) + mark_key_lints(journal, dict(plan, until_s=until_s), draft=advisory))
         lt_refusals += black_dip_lints(journal, plan, draft=advisory)
+        lt_refusals += voice_over_black_lints(journal, plan, draft=advisory)
         if lt_refusals:
             raise Refused(f"on-screen time (pre-flight): {'; '.join(lt_refusals)} (BRAND-KIT 4 and 11c, A20(b), A30; "
                           "render with --draft to accept it)")
