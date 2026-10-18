@@ -1002,16 +1002,31 @@ def test_fit_voices_moves_lines_and_grows_their_shots(tmp_path):
 
 def test_a_fit_voices_render_with_burned_subtitles(tmp_path):
     film = _with_voices(tmp_path)
-    # A55 (voice-over-black, known gap): L2/L4 sit inside S8/S9 (black/card) by this fixture's design, and moving
-    # either collides with the subtitle/voice-overlap timing fit_voices computes for them (needs a fit_voices-aware
-    # rework, not a plain move; flagged for the verifier, not fixed blind here).
+    # A55: L2/L4 sit inside S8/S9 (black/card) by _with_voices's own design (test_fit_voices_moves_lines_and_
+    # grows_their_shots covers that exact growth-into-black arithmetic and is left alone). This test only needs a
+    # full fit-voices render with burned subtitles to succeed without landing on black, so L2 and L4 move onto
+    # S5/S6 (archive stills, never black), the same 0.7 s gap and 0.5 s overlap between them kept, by shifting both
+    # 7.8 s earlier (L2 12.5 s, L4 13.2 s): fit_voices still has the same two collisions (L1/L3, L2/L4) to resolve.
+    shift = 7.8
+    _edit_play(film, lambda p: [ln.update(start_s=round(ln["start_s"] - shift, 4)) for part in p["parts"]
+                                for ln in part.get("lines", []) if ln["id"] in ("L2", "L4")])
+    _edit_play(film, lambda p: next(c for c in p["subtitle_source"] if c["ref"] == "L4").update(
+        start_s=round(21.0 - shift - 2 / 24, 4), end_s=round(22.0 - shift, 4)))
+
+    # The frame count a direct fit_voices + build_plan gives this (now black-free) scenario, checked against the
+    # same path render() takes internally, rather than a hand-traced magic number tied to the old S8-growth shape.
+    play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
+    fitted_check = R.fit_voices(play, film, J.Journal(film="fit-check"))
+    expect = R.build_plan(film, W=640, H=360, burn_subtitles=True, journal=J.Journal(film="fit-check-plan"), play=fitted_check)
+    frames = expect["frames"]
+
     s = R.render(film, tmp_path / "out", height=HEIGHT, workers=WORKERS, min_free_gb=1, encode_preset="veryfast",
                  fit_voices_opt=True, burn_subtitles=True)
-    frames = round((35.75 + 1.8 + 1.3) * 24)
     assert s["frames"] == frames and R.count_frames(Path(s["master"])) == frames
     evs = events(s)
     assert evs[-1]["outcome"] == "ok"
     assert lints(evs, "voice-overlap")[0]["status"] == "pass" and lints(evs, "subtitle-overlap")[0]["status"] == "pass"
+    assert not [e for e in evs if e["kind"] == "lint" and e.get("rule") == "voice-over-black" and e["status"] != "pass"]
     assert [e["unit"] for e in evs if e["kind"] == "decision" and "voice-overlap" in e["why"]] == ["L3", "L4"]
     doc = json.loads(Path(s["sources"]).read_text(encoding="utf-8"))
     assert doc["duration_s"] == pytest.approx(frames / 24, abs=1e-3)
