@@ -92,6 +92,8 @@ def pan_speed_px(tl: dict, fps: float, *, W: int = 1920, H: int = 1080) -> dict:
     max_h = max_v = 0.0
     at_h = at_v = 0.0
     for (ta, a), (tb, b) in zip(wins, wins[1:]):
+        if T.across_cut(ta, tb, tl.get("cuts")):
+            continue                                    # A54: a hard cut inside the shot is no pan
         ww, wh = a[2] - a[0], a[3] - a[1]
         dh = abs((b[0] + b[2]) - (a[0] + a[2])) / 2.0 / ww * W if ww > 0 else 0.0
         dv = abs((b[1] + b[3]) - (a[1] + a[3])) / 2.0 / wh * H if wh > 0 else 0.0
@@ -116,7 +118,7 @@ def zoom_speed_cruise(tl: dict, fps: float, *, guide: float = ZOOM_CRUISE_GUIDE)
     at = 0.0
     for (ta, a), (tb, b) in zip(wins, wins[1:]):
         dt = tb - ta
-        if dt <= T.EPS:
+        if dt <= T.EPS or T.across_cut(ta, tb, tl.get("cuts")):
             continue
         vz = abs(math.log((a[2] - a[0]) / max(b[2] - b[0], T.EPS))) / dt
         if vz > peak:
@@ -526,6 +528,29 @@ def dissolve_budget(shots: Sequence[dict]) -> dict:
             "per_s": DISSOLVE_BUDGET_S}
 
 
+def move_row(cam: dict) -> dict:
+    """A54's per-still report: the move the chooser asked for and why, what was drawn (MOVE or CUT-IN, and a
+    fallback's reason), the end window's and the deepest window's measured share of the picture, and the
+    first and last stops."""
+    tl = cam.get("tour") or {}
+    size, aspect = tl.get("size"), tl.get("aspect")
+    chosen = cam.get("move") or {}
+
+    def share(z):
+        fw, fh = T.fill_window(size, aspect)
+        return round(fw * fh / (size[0] * size[1]) / (z * z), 3)
+
+    stops = tl.get("stops") or []
+    ci = cam.get("cut_in")
+    return {"chosen": chosen.get("move"), "variant": chosen.get("variant"), "why": chosen.get("why"),
+            "variety": chosen.get("variety"), "drawn": cam.get("macro"), "coverage": "CUT-IN" if ci else "MOVE",
+            "cut_in": ci, "fell_back": cam.get("move_why"),
+            "end_share": share(stops[-1]["z"]) if stops and size else None,
+            "deep_share": share(tl["z_max"]) if size else None,
+            "first": {k: round(stops[0][k], 3) for k in ("x", "y", "z")} if stops else None,
+            "last": {k: round(stops[-1][k], 3) for k in ("x", "y", "z")} if stops else None}
+
+
 def check_still(s: dict, cam: dict, size, *, fps: float, text_spans: Sequence[dict] | None = None,
                  must_show_boxes: Sequence[dict] | None = None, settle_kinds: dict | None = None,
                  continues_across_cut: bool = False, faces: Sequence[dict] | None = None) -> dict:
@@ -542,6 +567,7 @@ def check_still(s: dict, cam: dict, size, *, fps: float, text_spans: Sequence[di
         return out
     warnings: list[str] = []
     blocks: list[str] = []
+    out.update(move_row(cam))
 
     out["pan"] = pan_speed_px(tl, fps)
     if not out["pan"]["ok"]:
@@ -694,6 +720,13 @@ def _print_report(report: dict) -> None:
         blk = " ".join(f"BLOCK:{b}" for b in row.get("blocks") or [])
         print(f"  {row['id']:>6}  scale={row.get('scale')!s:<7} dir={row.get('direction')!s:<6} "
              f"{tag} {detail} {blk}".rstrip())
+        if row.get("drawn") is not None:
+            print(f"          move={row.get('chosen')}/{row.get('variant')} drawn={row.get('drawn')} "
+                  f"{row.get('coverage')} end={row.get('end_share')} deep={row.get('deep_share')} "
+                  f"first={row.get('first')} last={row.get('last')} why={row.get('why')!r}"
+                  + (f" variety={row['variety']!r}" if row.get("variety") else "")
+                  + (f" cut_in={row['cut_in']['reason']!r}" if row.get("cut_in") else "")
+                  + (f" fell_back={row['fell_back']!r}" if row.get("fell_back") else ""))
     if report["scale_variety"]:
         for row in report["scale_variety"]:
             print(f"  scale-variety: chapter {row['chapter']} ({row['count']} stills) "

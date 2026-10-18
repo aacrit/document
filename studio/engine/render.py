@@ -890,6 +890,58 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
                                      hold_on=hold_on, hz=fps or FPS, avoid=avoid, detail=detail)
         return st
 
+    def cut_in(mv, var, subj, facing, zl, record):
+        """A54 addendum (classic coverage): MOVE or CUT-IN, by rule. A cut-in when the narration names the subject
+        abruptly (``subject_at`` too soon for the move and its settle: cut on the beat, the A43 lead before the
+        word), or when the move is too slow for the shot (a leg or a survey that cannot keep the speed guides);
+        ``move: "CUTIN"`` asks for it. Returns (stops, reason) or None (the move stands); never a jump cut."""
+        shot.pop("_cut_in", None)
+        if mv == "SURVEY" or (mv == "CUTIN" and T.located_persons(persons) >= 2):
+            picks = T.survey_picks(roi, persons, var)
+            mstops, _ = T.rich_macro_stops("SURVEY", shot, item, roi, persons, words or [], dur, img_size, aspect,
+                                           zmax, variant=var)
+            slow = mstops is not None and T.path_need_s(mstops, img_size, aspect) > dur + 1e-6
+            if not (slow or mv == "CUTIN"):
+                return None
+            st, why = T.survey_cut_stops(picks, img_size, aspect, dur, zmax)
+            reason = ("asked for (move: CUTIN)" if mv == "CUTIN" else
+                      "the survey's legs cannot keep the speed guides in the shot (the 7-second rule)")
+        else:
+            if mv == "PORTRAIT":
+                face = T._portrait_subject(persons, item)
+                if face is None:
+                    return None
+                subj = {"src": "subject", "box": face["box"], "kind": "face", "facing": None, "name": face.get("name")}
+                facing = T._portrait_facing(face, persons)
+            order = "out" if mv == "REVEAL" or (mv == "PORTRAIT" and var != "explain") else "in"
+            if subj.get("box") is None:
+                return None
+            wide = T.whole_pose(img_size, aspect, record)
+            close = T.end_pose(subj, img_size, aspect, zl, record=record, facing=facing,
+                               z_min=min(zl, T.detail_z(img_size, aspect)))
+            leg = T.leg_min_s(wide, close, img_size, aspect)
+            settle_s = T.settle_for(subj)
+            arrive, sp, _ = T.subject_arrival(shot, item, subj, persons, words or [], t0, dur, settle_s)
+            reason, cut_at = None, None
+            if mv == "CUTIN":
+                reason = "asked for (move: CUTIN)"
+            elif order == "in" and sp is not None and arrive < leg + M.CINE["settle_s"] - 1e-6:
+                reason, cut_at = (f"the narration names it abruptly ({' '.join(w['w'] for w in sp['words'])!r} at "
+                                  f"{arrive:.2f} s, the A43 lead before the word): cut on the beat"), arrive
+            elif leg > dur - settle_s - M.CINE["settle_s"] + 1e-6:
+                reason = f"the move is too slow for the shot ({leg:.1f} s at the speed guides)"
+            if reason is None:
+                return None
+            if sp is not None and order == "in" and cut_at is None:
+                cut_at = arrive
+            st, why = T.cut_in_stops(subj, img_size, aspect, dur, zl, record=record, order=order, facing=facing,
+                                     cut_at=cut_at, avoid=avoid)
+        if st is None:
+            shot["_cut_in_why"] = why
+            return None
+        shot["_cut_in"] = {"reason": reason, "framings": len(st)}
+        return st, reason
+
     def draw_move(move: dict):
         """A54: the chooser's move (``moves.choose_film``) as stops; None when the still lacks what it needs
         (the caller takes the A47 pass, journaled)."""
@@ -911,6 +963,12 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
             zl = min(zl, T.face_cap_of(persons))
         if mv == "WHOLE":
             return subject_pass(), "DEFAULT", None
+        if not no_zoom and mv in ("EXPLAIN", "REVEAL", "PORTRAIT", "SURVEY", "CUTIN"):
+            ci = cut_in(mv, var, subj, facing, zl, record)
+            if ci is not None:
+                return ci[0], "CUTIN", None
+            if mv == "CUTIN":
+                return None, "CUTIN", shot.get("_cut_in_why")
         if mv == "EXPLAIN":
             roi_ = None
             if target is not None:
@@ -1037,6 +1095,8 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
             "capped": any(st.get("capped") for st in stops), "subject": subject, "settle_kinds": settle_kinds,
             "rich_macro_why": shot.get("_rich_macro_why"),   # ticket #10 (A54): None unless a rich macro fell back
             "move": shot.get("_move"), "move_why": shot.get("_move_why"), "face_detail": face_detail,
+            "cut_in": (dict(shot["_cut_in"], cuts=tl.get("cuts") or []) if macro == "CUTIN" and shot.get("_cut_in")
+                       else None),
             "cine": {"persons": persons, "regions": roi_by_name, "ignored": eff["ignored"], "reframed": reframed,
                      "pulled": pulled, "merged": merged}}
 
@@ -1560,7 +1620,7 @@ def tour_lints(lint, journal: Journal, s: dict, cam: dict, size, W: int, H: int,
         lint("still-zoom-limit", zok, unit=s["id"], stage="motion", grammar="7.2, A41",
              evidence={"preset": TOUR, "macro": macro, "z_max": round(z_stops, 4), "limit": limit,
                        "face": bool(s.get("face")), "deepest_with_creep": round(cam["tour"]["z_max"], 4)})
-        sp = T.speed_report(wins)
+        sp = T.speed_report(wins, cam["tour"].get("cuts") or ())
         journal.lint("tour-speed", sp["ok"], stage="motion", unit=s["id"], severity="warn", grammar="A39, A41",
                      phase="preflight", evidence=dict(sp, fix=None if sp["ok"] else
                                                       "give the move more time, or fewer stops (a guide, never a block)"))

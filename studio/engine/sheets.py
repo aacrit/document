@@ -245,6 +245,8 @@ def stop_times(cam: dict, dur: float) -> list[float]:
     tl = cam.get("tour")
     if tl is not None:
         ts = {0.0, round(float(dur), 6)} | {round(float(p["t"]), 6) for p in tl["stops"]}
+        # A54 (classic coverage): each framing after a hard cut inside the shot is its own cell
+        ts |= {round(min(float(c) + 1.0 / 48.0, float(dur)), 6) for c in tl.get("cuts") or ()}
     else:
         open_s = float(cam.get("open_s") or 0.0)
         move = cam.get("move_s") or max(dur - open_s, 0.0)

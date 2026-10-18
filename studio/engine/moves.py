@@ -32,12 +32,12 @@ from __future__ import annotations
 
 from studio.engine import tour as T
 
-MOVES = ("WHOLE", "PAN", "PORTRAIT", "SURVEY", "READ", "EXPLAIN", "REVEAL")
+MOVES = T.MOVE_NAMES
 # the end each move plans for (doctrine 2.2's scale bands; the drawn path is measured, never promised)
 END = {("WHOLE", None): "whole", ("PAN", "far"): "const", ("PAN", "near"): "const",
        ("PORTRAIT", "reveal"): "whole", ("PORTRAIT", "explain"): "detail",
        ("SURVEY", "forward"): "whole", ("SURVEY", "reverse"): "whole", ("READ", None): "detail",
-       ("EXPLAIN", None): "detail", ("REVEAL", None): "whole"}
+       ("EXPLAIN", None): "detail", ("REVEAL", None): "whole", ("CUTIN", None): "detail"}
 DEFAULT_VARIANT = {"PAN": "far", "PORTRAIT": "reveal", "SURVEY": "forward"}
 MAX_RUN = 2                       # no more than this many stills in a row with one move, or one direction
 CHOOSABLE_PRESETS = (None, "HOLD")
