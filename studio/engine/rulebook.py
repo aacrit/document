@@ -28,10 +28,13 @@ import re
 
 from studio.engine import motion as M
 
-RULEBOOK_VERSION = "6"     # 2: a bare title is one name; 3: a run is a place by its first or last word only;
+RULEBOOK_VERSION = "7"     # 2: a bare title is one name; 3: a run is a place by its first or last word only;
                            # 4: a VL place or object region named by a cue or the caption is the subject
                            # 5: people words that are only names count one person per name
                            # 6: a cue and a VL label match through SYNONYMS (plume and smoke, A47)
+                           # 7: a still seen from above (AERIAL) is marked ``aerial`` and never sweeps rising;
+                           #    a VL region that is the whole picture (VL_MAX_SIDE) is never the subject; car, van and
+                           #    vehicle are one word (SYNONYMS)
 CLASSES = ("person", "crowd", "place", "document", "map", "painting", "object")
 RECORDS = ("document", "map", "painting", "object")       # composed centred: the picture is a record
 FLOOR = M.CINE["auto_confidence_floor"]                   # a box under it is not a subject (A43)
@@ -434,6 +437,7 @@ def subject(cls: str, people: list[dict], meas: dict, unlocated: int) -> tuple[d
 VL_KINDS_USED = ("place", "object", "text")          # the VL never creates or names a person
 VL_CONFIDENCE = 0.8          # a VL region the ledger's own words name; above the floor, under a strong detection
 VL_MIN_SIDE = 0.01           # a box thinner than this share of the picture is malformed, never a subject
+VL_MAX_SIDE = 0.9            # a box this share of the picture's width and height or more is the whole: no subject
 STOP = {"the", "a", "an", "of", "and", "from", "over", "in", "on", "at", "to", "with", "by", "for", "into", "its",
         "his", "her", "their", "seen", "view", "toward", "towards", "after", "before", "near", "one", "two"}
 
@@ -445,6 +449,8 @@ SYNONYMS = (
     ("tower", "towers", "building", "buildings", "skyscraper", "skyscrapers"),
     ("ship", "ships", "vessel", "vessels", "boat", "boats"),
     ("statue", "monument"),
+    # rulebook 7 (Real World 5.7: the title's police car, the VL's "van")
+    ("car", "cars", "van", "vans", "vehicle", "vehicles", "automobile", "automobiles"),
 )
 _SYN = {w: g[0] for g in SYNONYMS for w in g}
 
@@ -464,15 +470,17 @@ def vl_subject(cls: str, vl: dict | None, item: dict, cues) -> tuple[dict | None
     the first region (cue matches first, then the VL's canonical order) whose
     label shares a content word with a ``subject_at`` cue of a shot showing
     it, else with the item's own caption or title. A person or group region
-    is never used (people come from MediaPipe alone), and a degenerate box
-    never. None when nothing matches (the still stays whole)."""
+    is never used (people come from MediaPipe alone), a degenerate box
+    never, and a box that is the whole picture (``VL_MAX_SIDE``) never: it
+    singles nothing out. None when nothing matches (the still stays whole)."""
     if not vl or cls in ("person", "crowd"):
         return None, "no VL region for this class" if vl else "no VL measurement"
     cue_w = {w for c in cues or () for w in match_words(c)}
     cap_w = match_words(item.get("caption") or item.get("title") or "")
     best = None
     for k, g in enumerate(vl.get("regions") or []):
-        if g.get("kind") not in VL_KINDS_USED or g["w"] < VL_MIN_SIDE or g["h"] < VL_MIN_SIDE:
+        if g.get("kind") not in VL_KINDS_USED or g["w"] < VL_MIN_SIDE or g["h"] < VL_MIN_SIDE or (
+                g["w"] >= VL_MAX_SIDE and g["h"] >= VL_MAX_SIDE):
             continue
         lw = match_words(g.get("label"))
         rank = 0 if lw & cue_w else (1 if lw & cap_w else None)
@@ -484,6 +492,41 @@ def vl_subject(cls: str, vl: dict | None, item: dict, cues) -> tuple[dict | None
     return ({"x": g["x"], "y": g["y"], "w": g["w"], "h": g["h"], "kind": g["kind"], "confidence": VL_CONFIDENCE,
              "label": g["label"]},
             f"VL region {g['label']!r} named by the {'subject_at cue' if rank == 0 else 'caption'} ({', '.join(words)})")
+
+
+# --------------------------------------------------------------------------
+# Seen from above (rulebook 7, A47 amendment; WG-3, Real World C0)
+# --------------------------------------------------------------------------
+
+# A still whose own words say it was made from above (an orbit, a satellite, an aircraft) has no sky at its top:
+# up in the picture is not up in the world, so its whole sweep never rises (tour.whole_sweep). Versioned with
+# RULEBOOK_VERSION. Phrases match whole words, any case; the acronyms only in capitals ("GOES" is not "goes").
+# "aerial" and "overhead" also describe things on the ground ("an aerial ladder", "pipes overhead": Real World's PEOC
+# door), so "aerial" counts unless a ladder, platform or truck follows it, and "overhead" only as the point of view.
+AERIAL_WORDS = ("orbit", "orbital", "international space station", "satellite", "from the air", "from overhead",
+                "overhead view", "overhead photograph", "overhead shot")
+AERIAL_PATTERNS = (re.compile(r"(?<![\w-])aerial(?![\w-])(?!\s+(?:ladder|ladders|platform|platforms|truck|trucks)\b)"),)
+AERIAL_ACRONYMS = (re.compile(r"\bISS(?=\d|\b)"), re.compile(r"\bGOES\b"))
+
+
+def seen_from_above(item: dict) -> str | None:
+    """The word in the item's own title, caption or ``seen`` that marks it as
+    seen from above (``AERIAL_WORDS``, ``AERIAL_PATTERNS``,
+    ``AERIAL_ACRONYMS``), or None."""
+    raw = " ".join(str(item.get(k) or "") for k in ("title", "caption", "seen"))
+    low = raw.lower()
+    for w in AERIAL_WORDS:
+        if _has(low, w):
+            return w
+    for rx in AERIAL_PATTERNS:
+        m = rx.search(low)
+        if m:
+            return m.group(0)
+    for rx in AERIAL_ACRONYMS:
+        m = rx.search(raw)
+        if m:
+            return m.group(0)
+    return None
 
 
 def fields(item: dict, meas: dict | None, model: str, vl: dict | None = None, cues=(), vl_model: str = "") -> dict:
@@ -499,6 +542,10 @@ def fields(item: dict, meas: dict | None, model: str, vl: dict | None = None, cu
         why["measure"] = "not measured here: no fields; the A41 default and guards apply"
         return {"fields": {}, "why": why}
     out["caption_names"] = caption_names(item.get("caption") or item.get("title") or "")
+    above = seen_from_above(item)
+    if above is not None:
+        out["aerial"] = True
+        why["aerial"] = f"the ledger's own words say it was seen from above ({above!r}): its whole sweep never rises"
     auto = located(meas, model)
     faces = meas.get("faces") or []
     for e in auto:                       # a face inside the figure gives the facing the pose could not
@@ -569,7 +616,7 @@ def overlay(item: dict, auto: dict) -> tuple[dict, list[str]]:
     the fields the rulebook supplied)."""
     out = dict(item)
     used = []
-    for k in ("class", "compose", "caption_names", "people"):
+    for k in ("class", "compose", "caption_names", "people", "aerial"):
         if k in auto and k not in item:
             out[k] = auto[k]
             used.append(k)

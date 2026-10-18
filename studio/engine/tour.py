@@ -875,18 +875,21 @@ def must_see(item: dict) -> dict:
     return {"boxes": boxes, "unlocated": 0, "known": pe["known"]} if boxes else {}
 
 
-def whole_sweep(size, aspect: float, record: bool, toward=None) -> tuple[dict, dict] | None:
+def whole_sweep(size, aspect: float, record: bool, toward=None, aerial: bool = False) -> tuple[dict, dict] | None:
     """A ``whole`` still its fill cannot show (``whole_hold_min_shown``): one
     sweep end to end, never coming back. Rising (bottom to top) for a person,
     a crowd or a place, top to bottom for a record (reading order), left to
-    right for a wide picture. ``toward`` (the next shot's subject, picture
+    right for a wide picture. ``aerial`` (rulebook 7: the still's own words
+    say it was seen from above, where up in the picture is not the sky): never
+    rising, left to right on a wide picture and top to bottom where the fill
+    travels only up and down. ``toward`` (the next shot's subject, picture
     fractions, when it says ``match: "prev"``): the sweep ends on that side,
     so the match carries a real position. Returns (first, last) at the fill,
     or None when the fill cannot travel."""
     ax = long_axis(size, aspect)
     if ax is None:
         return None
-    a, b = (0.0, 1.0) if (ax == "x" or record) else (1.0, 0.0)
+    a, b = (0.0, 1.0) if (ax == "x" or record or aerial) else (1.0, 0.0)
     if toward is not None:
         b = 1.0 if float(toward[0 if ax == "x" else 1]) >= 0.5 else 0.0
         a = 1.0 - b
@@ -971,7 +974,8 @@ def subject_plan(shot: dict, item: dict, roi: list[dict], persons: list[dict], w
             win = window(size, aspect, pose["z"], pose["x"], pose["y"])
             if not people_check([win], seeing, size)["ok"]:
                 mode = "sweep"
-        sw = whole_sweep(size, aspect, record, toward=shot.get("_end_toward")) if mode == "sweep" else None
+        sw = (whole_sweep(size, aspect, record, toward=shot.get("_end_toward"), aerial=item.get("aerial") is True)
+              if mode == "sweep" else None)
         if sw is not None:
             pose = dict(sw[1])
             arrive = dur                      # the sweep spends the shot, settled before the cut
@@ -1842,6 +1846,8 @@ def item_schema(item: dict) -> tuple[list[str], list[str]]:
         bad.append(f"caption_names is a list of the names the caption gives, not {cn!r}")
     if "whole" in item and item["whole"] is not True:
         bad.append(f"whole is true or absent, not {item['whole']!r}")
+    if "aerial" in item and not isinstance(item["aerial"], bool):
+        bad.append(f"aerial is true or false (seen from above: the whole sweep never rises), not {item['aerial']!r}")
     comp = item.get("compose")
     if comp is not None and not (comp == "golden" or (isinstance(comp, str) and comp.startswith("centred:")
                                                      and comp.split(":", 1)[1].strip())):
