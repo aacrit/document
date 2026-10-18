@@ -93,14 +93,11 @@ def last_used(root: Path) -> float:
 @pytest.fixture(scope="session", autouse=True)
 def _isolated_logs(tmp_path_factory):
     logs = tmp_path_factory.mktemp("logs")
-    old = {k: os.environ.get(k) for k in ("DOCUMENT_JOURNAL_DIR", "DOCUMENT_TIMINGS", "DOCUMENT_FILMS",
-                                          "DOCUMENT_VISION")}
+    old = {k: os.environ.get(k) for k in ("DOCUMENT_JOURNAL_DIR", "DOCUMENT_TIMINGS", "DOCUMENT_FILMS")}
     os.environ["DOCUMENT_JOURNAL_DIR"] = str(logs / "journal")
     os.environ["DOCUMENT_TIMINGS"] = str(logs / "timings.jsonl")
     # bed-reuse (A29 refined) reads the other films; a test names its own, never the working films in films.json
     os.environ["DOCUMENT_FILMS"] = ""
-    # A45: plans never run the vision models in the suite (a test that wants them says so); cached fields still apply
-    os.environ["DOCUMENT_VISION"] = "off"
     yield logs
     for k, v in old.items():
         if v is None:

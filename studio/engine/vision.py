@@ -25,11 +25,12 @@ measure -> cache -> rulebook -> overlay:
   rulebook's fields into each still's item (``rulebook.overlay``): a field
   the human wrote wins, and the human's own people words keep their count.
 
-At plan time (``plan_overlay``) a missing sidecar entry is measured on the CPU
-when MediaPipe and its pinned models are present, else the still goes without
-auto fields (the A41 default and guards apply); either way it is journaled
-and nothing is refused. ``DOCUMENT_VISION=off`` skips measuring at plan time
-(the test suite sets it); cached entries are still used.
+Measuring happens only in this CLI (``--write``). A plan, a render's
+included, reads the cache and never infers (``plan_overlay``): a still with no
+cached measurement is planned under the A41 default, journaled, with a
+reviewer item. ``--check`` measures every still twice from scratch and
+compares the two with each other and with the cache (the live determinism
+proof; the test suite is hermetic and never runs MediaPipe).
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ import hashlib
 import json
 import os
 import sys
+import uuid
 from pathlib import Path
 
 import numpy as np
@@ -55,6 +57,9 @@ TILE_OVERLAP = 0.25
 NMS_IOU = 0.5
 NEST_SHARE = 0.5               # a box half inside a stronger one is the same figure
 EDGE_PX = 2
+POSE_MARGIN = (0.15, 0.1)        # a figure's crop for the pose, grown by these shares of its width and height
+# Every constant above that changes what is measured is part of the cache key: change one, bump this
+MEASURE_VERSION = "1"
 ROUND = 4                        # every measured number is rounded: float noise never reaches the cache
 
 
@@ -76,10 +81,11 @@ def model_dir(man: dict | None = None) -> Path:
 
 
 def cpu_model_key(man: dict | None = None) -> str:
-    """The pinned CPU stack as one string: package and each model's hash."""
+    """The pinned CPU stack as one string: the package, each model's hash and
+    ``MEASURE_VERSION`` (tiling, merging, score and pose-crop constants)."""
     mp_ = (man or manifest())["mediapipe"]
     return "mp:" + mp_["package"].split("==")[-1] + ":" + ":".join(
-        mp_[k]["sha256"][:12] for k in ("object", "face", "pose")) + "+sr1"
+        mp_[k]["sha256"][:12] for k in ("object", "face", "pose")) + f"+sr1+m{MEASURE_VERSION}"
 
 
 def r(v: float) -> float:
@@ -243,7 +249,7 @@ class CPU:
         """Pose on one person's crop: the landmarks the rulebook reads for facing."""
         H, W = arr.shape[:2]
         x, y, w, h = px
-        mx, my = w * 0.15, h * 0.1
+        mx, my = w * POSE_MARGIN[0], h * POSE_MARGIN[1]
         x0, y0 = max(0, int(x - mx)), max(0, int(y - my))
         x1, y1 = min(W, int(x + w + mx)), min(H, int(y + h + my))
         if x1 - x0 < 24 or y1 - y0 < 48:
@@ -331,7 +337,7 @@ def write_sidecar(path: Path, d: dict) -> bool:
     text = dump_sidecar(d)
     if path.exists() and path.read_bytes() == text.encode("utf-8"):
         return False
-    tmp = path.with_name(path.name + ".tmp")
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
     tmp.write_bytes(text.encode("utf-8"))
     os.replace(tmp, path)
     return True
@@ -365,7 +371,7 @@ class Measurer:
         self.key = cpu_model_key(self.man)
         self.allow = allow
         self.cpu: CPU | None = None
-        self.why: str | None = None if allow else "measuring is off here (DOCUMENT_VISION=off)"
+        self.why: str | None = None if allow else "measuring is off here"
         self.measured: list[str] = []
 
     def get(self, cache: dict, sha: str, path) -> dict | None:
@@ -396,6 +402,8 @@ def apply(items: list[dict], meas: Measurer, caches: dict) -> list[dict]:
         m = meas.get(sc, sha, it["_path"])
         res = RB.fields(human_item(it), m, meas.key)
         merged, used = RB.overlay(it, res["fields"])
+        if "people" in used:
+            merged["_people_words"] = it.get("people")   # A45: an auto binding needs the ledger's own words to name them
         sc["items"][it["id"]] = {"sha256": sha, "model": meas.key if m is not None else None,
                                  "rulebook": RB.RULEBOOK_VERSION, "fields": res["fields"], "why": res["why"]}
         out.append({"id": it["id"], "sha256": sha, "measured": m is not None, "fields": res["fields"],
@@ -426,18 +434,17 @@ def summary(rec: dict) -> dict:
 # --------------------------------------------------------------------------
 
 
-def measuring_allowed() -> bool:
-    return os.environ.get("DOCUMENT_VISION", "").strip().lower() not in ("off", "0", "no", "false")
-
-
-def plan_overlay(stills: list[dict], journal=None) -> dict:
-    """At plan time: every archive still's item gets the rulebook's fields
-    under the human's (``rulebook.overlay``). A miss in the cache is measured
-    on the CPU and cached, unless measuring is off (``DOCUMENT_VISION=off``)
-    or MediaPipe or a pinned model is missing here: then the still goes
-    without boxes and is held whole, journaled, never refused (founder
-    ruling 2: degrade, never block). Returns {stills, measured, degraded}."""
-    meas = Measurer(measuring_allowed())
+def plan_overlay(stills: list[dict], journal=None, lint=None) -> dict:
+    """At plan time (a render's included): every archive still's item gets
+    the rulebook's fields under the human's (``rulebook.overlay``), from the
+    sidecar cache only. A render never infers: a still whose measurement is
+    missing or stale (another image, another pinned model or measure version)
+    is planned without machine fields, under the A41 default and guards; it
+    is journaled, and a reviewer item asks for ``python -m
+    studio.engine.vision <film> --write``. Nothing is measured, imported or
+    written here. Returns {stills, degraded}."""
+    meas = Measurer(False)
+    meas.why = "a render never infers: no cached measurement for this image and model key"
     caches: dict = {}
     by_item: dict = {}
     for s in stills:
@@ -446,38 +453,56 @@ def plan_overlay(stills: list[dict], journal=None) -> dict:
             continue
         by_item.setdefault(it["id"], []).append(s)
     if not by_item:
-        return {"stills": [], "measured": 0, "degraded": None}
+        return {"stills": [], "degraded": None}
     recs = apply([shots[0]["_item"] for shots in by_item.values()], meas, caches)
     for rec in recs:
         for s in by_item[rec["id"]]:
             priv = {k: v for k, v in s["_item"].items() if str(k).startswith("_")}
             s["_item"] = dict(rec["merged"], **priv)
             s["_vision"] = summary(rec)
-    wrote = []
-    if meas.measured:
-        for lf, sc in caches.items():
-            if write_sidecar(sidecar_path(lf), sc):
-                wrote.append(str(sidecar_path(lf)))
     unmeasured = [r["id"] for r in recs if not r["measured"]]
     if journal is not None:
-        journal.decision("motion", f"A45: {len(recs)} still(s) through rulebook {RB.RULEBOOK_VERSION}"
-                         + (f", {len(meas.measured)} measured now" if meas.measured else ""),
+        journal.decision("motion", f"A45: {len(recs)} still(s) through rulebook {RB.RULEBOOK_VERSION} from the cache",
                          "founder ruling 2: automatic, deterministic subject finding; the human ledger's fields win",
-                         evidence={"model": meas.key, "rulebook": RB.RULEBOOK_VERSION, "cache_written": wrote,
+                         evidence={"model": meas.key, "rulebook": RB.RULEBOOK_VERSION,
                                    "stills": [summary(r) for r in recs]})
         if unmeasured:
-            journal.decision("motion", f"A45: {len(unmeasured)} still(s) not measured: held whole",
-                             "founder ruling 2: degrade, never block; the A41 default and guards apply",
-                             evidence={"why": meas.why, "stills": unmeasured,
-                                       "fix": "python -m studio.engine.vision <film dir> --write where MediaPipe and "
-                                              "the pinned models are present"})
-    return {"stills": [summary(r) for r in recs], "measured": len(meas.measured),
+            journal.decision("motion", f"A45: {len(unmeasured)} still(s) not measured: planned under the A41 default",
+                             "founder ruling 2: degrade, never block; a render never infers",
+                             evidence={"stills": unmeasured})
+    if lint is not None and unmeasured:
+        lint("vision-cache", False, severity="review", stage="motion", grammar="A45",
+             evidence={"not_measured": unmeasured, "model": meas.key,
+                       "fix": "run python -m studio.engine.vision <film> --write first"})
+    return {"stills": [summary(r) for r in recs],
             "degraded": {"why": meas.why, "stills": unmeasured} if unmeasured else None}
 
 
 # --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
+
+
+def check(film: Path) -> dict:
+    """``--check``: the live determinism proof, outside the test suite (CI
+    never installs MediaPipe). Every still is measured twice from scratch by
+    two separately built detector stacks; both must be the same bytes, and
+    the same as the cached entry when there is one."""
+    from studio.engine import render as R
+    play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
+    items = still_items(play, R.load_ledgers(film, play))
+    a, b = CPU(), CPU()
+    out = []
+    for it in items:
+        sc = read_sidecar(sidecar_path(it["_ledger_file"]))
+        sha = sha256_file(it["_path"])
+        img = load_rgb(it["_path"])
+        ma, mb = json.dumps(a.measure(img), sort_keys=True), json.dumps(b.measure(img), sort_keys=True)
+        cached = sc["measure"].get(f"{sha}|{a.key}")
+        out.append({"id": it["id"], "twice_identical": ma == mb,
+                    "cache": None if cached is None else json.dumps(cached, sort_keys=True) == ma})
+    return {"model": a.key, "stills": out,
+            "ok": all(r["twice_identical"] and r["cache"] is not False for r in out)}
 
 
 def run(film: Path, write: bool) -> dict:
@@ -490,6 +515,9 @@ def run(film: Path, write: bool) -> dict:
     wrote = []
     if write:
         for lf, sc in caches.items():
+            # only what this film's stills use now: a measurement under an old model key or of a replaced image goes
+            sc["measure"] = {k: v for k, v in sc["measure"].items()
+                             if any(k == f"{e['sha256']}|{meas.key}" for e in sc["items"].values())}
             if write_sidecar(sidecar_path(lf), sc):
                 wrote.append(str(sidecar_path(lf)))
     return {"film": str(film), "model": meas.key, "rulebook": RB.RULEBOOK_VERSION, "measured_now": len(meas.measured),
@@ -504,7 +532,16 @@ def main(argv=None) -> int:
     ap.add_argument("film", type=Path)
     ap.add_argument("--write", action="store_true", help="write the sidecar cache next to each stills ledger")
     ap.add_argument("--json", type=Path, help="write the report here as JSON")
+    ap.add_argument("--check", action="store_true",
+                    help="measure every still twice from scratch; compare with each other and with the cache")
     a = ap.parse_args(argv)
+    if a.check:
+        rep = check(a.film.resolve())
+        for r in rep["stills"]:
+            print(f"{r['id']:<38} twice {'same' if r['twice_identical'] else 'DIFFERENT'}  cache "
+                  f"{'-' if r['cache'] is None else ('same' if r['cache'] else 'DIFFERENT')}")
+        print(f"model {rep['model']}: {'deterministic' if rep['ok'] else 'NOT deterministic'}")
+        return 0 if rep["ok"] else 1
     rep = run(a.film.resolve(), a.write)
     for s in rep["stills"]:
         sub = s["subject"]

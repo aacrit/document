@@ -26,7 +26,7 @@ import re
 
 from studio.engine import motion as M
 
-RULEBOOK_VERSION = "2"     # 2: a bare title or honorific is one name (was: one-holder offices with "the" only)
+RULEBOOK_VERSION = "3"     # 2: a bare title is one name; 3: a run is a place by its first or last word only
 CLASSES = ("person", "crowd", "place", "document", "map", "painting", "object")
 RECORDS = ("document", "map", "painting", "object")       # composed centred: the picture is a record
 FLOOR = M.CINE["auto_confidence_floor"]                   # a box under it is not a subject (A43)
@@ -51,7 +51,9 @@ FUNCTION = {
     "taken", "depicted", "shown", "seen", "here", "there", "some", "several", "many", "all", "no", "not",
     "january", "february", "march", "september", "october", "november", "december",
 }
-# A capitalised run holding one of these is a place, an institution or a thing, never a person
+# A capitalised run that STARTS with one of these is a place, an institution or a thing ("New York", "White House",
+# "Air Force One"); one that starts with a given name, a title or an initial stays a name, even when a later word is
+# here too ("Frank Church", "General White", "Barbara Hall", "Edward Park", "Sergeant John West")
 THING = {
     "street", "st", "avenue", "ave", "road", "square", "park", "school", "elementary", "university", "college",
     "center", "centre", "tower", "towers", "station", "bridge", "river", "harbour", "harbor", "island", "bay",
@@ -65,6 +67,14 @@ THING = {
     "eradication", "bazaar", "market", "valley", "desert", "sea", "ocean", "gulf", "india", "nigeria",
     "bangladesh", "pakistan", "america", "american", "international", "space", "earth", "world", "trade",
     "emergency", "operations", "presidential", "white", "plaza", "fort", "camp", "museum", "library",
+    "air", "ground", "greenwich", "union", "doric",
+}
+# A run that ENDS with one of these is an institution or a place: words that are not surnames
+SUFFIX = {
+    "school", "elementary", "university", "college", "hospital", "airport", "airlines", "airline", "avenue",
+    "facility", "station", "centre", "center", "department", "ministry", "program", "programme", "campaign",
+    "organization", "organisation", "district", "province", "plaza", "museum", "library", "bazaar", "office",
+    "building", "harbour", "harbor", "island", "village", "city", "county", "states", "railway", "eradication",
 }
 # Offices and titles: joined to the name they precede ("President Bush"); bare, they are one name themselves
 OFFICES = {"president", "pope", "king", "queen", "emperor", "empress", "shah", "kaiser", "viceroy", "tsar", "czar",
@@ -96,9 +106,12 @@ def caption_names(text: str) -> list[str]:
     """The people a caption names, deterministically (A45).
 
     A name is a run of capitalised words (an initial such as "E." included,
-    joined across "of", "de", "van" and the like). A run is dropped when any
-    word in it is a place, institution or thing word (``THING``: "Emma E.
-    Booker Elementary School", "New York", "Air Force One"). A leading
+    joined across "of", "de", "van" and the like). A run is dropped when its
+    first word starts a place, institution or thing (``THING``: "New York",
+    "White House", "Air Force One") or its last word ends one and is no
+    surname (``SUFFIX``: "Emma E. Booker Elementary School"). A run that starts
+    with a given name, a title or an initial stays a name though a later word
+    is a place word ("Frank Church", "General White", "Edward Park"). A leading
     function word ("The", "A") is dropped from a run. A title before a name
     stays with it and resolves to the titled person: "President Bush at the
     school" gives ["President Bush"] (so the narration's "Bush" or "President
@@ -144,7 +157,7 @@ def caption_names(text: str) -> list[str]:
             words = words[1:]
         while words and words[-1].lower() in CONNECT:
             words = words[:-1]
-        if not words or any(w.lower() in THING for w in words):
+        if not words or words[0].lower() in THING or words[-1].lower() in SUFFIX:
             continue
         name = " ".join(words)
         if name not in out:

@@ -2,11 +2,15 @@
 (founder ruling 2). The rulebook is pure and tested on synthetic measurements;
 the sidecar cache and the planner's overlay on the fixture film; the known hard
 detections of Real World (schema file) as synthetic fixtures: a miss must
-degrade to a plan that still shows them, never crop them out. MediaPipe itself
-runs only where it and its pinned models are installed (skipped elsewhere)."""
+degrade to a plan that still shows them, never crop them out. The suite is
+hermetic: it never runs MediaPipe (CI does not install it); recorded
+measurements of five Real World stills drive the rulebook, and the live
+determinism proof is the CLI's --check."""
 
 import json
 import shutil
+import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -67,6 +71,13 @@ def person(x, y, w, h, score=0.9, pose=None):
     # the chosen direction of error: a surname-like place stays a name (one name too many only stops a binding)
     ("A view from the window of Air Force One approaching Andrews", ["Andrews"]),
     ("", []),
+    # a run is a place only by its first word (or an institution's last word): surnames that are also place words stay
+    # names (reviewer's probes)
+    ("Mayor Giuliani with Frank Church at the barrier", ["Mayor Giuliani", "Frank Church"]),
+    ("General White briefs Secretary Rumsfeld", ["General White", "Secretary Rumsfeld"]),
+    ("Barbara Hall and Rudolph Giuliani", ["Barbara Hall", "Rudolph Giuliani"]),
+    ("Edward Park, a rescuer, at Ground Zero", ["Edward Park"]),
+    ("Sergeant John West, NYPD", ["Sergeant John West"]),
 ])
 def test_caption_names(text, names):
     assert RB.caption_names(text) == names
@@ -297,6 +308,38 @@ def test_a_missed_person_is_still_shown(case, preset):
         assert not T.face_cap_check(cam["tour"], cam["cine"]["persons"])
 
 
+MOTORCADE = {"title": "The motorcade of the President passes a policeman", "people": "a policeman"}
+OFFICE = {"title": "The President in his office aboard Air Force One, Sarasota to Barksdale", "people": "the President"}
+ONE = [person(0.42, 0.18, 0.12, 0.37)]
+
+
+def _merged(item):
+    f = RB.fields(item, meas(ONE, size=LANDSCAPE32), MODEL)["fields"]
+    merged, _ = RB.overlay(item, f)
+    merged["_people_words"] = item["people"]           # as vision.apply keeps them
+    return merged
+
+
+@pytest.mark.parametrize("item, binds", [(OFFICE, True), (MOTORCADE, False)])
+def test_an_auto_binding_needs_the_ledger_s_people_words_to_name_them(item, binds):
+    # schema owner's ruling (2026-10-17): the caption names one person and one figure is found, but the ledger's own
+    # people words ("a policeman") do not name the President, so the machine box never binds him; 4.2's do
+    merged = _merged(item)
+    assert merged["caption_names"] == ["President"] and len(T.person_regions(merged)) >= 1
+    sub = next(r for r in merged["roi"] if r["name"] == "subject")
+    why = T.binding_check(merged, ["President"], sub, T.person_regions(merged))
+    assert (not why) is binds
+    if not binds:
+        assert any("people words" in w for w in why)
+    # the engine's own tour stop on him at "President": bound on 4.2, re-framed (degraded) on the motorcade
+    line = {"id": "N1", "kind": "narration", "start": 0.0, "dur": 6.0, "text": "Aboard was the President with his staff."}
+    tour_item = dict(merged, roi=[dict(sub, cue="President")])
+    shot = {"id": "X", "kind": "archive_still", "_dur": 8.0, "start_s": 0.0, "camera": "tour", "_item": tour_item}
+    cam = R.still_camera(shot, LANDSCAPE32, W, H, words=T.shot_words([line], 0.0, 8.0))
+    assert bool(cam["cine"]["reframed"]) is (not binds)
+    assert not T.anchor_identity_check(cam["tour"], tour_item, cam["cine"]["regions"], cam["cine"]["persons"])
+
+
 def test_the_hocking_crew_found_are_each_in_frame():
     words, size, _, found = HARD["5.9ba crew on the Hocking"]
     merged, cam, wins = _plan_still({"title": "Patrol Boat Hocking", "people": words}, size, found=found)
@@ -338,28 +381,44 @@ def test_the_sidecar_is_byte_identical_and_written_only_on_change(tmp_path):
 
 
 def test_a_missing_model_degrades_never_raises(tmp_path, monkeypatch):
-    monkeypatch.setenv("DOCUMENT_VISION_MODELS", str(tmp_path))
+    def missing(*a, **k):
+        raise V.MissingModel("not installed here")
+    monkeypatch.setattr(V, "CPU", missing)
     m = V.Measurer(True)
     img = tmp_path / "x.png"
     Image.new("RGB", (64, 48)).save(img)
-    assert m.get({"measure": {}}, "abc", img) is None and m.why
+    assert m.get({"measure": {}}, "abc", img) is None and m.why == "not installed here"
     assert V.Measurer(False).get({"measure": {}}, "abc", img) is None
 
 
-def _cpu_or_skip():
-    try:
-        return V.CPU()
-    except V.MissingModel as e:
-        pytest.skip(f"MediaPipe or its pinned models are not here: {e}")
+# Recorded MediaPipe measurements of five Real World stills (numbers, no pixels): the suite stays hermetic (CI never
+# installs MediaPipe); the live determinism proof is `python -m studio.engine.vision <film> --check`
+RECORDED = json.loads((Path(__file__).resolve().parent / "fixture" / "vision-measure.json").read_text(encoding="utf-8"))
 
 
-def test_mediapipe_on_cpu_is_deterministic_where_installed():
-    cpu = _cpu_or_skip()
-    rng = np.random.default_rng(3)
-    img = Image.fromarray((rng.random((480, 720, 3)) * 255).astype(np.uint8))
-    a, b = cpu.measure(img), cpu.measure(img)
+@pytest.mark.parametrize("shot, cls, located, unlocated, subject, facing", [
+    ("4.2", "person", 1, 0, "person", "camera"),        # the President in his office
+    ("4.9", "person", 1, 0, "person", "right"),         # he faces right, into the window (WG-3's note)
+    ("5.5", "person", 5, 0, "person", "camera"),        # the man in the mask dominates the figures behind him
+    ("5.9ba", "place", 2, 1, None, None),               # the Hocking's crew: two found, "crew" gives no count
+    ("1.4", "place", 0, 2, None, None),                 # the 8 px rooftop onlookers: missed, kept as two unlocated
+])
+def test_the_rulebook_on_recorded_real_world_measurements(shot, cls, located, unlocated, subject, facing):
+    rec = RECORDED["stills"][shot]
+    a = RB.fields(rec["item"], rec["measure"], rec["measure"]["model"])
+    b = RB.fields(json.loads(json.dumps(rec["item"])), json.loads(json.dumps(rec["measure"])), rec["measure"]["model"])
     assert json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
-    assert a["model"] == V.cpu_model_key()
+    merged, _ = RB.overlay(rec["item"], a["fields"])
+    people = T.people_of(merged)
+    assert merged["class"] == cls and T.located_persons(T.person_regions(merged)) == located
+    assert people["unlocated"] == unlocated
+    sub = next((r for r in merged.get("roi") or [] if r["name"] == "subject"), None)
+    assert (sub and sub["kind"]) == subject and (sub or {}).get("facing") == facing
+    assert merged.get("whole") is (None if subject else True)
+
+
+def test_the_recorded_measurements_carry_the_pinned_model_key():
+    assert {r["measure"]["model"] for r in RECORDED["stills"].values()} == {V.cpu_model_key()}
 
 
 # --------------------------------------------------------------------------
@@ -425,14 +484,22 @@ def test_plan_applies_cached_fields_and_is_identical_twice(film):
     assert "roi" not in next(i for i in led["items"] if i["id"] == "FX-STILL-A")
 
 
-def test_plan_a_miss_in_the_cache_degrades_and_is_journaled(film):
+def test_plan_a_miss_in_the_cache_degrades_never_infers_and_writes_nothing(film, monkeypatch):
+    def never(*a, **k):
+        raise AssertionError("a plan must never build the detectors")
+    monkeypatch.setattr(V, "CPU", never)
+    had_mp = "mediapipe" in sys.modules
     _item(film, "FX-STILL-A", lambda i: i.update(people="two distant onlookers on a rooftop"))
-    plan, j = _plan(film)                               # DOCUMENT_VISION=off in the suite: nothing measured here
+    plan, j = _plan(film)
     s = _shot(plan, "S3")
     assert "roi" not in s["_item"] and s["_item"]["people"] == "two distant onlookers on a rooftop"
-    ev = [e for e in J.read(j.path) if e["kind"] == "decision" and "not measured" in e["what"]]
+    evs = J.read(j.path)
+    ev = [e for e in evs if e["kind"] == "decision" and "not measured" in e["what"]]
     assert ev and "FX-STILL-A" in ev[0]["evidence"]["stills"]
-    assert not V.sidecar_path(film / "stills-ledger.json").exists()
+    rv = [e for e in evs if e["kind"] == "lint" and e.get("rule") == "vision-cache"]
+    assert rv and rv[0]["severity"] == "review" and "--write first" in rv[0]["evidence"]["fix"]
+    assert not list(film.glob("*.vision.json*")) and not list(film.glob("**/*.vision.json*"))
+    assert had_mp or "mediapipe" not in sys.modules
 
 
 def test_plan_the_hard_detection_degrades_to_the_whole_in_the_plan(film):

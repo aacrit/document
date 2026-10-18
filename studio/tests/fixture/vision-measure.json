@@ -1,0 +1,440 @@
+{
+ "_note": "A45: recorded MediaPipe measurements of five Real World stills (numbers only, no pixels), from python -m studio.engine.vision --write; the hermetic suite runs the rulebook on them.",
+ "stills": {
+  "1.4": {
+   "item": {
+    "no_zoom": true,
+    "people": "two distant, unidentifiable living onlookers on a rooftop (about 8 px tall); no figure at any window",
+    "title": "United Airlines 175 strikes the south tower, seen from Greenwich Village"
+   },
+   "measure": {
+    "faces": [
+     {
+      "h": 0.3376,
+      "kp": [
+       [
+        0.4308,
+        0.4873
+       ],
+       [
+        0.4492,
+        0.5059
+       ],
+       [
+        0.4282,
+        0.5803
+       ],
+       [
+        0.3877,
+        0.5898
+       ],
+       [
+        0.3634,
+        0.3694
+       ],
+       [
+        0.405,
+        0.4032
+       ]
+      ],
+      "score": 0.6167,
+      "w": 0.2112,
+      "x": 0.2904,
+      "y": 0.3291
+     }
+    ],
+    "model": "mp:1.1.1:ad2abbf2b4e1:b4578f35940b:5134a3aad27a+sr1+m1",
+    "people": [],
+    "saliency": {
+     "concentration": 0.1397,
+     "h": 0.5375,
+     "w": 0.9062,
+     "x": 0.0781,
+     "y": 0.45
+    },
+    "size": [
+     1515,
+     948
+    ]
+   }
+  },
+  "4.2": {
+   "item": {
+    "no_zoom": false,
+    "people": "the President",
+    "title": "The President in his office aboard Air Force One, Sarasota to Barksdale"
+   },
+   "measure": {
+    "faces": [
+     {
+      "h": 0.321,
+      "kp": [
+       [
+        0.425,
+        0.3213
+       ],
+       [
+        0.448,
+        0.3056
+       ],
+       [
+        0.4966,
+        0.3537
+       ],
+       [
+        0.4883,
+        0.4282
+       ],
+       [
+        0.3149,
+        0.4089
+       ],
+       [
+        0.3797,
+        0.3556
+       ]
+      ],
+      "score": 0.63,
+      "w": 0.214,
+      "x": 0.309,
+      "y": 0.229
+     }
+    ],
+    "model": "mp:1.1.1:ad2abbf2b4e1:b4578f35940b:5134a3aad27a+sr1+m1",
+    "people": [
+     {
+      "h": 0.369,
+      "pose": {
+       "l_ear": [
+        0.5533,
+        -0.2916,
+        1.0
+       ],
+       "l_sh": [
+        0.6594,
+        -0.202,
+        1.0
+       ],
+       "nose": [
+        0.4854,
+        -0.5137,
+        1.0
+       ],
+       "r_ear": [
+        0.4275,
+        -0.2867,
+        1.0
+       ],
+       "r_sh": [
+        0.3159,
+        -0.1716,
+        1.0
+       ]
+      },
+      "score": 0.9036,
+      "w": 0.181,
+      "x": 0.4233,
+      "y": 0.1835
+     }
+    ],
+    "saliency": {
+     "concentration": 0.3151,
+     "h": 0.5765,
+     "w": 0.25,
+     "x": 0.5,
+     "y": 0.0235
+    },
+    "size": [
+     3000,
+     2000
+    ]
+   }
+  },
+  "4.9": {
+   "item": {
+    "no_zoom": false,
+    "people": "the President, partly in shadow",
+    "title": "The President looks out at the F-16 escort, Sarasota to Barksdale"
+   },
+   "measure": {
+    "faces": [],
+    "model": "mp:1.1.1:ad2abbf2b4e1:b4578f35940b:5134a3aad27a+sr1+m1",
+    "people": [
+     {
+      "h": 0.462,
+      "pose": {
+       "l_ear": [
+        0.6666,
+        -0.145,
+        0.9982
+       ],
+       "l_sh": [
+        0.5674,
+        0.0804,
+        0.9992
+       ],
+       "nose": [
+        0.7048,
+        -0.2901,
+        0.998
+       ],
+       "r_ear": [
+        0.6616,
+        -0.4753,
+        0.9981
+       ],
+       "r_sh": [
+        0.5697,
+        -0.5823,
+        0.9998
+       ]
+      },
+      "score": 0.5926,
+      "w": 0.2387,
+      "x": 0.1953,
+      "y": 0.298
+     },
+     {
+      "h": 0.405,
+      "pose": null,
+      "score": 0.4659,
+      "w": 0.1383,
+      "x": 0.079,
+      "y": 0.248
+     },
+     {
+      "h": 0.311,
+      "pose": null,
+      "score": 0.382,
+      "w": 0.1487,
+      "x": 0.001,
+      "y": 0.2475
+     },
+     {
+      "h": 0.043,
+      "pose": null,
+      "score": 0.3407,
+      "w": 0.0777,
+      "x": 0.3217,
+      "y": 0.2745
+     },
+     {
+      "h": 0.307,
+      "pose": null,
+      "score": 0.3296,
+      "w": 0.158,
+      "x": 0.3717,
+      "y": 0.489
+     },
+     {
+      "h": 0.131,
+      "pose": null,
+      "score": 0.2586,
+      "w": 0.0687,
+      "x": 0.732,
+      "y": 0.802
+     }
+    ],
+    "saliency": {
+     "concentration": 0.346,
+     "h": 0.4235,
+     "w": 0.5625,
+     "x": 0.3984,
+     "y": 0.3647
+    },
+    "size": [
+     3000,
+     2000
+    ]
+   }
+  },
+  "5.5": {
+   "item": {
+    "no_zoom": false,
+    "people": "one identifiable living man, close",
+    "title": "A man walking out with a mask over his face"
+   },
+   "measure": {
+    "faces": [],
+    "model": "mp:1.1.1:ad2abbf2b4e1:b4578f35940b:5134a3aad27a+sr1+m1",
+    "people": [
+     {
+      "h": 0.7718,
+      "pose": {
+       "l_ear": [
+        0.5448,
+        -0.6136,
+        1.0
+       ],
+       "l_sh": [
+        0.6453,
+        -0.3812,
+        1.0
+       ],
+       "nose": [
+        0.4972,
+        -0.9569,
+        1.0
+       ],
+       "r_ear": [
+        0.4018,
+        -0.7038,
+        1.0
+       ],
+       "r_sh": [
+        0.2986,
+        -0.5283,
+        0.9999
+       ]
+      },
+      "score": 0.8646,
+      "w": 0.3397,
+      "x": 0.5133,
+      "y": 0.2051
+     },
+     {
+      "h": 0.054,
+      "pose": null,
+      "score": 0.8221,
+      "w": 0.0187,
+      "x": 0.4283,
+      "y": 0.4441
+     },
+     {
+      "h": 0.0726,
+      "pose": null,
+      "score": 0.739,
+      "w": 0.021,
+      "x": 0.456,
+      "y": 0.4352
+     },
+     {
+      "h": 0.0236,
+      "pose": null,
+      "score": 0.608,
+      "w": 0.0073,
+      "x": 0.4163,
+      "y": 0.4539
+     },
+     {
+      "h": 0.0221,
+      "pose": null,
+      "score": 0.5226,
+      "w": 0.0067,
+      "x": 0.4087,
+      "y": 0.4573
+     },
+     {
+      "h": 0.0221,
+      "pose": null,
+      "score": 0.476,
+      "w": 0.0093,
+      "x": 0.3997,
+      "y": 0.4607
+     }
+    ],
+    "saliency": {
+     "concentration": 0.1742,
+     "h": 0.4943,
+     "w": 0.5312,
+     "x": 0.4375,
+     "y": 0.2759
+    },
+    "size": [
+     3000,
+     2038
+    ]
+   }
+  },
+  "5.9ba": {
+   "item": {
+    "no_zoom": false,
+    "people": "crew on deck, tiny",
+    "title": "Patrol Boat Hocking heads toward Lower Manhattan"
+   },
+   "measure": {
+    "faces": [],
+    "model": "mp:1.1.1:ad2abbf2b4e1:b4578f35940b:5134a3aad27a+sr1+m1",
+    "people": [
+     {
+      "h": 0.1133,
+      "pose": null,
+      "score": 0.7945,
+      "w": 0.0371,
+      "x": 0.7334,
+      "y": 0.4674
+     },
+     {
+      "h": 0.1042,
+      "pose": {
+       "l_ear": [
+        0.7045,
+        0.0939,
+        0.9991
+       ],
+       "l_sh": [
+        0.5462,
+        0.4415,
+        0.9995
+       ],
+       "nose": [
+        0.7541,
+        -0.2148,
+        0.9993
+       ],
+       "r_ear": [
+        0.646,
+        -0.5423,
+        0.9991
+       ],
+       "r_sh": [
+        0.4566,
+        -0.8369,
+        0.9997
+       ]
+      },
+      "score": 0.6472,
+      "w": 0.0264,
+      "x": 0.6943,
+      "y": 0.4766
+     },
+     {
+      "h": 0.0716,
+      "pose": null,
+      "score": 0.3961,
+      "w": 0.0293,
+      "x": 0.7881,
+      "y": 0.526
+     },
+     {
+      "h": 0.0286,
+      "pose": null,
+      "score": 0.2663,
+      "w": 0.0146,
+      "x": 0.4893,
+      "y": 0.4297
+     },
+     {
+      "h": 0.0234,
+      "pose": null,
+      "score": 0.2526,
+      "w": 0.0186,
+      "x": 0.541,
+      "y": 0.375
+     }
+    ],
+    "saliency": {
+     "concentration": 0.2842,
+     "h": 0.4583,
+     "w": 0.4219,
+     "x": 0.4922,
+     "y": 0.3229
+    },
+    "size": [
+     1024,
+     768
+    ]
+   }
+  }
+ }
+}

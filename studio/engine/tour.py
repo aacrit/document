@@ -942,7 +942,27 @@ def binding_check(item: dict, spoken: list[str], region: dict | None, persons: l
         why.append(f"the region is {own!r}, not {' '.join(spoken)!r}")
     if region is not None and source_of(region) == "auto" and own != "subject":
         why.append(f"a machine box binds a name only as the rulebook's primary subject, not {own!r}")
+    if region is not None and source_of(region) == "auto" and not people_words_name(item, cue):
+        why.append(f"a machine box binds {' '.join(spoken)!r} only when the ledger's own people words name them "
+                   f"(A45; they say {item.get('_people_words')!r})")
     return why
+
+
+def people_words_name(item: dict, cue: list[str]) -> bool:
+    """A45 (schema owner's ruling, 2026-10-17): the ledger's own people
+    words (the count the rulebook read, kept as ``_people_words`` when the
+    rulebook replaced ``people``; else ``people`` itself) mention
+    the name, by any of its words (a title or a surname), whole and
+    case-insensitive. "the President" names "President"; "a policeman" does
+    not, so a motorcade's caption never binds the President to the
+    policeman the detector found."""
+    pw = item.get("_people_words", item.get("people"))
+    if isinstance(pw, list):
+        pw = " ".join(str(p.get("name") or "") if isinstance(p, dict) else str(p) for p in pw)
+    if not isinstance(pw, str):
+        return False
+    have = set(_norm_words(pw))
+    return any(w in have for w in cue)
 
 
 def leave_time(tl: dict, i: int) -> float:

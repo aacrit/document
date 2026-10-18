@@ -185,9 +185,14 @@ def test_ruling_2_probe_a_machine_subject_named_in_the_caption_binds_with_a_lead
     # the probe: an auto person region (the rulebook's subject, cue Bush, confidence 0.9), caption
     # "President Bush at the school", camera: tour, estimated timings: it must not be refused
     ws = T.shot_words([BUSH], 9.0, 17.0)
-    item = {"title": "President Bush at the school", "people": [],
+    # A45 (schema owner, 2026-10-17): a machine box binds only when the ledger's own people words name the person;
+    # the planner keeps them as _people_words when the rulebook replaces people
+    item = {"title": "President Bush at the school", "people": [], "_people_words": "President Bush",
             "roi": [{"name": "subject", "kind": "person", "cue": "Bush", "x": 0.4, "y": 0.2, "w": 0.15, "h": 0.4,
                      "source": "auto", "confidence": 0.9}]}
+    unnamed = dict(item, _people_words="a policeman")
+    cam = cam_for({"camera": "tour", "_dur": 8.0, "start_s": 9.0}, item=unnamed, words=ws)
+    assert cam["cine"]["reframed"]                                 # the words do not name him: degrade, never bind
     cam = cam_for({"camera": "tour", "_dur": 8.0, "start_s": 9.0}, item=item, words=ws)
     st = cam["tour"]["stops"][1]
     assert st["roi"] == "subject" and st["t"] == pytest.approx(st["onset"] - M.CINE["anchor_estimated_lead_s"])
@@ -485,7 +490,9 @@ def test_plan_ruling_2_probe_a_fully_automatic_tour_is_never_refused(film):
     _edit(film, lambda p: _line(p, "L1").update(text="A test tone stands in for Bush."))
     region = {"name": "subject", "kind": "person", "cue": "Bush", "x": 0.4, "y": 0.2, "w": 0.15, "h": 0.4,
               "source": "auto", "confidence": 0.9}
-    _item(film, "FX-STILL-A", lambda i: i.update(title="President Bush at the school", roi=[region]))
+    # A45: the ledger's own people words name him (a located person of the same box), so the machine box may bind
+    person = {"name": "President Bush", "x": 0.4, "y": 0.2, "w": 0.15, "h": 0.4}
+    _item(film, "FX-STILL-A", lambda i: i.update(title="President Bush at the school", roi=[region], people=[person]))
     _edit(film, lambda p: _shot(p, "S3").update(preset=None, camera="tour"))
     plan, j = _plan(film, "cine5-probe")
     evs = J.read(j.path)
