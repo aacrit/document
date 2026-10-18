@@ -41,3 +41,11 @@ The Run v4, state at the pause (2026-10-18; paused for Real World's score work)
 - **U-turn causes:** a record OR a real study object. Everything else holds.
 - **Sources:** every object from a pinned real scan.
 - **First:** a one-screen layout to WG-4 before any re-tuning.
+
+## State at the STOP (2026-10-18, usage 98%)
+- Chain (v4.1, option A, fall 0.95): one physics run latch → papyrus → hinge → U1 (Piri's curl, f234) → khipu → past the still galley → card, strip → weights → brass (strike about f405) → the dark (f433) → felt → the lead stops at C20's record. U2 and U3 did not hold at this speed and were not forced: only U1 survives. Prefix 432 frames + tail 276 = 708 frames = 29.5 s, plus the lockup card (cut). Below the 45-60 s rule: flagged to the coordinator.
+- The galley stands still (option 2), the glass pair rests in the tray, the reels stand beside the path (a glance stalled the slow lead), coins/jeton lie in the tray, the globe in the near-right corner; all gated real scans.
+- The animatic (tag v41-whole2) was rendering detached at the stop: D:/document-media/title-sequence/run/masters/v41-whole2/the-run-v41-whole2-C20-METAR-0851-24.mp4 with whole-report.json (A7 number, runtime). render_run releases HEAVY.lock after every chunk and at exit.
+- The camera auto-exposure meter (meter_expose.py) crashed Blender (access violation): this animatic is at a fixed exposure, the lamp constant. Fix next: meter from the rendered calib frames instead of a render-and-reload loop inside Blender.
+- Margins: tests/test_margins.py reads run-checks.json; values not yet reviewed.
+- NEXT: (1) check the animatic and whole-report.json (A7 ≤ 6.0, edge strips ≤ 12); report the path to the coordinator in one message. (2) The title theme in picture (music director, from title.events.jsonl). (3) Structure: restore length (U2/U3) or accept; the coordinator decides.

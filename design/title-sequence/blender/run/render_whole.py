@@ -63,7 +63,12 @@ def main():
         ok, why = RR.machine_ok()
         if not ok:
             sys.exit(f"machine short before the meter: {why}")
-        out[f"exposure_{window}"] = RT.expose(bp, f0, f1, f"{tag}-{window}")
+        try:
+            out[f"exposure_{window}"] = RT.expose(bp, f0, f1, f"{tag}-{window}")
+        except SystemExit as e:
+            # the meter pass crashed Blender (an access violation in its render-and-reload loop): this animatic runs
+            # at a fixed exposure, the lamp constant; reported
+            out[f"exposure_{window}"] = {"fixed": 0.0, "meter_failed": str(e)[-200:]}
         d = RR.MEDIA / "frames" / tag / window
         out[f"render_{window}"] = RT.render_chunks(bp, d, f0, f1, f"{tag}-{window}")
         dirs[window] = d

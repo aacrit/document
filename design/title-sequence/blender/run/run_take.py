@@ -463,6 +463,58 @@ def table_model():
     return parts
 
 
+ASSETS = Path("D:/document-media/title-sequence/run/assets")
+SCAN_LEDGER = HERE.parents[1] / "run-scan-ledger.json"
+
+
+def import_scan(name, size_m, loc, yaw_deg=0.0, lie_flat=False):
+    """A gated real scan (run-scan-ledger.json, gate "pass") imported from its glTF, joined, scaled by its bounding box
+    so its largest extent is the object's real size, turned and set down with its lowest point on the surface at loc.
+    Classical steps only (scale, place); no retopology, no upscaling."""
+    led = {i["id"]: i for i in json.loads(SCAN_LEDGER.read_text(encoding="utf-8"))["items"]}
+    if led.get(name, {}).get("gate") != "pass":
+        raise SystemExit(f"scan {name} has not passed the gate")
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=str(ASSETS / name / "scene.gltf"))
+    new = [o for o in bpy.data.objects if o not in before]
+    meshes = [o for o in new if o.type == "MESH"]
+    new_names = [o.name for o in new]
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in meshes:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = meshes[0]
+    if len(meshes) > 1:
+        bpy.ops.object.join()
+    ob = bpy.context.active_object
+    ob.parent = None
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    keep = ob.name
+    for nm_ in [n_ for n_ in new_names if n_ != keep]:
+        o = bpy.data.objects.get(nm_)
+        if o is not None and o.type != "MESH":
+            bpy.data.objects.remove(o, do_unlink=True)
+    ob = bpy.data.objects[keep]
+    import numpy as np_
+    co = np_.array([v.co[:] for v in ob.data.vertices])
+    ext = co.max(0) - co.min(0)
+    k = size_m / float(ext.max())
+    ob.scale = (k, k, k)
+    if lie_flat and ext[2] > ext.min():
+        # a coin's thin axis to vertical
+        thin = int(np_.argmin(ext))
+        if thin == 0:
+            ob.rotation_euler = (0.0, math.pi / 2, 0.0)
+        elif thin == 1:
+            ob.rotation_euler = (math.pi / 2, 0.0, 0.0)
+    bpy.ops.object.transform_apply(rotation=True, scale=True)
+    co = np_.array([v.co[:] for v in ob.data.vertices])
+    mid = (co.max(0) + co.min(0)) / 2
+    ob.location = (loc[0] - mid[0], loc[1] - mid[1], loc[2] - co.min(0)[2])
+    ob.rotation_euler = (0.0, 0.0, math.radians(yaw_deg))
+    ob.name = f"{name} (real scan)"
+    return ob
+
+
 def fibre(name, rgb):
     return m_plain(f"{name} (fibre, the scan's own margin colour)", rgb, 0.85, sheen=0.3)
 
@@ -809,6 +861,11 @@ def build():
             geom_obj(n, g, film_base)
         elif n == "platen":
             geom_obj(n, g, m_plain("platen rubber", (0.018, 0.017, 0.016), 0.55))
+        elif n.startswith("tray_"):
+            geom_obj(n, g, m_oak_v4(f"tray oak (modelled, plain)", seed=3.3))
+        elif n == "weights":
+            st_w = lay["stations"]["weights"]
+            import_scan("weights", 2 * st_w["r"], (st_w["centre"][0], st_w["centre"][1], st_w["centre"][2]))
         elif n == "felt":
             geom_obj(n, g, m_felt())
         elif n == "record":
@@ -817,8 +874,20 @@ def build():
             if not rinfo.get("upright"):
                 s = {"cx": s["cx"], "cy": s["cy"], "W": s["H"], "H": s["W"], "psi": 90.0}
             sheet(f"record {rec}", s, m_image_crop("record", F["tex"], rough=0.8, sheen=0.1), g["pos"][2] + g["size"][2])
-    if "stick" in st:
+    if "stick" in st and not B.STICK.get("standing"):
         stick_chart_v4(st["stick"])
+    if B.V41:
+        # the money tray's coins lying in it, and the globe in the near corner (all gated real scans)
+        tr_ = st.get("tray")
+        if tr_:
+            c, a_ = tr_["centre"], math.radians(tr_["deg"])
+            zf = tr_["z"] + B.TRAY["floor_t"]
+            for k, (nm, dd) in enumerate((("FS-coin-dupondius-octavian", 0.029), ("FS-coin-sesterce-trajan", 0.034),
+                                          ("jeton", 0.028))):
+                off = (-0.10 + 0.045 * k, -0.04 + 0.02 * (k % 2))
+                p = (c[0] + off[0] * math.cos(a_) - off[1] * math.sin(a_), c[1] + off[0] * math.sin(a_) + off[1] * math.cos(a_), zf)
+                import_scan(nm, dd, p, yaw_deg=tr_["deg"] + 30 * k, lie_flat=True)
+        import_scan("globe", B.GLOBE["d"] + 0.15, (2.03, 0.20, 0.0), yaw_deg=-30.0)
 
     # moving bodies
     bpy.ops.mesh.primitive_cylinder_add(vertices=128, radius=0.0225, depth=0.003)
