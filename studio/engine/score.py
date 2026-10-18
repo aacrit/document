@@ -1107,10 +1107,13 @@ def take_analysis(y: np.ndarray, take: dict, *, titles=()) -> dict:
                 tail_end = max(b, i * HOP_S)
                 break
         seg = y[int(round(a * RATE)): int(round(tail_end * RATE))]
-        cues.append({"id": sp["id"], "role": sp["role"], "start_s": a, "end_s": b, "tail_s": round(tail_end - b, 2),
+        # the house motif inside the take is the house's own figure (A29 take refined): judged as the per-cue path
+        # judges the motif (BRAND: it recurs by design, and its verbatim entry is the house's, not composed here)
+        role = "motif" if sp.get("house_motif") else sp["role"]
+        cues.append({"id": sp["id"], "role": role, "start_s": a, "end_s": b, "tail_s": round(tail_end - b, 2),
                      "fade_in_s": 0.0, "fade_out_s": 0.0, "gain_db": 0.0, "shaping": None,
                      "marks_moment": sp.get("marks_moment"), "take_span": True, "take": take["id"],
-                     "an": analyse_cue(seg, sp["role"])})
+                     "an": analyse_cue(seg, role)})
     return {"id": take["id"], "n": len(y), "band_db": band.astype(np.float32), "zero": zero, "floor_db": floor_db,
             "floor_from": floor_from, "titles": [(float(a), float(b)) for a, b in titles], "spans": spans,
             "rests": take["rests"], "manifest": take.get("manifest") or {}, "paths": take.get("paths") or {}, "cues": cues}
@@ -1268,6 +1271,8 @@ def take_checks(take: dict, std: dict, *, silences=(), own_sound=(), voice100: n
     out = []
     band, floor_db = take["band_db"], take["floor_db"]
     for c in take["cues"]:
+        if c["role"] in BRAND:
+            continue                                     # the house motif's entry is verbatim (A29 take refined)
         e = composed_edges(band, floor_db, c["start_s"], c["end_s"])
         for side, key, rule in (("entry", "rise_s", "music-entry"), ("exit", "decay_s", "music-exit")):
             m = e[side]

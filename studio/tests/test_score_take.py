@@ -529,3 +529,13 @@ def test_the_house_motif_may_follow_the_titles_but_nothing_else_may():
     assert ok["ok"], ok
     bad = _get(SC.take_checks(_motif_case(False), STD), "take-handover", "score")
     assert not bad["ok"]                                           # the same notes as a plain span: the rest is short
+
+
+def test_the_house_motif_in_the_take_is_judged_as_the_motif():
+    an = _motif_case(True)
+    m = next(c for c in an["cues"] if c["id"] == "motif-title")
+    assert m["role"] == "motif"                                    # BRAND: recurs by design, verbatim entry
+    checks = SC.take_checks(an, STD)
+    assert not [c for c in checks if c["unit"] == "motif-title" and c["rule"] in ("music-entry", "music-exit")]
+    plain = next(c for c in _motif_case(False)["cues"] if c["id"] == "motif-title")
+    assert plain["role"] == "featured"                             # unmarked, the same notes are judged as composed
