@@ -28,3 +28,8 @@ The Run v4, state at the pause (2026-10-18; paused for Real World's score work)
 - **Followable:** the camera stays on the lead within 40 px a frame, and the lead is always identifiable in frame.
 - **Three balls:** the galley's two released balls are a different real material (steel or brass), so the clay lead reads as the protagonist. The release is framed so the lead's strike is seen to set them going.
 - **Light:** one constant lamp plus a smooth camera auto-exposure (metered, eased over 0.5-1 s, clamped); the record sits in the lamp's pool.
+
+## Founder note (2026-10-18): close passes
+- **Where:** the latch, U1, U2, U3 (each climb and roll-back), the galley strike, and the brass settle.
+- **How:** low and close (a macro feel, shallow depth of field, focus on the marble), then back to the follow.
+- **Constraints:** one continuous camera, eased moves, inside the caps. Report the frame ranges.
