@@ -793,14 +793,22 @@ def test_the_aimed_breath_keeps_the_plain_breath_or_gives_way_to_the_sweep():
 
 # --------------------------------------------------------------------------
 # A49 (cinematography ticket #4, reviewer's re-review): the engine never
-# refuses itself for subject-under-text. GOES-8 (3.7)'s own "caption" box,
-# under a lower third widened to cover the whole shot: a written path is
-# the one case that still blocks (render.a49_tour_lints); every engine path
-# (HOLD, PUSH, declared whole: true, the plain default) must plan without a
-# Refused and, this fixture's own geometry, clear of the zone once steered.
+# refuses itself for subject-under-text, and a steer that only ducks a
+# refusal while still warning has moved the wrong way: it must minimise the
+# overlap, taking a pose under the lint's own warn share when one exists.
+# The reviewer's own probe: a "caption" must_show box (x 0.05, y 0.758,
+# w 0.336, h 0.071) on FX-STILL-A (1500 x 1050), under a lower third widened
+# to cover the whole shot. A written path is the one case that still blocks
+# (render.a49_tour_lints); every engine path (HOLD, PUSH, declared
+# whole: true, the plain default) must plan without a Refused, keep the
+# region whole in frame (A7/A41, never traded for clearing it of text), and
+# read under 10% overlap on every frame the text is up (this geometry has
+# room: the fill window can travel about 0.40 of the picture vertically).
 # --------------------------------------------------------------------------
 
-LT_OVER_WHOLE_SHOT = {"zone": "LT", "id": "T-fixture", "box": M.ZONES["LT"], "t0": 0.0, "t1": 8.0}
+CAPTION_SIZE = (1500, 1050)                             # make_media.STILLS["FX-STILL-A"]
+CAPTION_BOX = {"x": 0.05, "y": 0.758, "w": 0.336, "h": 0.071, "name": "caption", "must_show": True, "kind": "place"}
+LT_OVER_WHOLE_SHOT = {"zone": "LT", "id": "T-fixture", "box": M.ZONES["LT"], "t0": 0.0, "t1": 4.0}
 
 
 def _engine_text_cam(item, size, dur, preset):
@@ -812,26 +820,31 @@ def _engine_text_cam(item, size, dur, preset):
     return cam, s, must_show
 
 
-def _caption_block(cam, s, size, must_show):
+def _caption_overlap(cam, s, size, must_show):
+    """(whole_in_frame, max_overlap) for the first must_show region, or
+    (False, 1.0) when there is no tour at all to measure."""
     tl = cam.get("tour")
     if not tl or not must_show:
-        return False
+        return False, 1.0
     wins = TL.frame_windows(tl, 24.0)
     box = T.roi_box(must_show[0])
-    return TL.subject_under_text(wins, box, size, text_spans=[LT_OVER_WHOLE_SHOT], must_show=True)["block"]
+    whole = not T.must_show([w for _, w in wins], s["_item"], size)
+    res = TL.subject_under_text(wins, box, size, text_spans=[LT_OVER_WHOLE_SHOT], must_show=True)
+    return whole, res["max_overlap"]
 
 
 @pytest.mark.parametrize("label,preset,declare_whole", [
     ("HOLD", "HOLD", False), ("PUSH", "PUSH", False), ("whole-true", "HOLD", True), ("default", None, False),
 ])
 def test_an_engine_path_is_never_refused_for_a_must_show_box_under_a_lower_third(label, preset, declare_whole):
-    item = dict(GOES_ITEM)
-    item.pop("whole", None)
+    item = {"people": False, "class": "place", "roi": [dict(CAPTION_BOX)]}
     if declare_whole:
         item["whole"] = True
-    cam, s, must_show = _engine_text_cam(item, GOES, 8.0, preset)
+    cam, s, must_show = _engine_text_cam(item, CAPTION_SIZE, 4.0, preset)
     assert cam.get("tour") is not None                   # the engine always has somewhere to go (ruling 2)
-    assert not _caption_block(cam, s, GOES, must_show)    # steered clear of the zone (this fixture's own geometry)
+    whole, overlap = _caption_overlap(cam, s, CAPTION_SIZE, must_show)
+    assert whole                                          # A7/A41: never traded away for clearing the text
+    assert overlap < M.CINE["under_text_share"]           # a clear pose exists here: the steer must find it
 
 
 @pytest.mark.parametrize("seed", range(40))
@@ -854,9 +867,9 @@ def test_property_an_engine_path_with_a_must_show_box_under_text_is_never_refuse
     cam = R.engine_cover(s, cam, size, W, H, [], None, fps=24.0, avoid=avoid, text_spans=[span])  # never refuses
     sub = cam.get("subject") or {}
     if sub.get("avoid_clear") is True:
-        # the engine's own signal that it cleared the box: the measured overlap must agree with it
+        # the engine's own signal that it cleared the box at the warn share: the measured overlap must agree
         tl = cam.get("tour")
         if tl is not None:
             wins = TL.frame_windows(tl, 24.0)
             r = TL.subject_under_text(wins, T.roi_box(must_show), size, text_spans=[span], must_show=True)
-            assert not r["block"]
+            assert r["max_overlap"] < M.CINE["under_text_share"]

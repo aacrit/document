@@ -542,6 +542,55 @@ def settle_for(subj: dict) -> float:
     return CINE["settle_read_s"] if subj.get("kind") in READ_KINDS else CINE["settle_s"]
 
 
+def avoid_overlap(size, window_px: tuple, avoid: list[tuple]) -> float:
+    """The worst overlap share (A49) any ``avoid`` box (picture fractions)
+    reaches against its own text zone (frame fractions), projected through
+    ``window_px`` (picture pixels, as this module's own ``window()``
+    returns it). 0.0 when nothing in ``avoid`` is visible at this window.
+    The one measurement ``end_pose``, ``whole_pose``, ``creep`` and
+    ``aimed_breath`` all steer against, so "clear" means the same thing
+    everywhere."""
+    best = 0.0
+    for box, zone in avoid:
+        fb = project_box(size, window_px, box)
+        if fb is not None:
+            best = max(best, box_overlap_share(fb, zone))
+    return best
+
+
+def avoid_fits(size, window_px: tuple, avoid: list[tuple]) -> bool:
+    """Whether every ``avoid`` box is whole inside ``window_px`` (A7/A41's
+    own truth: a must_show region shown somewhere is never traded for
+    clearing it of text), not merely visible in part. Steering never
+    chooses a window a box does not fit, whatever it clears."""
+    iw, ih = float(size[0]), float(size[1])
+    x0, y0, x1, y1 = window_px
+    tol = 0.5
+    for box, _zone in avoid:
+        bx0, by0, bx1, by1 = box[0] * iw, box[1] * ih, box[2] * iw, box[3] * ih
+        if bx0 < x0 - tol or by0 < y0 - tol or bx1 > x1 + tol or by1 > y1 + tol:
+            return False
+    return True
+
+
+def avoid_key(overlap: float, distance: float, fits: bool = True) -> tuple:
+    """A49: the sort key every avoid-aware search here orders its candidates
+    by: first, whether every ``avoid`` box still fits whole in the window
+    (``avoid_fits``: A7/A41's coverage truth always outranks clearing a
+    text zone, never the reverse); then whether this candidate already
+    reads clear at the lint's own warn share (``CINE["under_text_share"]``,
+    not the block share: the reviewer's own ruling is that a steer that
+    merely ducks a refusal while still warning has moved the wrong way);
+    among the clear candidates, the one closest to the planned pose
+    (``distance``, the search's own units, e.g. a weight or a seconds
+    offset) wins, so the steer moves no more than it has to; failing that,
+    the candidate with the least overlap wins, whatever its distance (the
+    reviewer item that follows names how close it came)."""
+    warn = CINE["under_text_share"]
+    clear = overlap < warn - 1e-9
+    return (not fits, not clear, distance if (fits and clear) else overlap)
+
+
 def whole_pose(size, aspect: float, record: bool, avoid: list[tuple] | None = None) -> dict:
     """``whole``: the fill (z 1), upper-weighted along the axis its window can
     travel (``CINE['whole_weight']`` of the travel from the top), centred for
@@ -549,14 +598,16 @@ def whole_pose(size, aspect: float, record: bool, avoid: list[tuple] | None = No
     picture of the frame's own shape is the fill (no travel at all).
 
     ``avoid`` (A49, ``subject-under-text`` steering): when the doctrine
-    weight's window would still cover a must_show box with an active text
-    zone, this tries other points along the same travel (the only freedom a
-    ``whole`` still has), closest to the doctrine weight first, so the
-    engine never refuses itself here (ruling 2): a still with no subject
-    region still has somewhere to go. Returns {z, x, y[, avoid_clear]};
+    weight's window still reads an overlap at or past the lint's own warn
+    share, this searches the whole travel (the only freedom a ``whole``
+    still has, in 2.5% steps) for the point with the least overlap, taking
+    the one closest to the doctrine weight among those that clear it
+    (``avoid_key``), so the engine never refuses itself here (ruling 2): a
+    still with no subject region still has somewhere to go, and the steer
+    never moves further than it has to. Returns {z, x, y[, avoid_clear]};
     ``avoid_clear`` is only set when ``avoid`` is given and is False only
-    when no point along the travel clears every box (no room: the caller
-    falls back further, journaled, never refused)."""
+    when no point along the travel reads under the warn share (no room: the
+    caller falls back further, journaled, never refused)."""
     iw, ih = float(size[0]), float(size[1])
     fw, fh = fill_window(size, aspect)
     wgt = CINE["whole_weight_record"] if record else CINE["whole_weight"]
@@ -575,22 +626,20 @@ def whole_pose(size, aspect: float, record: bool, avoid: list[tuple] | None = No
             q["x"] = (w * (iw - fw) + fw / 2.0) / iw
         return q
 
-    def hits(q: dict) -> int:
-        win = window(size, aspect, q["z"], q["x"], q["y"])
-        share = CINE["under_text_block_share"]
-        return sum(1 for box, zone in avoid
-                  for fb in (project_box(size, win, box),) if fb is not None and box_overlap_share(fb, zone) >= share - 1e-9)
-
-    candidates = sorted({round(k / 20.0, 3) for k in range(21)} | {round(wgt, 3)}, key=lambda w: abs(w - wgt))
-    best_hits, best_p = hits(p), p
-    for w in candidates:
+    def win_of(w: float) -> tuple:
         q = at(w)
-        h = hits(q)
-        if h < best_hits:
-            best_hits, best_p = h, q
-        if best_hits == 0:
-            break
-    return dict(best_p, avoid_clear=best_hits == 0)
+        return window(size, aspect, q["z"], q["x"], q["y"])
+
+    candidates = sorted({round(k / 40.0, 4) for k in range(41)} | {round(wgt, 4)}, key=lambda w: abs(w - wgt))
+    best_w, best_overlap, best_key = wgt, avoid_overlap(size, win_of(wgt), avoid), None
+    for w in candidates:
+        win = win_of(w)
+        ov = avoid_overlap(size, win, avoid)
+        key = avoid_key(ov, abs(w - wgt), fits=avoid_fits(size, win, avoid))
+        if best_key is None or key < best_key:
+            best_key, best_w, best_overlap = key, w, ov
+    best_fits = avoid_fits(size, win_of(best_w), avoid)
+    return dict(at(best_w), avoid_clear=best_fits and best_overlap < CINE["under_text_share"] - 1e-9)
 
 
 def _place(c: float, s: float, win: float, full: float, t: float) -> tuple[float, float]:
@@ -675,18 +724,9 @@ def end_pose(subj: dict, size, aspect: float, zlim: float, *, record: bool, faci
         z = max(1.0, min(zs))
     ww, wh = fw / z, fh / z
     eye = _eyes(subj)
-    avoid_share = CINE["under_text_block_share"]
 
-    def hits(ax_, ay_) -> int:
-        if not avoid:
-            return 0
-        win = (ax_, ay_, ax_ + ww, ay_ + wh)
-        n = 0
-        for box, zone in avoid:
-            fb = project_box(size, win, box)
-            if fb is not None and box_overlap_share(fb, zone) >= avoid_share - 1e-9:
-                n += 1
-        return n
+    def win_at(ax_, ay_) -> tuple:
+        return (ax_, ay_, ax_ + ww, ay_ + wh)
 
     best = None
     for t_y in ty:
@@ -697,13 +737,22 @@ def end_pose(subj: dict, size, aspect: float, zlim: float, *, record: bool, faci
                 miss = 0
             else:
                 miss = int(not (_in_band(px) or ww >= iw - 0.5)) + int(not (_in_band(py) or wh >= ih - 0.5))
-            key = (hits(ax_, ay_), miss, round(abs((eye * ih - ay_) / wh - 1 / 3), 6) if eye is not None else 0.0)
+            eye_dist = round(abs((eye * ih - ay_) / wh - 1 / 3), 6) if eye is not None else 0.0
+            win = win_at(ax_, ay_)
+            ov = avoid_overlap(size, win, avoid) if avoid else 0.0
+            fits = avoid_fits(size, win, avoid) if avoid else True
+            clear = ov < CINE["under_text_share"] - 1e-9
+            # A49: among the house's own golden-band/eye-line candidates, one that already reads clear of an
+            # active text zone (and still fits every avoid box whole, A7/A41's coverage truth) wins first (by
+            # the usual scoring, among those); only when none clears it does overlap itself decide (the
+            # reviewer item that follows names how close it came)
+            key = (not fits, not clear, miss if (fits and clear) else ov, eye_dist if (fits and clear) else 0.0)
             if best is None or key < best[0]:
-                best = (key, ax_, ay_)
-    (best_hits, *_), ax_, ay_ = best
+                best = (key, ax_, ay_, ov, fits)
+    _, ax_, ay_, best_overlap, best_fits = best
     pose = {"z": z, "x": (ax_ + ww / 2.0) / iw, "y": (ay_ + wh / 2.0) / ih}
     if avoid:
-        pose["avoid_clear"] = best_hits == 0
+        pose["avoid_clear"] = best_fits and best_overlap < CINE["under_text_share"] - 1e-9
     return pose
 
 
@@ -1040,34 +1089,40 @@ def aimed_breath(size, aspect: float, boxes, record: bool, aerial: bool = False,
     def pose_at(v: float) -> dict:
         return settle({"z": 1.0, "x": 0.5, "y": 0.5, ax: v / side}, size, aspect)
 
+    def win_at(v: float) -> tuple:
+        q = pose_at(v)
+        return window(size, aspect, q["z"], q["x"], q["y"])
+
     def clear(v: float) -> bool:
         if not avoid:
             return True
-        q = pose_at(v)
-        win_px = window(size, aspect, q["z"], q["x"], q["y"])
-        share = CINE["under_text_block_share"]
-        for box, zone in avoid:
-            fb = project_box(size, win_px, box)
-            if fb is not None and box_overlap_share(fb, zone) >= share - 1e-9:
-                return False
-        return True
+        win = win_at(v)
+        return avoid_fits(size, win, avoid) and avoid_overlap(size, win, avoid) < CINE["under_text_share"] - 1e-9
 
     if avoid:
         spare = max(0.0, budget - (hi - lo))
         lo_v, hi_v = min(a, b), max(a, b)
         if spare > 1e-6:
-            if not clear(lo_v):
-                step, extended = spare / 20.0, lo_v
-                while not clear(extended) and extended - lo_v < spare - 1e-6:
-                    extended = max(lo_c, extended - step)
-                if clear(extended):
-                    lo_v = extended
-            if not clear(hi_v):
-                step, extended = spare / 20.0, hi_v
-                while not clear(extended) and hi_v - extended < spare - 1e-6:
-                    extended = min(hi_c, extended + step)
-                if clear(extended):
-                    hi_v = extended
+            for edge, grow in ((lo_v, -1.0), (hi_v, 1.0)):
+                if clear(edge):
+                    continue
+                # A49: step outward within the same breath budget for the least overlap, preferring the point
+                # closest to the box's own tight edge among any that read clear of the lint's warn share
+                win0 = win_at(edge)
+                best_v = edge
+                best_key = avoid_key(avoid_overlap(size, win0, avoid), 0.0, fits=avoid_fits(size, win0, avoid))
+                step = spare / 40.0
+                v = edge
+                for k in range(1, 41):
+                    v = max(lo_c, min(hi_c, edge + grow * step * k))
+                    win = win_at(v)
+                    key = avoid_key(avoid_overlap(size, win, avoid), abs(v - edge), fits=avoid_fits(size, win, avoid))
+                    if key < best_key:
+                        best_key, best_v = key, v
+                if edge == lo_v:
+                    lo_v = best_v
+                else:
+                    hi_v = best_v
             a, b = (lo_v, hi_v) if a <= b else (hi_v, lo_v)
     first = pose_at(a)
     last = pose_at(b)
@@ -1414,35 +1469,36 @@ def creep(p: dict, h: float, size, aspect: float, zmax: float, *, prefer=None, n
     none does, a ``keep_strict`` stop (people) holds; any other drifts a few
     per cent past its subject's edge rather than freeze (no dead holds).
 
-    ``avoid`` (A49): when the drift this would otherwise choose re-covers a
-    must_show box with an active text zone, a few other directions are
-    tried (still honouring ``keep``/``keep_strict``), preferring the first
-    that clears it; staying put (no breath at all, for this hold) is tried
-    last, before giving up and returning the original choice (truth never
-    costs the engine a refusal, but a breath several directions away is
-    better than one, and no breath is better than a wrong one)."""
+    ``avoid`` (A49): a few other directions are tried too (still honouring
+    ``keep``/``keep_strict``), plus staying put (no breath at all, for this
+    hold); the one with the least overlap wins, preferring the default
+    direction's own choice among those that already read clear of the lint's
+    warn share (``avoid_key``: the reviewer's own ruling is that ducking a
+    refusal while still warning has moved the wrong way), so the engine
+    never refuses itself here (ruling 2) and never moves further than it
+    has to."""
     base = _creep_step(p, h, size, aspect, zmax, prefer=prefer, no_zoom=no_zoom, breath=breath, keep=keep,
                        keep_strict=keep_strict)
     if not avoid:
         return base
 
-    def clear(q: dict) -> bool:
-        win = window(size, aspect, q["z"], q["x"], q["y"])
-        share = CINE["under_text_block_share"]
-        for box, zone in avoid:
-            fb = project_box(size, win, box)
-            if fb is not None and box_overlap_share(fb, zone) >= share - 1e-9:
-                return False
-        return True
+    def win_of(q: dict) -> tuple:
+        return window(size, aspect, q["z"], q["x"], q["y"])
 
-    if clear(base[0]):
-        return base
+    candidates = [(base, 0.0)]
     for alt in ((1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)):
         q, how = _creep_step(p, h, size, aspect, zmax, prefer=alt, no_zoom=no_zoom, breath=breath, keep=keep,
                              keep_strict=keep_strict)
-        if clear(q):
-            return q, how
-    return (dict(p), "held") if clear(p) else base
+        candidates.append(((q, how), 1.0))
+    candidates.append(((dict(p), "held"), 2.0))        # staying put: the furthest from the plan, tried last
+    best, best_key = None, None
+    for (q, how), distance in candidates:
+        win = win_of(q)
+        ov = avoid_overlap(size, win, avoid)
+        key = avoid_key(ov, distance, fits=avoid_fits(size, win, avoid))
+        if best_key is None or key < best_key:
+            best, best_key = (q, how), key
+    return best
 
 
 def _creep_step(p: dict, h: float, size, aspect: float, zmax: float, *, prefer=None, no_zoom: bool = False,
