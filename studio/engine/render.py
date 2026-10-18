@@ -5430,17 +5430,23 @@ def load_narrator_profile(narrator_voice: dict | None, path: Path | None = None)
 
 def narrator_profile_from_takes(takes: list[tuple[Path, str]], voice: dict) -> dict:
     """A stored narrator profile from approved takes (WAV, spoken text): each
-    take levelled to DIALOGUE_LUFS and profiled as narration lines are, then
-    the median f0 and centroid (the drift check's reference)."""
+    take cleaned (A19's clean_voice) then levelled to DIALOGUE_LUFS and
+    profiled, in the same order process_take measures a narration line's
+    own A14 profile (cleaned, then levelled, then profiled, before any EQ),
+    so the reference is measured on the same signal the drift check judges
+    against. Then the median f0 and centroid (the drift check's
+    reference)."""
     per = {}
     for path, text in takes:
         x = _read_wav(Path(path))
+        x, _cleaned = clean_voice(x)
         g, _ = level_gain(x, DIALOGUE_LUFS)
         per[Path(path).name] = dict(voice_profile(x * 10 ** (g / 20), len(WORD_RE.findall(text))),
                                     sha256=sha256_file(path)[:16])
     base = {k: round(float(np.median([p[k] for p in per.values()])), 2) for k in ("f0_hz", "centroid_hz")}
     return {"voice": voice, "baseline": base, "takes": per,
-            "method": "studio.engine.render.voice_profile on each take levelled to -20 LUFS; median over the takes"}
+            "method": "studio.engine.render.clean_voice (A19) then voice_profile on each take levelled to -20 LUFS, "
+                      "the same order process_take measures a narration line's own profile; median over the takes"}
 
 
 def narrator_drift(baseline: dict, stored: dict | None) -> dict:

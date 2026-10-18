@@ -1,6 +1,8 @@
 """Founder rulings for "Real World" (11 September 2001): CC BY-SA allowed for that film only, scoped by the
 screenplay's ``share_alike`` declaration (its DECISIONS entry); the narrator Zoe lowered 2 semitones (2026-10-16);
-and Tara lowered 1 semitone (2026-10-18, after a narrator audition), each held to a stored profile entry of her own."""
+and, after a narrator audition, Tara at a declared pitch_shift_st of +0.76 (2026-10-18: the raw film lines measured
+159.64 Hz against the approved audition sound's 166.76 Hz, 12*log2(166.76/159.64) = +0.76 st), each held to a
+stored profile entry of her own."""
 
 import json
 import math
@@ -14,7 +16,7 @@ from studio.engine import journal as J
 from studio.engine import render as R
 
 ZOE = {"engine": "orpheus", "voice": "zoe", "pitch_shift_st": -2}
-TARA_1ST = {"engine": "orpheus", "voice": "tara", "pitch_shift_st": -1}
+TARA_1ST = {"engine": "orpheus", "voice": "tara", "pitch_shift_st": 0.76}
 DECISION = "docs/DECISIONS.md 2026-10-17: CC BY-SA for Real World only"
 
 
@@ -99,11 +101,11 @@ def test_zoe_is_chosen_by_voice_and_shift():
 
 
 # --------------------------------------------------------------------------
-# Tara, lowered 1 semitone (supersedes Zoe for this film)
+# Tara, at the film's declared +0.76 st (supersedes the -1 st reading of the same ruling)
 # --------------------------------------------------------------------------
 
 
-def test_the_committed_profile_holds_tara_lowered_one_semitone():
+def test_the_committed_profile_holds_tara_at_the_films_declared_shift():
     prof = json.loads(R.NARRATOR_PROFILE.read_text(encoding="utf-8"))
     assert prof["voice"] == {"engine": "orpheus", "voice": "tara"}          # the stock entry is still unshifted Tara
     (t1,) = [v for v in prof["variants"] if v["voice"] == TARA_1ST]
@@ -114,34 +116,36 @@ def test_the_committed_profile_holds_tara_lowered_one_semitone():
     # every take carries its provenance: a (truncated) sha256 of the exact source file
     for name, take in t1["takes"].items():
         assert len(take["sha256"]) == 16
-    assert "rw-narrator-audition/takes/tara-1st__P1.wav" in t1["_note"]   # pre-chain: shift only, no warm EQ baked in
-    assert "2026-10-18" in t1["_note"]
+    assert "rw-narrator-audition/takes/tara-1st__P1.wav" in t1["_note"]   # pre-chain: the approved sound, un-mastered
+    assert "+0.76" in t1["_note"] and "2026-10-18" in t1["_note"]
+    # no stale -1 st entry is left behind: the ruling is held under one key only
+    assert not [v for v in prof["variants"] if v["voice"].get("voice") == "tara" and v["voice"].get("pitch_shift_st") == -1]
 
 
-def test_tara_1st_is_chosen_by_voice_and_shift():
+def test_tara_is_chosen_by_voice_and_the_films_declared_shift():
     t1, why = R.load_narrator_profile(TARA_1ST)
-    assert t1["voice"] == TARA_1ST and "orpheus:tara shifted -1 st" in why
+    assert t1["voice"] == TARA_1ST and "orpheus:tara shifted +0.76 st" in why
     none, why = R.load_narrator_profile({"engine": "orpheus", "voice": "tara"})   # unshifted tara keeps its own entry
     assert none is not None and none["voice"] == {"engine": "orpheus", "voice": "tara"}
     tara_2st, _ = R.load_narrator_profile({"engine": "orpheus", "voice": "tara", "pitch_shift_st": -2})
     assert tara_2st["voice"]["pitch_shift_st"] == -2                              # the -2 st entry is unaffected
     zoe, _ = R.load_narrator_profile(ZOE)
     assert zoe["voice"]["voice"] == "zoe"                                         # Zoe's own entry is unaffected
-    missing, why = R.load_narrator_profile({"engine": "orpheus", "voice": "tara", "pitch_shift_st": -1.5})
-    assert missing is None and "none has that shift" in why
+    missing, why = R.load_narrator_profile({"engine": "orpheus", "voice": "tara", "pitch_shift_st": -1})
+    assert missing is None and "none has that shift" in why                      # the old -1 st key is gone
 
 
 def test_narrator_profile_from_takes_is_hermetic_and_keyed_by_voice(tmp_path):
     """A tiny synthetic take (a steady 170 Hz tone, well inside the voiced-pitch band) run through the engine's own
-    ``narrator_profile_from_takes``, exactly as the committed Tara -1 st entry was made, with no network, no model
-    and no checked-in media."""
+    ``narrator_profile_from_takes``, exactly as the committed Tara +0.76 st entry was made, with no network, no
+    model and no checked-in media."""
     rate = R.AUDIO_RATE
     t = np.arange(int(2.0 * rate)) / rate
     tone = (0.2 * np.sin(2 * np.pi * 170.0 * t)).astype(np.float32)
     wav = tmp_path / "synthetic-take.wav"
     sf.write(str(wav), tone, rate)
 
-    voice = {"engine": "orpheus", "voice": "tara", "pitch_shift_st": -1}
+    voice = {"engine": "orpheus", "voice": "tara", "pitch_shift_st": 0.76}
     prof = R.narrator_profile_from_takes([(wav, "a short synthetic line for the test")], voice)
 
     assert prof["voice"] == voice
@@ -150,3 +154,26 @@ def test_narrator_profile_from_takes_is_hermetic_and_keyed_by_voice(tmp_path):
     assert 165 < take["f0_hz"] < 175                                 # the tone's own pitch, within measurement noise
     assert take["sha256"] == R.sha256_file(wav)[:16]                 # provenance matches the exact source bytes
     assert math.isclose(prof["baseline"]["f0_hz"], take["f0_hz"])    # a single take: baseline is that take
+
+
+def test_narrator_profile_from_takes_matches_process_takes_own_measurement(tmp_path):
+    """process_take runs A19's clean_voice before levelling, then profiles the cleaned, levelled take (A14) before
+    any EQ (render.py's process_take). narrator_profile_from_takes must measure the reference the same way, or the
+    stored baseline is not comparable to what A14 judges a rendered narration line against. One synthetic take,
+    run through both paths, must come out identical."""
+    rate = R.AUDIO_RATE
+    t = np.arange(int(2.0 * rate)) / rate
+    tone = (0.2 * np.sin(2 * np.pi * 170.0 * t)).astype(np.float32)
+    wav = tmp_path / "synthetic-take.wav"
+    sf.write(str(wav), tone, rate)
+    text = "a short synthetic line for the test"
+
+    prof = R.narrator_profile_from_takes([(wav, text)], TARA_1ST)
+    (take,) = prof["takes"].values()
+
+    x = R._read_wav(wav)
+    rec = R.process_take(x, {"kind": "narration", "text": text}, eq=None, reader_eq=None)[2]
+    ref = rec["profile"]
+    assert ref is not None
+    for k in ("f0_hz", "centroid_hz", "words", "speech_s", "voiced_frames", "active_frames"):
+        assert take[k] == ref[k], k
