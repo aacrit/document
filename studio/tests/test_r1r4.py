@@ -299,7 +299,11 @@ def test_a29_the_offline_check_reads_a_films_cues(tmp_path):
 
 def _black_film(tmp_path, **shot):
     film = make_film(tmp_path / "film")
-    tone(film / "audio" / "L2.wav", 5.0, 330.0)                      # the reading now runs 5 s over S8 (black) and S9 (card)
+    # the reading now runs 5 s over S8 (black) and S9 (card): two 2.5 s test-tone takes end to end, so the take has
+    # pauses enough to pass A19 at plan time (one 5 s tone has too few: take_lints would refuse it before A30)
+    import soundfile as sf
+    halves = [sf.read(str(tone(film / "audio" / f"L2-{k}.wav", 2.5, 330.0)), dtype="float32")[0] for k in (0, 1)]
+    sf.write(str(film / "audio" / "L2.wav"), np.concatenate(halves), 48000)
     _edit_play(film, lambda p: _shot(p, "S8").update(**shot))
     return film
 

@@ -259,6 +259,7 @@ def test_archival_audio_is_never_eqd(film):
     x = R._read_wav(film / "audio" / "L2.wav")
     plan["lines"] = [dict(ln, archival_audio=True) if ln["id"] == "L2" else ln for ln in plan["lines"]]
     stems = {}
+    j = J.Journal(film="r13-archival-mix")                        # the plan's journal holds its plan-time reader-eq
     mix, placed = R.build_mix(plan, film, j, stems=stems)
     L2 = {x["id"]: x for x in placed["lines"]}["L2"]
     assert L2["kind"] == "archival" and L2["level_db"] is None

@@ -690,9 +690,9 @@ def _shot(play, sid):
     return next(s for p in play["parts"] for s in p["shots"] if s["id"] == sid)
 
 
-def _plan(film, name="t"):
+def _plan(film, name="t", **kw):
     j = J.Journal(film=name)
-    return R.build_plan(film, W=640, H=360, burn_subtitles=False, journal=j), j
+    return R.build_plan(film, W=640, H=360, burn_subtitles=False, journal=j, **kw), j
 
 
 def test_a_synthetic_still_cannot_be_marked_archive(tmp_path):
@@ -1254,7 +1254,9 @@ def test_a13_a_sustained_10_db_cut_is_a_bad_take(tmp_path):
     assert any("over 8 dB for" in b for b in peak["bad_take"])
     film = make_film(tmp_path / "film")
     _wav(film / "audio" / "L1.wav", x)
-    plan, _ = _plan(film)
+    with pytest.raises(R.Refused, match=r"^voice-peak-control \(A13\).*L1 \(.*over 8 dB for"):
+        _plan(film)                                                   # the plan refuses it first (take_lints)
+    plan, _ = _plan(film, voice_lints="off")                          # the mix's own copy still refuses it
     j = J.Journal(film="bad-take")
     with pytest.raises(R.Refused, match=r"voice-peak-control \(A13\).*L1 \(.*over 8 dB for"):
         R.build_mix(plan, film, j)
@@ -1277,7 +1279,7 @@ def test_a13_a_line_over_1_db_for_a_quarter_of_it_is_a_bad_take(tmp_path):
     assert any("over 1 dB for" in b and "limit 20%" in b for b in peak["bad_take"])
     film = make_film(tmp_path / "film")
     _wav(film / "audio" / "L2.wav", x)
-    plan, _ = _plan(film)
+    plan, _ = _plan(film, voice_lints="off")                          # the take as the mix holds it, with no reader EQ
     plan["reader_eq"] = {}     # this test is about peak control: no reader EQ (A38 refined) reshaping the take first
     with pytest.raises(R.Refused, match=r"voice-peak-control \(A13\).*L2 \(.*over 1 dB for"):
         R.build_mix(plan, film, J.Journal(film="crushed"))
@@ -1709,7 +1711,9 @@ def test_a13_only_the_3_db_bound_fails(tmp_path):
     assert len(peak["bad_take"]) == 1 and "over 3 dB for" in peak["bad_take"][0] and "limit 5%" in peak["bad_take"][0]
     film = make_film(tmp_path / "film")
     _wav(film / "audio" / "L1.wav", x)
-    plan, _ = _plan(film)
+    with pytest.raises(R.Refused, match=r"^voice-peak-control \(A13\).*L1 \(over 3 dB for"):
+        _plan(film)                                                   # the plan refuses it first (take_lints)
+    plan, _ = _plan(film, voice_lints="off")
     with pytest.raises(R.Refused, match=r"voice-peak-control \(A13\).*L1 \(over 3 dB for"):
         R.build_mix(plan, film, J.Journal(film="three-db"))
 
@@ -2445,7 +2449,9 @@ def test_a19_a_take_that_stays_noisy_refuses_a_final_render_and_warns_under_draf
     x, _ = _speechlike(seed=2)
     x = (x + rng.normal(0, 10 ** (-38 / 20), len(x))).astype(np.float32)      # hiss 38 dB up: no pause clean enough
     sf.write(str(film / "audio" / "L1.wav"), x, 48000, subtype="FLOAT")
-    plan, j = _plan(film, "noisy")
+    with pytest.raises(R.Refused, match=r"^voice-clean and voice-chop \(A19\).*L1"):
+        _plan(film, "noisy-plan")                                     # the plan refuses it first (take_lints)
+    plan, j = _plan(film, "noisy", voice_lints="off")
     with pytest.raises(R.Refused, match=r"voice-clean and voice-chop \(A19\).*L1"):
         R.build_mix(plan, film, j)
     assert {e["severity"] for e in lints(J.read(j.path), "voice-clean") if e["unit"] == "L1"} == {"block"}

@@ -566,7 +566,10 @@ def plan_stills(film: Path, journal: J.Journal, *, skip_sound_lints: bool = Fals
     with _redirect_film_caches(cache_dir):
         # write_overlays false: a preview tool's plan never writes <ledger>.levels.json (A46) beside the film,
         # the same rule as the bounds/spans caches above
-        return R.build_plan(film, W=W, H=H, burn_subtitles=False, journal=journal, play=play, write_overlays=False)
+        # voice_lints off: the takes' sound lints (render.take_lints) neither measure nor write their cache here; a
+        # picture preview stays fast and says so in its journal
+        return R.build_plan(film, W=W, H=H, burn_subtitles=False, journal=journal, play=play, write_overlays=False,
+                            voice_lints="off")
 
 
 def plan_sha(film: Path) -> str:

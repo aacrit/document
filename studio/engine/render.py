@@ -2437,7 +2437,12 @@ def text_zone_timeline(play: dict, texts: list[dict]) -> list[dict]:
 
 
 def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Journal, play: dict | None = None,
-               write_overlays: bool = True) -> dict:
+               write_overlays: bool = True, draft: bool = False, voice_lints: str = "run") -> dict:
+    """The film's plan, every plan-time lint journaled and every blocking
+    one refused. Last, the take-only sound lints (take_lints: A13, A14,
+    A19, A38 on the takes) at the severity the mix gives them, ``draft``
+    making them warnings as it does there; ``voice_lints`` "off" skips them
+    (a preview tool's plan, which also passes ``write_overlays`` False)."""
     play = play if play is not None else json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
     if "parts" not in play:
         raise Refused("screenplay.json has no parts: it is not format v2 (GRAMMAR 12); studio/sketch.py renders v1")
@@ -3206,6 +3211,11 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                                  evidence={"clip": x["clip"], "speaker": x["speaker"]})
         if lint_fail:
             raise Refused("lint failed: " + "; ".join(lint_fail))
+    # ticket preflight-voice: the takes' own sound lints, before any render (a voice refusal used to surface only in
+    # the mix, after HEAVY.lock); cached by take sha, and not journaled again by this run's mix
+    plan["_takes"] = take_lints(journal, plan, film, draft=draft, mode=voice_lints)
+    if plan["_takes"] and plan["_takes"]["refusal"]:
+        raise Refused(plan["_takes"]["refusal"])
     return plan
 
 
@@ -4913,22 +4923,30 @@ def _level(journal: Journal, unit: str, x: np.ndarray, target: float, what: str)
     linear gain (never archival audio, which keeps its own level and
     dynamics), and journal the gain as a decision."""
     g, m = level_gain(x, target)
+    _journal_level(journal, unit, g, m, len(x), target, what)
+    return g
+
+
+def _journal_level(journal: Journal, unit: str, g: float | None, m: dict, n: int, target: float, what: str) -> None:
+    """_level's decision (and its level-measured warning when the line or cue
+    could not be measured), from the gain and measurement of an ``n``-sample
+    line; split out so a take's record from the plan-time cache journals the
+    same events (take_lints)."""
     if g is None:
         journal.decision("assembly", f"{unit} not levelled", "empty or too quiet to measure (gated out)", unit=unit,
-                         evidence={"measured_i": m.get("input_i"), "dur_s": round(len(x) / AUDIO_RATE, 3)})
+                         evidence={"measured_i": m.get("input_i"), "dur_s": round(n / AUDIO_RATE, 3)})
         # a line or cue that cannot be levelled (and so is not peak-controlled) is said, not silently passed
         journal.lint("level-measured", False, stage="assembly", phase="preflight", unit=unit, severity="warn", grammar="A13",
-                     evidence={"what": what, "dur_s": round(len(x) / AUDIO_RATE, 3), "measured_i": m.get("input_i"),
+                     evidence={"what": what, "dur_s": round(n / AUDIO_RATE, 3), "measured_i": m.get("input_i"),
                                "result": "placed at its own level, with no peak control"})
-        return None
+        return
     looped = m.get("looped", 1)
     journal.decision("assembly", f"{unit} levelled to {target:g} LUFS ({what}) by {g:+.2f} dB",
                      f"measured {m['input_i']:.2f} LUFS integrated, true peak {m['input_tp']:.2f} dBTP; linear gain only"
-                     + (f"; the line is {len(x) / AUDIO_RATE:.3f} s, under one {LEVEL_MIN_S:g} s gating block, so it was "
+                     + (f"; the line is {n / AUDIO_RATE:.3f} s, under one {LEVEL_MIN_S:g} s gating block, so it was "
                         f"measured looped {looped} times" if looped > 1 else ""),
                      unit=unit, evidence={"measured_i": m["input_i"], "measured_tp": m["input_tp"], "target": target, "gain_db": round(g, 2),
                                           "measured_looped": looped})
-    return g
 
 
 def _journal_clean(journal: Journal, unit: str, rep: dict, level: float | None, draft: bool = False) -> list[str]:
@@ -5452,6 +5470,263 @@ def narrator_consistency_lints(journal: Journal, profiles: dict[str, dict], draf
     return off
 
 
+# --------------------------------------------------------------------------
+# Take lints at plan time (ticket preflight-voice): every sound lint whose
+# inputs are a take's WAV and the screenplay, not the mix, runs in build_plan
+# with the severity it has in the mix, cached by the take's sha256.
+# --------------------------------------------------------------------------
+
+# Every lint the sound path journals, and why it can or cannot run before the mix. "take-only": its inputs are
+# one take's WAV (or the film's narration takes together) and the screenplay, so build_plan runs it (take_lints)
+# at the severity the mix gives it, and a full render does not journal it twice; ``plan`` names the rule(s) that
+# judge it at plan time. "needs full mix": it reads the placed or levelled mix, the reels' own sound as placed, or
+# the score as ducked, so only the mix can judge it. studio/tests/test_preflight_voice.py holds this table to the
+# code (every lint the mix path journals is listed) and every take-only rule to the plan.
+SOUND_LINTS: dict[str, dict] = {
+    "audio-present": {"class": "take-only", "plan": ("sources-readable", "take-cue"),
+                      "why": "a voice WAV or the take stem exists: preflight_sources (sources-readable) and build_plan's "
+                             "take-cue judge it before the mix; the mix journals audio-present only under --draft"},
+    "level-measured": {"class": "take-only", "plan": ("level-measured",),
+                       "why": "a take too quiet to level, on the take alone (a music cue's copy stays in the mix)"},
+    "voice-clean": {"class": "take-only", "plan": ("voice-clean",), "why": "A19, the take cleaned and levelled alone"},
+    "voice-chop": {"class": "take-only", "plan": ("voice-chop",), "why": "A19, the take cleaned alone"},
+    "voice-beside": {"class": "take-only", "plan": ("voice-beside",), "why": "A19 (a warning), the take cleaned alone"},
+    "voice-peak-control": {"class": "take-only", "plan": ("voice-peak-control",),
+                           "why": "A13 at A15's fixed voice ceiling, on the levelled take; its pass-2 copy at the "
+                                  "derived ceiling (voice_ceiling_pass) needs the mix and stays there"},
+    "narrator-consistency": {"class": "take-only", "plan": ("narrator-consistency",),
+                             "why": "A14, every narration take's profile against the plain and measured lines"},
+    "narrator-drift": {"class": "take-only", "plan": ("narrator-drift",),
+                       "why": "A14, the narration takes' baseline against the stored audition profile"},
+    "narrator-eq": {"class": "take-only", "plan": ("narrator-eq",), "why": "A38, the EQ measured on each narration take"},
+    "reader-eq": {"class": "take-only", "plan": ("reader-eq",), "why": "A38 refined, the EQ measured on each reading take"},
+    "archival-sound-edge": {"class": "needs full mix", "why": "A36, the reels' own sound as placed, every edge "
+                                                                "against the stem around it"},
+    "digital-silence": {"class": "needs full mix", "why": "the placed mix"},
+    "voiceless-floor": {"class": "needs full mix", "why": "6.1, the voice shares as placed"},
+    "readings-floor": {"class": "needs full mix", "why": "6.1, the voice shares as placed"},
+    "women-floor": {"class": "needs full mix", "why": "6.5, the voice shares as placed"},
+    "shortfall-measured": {"class": "needs full mix", "why": "6.5, the shares as placed"},
+    "pacing-guide": {"class": "needs full mix", "why": "A39, a reviewer item beside a pacing guide judged on the mix"},
+    "score-standard checks": {"class": "needs full mix", "why": "A29: score.score_checks on the cues as placed and "
+                                                                "ducked (stems), every rule it returns"},
+    "shortfall-fill": {"class": "needs full mix", "why": "E15, a card's numbers come from the mix's measurement"},
+    "card-fills-fit": {"class": "needs full mix", "why": "E15, the card as filled from the mix"},
+    "card-fills-drawn": {"class": "needs full mix", "why": "E15, the card as filled from the mix"},
+    "still-hold": {"class": "needs full mix", "why": "A39 guidance, the holds against the speech as placed"},
+    "loudness": {"class": "needs full mix", "why": "8.5, the levelled master"},
+    "loudnorm-linear": {"class": "needs full mix", "why": "8.5, the levelled master"},
+    "limiter-peak-only": {"class": "needs full mix", "why": "8.5, the levelled master's limiter"},
+}
+
+TAKE_LINT_MODES = ("run", "off")
+
+
+def takes_cache_dir(film: Path) -> Path:
+    """Where a take's plan-time record is kept: ``<film>/cache/takes`` unless
+    ``DOCUMENT_TAKES_CACHE`` names another folder (as DOCUMENT_SPANS_CACHE
+    and DOCUMENT_BOUNDS_CACHE do). A record is a small JSON named by the
+    hash of the take's sha256 and everything else that changes it, so one
+    folder may serve several films."""
+    env = os.environ.get("DOCUMENT_TAKES_CACHE")
+    return Path(env) if env else Path(film) / "cache" / "takes"
+
+
+def _plain(x):
+    """A take record as JSON holds it (numpy scalars and arrays to Python, tuples to lists), so a record read
+    from the cache and one just measured journal the same values."""
+    if isinstance(x, dict):
+        return {str(k): _plain(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [_plain(v) for v in x]
+    if isinstance(x, np.ndarray):
+        return _plain(x.tolist())
+    if isinstance(x, np.generic):
+        return x.item()
+    return x
+
+
+def process_take(x: np.ndarray, ln: dict, eq: dict | None, reader_eq: dict | None) -> tuple[np.ndarray, np.ndarray, dict]:
+    """One synthetic line's pass 1, as build_mix places it: A19's cleanup,
+    levelling to the dialogue target, the narrator's A14 profile (on the
+    levelled take, before any EQ), A38's EQ (``eq`` on narration, the
+    reader's own ``reader_eq`` on a reading), then A13's peak control at
+    A15's fixed ceiling. Returns the line as placed, the line before peak
+    control (pass 2 peak-controls it again) and the take's record: what its
+    lints read, and nothing that needs the mix."""
+    x, cleaned = clean_voice(x)
+    n = len(x)
+    g, m = level_gain(x, DIALOGUE_LUFS)
+    profile = eq_rec = rd_rec = peak = None
+    x0 = x
+    if g is not None:
+        x = x * np.float32(10 ** (g / 20))
+        if ln.get("kind") == "narration":
+            words = len(WORD_RE.findall(str(ln.get("text") or "")))
+            profile = voice_profile(x, words)
+            if eq is not None:                   # A38: after the narrator's profile (A14 judges her own voice), before peaks
+                x, eq_rec = SC.apply_voice_eq(x, eq)
+        elif reader_eq is not None:
+            # A38 refined: a reading, through its own voice's EQ, at the same place (after levelling and A19's
+            # cleaning, before peak control); archival audio never reaches here (it is not levelled)
+            x, rd_rec = SC.apply_voice_eq(x, reader_eq)
+        x0 = x                                   # E14: pass 2 peak-controls the levelled line again, at its own ceiling
+        x, peak = voice_peak_control(x)
+        if peak:
+            peak = dict(peak, acted=list(peak.get("acted") or [])[:20])   # what the journal keeps of it
+    rec = _plain({"n": n, "cleaned": cleaned, "level": g, "level_m": m, "profile": profile, "eq": eq_rec,
+                  "reader_eq": rd_rec, "peak": peak})
+    return x, x0, rec
+
+
+def journal_take(journal, ln: dict, rec: dict, draft: bool) -> tuple[list[str], str | None]:
+    """A take's own lints from its record (process_take), in build_mix's
+    order: the levelling (level-measured), A19 (voice-clean, voice-beside,
+    voice-chop) and A13 at the fixed ceiling (voice-peak-control). Returns
+    what A19 refuses and the bad take's reason (None when it is not one)."""
+    _journal_level(journal, ln["id"], rec["level"], rec["level_m"], rec["n"], DIALOGUE_LUFS, "dialogue")
+    unclean = _journal_clean(journal, ln["id"], rec["cleaned"], rec["level"], draft) if rec["cleaned"] is not None else []
+    bad = None
+    if rec["peak"]:
+        _journal_peak(journal, ln["id"], rec["peak"], draft)
+        if rec["peak"]["bad_take"]:
+            bad = f"{ln['id']} ({'; '.join(rec['peak']['bad_take'])})"
+    return unclean, bad
+
+
+def take_refusal(bad_takes: list[str], unclean: list[str], narrator_off: list[str], eq_off: list[str],
+                 draft: bool) -> str | None:
+    """The first refusal of the take lints, in build_mix's order and words (None: none refuses)."""
+    if bad_takes and not draft:
+        return f"voice-peak-control (A13): bad takes, re-render them instead of crushing them: {'; '.join(bad_takes)}"
+    if unclean:
+        return f"voice-clean and voice-chop (A19): re-render these takes (or render with --draft): {'; '.join(unclean)}"
+    if narrator_off and not draft:
+        return f"narrator-consistency and narrator-drift (A14): not the narrator's voice: {'; '.join(narrator_off)}"
+    if eq_off and not draft:
+        return f"narrator-eq and reader-eq (A38): the EQ applied is not the one declared: {'; '.join(eq_off)}"
+    return None
+
+
+class _Muted:
+    """A journal that writes nothing: build_mix's take lints when the plan already journaled them, for the
+    same takes, into the same journal (no double journaling). Their refusals are still computed."""
+
+    def lint(self, *a, **k):
+        return {}
+
+    def decision(self, *a, **k):
+        return {}
+
+    def event(self, *a, **k):
+        return {}
+
+
+def take_digest(rec: dict) -> str:
+    """A take record's digest: what build_mix compares to the plan's, so a take the mix measures differently
+    (a new take, another EQ) is journaled and judged again there."""
+    return hashlib.sha256(json.dumps(rec, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _take_key(sha: str, ln: dict, eq: dict | None, tools: dict) -> str:
+    words = len(WORD_RE.findall(str(ln.get("text") or ""))) if ln.get("kind") == "narration" else None
+    doc = {"take": sha, "narration": ln.get("kind") == "narration", "words": words, "eq": eq, "tools": tools}
+    return hashlib.sha256(json.dumps(doc, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def take_lints(journal: Journal, plan: dict, film: Path, *, draft: bool = False, mode: str = "run") -> dict | None:
+    """The take-only sound lints (SOUND_LINTS) at plan time, at the
+    severity build_mix gives them (blocking; warnings under --draft): each
+    synthetic line's levelling, A19 and A13 at the fixed ceiling, then A14
+    over the narration takes and A38 over the EQ'd ones. A take's record is
+    cached in takes_cache_dir under the hash of its sha256 with its kind,
+    word count, EQ, the engine's hash and the ffmpeg build, so a warm plan
+    measures nothing; the render's mix journals none of them again
+    (plan["_takes"] names the journal and each take record's digest: a
+    take the mix measures otherwise is journaled there). A missing WAV
+    is left to preflight_sources (sources-readable) and, under --draft, the
+    mix. ``mode`` "off" (a preview tool: sheets, tourlint) runs none and
+    reads and writes nothing. Returns what build_plan keeps, with
+    ``refusal`` (None when nothing refuses), or None when off."""
+    if mode not in TAKE_LINT_MODES:
+        raise ValueError(f"take lints mode {mode!r}: one of {TAKE_LINT_MODES}")
+    if mode == "off":
+        journal.decision("scout", "take lints not run: a preview plan",
+                         "a preview tool (contact sheets, tourlint) plans the pictures; the takes' lints run in every "
+                         "render's plan and pre-flight", unit="takes")
+        return None
+    t0 = time.perf_counter()
+    eq = plan.get("narrator_eq") if "narrator_eq" in plan else SC.narrator_eq_setting({})[0]
+    reader_eqs = plan.get("reader_eq") or {}
+    reader_of = plan.get("reader_voices") or {}
+    cache = takes_cache_dir(film)
+    tools = {"engine": ENGINE_HASH, "ffmpeg": ffmpeg_version()}
+    narr: dict[str, dict] = {}
+    eq_lines: dict[str, dict] = {}
+    rd_lines: dict[str, dict] = {}
+    placed: dict = {"lines": []}
+    unclean, bad_takes, digests = [], [], {}
+    hits = measured = 0
+    write_ok = True
+    for ln in plan["lines"]:
+        if archival_span(ln):
+            placed["lines"].append({"id": ln["id"], "kind": "archival"})
+            continue
+        wav = film / (ln.get("wav") or f"audio/{ln['id']}.wav")
+        if not wav.exists():
+            continue                             # sources-readable refuses it; a draft's mix places silence
+        if ln.get("archival_audio"):
+            placed["lines"].append({"id": ln["id"], "kind": "archival"})
+            continue
+        if "gain_db" in ln:                      # build_plan's voice-gain-db refuses it
+            continue
+        narration = ln.get("kind") == "narration"
+        placed["lines"].append({"id": ln["id"], "kind": "narration" if narration else "reading"})
+        line_eq = eq if narration else reader_eqs.get(reader_of.get(ln["id"]))
+        sha = sha256_file(wav)
+        f = cache / f"{_take_key(sha, ln, line_eq, tools)}.json"
+        rec = None
+        try:
+            if f.exists():
+                rec = json.loads(f.read_text(encoding="utf-8"))
+                hits += 1
+        except (OSError, ValueError):
+            rec = None
+        if rec is None:
+            _, _, rec = process_take(_read_wav(wav), ln, eq if narration else None, None if narration else line_eq)
+            measured += 1
+            if write_ok:
+                try:
+                    cache.mkdir(parents=True, exist_ok=True)
+                    tmp = f.with_name(f"{f.stem}.{os.getpid()}.tmp")
+                    tmp.write_text(json.dumps(rec), encoding="utf-8")
+                    os.replace(tmp, f)
+                except OSError:
+                    write_ok = False             # a read-only cache folder: measured every time, never refused for it
+        digests[ln["id"]] = take_digest(rec)
+        u, b = journal_take(journal, ln, rec, draft)
+        unclean += u
+        if b:
+            bad_takes.append(b)
+        if rec["profile"] is not None:
+            narr[ln["id"]] = dict(rec["profile"], mood=(ln.get("delivery") or {}).get("mood"))
+        if rec["eq"] is not None:
+            eq_lines[ln["id"]] = rec["eq"]
+        if rec["reader_eq"] is not None:
+            rd_lines[ln["id"]] = dict(rec["reader_eq"], voice=reader_of[ln["id"]])
+    narrator_off = narrator_consistency_lints(journal, narr, draft, plan.get("narrator_voice")) if narr else []
+    eq_off = narrator_eq_lints(journal, plan, eq, eq_lines, draft)
+    eq_off += reader_eq_lints(journal, plan, rd_lines, placed, draft)
+    wall = round(time.perf_counter() - t0, 2)
+    journal.decision("scout", f"take lints at plan time: {len(digests)} takes, {measured} measured, {hits} from the cache, "
+                     f"in {wall:g} s", "the take-only sound lints (SOUND_LINTS) run before any render, at the mix's "
+                     "severity; the mix does not journal them again", unit="takes",
+                     evidence={"takes": len(digests), "measured": measured, "cached": hits, "wall_s": wall,
+                               "cache": str(cache), "cache_written": write_ok and measured > 0, "draft": draft})
+    return {"run": journal.run, "draft": draft, "lines": digests, "wall_s": wall, "measured": measured, "cached": hits,
+            "refusal": take_refusal(bad_takes, unclean, narrator_off, eq_off, draft)}
+
+
 def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
               work: Path | None = None, stems: dict | None = None) -> tuple[np.ndarray, dict]:
     """The programme mix, in two passes (A15 refined, E14). Pass 1 levels,
@@ -5489,6 +5764,12 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
     reader_of = plan.get("reader_voices") or {}  # reading line id -> its voice
     rd_lines: dict[str, dict] = {}               # reading line id -> its EQ record
     parts: list[dict] = []                       # E14: every voice placement in order, so pass 2 can place them again
+    # take_lints: the takes the plan journaled into this journal at this severity (line id -> record digest); a take
+    # whose record here is the same is not journaled again
+    pt = plan.get("_takes") or {}
+    planned = bool(pt) and pt.get("run") == getattr(journal, "run", None) and pt.get("draft") == draft
+    pre = dict(pt.get("lines") or {}) if planned else {}
+    all_pre = True
     # A36 (R12): every archival segment's edges, planned together (a gap between two of one reel may be joined)
     segs = archival_segments(plan, film)
     plan_edges(segs, plan, film)
@@ -5524,31 +5805,25 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
         synthetic = not ln.get("archival_audio")
         if synthetic and "gain_db" in ln:        # build_plan refuses it (voice-gain-db); a hand-made plan is refused here too
             raise Refused(f"voice-gain-db (A13, A14): {ln['id']} carries gain_db; a synthetic line's level is set by the engine")
-        cleaned = None
-        if synthetic:                            # A19: cleaned before levelling; archival audio never is
-            x, cleaned = clean_voice(x)
-        level = _level(journal, ln["id"], x, DIALOGUE_LUFS, "dialogue") if synthetic else None
-        if cleaned is not None:
-            unclean += _journal_clean(journal, ln["id"], cleaned, level, draft)
-        peak = None
-        if level is not None:                    # A13: peak control on a synthetic line, after its levelling
-            x = x * np.float32(10 ** (level / 20))
-            if ln.get("kind") == "narration":
-                words = len(WORD_RE.findall(str(ln.get("text") or "")))
-                narr[ln["id"]] = dict(voice_profile(x, words), mood=(ln.get("delivery") or {}).get("mood"))
-                if eq is not None:               # A38: after the narrator's profile (A14 judges her own voice), before peaks
-                    x, eq_lines[ln["id"]] = SC.apply_voice_eq(x, eq)
-            elif reader_eqs.get(reader_of.get(ln["id"])) is not None:
-                # A38 refined: a reading, through its own voice's EQ, at the same place (after levelling and A19's
-                # cleaning, before peak control); archival audio never reaches here (it is not levelled)
-                x, rec = SC.apply_voice_eq(x, reader_eqs[reader_of[ln["id"]]])
-                rd_lines[ln["id"]] = dict(rec, voice=reader_of[ln["id"]])
-            x0 = x                               # E14: pass 2 peak-controls the levelled line again, at its own ceiling
-            x, peak = voice_peak_control(x)
-            if peak:
-                _journal_peak(journal, ln["id"], peak, draft)
-                if peak["bad_take"]:
-                    bad_takes.append(f"{ln['id']} ({'; '.join(peak['bad_take'])})")
+        cleaned = level = peak = None
+        if synthetic:
+            # A19, A13, A14, A38 pass 1 (process_take): cleaned before levelling (archival audio never is), profiled,
+            # EQ'd and peak-controlled. The plan journaled these lints for the same take into this journal
+            # (take_lints): computed again here for the sound, journaled once.
+            x, x0, rec = process_take(x, ln, eq, reader_eqs.get(reader_of.get(ln["id"])))
+            muted = pre.get(ln["id"]) == take_digest(rec)
+            all_pre = all_pre and muted
+            u, b = journal_take(_Muted() if muted else journal, ln, rec, draft)
+            unclean += u
+            if b:
+                bad_takes.append(b)
+            cleaned, level, peak = rec["cleaned"], rec["level"], rec["peak"]
+            if rec["profile"] is not None:
+                narr[ln["id"]] = dict(rec["profile"], mood=(ln.get("delivery") or {}).get("mood"))
+            if rec["eq"] is not None:
+                eq_lines[ln["id"]] = rec["eq"]
+            if rec["reader_eq"] is not None:
+                rd_lines[ln["id"]] = dict(rec["reader_eq"], voice=reader_of[ln["id"]])
         offset = mood_offset(journal, ln) if synthetic else 0.0
         place_db = offset if synthetic else float(ln.get("gain_db", 0.0))
         k = _place(voice, x, float(ln["start_s"]), place_db)                # levelling is in x
@@ -5569,9 +5844,14 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
                                 "floor_before_dbfs": None if cleaned is None else cleaned["before"]["floor_dbfs"],
                                 "floor_after_dbfs": None if not (cleaned and cleaned["cleaned"]) else cleaned["after"]["floor_dbfs"],
                                 "peak_reduction_db": peak["max_reduction_db"] if peak else None})
-    narrator_off = narrator_consistency_lints(journal, narr, draft, plan.get("narrator_voice")) if narr else []
-    eq_off = narrator_eq_lints(journal, plan, eq, eq_lines, draft)
-    eq_off += reader_eq_lints(journal, plan, rd_lines, placed, draft)
+    if planned and all_pre:
+        # every take here was judged by the plan, in this journal, with the same record, over the whole film's takes
+        # (take_lints): A14 and A38 are not judged again (a check render's trimmed plan would judge fewer lines)
+        narrator_off, eq_off = [], []
+    else:
+        narrator_off = narrator_consistency_lints(journal, narr, draft, plan.get("narrator_voice")) if narr else []
+        eq_off = narrator_eq_lints(journal, plan, eq, eq_lines, draft)
+        eq_off += reader_eq_lints(journal, plan, rd_lines, placed, draft)
     for c in plan["cues"]:
         wav = film / (c.get("wav") or f"audio/{c['id']}.wav")
         if not wav.exists():
@@ -5658,14 +5938,9 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
             placed["clips"].append(s["id"])
     if missing_voice and not draft:
         raise Refused(f"voice WAVs missing for {', '.join(missing_voice)} (render with --draft to place silence)")
-    if bad_takes and not draft:
-        raise Refused(f"voice-peak-control (A13): bad takes, re-render them instead of crushing them: {'; '.join(bad_takes)}")
-    if unclean:
-        raise Refused(f"voice-clean and voice-chop (A19): re-render these takes (or render with --draft): {'; '.join(unclean)}")
-    if narrator_off and not draft:
-        raise Refused(f"narrator-consistency and narrator-drift (A14): not the narrator's voice: {'; '.join(narrator_off)}")
-    if eq_off and not draft:
-        raise Refused(f"narrator-eq and reader-eq (A38): the EQ applied is not the one declared: {'; '.join(eq_off)}")
+    why = take_refusal(bad_takes, unclean, narrator_off, eq_off, draft)
+    if why:
+        raise Refused(why)
     edge_off = archival_edge_lints(journal, arch, segs, draft=draft)
     if edge_off:
         raise Refused(f"archival-sound-edge (A36): the reel's sound stops in one step: {'; '.join(edge_off)}")
@@ -7758,7 +8033,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
             raise Refused("source files missing or unreadable (pre-flight): " + "; ".join(
                 f"{b['unit']}: {b['file']} ({b['why']})" for b in bad_sources))
         with journal.unit("scout", "plan", size={"driver": "items", "value": 0}) as u:
-            plan = build_plan(film, W=W, H=H, burn_subtitles=burn_subtitles, journal=journal, play=play)
+            plan = build_plan(film, W=W, H=H, burn_subtitles=burn_subtitles, journal=journal, play=play, draft=draft)
             u.size = {"driver": "items", "value": len(plan["shots"])}
         # E15: binding on a run that renders the final frames; --draft, --audio-only (no frames) and --until (a check
         # render) journal them as warnings
@@ -8158,7 +8433,9 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
     journal = journal or Journal(film=film.name, out_dir=out)
     pr = probe_video(master)
     with journal.unit("scout", "sources-only", size={"driver": "items", "value": 0}) as u:
-        plan = build_plan(film, W=pr["width"], H=pr["height"], burn_subtitles=False, journal=journal, play=play)
+        # the master exists: its takes were judged by its render; sources.json is rewritten from the screenplay
+        plan = build_plan(film, W=pr["width"], H=pr["height"], burn_subtitles=False, journal=journal, play=play,
+                          voice_lints="off")
         u.size = {"driver": "items", "value": len(plan["shots"])}
     frames = count_frames(master)
     journal.lint("master-matches-plan", frames == plan["frames"], stage="assembly", phase="sources-only",
