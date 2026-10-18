@@ -424,3 +424,18 @@ def test_the_record_names_a_detail_only_when_the_deepest_frame_shows_40_percent_
     assert (BR.copy_phrase(cam) == "to one detail") == (scale == "detail")
     assert shown <= 1 / M.BRACKET_MIN_Z ** 2 + 1e-6                     # every bracket shows 64% or less at its deepest
     assert BR.sources_scale({"fill_exception": None}) is None
+
+
+def test_a_bracket_has_no_degenerate_stops_for_a49_refined_to_merge():
+    """A49 refined merges near-equal engine stops under a settle apart (tour.merge_degenerate on a TOUR path).
+    A bracket never reaches it (its own camera, no tour) and needs no merge: its whole, detail and whole are a
+    push of at least 1.25 / 1.06 apart, and every hold between them lasts at least the settle."""
+    cam = R.still_camera(shot_of({"people": False, "roi": [TEXT]}, 40.0), (420, 560), W, H)
+    assert cam.get("tour") is None and cam["bracket"] is not None
+    segs = cam["bracket"]["segments"]
+    for g in segs:
+        if g["kind"] in ("push", "pull"):
+            assert abs(math.log(g["b"]["z"] / g["a"]["z"])) >= math.log(M.BRACKET_MIN_Z / M.TOUR["whole_creep_max"]) - 1e-9
+    assert segs[0]["t1"] - segs[0]["t0"] >= M.CINE["settle_s"] - 1e-9
+    assert segs[2]["t1"] - segs[2]["t0"] >= M.CINE["settle_s"] - 1e-9
+    assert segs[-1]["t1"] - segs[-1]["t0"] >= M.CINE["settle_s"] - 1e-9
