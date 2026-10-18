@@ -238,6 +238,15 @@ def lead_room_check(verdict: dict) -> dict:
 # --------------------------------------------------------------------------
 
 
+LIVE_TEXT_ZONES = ("LT", "SUB")
+
+
+def is_live_text(span: dict) -> bool:
+    """A51: a text span that is live text over the picture (a lower third
+    or a subtitle cue), not the always-on class glyph."""
+    return str(span.get("zone") or "").upper() in LIVE_TEXT_ZONES
+
+
 def subject_under_text(wins: Sequence[tuple], subject_box: tuple, size, *, text_spans: Sequence[dict],
                         is_face: bool = False, must_show: bool = False,
                         warn_share: float = SUBJECT_UNDER_TEXT_WARN_SHARE,
@@ -247,14 +256,20 @@ def subject_under_text(wins: Sequence[tuple], subject_box: tuple, size, *, text_
     mark zone while that zone is on screen (``text_spans``:
     ``[{"zone", "id", "box" (frame fractions), "t0", "t1"}]``; ``id`` names
     the lower third or the subtitle cue this span came from, for the
-    report). A face is never checked (A43: the house's own text is not
-    shrunk for a face, but a face is also never the thing this lint is
-    protecting). GUIDANCE at ``warn_share`` (10% overlap); BLOCK only when
+    report). GUIDANCE at ``warn_share`` (10% overlap); BLOCK only when
     ``must_show`` is true and the overlap reaches ``block_share``
     (effectively covered: a burned caption or a must-show region a viewer
-    cannot read, A0's truth guard, not a pacing choice)."""
+    cannot read, A0's truth guard, not a pacing choice).
+
+    ``is_face`` (A51, section 4's "faces never"; under A49 a face was not
+    checked at all): a face is judged against the live text only, the
+    lower thirds and subtitle cues (``LIVE_TEXT_ZONES``; the class glyph
+    is not live text), and reads as under it at any overlap past
+    ``CINE["face_under_text_share"]`` (0: never); a ``must_show`` face
+    blocks at that same overlap."""
     if is_face:
-        return {"ok": True, "block": False, "max_overlap": 0.0, "at_s": None, "zone": None, "cue": None}
+        warn_share = block_share = M.CINE["face_under_text_share"] + 1e-6
+        text_spans = [sp for sp in text_spans if is_live_text(sp)]
     worst, worst_at, worst_zone, worst_cue = 0.0, None, None, None
     for t, win in wins:
         active = [sp for sp in text_spans if sp["t0"] - 1e-9 <= t <= sp["t1"] + 1e-9]
@@ -271,6 +286,22 @@ def subject_under_text(wins: Sequence[tuple], subject_box: tuple, size, *, text_
     ok = worst < warn_share - 1e-9
     return {"ok": ok, "block": block, "max_overlap": round(worst, 4), "at_s": worst_at, "zone": worst_zone,
             "cue": worst_cue}
+
+
+def face_under_text(wins: Sequence[tuple], faces: Sequence[dict], size, *, text_spans: Sequence[dict]) -> list[dict]:
+    """A51 (``face-under-text``): every located face (``tour.face_boxes``)
+    that some frame puts under a live lower third or subtitle cue while it
+    is up, at any overlap (``subject_under_text`` with ``is_face``). Returns
+    one row per such face: {name, src, must_show, max_overlap, at_s, zone,
+    cue}; empty when every face is clear."""
+    rows = []
+    for f in faces:
+        r = subject_under_text(wins, f["box"], size, text_spans=text_spans, is_face=True,
+                               must_show=bool(f.get("must_show")))
+        if not r["ok"]:
+            rows.append({"name": f.get("name"), "src": f.get("src"), "must_show": bool(f.get("must_show")),
+                         **{k: r[k] for k in ("max_overlap", "at_s", "zone", "cue")}})
+    return rows
 
 
 # --------------------------------------------------------------------------
@@ -401,10 +432,14 @@ def continues_across_cut(cam: dict, s: dict) -> bool:
 
 def check_still(s: dict, cam: dict, size, *, fps: float, text_spans: Sequence[dict] | None = None,
                  must_show_boxes: Sequence[dict] | None = None, settle_kinds: dict | None = None,
-                 continues_across_cut: bool = False) -> dict:
+                 continues_across_cut: bool = False, faces: Sequence[dict] | None = None) -> dict:
     """Every GUIDANCE tour lint, plus ``subject-under-text``'s one BLOCK
     case, for one TOUR still. Returns a per-still dict with ``warnings`` and
-    ``blocks`` naming which lints fired."""
+    ``blocks`` naming which lints fired. ``faces`` (A51, ``tour.face_boxes``):
+    a face under live text is ``face-under-text``, a warning in this report
+    (the live plan journals it as a reviewer item on an engine path, a
+    warning on a written one, and blocks only a written path over a
+    ``must_show`` face)."""
     out = {"id": s.get("id")}
     tl = cam.get("tour")
     if not tl:
@@ -462,6 +497,10 @@ def check_still(s: dict, cam: dict, size, *, fps: float, text_spans: Sequence[di
             elif not r["ok"]:
                 warnings.append(f"subject-under-text:{ms.get('name')}")
         out["must_show_under_text"] = rows
+    if faces and spans:
+        rows = face_under_text([(t, w) for t, w in frame_windows(tl, fps)], faces, size, text_spans=spans)
+        out["face_under_text"] = rows
+        warnings += [f"face-under-text:{r['name']}" for r in rows]
 
     out["warnings"], out["blocks"] = warnings, blocks
     return out
@@ -523,7 +562,8 @@ def check_film(film: Path, *, W: int = 1920, H: int = 1080, skip_sound_lints: bo
         must_show = [{"name": r.get("name"), "box": T.roi_box(r), "kind": r.get("kind")}
                      for r in T.must_show_regions(s.get("_item") or {})]
         row = check_still(s, cam, size, fps=fps, text_spans=text_spans, must_show_boxes=must_show,
-                          settle_kinds=cam.get("settle_kinds"), continues_across_cut=continues_across_cut(cam, s))
+                          settle_kinds=cam.get("settle_kinds"), continues_across_cut=continues_across_cut(cam, s),
+                          faces=T.face_boxes(s.get("_item") or {}))
         per_still.append(row)
         chapters.setdefault(s.get("_part"), []).append(row.get("scale"))
         vectors.append(row.get("direction"))

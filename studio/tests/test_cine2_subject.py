@@ -497,7 +497,7 @@ def test_a_reversal_for_unlocated_people_only_is_journaled(tmp_path):
 
 def test_cue_and_label_synonyms_and_the_recorded_answers():
     from studio.engine import rulebook as RB
-    assert RB.RULEBOOK_VERSION == "8"
+    assert RB.RULEBOOK_VERSION == "9"                 # 9: a figure carries its face (A51)
     smoke = {"regions": [{"kind": "object", "label": "smoke", "x": 0.55, "y": 0.3, "w": 0.3, "h": 0.25}]}
     sub, why = RB.vl_subject("place", smoke, {"title": "From orbit", "people": "none"}, ["plume"])
     assert sub is not None and "plume" in why

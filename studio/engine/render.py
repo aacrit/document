@@ -1017,7 +1017,12 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
     one missing-person coverage escalates to, now ``avoid``-aware); if that
     still does not clear it, the engine keeps its best attempt and journals
     a reviewer item, never a refusal. Only a written ``camera`` path blocks
-    (``render.a49_tour_lints``), since it is never steered here."""
+    (``render.a49_tour_lints``), since it is never steered here.
+
+    A51: a ``subject`` region (a person's or the rulebook's) under HOLD is
+    never the author's path: the still takes the subject pass, with every
+    guarantee above; and a located face under live text is steered and
+    reported the same way as a ``must_show`` region (``_steer_from_text``)."""
     if cam.get("preset") != TOUR or not (cam.get("macro") in COVERABLE or cam.get("macro") == "TOUR"):
         return cam
     item = s["_item"]
@@ -1036,8 +1041,12 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
     # person's region or must_show does
     roi = item.get("roi")
     human_roi = [r for r in roi if isinstance(r, dict) and T.source_of(r) == "human"] if isinstance(roi, list) else roi
-    authored = bool(human_roi or item.get("must_show")) or cam["macro"] in ("TOUR", "DEFAULT")
     macro = cam["macro"]
+    # A51 (a human subject leads): a still the ledger gives a ``subject`` region (a person's or the rulebook's) under
+    # HOLD, the preset that only says "stay", takes the A47 subject pass; only a written camera path or a deliberate
+    # move preset (PUSH, PULL, DRIFT, TILT, DETAIL, FILL) stays the author's
+    leads = macro == "HOLD" and has_subject_region(item)
+    authored = (bool(human_roi or item.get("must_show")) and not leads) or macro in ("TOUR", "DEFAULT")
     if item.get("whole") is True and macro != "DEFAULT" and macro != "TOUR" and pc["ok"]:
         # A47 and A48: a still the ledger declares whole holds at the fill, its breath a drift (aimed at what
         # must be seen), never a preset's push, whoever named its regions
@@ -1049,6 +1058,17 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
                              "aimed so every must_show region is whole at some point", unit=s["id"],
                              evidence={"subject": (cam.get("subject") or {}).get("src"),
                                        "whole_mode": (cam.get("subject") or {}).get("whole_mode")})
+    elif pc["ok"] and leads:
+        cam = still_camera(s, size, W, H, words=words, cover="subject", fps=fps, avoid=avoid)
+        wins, pc = check(cam)
+        if journal is not None and pc["ok"]:
+            journal.decision("motion", f"{s['id']}: HOLD on a still with a subject made the subject pass",
+                             "A51: a subject region (a person's or the rulebook's) leads under HOLD; the pass ends "
+                             "on it (A47), its must_show regions and people guarded as for any engine pass",
+                             unit=s["id"], evidence={"subject": (cam.get("subject") or {}).get("src"),
+                                                     "human": any(T.source_of(r) == "human" for r in human_roi or []
+                                                                  if isinstance(r, dict)
+                                                                  and r.get("name") == "subject")})
     elif pc["ok"] and not pc["whole_shown"] and not authored:
         why = f"it shows {100 * T.coverage(wins, size):.0f}% of the picture"
         cam = still_camera(s, size, W, H, words=words, cover="subject", fps=fps, avoid=avoid)
@@ -1083,14 +1103,29 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
     return _steer_from_text(s, cam, size, W, H, words, journal, fps, avoid, text_spans, item)
 
 
+def has_subject_region(item: dict) -> bool:
+    """A51: the ledger (a person, or the A45 rulebook under them) names the
+    still's ``subject`` region, as the camera may use it
+    (``tour.effective_regions``)."""
+    return any(r.get("name") == "subject" and T.roi_box(r) is not None for r in T.effective_regions(item)["roi"])
+
+
 def _steer_from_text(s, cam, size, W, H, words, journal, fps, avoid, text_spans, item):
     """A49 (ruling 2): the last step of ``engine_cover``. A must_show region
     still covered by an active text zone escalates once to the subject pass
     (``avoid``-aware); still covered, the engine keeps its closest attempt
     and journals a reviewer item. Never a refusal here: only a written
-    ``camera`` path blocks (``a49_tour_lints``)."""
+    ``camera`` path blocks (``a49_tour_lints``).
+
+    A51 (faces never): a located face (``tour.face_boxes``) under a live
+    lower third or subtitle cue while it is up is steered the same way: the
+    subject pass, ``avoid``-aware, taken only when it puts fewer faces under
+    the text, shows every located person and every must_show region, and
+    covers no more must_show regions than the pass it replaces; a face it
+    cannot clear is a ``face-under-text`` reviewer item, never a refusal."""
     must_show_rois = T.must_show_regions(item)
-    if not must_show_rois or not text_spans:
+    faces = T.face_boxes(item)
+    if not (must_show_rois or faces) or not text_spans:
         return cam
 
     def missed_text(c):
@@ -1108,7 +1143,12 @@ def _steer_from_text(s, cam, size, W, H, words, journal, fps, avoid, text_spans,
                 out.append(r.get("name"))
         return out
 
-    ms_text = missed_text(cam)
+    def faces_under(c):
+        if c.get("tour") is None or not faces:
+            return []
+        return TL.face_under_text(still_windows(c, s, size, W, H, hz=fps), faces, size, text_spans=text_spans)
+
+    ms_text = missed_text(cam) if must_show_rois else []
     if ms_text and cam.get("macro") != "DEFAULT":
         cam2 = still_camera(s, size, W, H, words=words, cover="subject", fps=fps, avoid=avoid)
         still_missed = missed_text(cam2)
@@ -1126,6 +1166,30 @@ def _steer_from_text(s, cam, size, W, H, words, journal, fps, avoid, text_spans,
                      "check": "no steer the engine tried clears every must_show region of an active text zone; "
                               "a human can re-time the text, move the region or re-author the camera (never "
                               "refused here: ruling 2)"})
+    under = faces_under(cam)
+    if under and cam.get("macro") != "DEFAULT" and cam.get("cover") != "subject":
+        cam2 = still_camera(s, size, W, H, words=words, cover="subject", fps=fps, avoid=avoid)
+        under2 = faces_under(cam2)
+        wins2 = [w for _, w in still_windows(cam2, s, size, W, H, hz=fps)]
+        keeps = (T.people_check(wins2, T.people_of(item, kind=s["kind"]), size)["ok"]
+                 and not T.must_show(wins2, item, size) and len(missed_text(cam2)) <= len(ms_text))
+        better = keeps and len(under2) < len(under)
+        if journal is not None:
+            journal.decision("motion", f"{s['id']}: a face steered out from under live text" if better else
+                             f"{s['id']}: the subject pass would not clear a face of live text: kept",
+                             "A51 (faces never; ruling 2, the engine never refuses itself): a located face under "
+                             "a lower third or a subtitle while it is up is steered like a must_show region (the "
+                             "subject pass, avoid-aware), never at the cost of a person or a must_show region",
+                             unit=s["id"], evidence={"faces": [r["name"] for r in under],
+                                                     "after": [r["name"] for r in under2], "taken": better})
+        if better:
+            cam, under = cam2, under2
+    if under and journal is not None:
+        journal.lint("face-under-text", False, stage="motion", unit=s["id"], severity="review", grammar="A51",
+                     phase="preflight", evidence={"faces": under,
+                     "check": "a located face is under a live lower third or subtitle while it is up, and no steer "
+                              "the engine tried clears it; a human can re-time the text, re-author the camera or "
+                              "cut differently (never refused: ruling 2)"})
     return cam
 
 
@@ -1484,8 +1548,12 @@ def a49_tour_lints(lint, journal: Journal, s: dict, cam: dict, size, fps: float,
     already running across the cut: a ``match: "prev"`` opening, or a
     dissolve); ``end-pose-composition``'s borderline flag and ``lead-room``
     (both read A47's own verdict, never a second measurement); and
-    ``subject-under-text`` at the warn share for the subject itself (never
-    a face)."""
+    ``subject-under-text`` at the warn share for the subject itself (a face
+    at any overlap with live text, A51). A51's ``face-under-text`` on a
+    written path warns for every located face under live text (a
+    ``must_show`` face blocks through ``subject-under-text``); on an engine
+    path ``engine_cover`` already steered it and journaled what it could
+    not clear."""
     tl = cam.get("tour")
     if not tl:
         return
@@ -1557,6 +1625,17 @@ def a49_tour_lints(lint, journal: Journal, s: dict, cam: dict, size, fps: float,
         elif not res["ok"] and not res["block"]:
             journal.lint("subject-under-text", False, stage="motion", unit=s["id"], severity="warn", grammar="A49",
                          phase="preflight", evidence={"must_show": r.get("name"), **res})
+    if written:
+        # A51: a face under live text on a path a person wrote is a warning (a face is not must_show; a must_show
+        # face blocks above, as any must_show region does); an engine path was steered in engine_cover, and what
+        # it could not clear is already a reviewer item there
+        under = [f for f in TL.face_under_text(wins, T.face_boxes(s.get("_item") or {}), size, text_spans=text_spans)
+                 if not f["must_show"]]
+        if under:
+            journal.lint("face-under-text", False, stage="motion", unit=s["id"], severity="warn", grammar="A51",
+                         phase="preflight", evidence={"faces": under, "fix": "a written camera path puts a face "
+                                                      "under a lower third or a subtitle while it is up: re-time the "
+                                                      "text or move the stop"})
 
 
 def cine_lints(lint, journal: Journal, s: dict, cam: dict, fps: float = FPS) -> None:
@@ -2637,8 +2716,10 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                             "t1": min(float(s["_dur"]), z["t1"] - shot_a)} for z in zone_timeline
                            if z["t0"] < shot_b and z["t1"] > shot_a]
             active_zones = [z["box"] for z in zone_timeline if z["t0"] < shot_b and z["t1"] > shot_a]
-            avoid = [(T.roi_box(r), zone) for r in must_show_rois for zone in active_zones] if (
-                must_show_rois and active_zones) else None
+            # A49: every must_show box against every zone up over the shot; A51: every located face too ("faces
+            # never"), steered the same way, never a fit requirement and never a refusal
+            avoid = ([(T.roi_box(r), zone) for r in must_show_rois for zone in active_zones]
+                     + T.face_avoid(item, active_zones)) or None
             cam = still_camera(s, size, W, H, words=words, fps=fps, avoid=avoid)
             cam = engine_cover(s, cam, size, W, H, words, journal, fps=fps, avoid=avoid, text_spans=text_spans)
             s["_cam"] = cam
