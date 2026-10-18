@@ -125,7 +125,7 @@ def render(blend: Path, out_dir: Path, frames: list[int], label: str) -> list[fl
         args += ["-f", ",".join(map(str, frames))]
     t0 = time.time()
     proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
-    MY_LOCK.write_text(json.dumps({"group": "WG-4", "job": f"run proofs latch+galley ({label})", "pid": proc.pid,
+    MY_LOCK.write_text(json.dumps({"group": "WG-4", "job": f"The Run ({label})", "pid": proc.pid,
                                    "started": dt.datetime.now().isoformat(timespec="seconds")}), encoding="utf-8")
     lines = []
     try:

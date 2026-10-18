@@ -89,6 +89,8 @@ def tex(name: str, noncolor: bool = False):
 def check_provenance():
     ok = {i["id"] for i in LEDGER_V1["items"] if i.get("sha256") and not i.get("ai")}
     ok |= {i["id"] for i in LEDGER_C["items"] if i.get("sha256") and not i.get("ai")}
+    # the films' records: each is an item of its film's own ledger, pinned by sha256 in the title's ledger
+    ok |= {k for k, r in LEDGER_V1.get("records", {}).items() if r.get("sha256")}
     bad = [n for n in IMAGES if (MAN_C.get(n) or MAN_V1.get(n) or {}).get("from") not in ok]
     if bad:
         raise SystemExit(f"provenance check failed: {bad}")
