@@ -94,6 +94,8 @@ See `CHARTER.md` for its surfaces and kill dates, and `contract.yaml` for what
   `<film>/cache/spans`, or to `DOCUMENT_SPANS_CACHE` when set (keep them off a near-full system disk).
 - `python -m studio.engine.score <film dir> [--wavs <dir>]`: the house score standard (GRAMMAR A29) checked offline on the
   film's cue WAVs as its screenplay places them, with no mix rendered; `--wavs` swaps in a re-scored set of cues.
+- `python -m studio.engine.levels --check <film dir> [--json <file>]`: GRAMMAR A46's automatic black floor read-only on a
+  film's screenplay and ledgers, with no plan: which stills are floored, which opt out, and the grade-jump warnings.
 - `python -m studio.engine.voicing measure <film dir>... [--write]`: each reader voice's EQ (GRAMMAR A38 refined), measured
   on its takes in those films; `--write` rebuilds the house table `studio/reader-eq.json` (never edited by hand).
 - `python -m studio.engine.clips check <film dir>`: GRAMMAR A33 (clip integrity) read-only on a screenplay; `natural-out`,

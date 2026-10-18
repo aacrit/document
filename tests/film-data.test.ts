@@ -24,6 +24,7 @@ import {
   markAt,
   onDipBlack,
   markWords,
+  parseLevels,
   parseSources,
   parseTimecode,
   pct,
@@ -211,6 +212,19 @@ describe("words: sources, flags, the transcript, the record's silences", () => {
     expect(itemLinkLabel(clip)).toBe("The film at the Internet Archive");
     expect(shotTreatment(still)).toMatch(/^Shown whole, then the camera moves/);
     expect(shotTreatment({ ...clip, mark: { class: "RECONSTRUCTED", detail: "" }, alterations: ["colour cast removed"] })).toBe("Changed: colour cast removed.");
+  });
+
+  it("states a black floor (A46) and never says the picture is unchanged then", () => {
+    const still = film.shots.find((s) => s.id === "S02")!;
+    expect(parseLevels({ applied: true, black_in: 35, black_out: 10 })).toEqual({ black_in: 35, black_out: 10 });
+    expect(parseLevels({ applied: false, opt_out: true, reason: "the fade is the print" })).toBeNull();
+    expect(parseLevels(null)).toBeNull();
+    const floored = { ...still, levels: { black_in: 35, black_out: 10 } };
+    expect(shotTreatment(floored)).toMatch(/Black level set: the scan's grey floor taken down to near black by one flat level/);
+    expect(shotTreatment(floored)).toMatch(/Nothing else in the picture is changed\.$/);
+    expect(shotTreatment(floored)).not.toMatch(/Nothing in the picture is changed/);
+    expect(shotTreatment({ ...floored, mark: { class: "RECONSTRUCTED", detail: "" }, alterations: ["upscaled"] })).toMatch(/^Changed: upscaled\. Black level set/);
+    expect(shotTreatment({ ...still, levels: null })).toMatch(/Nothing in the picture is changed\.$/);
   });
 
   it("names the series titles (GRAMMAR A40) in plain words", () => {
