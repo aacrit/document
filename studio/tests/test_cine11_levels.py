@@ -218,6 +218,7 @@ def test_the_overlay_write_is_atomic(tmp_path, monkeypatch):
     entry = {"FX": {"version": LV.VERSION, "applied": False}}
     assert LV.write_overlays({str(led): entry}) == [str(tmp_path / "stills-ledger.levels.json")]
     before = (tmp_path / "stills-ledger.levels.json").read_bytes()
+    assert b"\r\n" not in before    # LF only: byte-identical whatever OS wrote it (Windows text mode would CRLF it)
     assert LV.write_overlays({str(led): entry}) == []          # unchanged content is not rewritten
 
     def boom(a, b):

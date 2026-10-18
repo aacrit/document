@@ -103,6 +103,8 @@ See `CHARTER.md` for its surfaces and kill dates, and `contract.yaml` for what
   (sidecars in `<film>/cache/bounds/`), and `lipsync` measures a talking-head clip's `av_offset_ms` (`--write` records it).
 - `python -m studio.engine.captions <render dir>`: write the English captions (captions-en.vtt) from the
   render's resolved screenplay (`studio/engine/captions.py`); they go to R2 with the film, poster and sources.json.
+- `python -m studio.engine.sheets <film dir> [--out <dir>] [--chapter <id>] [--skip-sound-lints]`: grid-overlay
+  contact sheets (no render), one PNG per chapter with the camera's own window, zones and ROI boxes per stop.
 - `node scripts/release-film.mjs <render dir>/master.mp4 [--trailer <file>] [--out <dir>] [--dry-run]`: the post-render
   release in order (--sources-only, 720p web encode, poster and publish packet, captions check, R2 upload with
   sources.json last, hashes); `--dry-run` prints every command and runs none. The trailer is optional (none declared,
