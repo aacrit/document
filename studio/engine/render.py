@@ -72,6 +72,7 @@ from PIL import Image
 from studio.engine import aswas as AW
 from studio.engine import cadence as CAD
 from studio.engine import clips as CL
+from studio.engine import levels as LV
 from studio.engine import maps as MP
 from studio.engine import motion as M
 from studio.engine import overlays as OV
@@ -2193,6 +2194,8 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                 journal.decision("motion", f"{s['id']}: fill_ok: false no longer holds a still whole",
                                  "A41: every still fills 16:9; a still kept whole states fill_exception (only when the "
                                  "softness cap cannot be met)", unit=s["id"])
+    # A46 (founder ruling 4): the automatic black floor on archive stills, logged in the ledger overlay; grade-jump
+    LV.plan_levels(shots, journal)
     continuity_lints(journal, shots, W, H)
     OV.lints(lint, shots, W, H, play)                # A32: marks drawn over a georeferenced archive sheet
     if lint_fail:
@@ -3058,6 +3061,7 @@ class Pictures:
         key = s["id"]
         if key not in self.stills:
             img = Image.open(s["_item"]["_path"]).convert("RGB")
+            img = LV.apply(img, s.get("_levels"))  # A46: the black floor, once, on the full scan before the pre-scale
             need = s["_cam"]["fit_scale"] * s["_cam"]["z_max"]
             if need < 1.0:                       # pre-scale big scans with Lanczos (A5)
                 img = img.resize((max(2, math.ceil(img.width * need)), max(2, math.ceil(img.height * need))), Image.Resampling.LANCZOS)
@@ -3467,7 +3471,7 @@ def still_first_frame_whole(plan: dict, pics: Pictures, i: int, detail: dict | N
     raw = np.asarray(pics.shot(i, 0.0)).astype(np.float32)
     W, H = plan["W"], plan["H"]
     with Image.open(s["_item"]["_path"]) as im:
-        orig = im.convert("RGB")
+        orig = LV.apply(im.convert("RGB"), s.get("_levels"))     # A46: the picture as shown, its black floor applied
     k = min(W / orig.width, H / orig.height)
     fx0, fy0 = (W - orig.width * k) / 2.0, (H - orig.height * k) / 2.0
     fx1, fy1 = W - fx0, H - fy0
@@ -6856,8 +6860,10 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             "alterations": s.get("alterations") or [], "transition_in": s["transition_in"],
             "preset": (s.get("_cam") or {}).get("preset"), "fill_ok": (s.get("_cam") or {}).get("fill_ok"),
             "fill": (s.get("_cam") or {}).get("fill"),
+            "fill_exception": (s.get("_cam") or {}).get("fill_exception"),     # A41: held whole, the Sources page says so
             "in_s": s.get("in_s"), "out_s": s.get("out_s"),
             "resampler": s.get("_resampler"), "conform": (s.get("_video") or {}).get("conform"),
+            "levels": s.get("_levels"),          # A46: the black floor applied (non-material), or the stated opt-out
             "neutralise_cast": (s.get("_video") or {}).get("neutralise_cast"),
             "test_fixture": is_synthetic(it),
             **OV.sources_fields(s),
@@ -6984,7 +6990,7 @@ def shot_key(plan: dict, i: int, asset_hash: dict, env_key: dict | None = None) 
     prev = plan["shots"][i - 1] if i else None
     nxt = plan["shots"][i + 1] if i + 1 < len(plan["shots"]) else None
     rec = {
-        "engine": ENGINE_HASH, "resample": M.RESAMPLE, "W": plan["W"], "H": plan["H"],
+        "engine": ENGINE_HASH, "resample": M.RESAMPLE, "levels": LV.VERSION, "W": plan["W"], "H": plan["H"],
         # A44: the master rate is in the key (24 as before, so a 24 film's segments stay cached; else "30000/1001")
         "fps": FPS if master_rate_of(plan) == CAD.HOUSE else CAD.rate_str(master_rate_of(plan)), "shot": _clean(s),
         "asset": asset_hash.get(s.get("asset")), "prev": _clean(prev) if prev else None,

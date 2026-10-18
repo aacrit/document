@@ -24,6 +24,9 @@ import {
   markAt,
   onDipBlack,
   markWords,
+  BLACK_FLOOR_COPY,
+  parseLevels,
+  stillCamera,
   parseSources,
   parseTimecode,
   pct,
@@ -211,6 +214,39 @@ describe("words: sources, flags, the transcript, the record's silences", () => {
     expect(itemLinkLabel(clip)).toBe("The film at the Internet Archive");
     expect(shotTreatment(still)).toMatch(/^Shown whole, then the camera moves/);
     expect(shotTreatment({ ...clip, mark: { class: "RECONSTRUCTED", detail: "" }, alterations: ["colour cast removed"] })).toBe("Changed: colour cast removed.");
+  });
+
+  it("states a black floor (A46) and never says the picture is unchanged then", () => {
+    const still = film.shots.find((s) => s.id === "S02")!;
+    expect(parseLevels({ applied: true, black_in: 35, black_out: 10 })).toEqual({ black_in: 35, black_out: 10 });
+    expect(parseLevels({ applied: false, opt_out: true, reason: "the fade is the print" })).toBeNull();
+    expect(parseLevels(null)).toBeNull();
+    const floored = { ...still, levels: { black_in: 35, black_out: 10 } };
+    expect(shotTreatment(floored)).toContain(BLACK_FLOOR_COPY);
+    expect(BLACK_FLOOR_COPY).toMatch(/one straight-line level, the same on every colour/);
+    // the copy claims nothing the map does not do: it multiplies chroma, so no "hue" or "colour untouched" or "flat"
+    expect(BLACK_FLOOR_COPY).not.toMatch(/hue|untouched|flat|unchanged/i);
+    expect(shotTreatment(floored)).toMatch(/Nothing else in the picture is changed\.$/);
+    expect(shotTreatment(floored)).not.toMatch(/Nothing in the picture is changed/);
+    expect(shotTreatment({ ...floored, mark: { class: "RECONSTRUCTED", detail: "" }, alterations: ["upscaled"] })).toMatch(/^Changed: upscaled\. Black level set/);
+    expect(shotTreatment({ ...still, levels: null })).toMatch(/Nothing in the picture is changed\.$/);
+  });
+
+  it("says how the camera showed a still, true per shot (A41)", () => {
+    const still = film.shots.find((s) => s.id === "S02")!;
+    const whole = { ...still, fill_ok: false, fill_exception: "a small scan: the fill would pass 3x" };
+    expect(stillCamera(whole)).toBe("Shown whole at its own shape, then the camera creeps slowly inside it.");
+    const tour = { ...still, fill_ok: true, fill_exception: null };
+    expect(stillCamera(tour)).toBe("Filled to the screen, the camera moves across it, never past the picture's own edges.");
+    expect(shotTreatment(tour)).not.toMatch(/Shown whole/);
+    expect(shotTreatment(whole)).toMatch(/^Shown whole at its own shape/);
+    // a sources.json made before A41 has no fill_exception key and keeps what its presets did
+    const legacy = { ...still, fill_ok: null };
+    delete (legacy as { fill_exception?: string | null }).fill_exception;
+    expect(stillCamera({ ...legacy, preset: "PUSH" })).toBe("Shown whole, then the camera moves slowly across it.");
+    expect(parseSources({ v: 2, shots: [{ id: "a", kind: "archive_still", start_s: 0, end_s: 1, mark: { class: "ARCHIVE" }, fill_ok: true, fill_exception: null }] }).shots[0])
+      .toMatchObject({ fill_ok: true, fill_exception: null });
+    expect("fill_exception" in parseSources({ v: 2, shots: [{ id: "a", kind: "archive_still", start_s: 0, end_s: 1, mark: { class: "ARCHIVE" } }] }).shots[0]).toBe(false);
   });
 
   it("names the series titles (GRAMMAR A40) in plain words", () => {
