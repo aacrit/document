@@ -132,6 +132,9 @@ def titled_film(tmp_path, masters, *, master="burned", item=None, prov_items=Non
                 move(x)
     for x in play.get("subtitle_source", []) + play.get("music", []) + play.get("moments", []):
         move(x)
+    # A55 (voice-over-black): L2 shifted along with S8 (still inside it); move it onto S5 (an archive_still, never
+    # black) so a render here doesn't refuse for voice-over-black instead of whatever this helper's own tests check.
+    next(ln for part in play["parts"] for ln in part.get("lines", []) if ln["id"] == "L2")["start_s"] = round(12.5 + SHIFT, 4)
     play["runtime_target_s"] = play["runtime_target_s"] + SHIFT
     ts = {"id": "TS1", "kind": "title_sequence", "start_s": COLD_S, "dur_s": TITLE_S, "asset": "TS-test", "mark": "DRAWN",
           "transition_in": {"type": "cut"}, "why": "The series titles, after the hook."}

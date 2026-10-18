@@ -341,6 +341,9 @@ def strip(tmp_path_factory):
         for c in p["subtitle_source"]:
             if c["start_s"] > s6["start_s"]:
                 c["start_s"], c["end_s"] = round(c["start_s"] + shift, 4), round(c["end_s"] + shift, 4)
+        # A55 (voice-over-black): L2 would otherwise still sit inside the (shifted) black shot S8; a span render of
+        # S5..S6 doesn't reach S8 at all, and this film's own tests don't care where L2 sits, so leave it on S5.
+        next(ln for part in p["parts"] for ln in part.get("lines", []) if ln["id"] == "L2")["start_s"] = 12.5
     _edit(film, edit)
     s6_start = _shot(json.loads((film / "screenplay.json").read_text(encoding="utf-8")), "S6")["start_s"]
     out = base / "out"

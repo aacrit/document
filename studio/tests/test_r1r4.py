@@ -274,6 +274,10 @@ def test_a29_build_mix_band_shapes_and_levels_a_bed_to_the_standard(tmp_path):
 
 def test_a29_a_final_render_refuses_and_audio_only_warns(tmp_path):
     film = _scored_film(tmp_path, _sine(700.0, 22.0), fade_in=0.0)  # a held drone, entering from silence
+    # A55: the fixture's own L2 (20.3 s) sits inside the black shot S8 (20.25 s); move it over S5 (an archive_still,
+    # never black) so this score-standard test reaches its own refusal first, voice-over-black unaffected.
+    _edit_play(film, lambda p: next(ln for part in p["parts"] for ln in part.get("lines", [])
+                                    if ln["id"] == "L2").update(start_s=12.5))
     with pytest.raises(R.Refused, match=r"score standard \(pre-flight\).*bed-breathing \(M1"):
         R.render(film, tmp_path / "out", height=360, workers=1, min_free_gb=1, encode_preset="veryfast")
     j = J.Journal(film="ao", out_dir=tmp_path / "out-ao")
