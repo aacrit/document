@@ -1861,10 +1861,17 @@ TOUR = dict(hold_creep_after_s=1.5, creep_scale_per_s=0.015, creep_drift_per_s=0
 #   compose_edge            the subject box stays this share of the window inside its edges at the end pose
 #   eye_person, eye_face    where the eyes sit in a person box and a face box, from the top (eyes near the upper third)
 #   centred_band            a subject centre within this of 0.5 reads as centred (the records' verdict)
+#   whole_hold_min_shown    WHOLE_HOLD_MIN_SHOWN: a ``whole`` still holds on its fill only when the fill shows at
+#                           least this share of the picture; under it the camera sweeps once end to end (A47; founder
+#                           ruling pending, default option (c) 0.90; 0 always holds, 1.01 always sweeps)
+#   waypoint_hold_s         a covering pass that would still miss a located person holds this long on them
+#   end_hold_s              a pass that must show the whole picture holds each end this long (a frame lands on it)
+WHOLE_HOLD_MIN_SHOWN = 0.90
 CINE = dict(face_zmax=1.3, framed_share=0.5, auto_confidence_floor=0.5, anchor_early_s=0.8, anchor_late_s=0.25,
             anchor_estimated_lead_s=1.0, anchor_lead_s=0.5, nest_share=0.8,
             settle_s=1.0, settle_read_s=1.5, whole_weight=0.38, whole_weight_record=0.5, golden_band=(0.30, 0.44),
-            phi=0.382, compose_edge=0.02, eye_person=0.12, eye_face=0.4, centred_band=0.06)
+            phi=0.382, compose_edge=0.02, eye_person=0.12, eye_face=0.4, centred_band=0.06,
+            whole_hold_min_shown=WHOLE_HOLD_MIN_SHOWN, waypoint_hold_s=0.3, end_hold_s=0.1)
 
 
 def still_view(size, L: Layout, *, z: float = 1.0, cx: float = 0.5, cy: float = 0.5, clamp: str = "frame"):

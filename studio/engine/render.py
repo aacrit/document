@@ -773,7 +773,7 @@ def whole_camera(shot: dict, img_size, W: int, H: int, *, preset: str = "HOLD") 
 
 
 def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words=None, cover=False,
-                 cap: float | None = None, fps: float | None = None) -> dict:
+                 cap: float | None = None, fps: float | None = None, hold_on=()) -> dict:
     """The still's camera (A41, TOUR): a path of stops in picture coordinates
     (studio/engine/tour.py) that fills 16:9 on every frame, drawn by
     ``overlays.framing_at``. The path is the shot's ``camera`` (a list of
@@ -786,7 +786,10 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
     ``"subject"`` when the preset would leave part of the picture unseen,
     ``"whole"`` (or True) when a person would go unseen, so the pass shows
     the whole picture before it settles on the subject (a FILL's focus, a
-    DETAIL's region, when the ledger names no subject). A still the
+    DETAIL's region, when the ledger names no subject); ``hold_on`` (boxes)
+    holds that pass on each of them. Under ``no_zoom`` a preset that zooms
+    (PUSH, PULL, DRIFT, TILT, DETAIL) keeps its moves at z 1: drift only. A
+    still the
     softness cap cannot fill states ``fill_exception`` and is held whole (A7).
     FIND (A32) keeps its own camera, held at the fill. ``words`` are the
     narration's words over the shot (tour.shot_words), for ``at`` anchors."""
@@ -839,8 +842,12 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
         """A47: the default pass, ending on the subject."""
         nonlocal subject
         need = whole or T.people_of(item, kind=shot.get("kind", "archive_still"))["unlocated"] > 0
+        # a ledger's own whole: true is a declaration (doctrine 1); the rulebook's is its fallback (A45)
+        declared = item.get("whole") is True and "whole" not in ((shot.get("_vision") or {}).get("from_rulebook")
+                                                                or [])
         st, subject = T.subject_plan(shot, item, roi, persons, words or [], img_size, aspect, dur, t0, zmax,
-                                     need_whole=need, focus=focus, match_screen=shot.get("_match_screen"))
+                                     need_whole=need, focus=focus, match_screen=shot.get("_match_screen"),
+                                     declared_whole=declared, hold_on=hold_on, hz=fps or FPS)
         return st
     if camera is not None and shot.get("preset") is not None:
         problems.append("a shot takes a camera path or a preset, not both")
@@ -863,6 +870,9 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
         clamped = [st for st in stops if st["z"] > zmax + 1e-9]
         for st in clamped:                    # a preset stops at the softness cap, as FILL did (A34): never softer
             st["z"], st["capped"] = zmax, True
+        if no_zoom:
+            for st in stops:                  # A47 (founder ruling): a no_zoom still only drifts, whatever its preset
+                st["z"] = 1.0
     elif preset == TOUR:
         macro = "DEFAULT"
         stops = subject_pass()
@@ -938,6 +948,10 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
         return wins, T.people_check(wins, people, size)
 
     wins, pc = check(cam)
+
+    def missed_must_show(c, w):
+        # A47: the engine's own pass (the default, or a cover) never leaves a must_show region unseen
+        return T.must_show(w, item, size) if c.get("subject") is not None else []
     # A45: a region the rulebook found (source: auto) does not make a preset or the default the author's path; only a
     # person's region or must_show does
     roi = item.get("roi")
@@ -953,16 +967,43 @@ def engine_cover(s: dict, cam: dict, size, W: int, H: int, words, journal: Journ
                              f"A41 and A47: as written {why}; the default pass ends on what the picture is about",
                              unit=s["id"], evidence={"people": people, "kind": s["kind"],
                                                      "subject": (cam.get("subject") or {}).get("src")})
-    if pc["ok"]:
+    ms = missed_must_show(cam, wins)
+    if pc["ok"] and not ms:
         return cam
     missed = pc["missed"]
     cam = still_camera(s, size, W, H, words=words, cover="whole", fps=fps)
+    wins, pc = check(cam)
+    held = []
+    if not pc["ok"] or missed_must_show(cam, wins):
+        # a person (or a must_show region) the sweep passes between two frames: the pass holds on each one whole
+        names = set(missed_must_show(cam, wins))
+        held = [p["box"] for p in people["boxes"] if not T.seen(wins, p["box"], size)]
+        held += [T.roi_box(r) for r in item.get("roi") or [] if isinstance(r, dict) and r.get("name") in names]
+        cam = still_camera(s, size, W, H, words=words, cover="whole", fps=fps, hold_on=held)
     if journal is not None:
         journal.decision("motion", f"{s['id']}: {macro} made a covering pass of the whole picture, ending on the "
-                         "subject", "A41, A7 and A47: as written a person would go unseen; the pass shows the whole "
-                         "picture, then settles on the subject", unit=s["id"],
-                         evidence={"people": people, "kind": s["kind"], "missed": missed})
+                         "subject", "A41, A7 and A47: as written a person or a must_show region would go unseen; "
+                         "the pass shows the whole picture" + (", holding on each it would pass between frames"
+                                                                if held else "") + ", then settles on the subject",
+                         unit=s["id"], evidence={"people": people, "kind": s["kind"], "missed": missed,
+                                                 "must_show_missed": ms, "held_on": len(held)})
     return cam
+
+
+def next_subject(nxt: dict | None):
+    """A47: where the next shot's subject sits in its own picture (fractions),
+    when that shot is a still joined by a cut that says ``match: "prev"``;
+    a ``whole`` still that sweeps ends on that side. None otherwise."""
+    if not nxt or nxt.get("kind") not in ("archive_still", "drawn") or nxt.get("match") != "prev":
+        return None
+    if (nxt.get("transition_in") or {}).get("type", "cut") != "cut":
+        return None
+    item = nxt.get("_item") or {}
+    subj = T.resolve_subject(T.effective_regions(item)["roi"], nxt.get("focus"))
+    if subj["box"] is None:
+        return None
+    b = subj["box"]
+    return [(b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0]
 
 
 def match_prev(journal: Journal | None, s: dict, prev: dict | None) -> None:
@@ -1258,10 +1299,14 @@ def subject_lints(journal: Journal, s: dict, cam: dict, people: dict) -> None:
                                                             "settle_s", "need_whole", "timing", "match_error",
                                                             "first", "end", "last_frame", "stop", "last",
                                                             "screen")})
+    if sub is not None and sub.get("focus_ignored"):
+        journal.lint("cine-whole-focus", False, stage="motion", unit=s["id"], severity="warn", grammar="A47",
+                     phase="preflight", evidence={"focus": s.get("focus"), "fix": "the ledger declares whole: true, "
+                                                  "which wins over the shot's focus: drop one of them"})
     if not tl:
         return
     rev = T.reversals(tl)
-    if not rev or not people["boxes"]:
+    if not rev or not (people["boxes"] or people["unlocated"]):
         return
     if people["unlocated"]:
         journal.decision("motion", f"{s['id']}: the pass comes back on itself to show the whole picture",
@@ -2260,6 +2305,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             if s["kind"] == "drawn" and s.get("camera") is None:
                 s.setdefault("preset", "HOLD")
             match_prev(journal, s, shots[si - 1] if si > 0 else None)
+            s["_end_toward"] = next_subject(shots[si + 1] if si + 1 < len(shots) else None)
             with Image.open(s["_item"]["_path"]) as im:
                 size = im.size
             # A41 (founder, 2026-10-17): a still may go to 3.0x unless the film states its own fill_max_upscale
