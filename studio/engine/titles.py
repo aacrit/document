@@ -119,7 +119,8 @@ def select_master(item: dict, fps: float) -> tuple[dict, str]:
         except CAD.RateError:
             continue
         if abs(r - fps) < 1e-6 and isinstance(alt, dict) and alt.get("file"):
-            out = {k: v for k, v in item.items() if k != "masters"}
+            # an alternate's frame numbers are its own: it never inherits the item's record_pose (A40 refined)
+            out = {k: v for k, v in item.items() if k not in ("masters", "record_pose")}
             out.update(alt, fps=CAD.rate_str(CAD.parse_rate(name)), master_of=item.get("file"))
             if item.get("_path"):
                 out["_path"] = str((Path(item["_path"]).parent / alt["file"]).resolve())
@@ -348,6 +349,9 @@ def _masked(a: np.ndarray) -> np.ndarray:
 
 
 POSE_ASPECT_TOL = 0.01              # A7 under A41: the pose window's aspect within 1% of the frame's
+POSE_HOLD_S = 0.5                   # ... and the resting pose holds at least this long (a one-frame rest is no rest)
+POSE_EDGE_PX = 8                    # ... and its outer frame strips (outside the marks) are the scan's, at full size:
+POSE_EDGE_LIMIT = 12.0              # mean difference at most this, so a frame overshooting the scan onto black fails
 
 
 def pose_fit(img: Image.Image, window, W: int, H: int) -> Image.Image:
@@ -386,6 +390,22 @@ def record_difference(arr: np.ndarray, record_path: str, window=None) -> float:
         return np.asarray(Image.fromarray(np.clip(x, 0, 255).astype(np.uint8)).resize((96, 54), Image.BOX), dtype=np.float32)
 
     return float(np.abs(lp(_masked(arr)) - lp(_masked(ref))).mean())
+
+
+def pose_edge_difference(arr: np.ndarray, record_path: str, window) -> float:
+    """A7 under A41, "nothing but the scan in the frame": the mean difference, at full size, between the master frame's
+    outer POSE_EDGE_PX strips and the same strips of the scan's window filling the frame, outside the marks' masks. The
+    low-pass A7 measure alone lets a frame overshoot the scan's edge onto black by tens of pixels."""
+    H, W = arr.shape[:2]
+    with Image.open(record_path) as im:
+        ref = np.asarray(pose_fit(im, window, W, H)).astype(np.float32)
+    keep = np.zeros((H, W), bool)
+    e = POSE_EDGE_PX
+    keep[:e, :] = keep[-e:, :] = True
+    keep[:, :e] = keep[:, -e:] = True
+    keep[int(0.90 * H):, int(0.55 * W):] = False            # the masks of _masked: the label and glyph, the watermark
+    keep[:int(0.15 * H), int(0.85 * W):] = False
+    return float(np.abs(arr.astype(np.float32)[keep] - ref[keep]).mean())
 
 
 def lockup_pixels(arr: np.ndarray) -> int:
@@ -629,28 +649,47 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
             # A7 under A41: a master whose record beat tours the scan declares the tour's resting pose; the frames from
             # where it rests to the record beat's end are its window of the scan filling the frame, and nothing else
             pose = item.get("record_pose")
-            window, k_from, why = None, rframes[0], None
+            window, k_from, why, scan_size = None, rframes[0], None, None
             if pose is not None:
-                with Image.open(rec["_path"]) as im:
-                    why = pose_problem((pose or {}).get("window"), im.size, *SIZE)
-                window = (pose or {}).get("window")
-                k_from = int((pose or {}).get("from_frame", rframes[0]))
-                if not rframes[0] <= k_from <= rframes[-1]:
-                    why = why or f"record_pose.from_frame {k_from} is outside the record beat {rframes[0]}..{rframes[-1]}"
+                min_hold = int(round(POSE_HOLD_S * _r(item)))
+                try:
+                    if not isinstance(pose, dict):
+                        raise TypeError("record_pose is an object {window, from_frame}")
+                    with Image.open(rec["_path"]) as im:
+                        scan_size = im.size
+                    window = pose.get("window")
+                    why = pose_problem(window, scan_size, *SIZE)
+                    ff_ = pose.get("from_frame", rframes[0])
+                    if isinstance(ff_, bool) or not isinstance(ff_, (int, float)) or float(ff_) != int(ff_):
+                        raise ValueError(f"record_pose.from_frame {ff_!r} is not a whole frame number")
+                    k_from = int(ff_)
+                    if not rframes[0] <= k_from <= rframes[-1]:
+                        why = why or f"record_pose.from_frame {k_from} is outside the record beat {rframes[0]}..{rframes[-1]}"
+                    elif rframes[-1] - k_from + 1 < min_hold:
+                        why = why or (f"record_pose rests {rframes[-1] - k_from + 1} frames: the pose holds at least "
+                                      f"{POSE_HOLD_S:g} s ({min_hold} frames) before the record beat ends")
+                except (TypeError, ValueError, AttributeError, OSError) as e:
+                    why = f"record_pose: {e}"
                 lint("title-record-pose", why is None, unit=sid, grammar="A40, A7, A41",
                      evidence={"record": rid, "window": window, "from_frame": k_from, "record_frames": rframes,
-                               "problem": why, "fix": None if why is None else
+                               "scan_size": scan_size, "min_hold_s": POSE_HOLD_S, "problem": why, "fix": None if why is None else
                                "declare the tour's resting pose as a 16:9 window inside the scan, and the frame it rests from"})
             diffs: dict = {}
+            edges: dict = {}
             if why is None:
                 try:
                     for k in sorted({k_from, rframes[-1], (k_from + rframes[-1]) // 2}):
-                        diffs[k] = round(record_difference(read_frame(ff, path, k, fps=_r(item)), rec["_path"], window), 3)
+                        arr = read_frame(ff, path, k, fps=_r(item))
+                        diffs[k] = round(record_difference(arr, rec["_path"], window), 3)
+                        if window is not None:
+                            edges[k] = round(pose_edge_difference(arr, rec["_path"], window), 2)
                 except Exception as e:
                     diffs = {"error": f"{type(e).__name__}: {e}"}
-            px_ok = bool(diffs) and "error" not in diffs and max(diffs.values()) <= RECORD_LIMIT
+            px_ok = (bool(diffs) and "error" not in diffs and max(diffs.values()) <= RECORD_LIMIT
+                     and (not edges or max(edges.values()) <= POSE_EDGE_LIMIT))
             lint("title-record-pixels", px_ok, unit=sid, grammar="A40, A7" + (", A41" if window is not None else ""),
                  evidence={"record": rid, "file": rec["_path"], "difference": diffs, "limit": RECORD_LIMIT,
+                           **({"edge_difference": edges, "edge_limit": POSE_EDGE_LIMIT, "edge_px": POSE_EDGE_PX} if edges else {}),
                            "measure": ("low-pass mean difference against the scan's declared window filling the frame "
                                        "(the tour's resting pose), marks masked") if window is not None else
                                       "low-pass mean difference against the scan held whole, marks masked"})
