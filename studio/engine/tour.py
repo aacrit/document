@@ -686,18 +686,7 @@ def _survey_stops(item: dict, roi: list[dict], dur: float, size, aspect: float,
     pulls to the widest fill, landing at least the plain settle before the
     cut. A picture with fewer than two regions of interest has nothing to
     survey (the fallback)."""
-    cands = _survey_order(_survey_candidates(roi))
-    if len(cands) < 2 and persons:
-        # A54: a crowd's located people stand in for regions of interest (a face inside its figure is one person)
-        boxes = sorted((q["box"] for q in persons), key=_area, reverse=True)
-        kept: list = []
-        for b in boxes:
-            if not any(_inside_share(b, k) >= CINE["nest_share"] for k in kept):
-                kept.append(b)
-        cands = _survey_order([{"name": f"person-{k + 1}", "kind": "person", "x": b[0], "y": b[1],
-                                "w": b[2] - b[0], "h": b[3] - b[1]} for k, b in enumerate(kept)])
-    if variant == "reverse":
-        cands = list(reversed(cands))                  # A54's variety: the survey runs the other way
+    cands = survey_picks(roi, persons, variant)
     if len(cands) < 2:
         return None, f"too few regions of interest: SURVEY visits at least 2, this picture names {len(cands)}"
     picked = cands[:SURVEY_MAX_STOPS]
@@ -719,6 +708,24 @@ def _survey_stops(item: dict, roi: list[dict], dur: float, size, aspect: float,
     return stops, None
 
 
+def survey_picks(roi: list[dict], persons: list[dict] | None, variant: str | None = None) -> list[dict]:
+    """SURVEY's regions in visiting order: the ledger's regions of interest, else (A54) a crowd's located
+    people (a face inside its figure is one person); ``reverse`` runs the other way."""
+    cands = _survey_order(_survey_candidates(roi))
+    if len(cands) < 2 and persons:
+        # A54: a crowd's located people stand in for regions of interest (a face inside its figure is one person)
+        boxes = sorted((q["box"] for q in persons), key=_area, reverse=True)
+        kept: list = []
+        for b in boxes:
+            if not any(_inside_share(b, k) >= CINE["nest_share"] for k in kept):
+                kept.append(b)
+        cands = _survey_order([{"name": f"person-{k + 1}", "kind": "person", "x": b[0], "y": b[1],
+                                "w": b[2] - b[0], "h": b[3] - b[1]} for k, b in enumerate(kept)])
+    if variant == "reverse":
+        cands = list(reversed(cands))                  # A54's variety: the survey runs the other way
+    return cands
+
+
 def rich_macro_stops(preset: str, shot: dict, item: dict, roi: list[dict], persons: list[dict], words: list[dict],
                      dur: float, size, aspect: float, zmax: float,
                      variant: str | None = None) -> tuple[list[dict] | None, str | None]:
@@ -735,6 +742,94 @@ def rich_macro_stops(preset: str, shot: dict, item: dict, roi: list[dict], perso
     if preset == "SURVEY":
         return _survey_stops(item, roi, dur, size, aspect, zmax, variant=variant, persons=persons)
     raise ValueError(f"not a rich macro: {preset!r}")
+
+
+# A54 addendum (classic coverage, founder 2026-10-18): a still may be shown as hard cuts between WIDE, MEDIUM and
+# CLOSE framings of the same picture inside its one shot (``cut: true`` on a stop: ``build`` draws no move to it)
+CUT_SCALE_MIN = 1.6            # no jump cut: the scale changes by at least this between framings of one subject
+CUT_FRAMING_MIN_S = 1.5        # each framing is on screen about this long at least (guidance)
+CUT_MAX_FRAMINGS = 3           # at most this many framings in one showing
+
+
+def path_need_s(stops: list[dict], size, aspect: float) -> float:
+    """The least time a path of stops needs: every leg at the speed guides (``leg_min_s``) plus every hold."""
+    return (sum(leg_min_s(a, b, size, aspect) for a, b in zip(stops, stops[1:]))
+            + sum(float(st.get("hold", 0.0)) for st in stops))
+
+
+def _screen_point(pose: dict, point, size, aspect: float) -> tuple[float, float]:
+    iw, ih = float(size[0]), float(size[1])
+    a0, b0, a1, b1 = window(size, aspect, pose["z"], pose["x"], pose["y"])
+    return ((point[0] * iw - a0) / (a1 - a0), (point[1] * ih - b0) / (b1 - b0))
+
+
+def cut_in_stops(subj: dict, size, aspect: float, dur: float, zlim: float, *, record: bool, order: str = "in",
+                 facing: str | None = None, cut_at: float | None = None,
+                 avoid=None) -> tuple[list[dict] | None, str | None]:
+    """A54 CUT-IN on one subject: the WIDE (``whole_pose``) and the CLOSE
+    (a DETAIL on the subject, ``zlim`` the softness and face caps), joined by
+    a hard cut at ``cut_at`` (the narration's beat, else the middle), WIDE
+    first (``order="in"``) or CLOSE first (``"out"``). The second framing is
+    a match cut: it puts the subject where the first left it on the screen,
+    when the subject stays whole there. Refused (None, why) for a jump cut
+    (the scale changes less than ``CUT_SCALE_MIN``) or a shot too short for
+    two framings of ``CUT_FRAMING_MIN_S``."""
+    if subj.get("box") is None:
+        return None, "no subject to cut in on"
+    if dur < 2 * CUT_FRAMING_MIN_S - EPS:
+        return None, f"too short for two framings of {CUT_FRAMING_MIN_S:g} s"
+    close = end_pose(subj, size, aspect, zlim, record=record, facing=facing, avoid=avoid,
+                     z_min=min(zlim, detail_z(size, aspect)))
+    wide = whole_pose(size, aspect, record, avoid=avoid)
+    for f in (close, wide):
+        f.pop("avoid_clear", None)
+    if close["z"] / wide["z"] < CUT_SCALE_MIN - EPS:
+        return None, (f"a jump cut: the close is only {close['z'] / wide['z']:.2f}x the wide (the caps allow no "
+                      f"more), under {CUT_SCALE_MIN:g}x")
+    tc = dur / 2.0 if cut_at is None else cut_at
+    tc = min(max(tc, CUT_FRAMING_MIN_S), dur - CUT_FRAMING_MIN_S)
+    first, second = (wide, close) if order == "in" else (close, wide)
+    b = subj["box"]
+    point = ((b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0)
+    m, _err = match_start(point, _screen_point(first, point, size, aspect), size, aspect, zs=(second["z"],))
+    iw, ih = float(size[0]), float(size[1])
+    a0, b0, a1, b1 = window(size, aspect, m["z"], m["x"], m["y"])
+    matched = second is wide or _inside_share(b, (a0 / iw, b0 / ih, a1 / iw, b1 / ih)) >= 1.0 - 1e-6
+    if matched:
+        second = dict(second, x=m["x"], y=m["y"])
+    names = {id(wide): "the wide", id(close): "the close"}
+    s0 = dict(first, t=0.0, hold=round(tc, 3), placed="engine", **{"from": f"CUT-IN: {names.get(id(first), 'the close')}"})
+    s1 = dict(second, t=round(tc, 3), cut=True, placed="engine", breath=True, match_cut=matched,
+              **{"from": f"CUT-IN: {'the close' if order == 'in' else 'the wide'}"})
+    if order == "in":
+        s1["keep"] = (tuple(b),)
+    else:
+        s0["keep"] = (tuple(b),)
+    return [s0, s1], None
+
+
+def survey_cut_stops(picks: list[dict], size, aspect: float, dur: float,
+                     zmax: float) -> tuple[list[dict] | None, str | None]:
+    """A54 CUT-IN for a SURVEY: up to two of its regions (each a new subject, so never a jump cut) and then
+    the WIDE, each framing an equal share of the shot, joined by hard cuts."""
+    picked = picks[:CUT_MAX_FRAMINGS - 1]
+    if len(picked) < 2:
+        return None, "fewer than two regions to cut between"
+    n = len(picked) + 1
+    if dur < n * CUT_FRAMING_MIN_S - EPS:
+        return None, f"too short for {n} framings of {CUT_FRAMING_MIN_S:g} s"
+    step = dur / n
+    stops = []
+    for k, r in enumerate(picked):
+        st = roi_stop(r, size, aspect, zmax)
+        st.update(t=round(k * step, 3), hold=round(step, 3), roi=r.get("name"), placed="engine",
+                  **{"from": f"CUT-IN: {r.get('name') or 'roi'}"})
+        if k:
+            st["cut"] = True
+        stops.append(st)
+    stops.append({"t": round((n - 1) * step, 3), "z": 1.0, "x": 0.5, "y": 0.5, "cut": True, "placed": "engine",
+                  "breath": True, "from": "CUT-IN: the wide"})
+    return stops, None
 
 
 def field_const_z(size, aspect: float, zcap: float) -> float:
@@ -1999,12 +2094,12 @@ def build(stops: list[dict], dur: float, size, aspect: float, zmax: float, *, no
     segs: list[dict] = []
     held: list[dict] = []
 
-    def hold(t0, t1, p, *, into: bool = False, prefer=None):
+    def hold(t0, t1, p, *, into: bool = False, prefer=None, force: bool = False):
         """A hold from t0 to t1 at p (or, ``into``, a hold that must end on p). A54: a hold that opens the
         still or runs into the cut always creeps, however short (never from rest, never a dead stop)."""
         if t1 - t0 <= EPS:
             return p
-        edge = t0 <= EPS or t1 >= dur - EPS
+        edge = force or t0 <= EPS or t1 >= dur - EPS        # A54: a framing beside a hard cut drifts too
         if t1 - t0 <= after + EPS and not edge:
             segs.append({"t0": t0, "t1": t1, "a": p, "b": p, "kind": "hold"})
             return p
@@ -2023,10 +2118,12 @@ def build(stops: list[dict], dur: float, size, aspect: float, zmax: float, *, no
 
     hold(0.0, pts[0]["t"], pts[0], into=True)
     last_dir = None
+    cuts: list[float] = []
     for i, p in enumerate(pts):
         nxt = pts[i + 1] if i + 1 < len(pts) else None
         leave = min(p["t"] + p["hold"], nxt["t"] if nxt else dur)
-        if i == 0 and p["t"] <= EPS and nxt is not None and leave > EPS and not _same(p, nxt):
+        by_cut = bool(p.get("cut") or (nxt is not None and nxt.get("cut")))
+        if i == 0 and p["t"] <= EPS and nxt is not None and leave > EPS and not _same(p, nxt) and not by_cut:
             # A54: the still's opening hold leaves the cut already moving, at the creep's speed along its first
             # leg (so it never turns back, and a sweep the whole picture needs keeps its depth)
             k = min(0.5, M.creep_rate(*_leg_dist(p, nxt, size, aspect)) * leave)
@@ -2035,11 +2132,18 @@ def build(stops: list[dict], dur: float, size, aspect: float, zmax: float, *, no
             segs.append({"t0": 0.0, "t1": leave, "a": p, "b": q, "kind": "creep", "how": "lead"})
             pos = q
         else:
-            pos = hold(p["t"], leave, p, prefer=last_dir) if leave > p["t"] + EPS else p
+            pos = hold(p["t"], leave, p, prefer=last_dir, force=by_cut) if leave > p["t"] + EPS else p
         if nxt is None:
             if dur - leave > EPS:
                 hold(leave, dur, pos, prefer=last_dir)
             break
+        if nxt.get("cut"):
+            # A54 (classic coverage): a hard cut to the next framing of the same picture, inside the shot; the
+            # framing before it drifts up to the cut, and the next enters drifting
+            if nxt["t"] - leave > EPS:
+                hold(leave, nxt["t"], pos, prefer=last_dir, force=True)
+            cuts.append(round(float(nxt["t"]), 6))
+            continue
         if nxt["t"] - leave <= EPS:
             continue
         if _same(pos, nxt) or _same(p, nxt):
@@ -2056,7 +2160,7 @@ def build(stops: list[dict], dur: float, size, aspect: float, zmax: float, *, no
     M.enter_moving(segs, lambda a, b: _leg_dist(a, b, size, aspect))
     zs = [s["a"]["z"] for s in segs] + [s["b"]["z"] for s in segs]
     return {"segments": segs, "stops": pts, "dur": dur, "size": [float(size[0]), float(size[1])], "aspect": aspect,
-            "z_max": max(zs), "z_min": min(zs), "held": held, "zmax_allowed": zmax}
+            "z_max": max(zs), "z_min": min(zs), "held": held, "zmax_allowed": zmax, "cuts": cuts}
 
 
 def at(tl: dict, t: float) -> dict:
@@ -2099,10 +2203,15 @@ FACINGS = ("left", "right", "camera", "away")
 SOURCES = ("auto", "human")
 SCALES = ("whole", "field", "detail")
 BOX = ("x", "y", "w", "h")
-PEOPLE_KEYS = set(BOX) | {"name", "facing", "source", "confidence", "model", "face"}   # face: A51
+PEOPLE_KEYS = set(BOX) | {"name", "facing", "source", "confidence", "model", "face",   # face: A51
+               "minor", "age"}   # A54: the face cap keeps z 1.3 for a minor
 ROI_KEYS = set(BOX) | {"name", "kind", "facing", "source", "confidence", "model", "cue", "must_show", "person",
                        "lines",     # A50, a text region's line count (its reading pace)
-                       "order"}     # A54, SURVEY's painter reading order (ticket #10)
+                       "order",     # A54, SURVEY's painter reading order (ticket #10)
+                       "minor", "age"}   # A54: the face cap keeps z 1.3 for a minor
+# A54: the chooser's moves (``moves.py``), which a screenplay may name itself (``move``, ``move_variant``)
+MOVE_NAMES = ("WHOLE", "PAN", "PORTRAIT", "SURVEY", "READ", "EXPLAIN", "REVEAL", "CUTIN")
+MOVE_VARIANTS = ("far", "near", "reveal", "explain", "forward", "reverse")
 STOP_KEYS = {"t", "at", "line", "x", "y", "z", "hold", "roi", "scale", "lead_s", "match"}
 # the rulebook's own names for what it finds (the schema): never a person's name
 GENERIC_NAME = re.compile(r"(subject|(face|person|group|text|object|place)-\d+)$")
@@ -2732,6 +2841,8 @@ def item_schema(item: dict) -> tuple[list[str], list[str]]:
     cn = item.get("caption_names")
     if cn is not None and not (isinstance(cn, list) and all(isinstance(x, str) and x.strip() for x in cn)):
         bad.append(f"caption_names is a list of the names the caption gives, not {cn!r}")
+    if "dignity" in item and item["dignity"] is not True:
+        bad.append(f"dignity is true or absent (a human's mark: keep every face at z 1.3), not {item['dignity']!r}")
     if "whole" in item and item["whole"] is not True:
         bad.append(f"whole is true or absent, not {item['whole']!r}")
     if "aerial" in item and not isinstance(item["aerial"], bool):
@@ -2770,6 +2881,14 @@ def shot_schema(shot: dict) -> tuple[list[str], list[str]]:
             bad.append(f"subject_at is a cue (a string) or {{at, line?}}, not {sa!r}")
     if shot.get("match") is not None and shot["match"] != "prev":
         bad.append(f"match is \"prev\", not {shot['match']!r}")
+    mv = shot.get("move")
+    if mv is not None and (not isinstance(mv, str) or mv.upper() not in MOVE_NAMES):
+        bad.append(f"move is one of {', '.join(MOVE_NAMES)} (A54), not {mv!r}")
+    mvv = shot.get("move_variant")
+    if mvv is not None and mvv not in MOVE_VARIANTS:
+        bad.append(f"move_variant is one of {', '.join(MOVE_VARIANTS)}, not {mvv!r}")
+    if mv is not None and shot.get("camera") is not None:
+        bad.append("a shot takes a camera path or a move, not both")
     cam = shot.get("camera")
     if isinstance(cam, list):
         for k, st in enumerate(cam):
@@ -2977,14 +3096,19 @@ def face_avoid(item: dict, zones) -> list[tuple]:
     return [(f["box"], zone, "face") for f in face_boxes(item) for zone in zones]
 
 
-def speed_report(wins: list[tuple[float, tuple]]) -> dict:
+def across_cut(ta: float, tb: float, cuts) -> bool:
+    """A54: a pair of samples that straddles a hard cut inside the shot (``tl['cuts']``) is no motion."""
+    return any(ta - 1e-6 <= c < tb - 1e-9 for c in cuts or ())
+
+
+def speed_report(wins: list[tuple[float, tuple]], cuts=()) -> dict:
     """The fastest pan (the window's centre, in its own widths or heights per
     second) and zoom (scale change per second) over windows sampled in time
     order [(t, (x0, y0, x1, y1))], against the guides (A41: warnings)."""
     pan, zoom, pan_at, zoom_at = 0.0, 0.0, 0.0, 0.0
     for (ta, a), (tb, b) in zip(wins, wins[1:]):
         dt = tb - ta
-        if dt <= EPS:
+        if dt <= EPS or across_cut(ta, tb, cuts):
             continue
         ww, wh = a[2] - a[0], a[3] - a[1]
         vx = abs((b[0] + b[2]) - (a[0] + a[2])) / 2.0 / ww / dt
