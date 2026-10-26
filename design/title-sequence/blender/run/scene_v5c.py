@@ -582,6 +582,11 @@ def settings(sc):
     cy.sample_clamp_indirect = 5.0
     cy.max_bounces, cy.diffuse_bounces, cy.glossy_bounces, cy.transmission_bounces = 10, 4, 4, 8
     cy.caustics_reflective = cy.caustics_refractive = False
+    if A["cam"] == "v5d":
+        # Piri's scan is alpha-keyed (its torn edge transparent) and its roll stacks 10+ turns of it: past Cycles'
+        # default 8 transparent bounces the path ends black, and the roll's torn end rendered as a black block (the
+        # v5d proof, frames 674-803). Enough bounces to see through the whole stack; opaque surfaces are unaffected.
+        cy.transparent_max_bounces = 64
     cy.use_animated_seed = True
     cy.texture_limit_render = "8192"
     sc.render.use_persistent_data = True

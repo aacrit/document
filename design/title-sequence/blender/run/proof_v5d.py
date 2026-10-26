@@ -159,9 +159,9 @@ def blender(args, tag):
                        errors="replace")
     wall = time.time() - t0
     (OUT / f"blender-{tag}.log").write_text(p.stdout[-200000:] + "\n" + p.stderr[-50000:], encoding="utf-8")
-    build = [json.loads(ln[10:]) for ln in p.stdout.splitlines() if ln.startswith("V5C-BUILD ")]
+    build = [json.loads(ln[ln.index("V5C-BUILD ") + 10:]) for ln in p.stdout.splitlines() if "V5C-BUILD " in ln]
     jeton = [ln for ln in p.stdout.splitlines() if ln.startswith("jeton (L0)")]
-    if p.returncode != 0 or not any(ln.startswith("V5C-DONE ") for ln in p.stdout.splitlines()):
+    if p.returncode != 0 or "V5C-DONE " not in p.stdout:
         raise SystemExit(f"blender {tag} failed ({p.returncode}): {p.stderr[-600:]}")
     return {"wall_s": round(wall, 1), "build_s": (build[0] if build else {}).get("build_s"),
             "renderer": (build[0] if build else {}).get("renderer"), "jeton": jeton[:1]}
