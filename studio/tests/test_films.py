@@ -1181,3 +1181,14 @@ def test_a3_refined_a_caption_split_across_cues_counts_the_unsigned_in_its_neigh
                                  {"ref": "c2", "en": "Nothing here."}]}
     with pytest.raises(POL.FillError, match="women_speakers_unsigned"):
         CAP.fill_play(alone, vals)
+
+
+def test_a56_a_speaker_known_only_by_role_needs_no_lower_third(film):
+    _archival(film)
+    _no_lower_third(film)
+    with pytest.raises(R.Refused, match=r"archival-lower-third \(A1\)"):
+        _plan(film, "a56-unnamed")
+    _edit(film, lambda p: next(s for s in p["cast"]["speakers"] if s["id"] == "sp-reel").update(descriptor=True))
+    plan, j = _plan(film, "a56-descriptor")
+    ev = [e for e in lints(j, "archival-lower-third") if e["unit"] == "A1"][0]
+    assert ev["status"] == "pass" and ev["evidence"]["speaker_is_a_descriptor"] is True

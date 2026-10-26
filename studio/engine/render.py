@@ -3731,17 +3731,25 @@ def archival_lints(lint, film: Path, play: dict, shots: list[dict], lines: list[
                                       f"speakers_on_screen), and a span for {name!r} overlaps the line's in_s to out_s"})
                 if on_screen:
                     named_on_screen.append({"id": uid, "clip": ln["clip"], "speaker": ln.get("speaker"), "name": name})
-        ok = not provenance and not undisclosed and (bool(good) or not first or bool(on_screen))
+        # A56: a speaker the record knows only by a role or a description (the cast's ``descriptor: true``, or a
+        # name that reads as a descriptor) has no name to show: no lower third is required, and none may describe
+        # them; the sources data names them as the record does
+        sp = speakers.get(ln.get("speaker")) or {}
+        descriptor = sp.get("descriptor") is True or any(
+            h["pattern"] == "descriptor" for h in DS.meta_text_problems(name or "", "lower_third"))
+        ok = not provenance and not undisclosed and (bool(good) or not first or bool(on_screen) or descriptor)
         fix = None
         if not ok:
             fix = "; ".join(x for x in (
                 (f"drop line 3 of {', '.join(provenance)}: a lower third is name and role (A56)" if provenance else ""),
                 (f"the clip's ledger item states its {' and '.join(undisclosed)}, which the sources data prints as the "
                  "original recording's source" if undisclosed else ""),
-                (f"the speaker's first line carries a lower third: line 1 '{name}', line 2 the role or time"
+                (f"the speaker's first line carries a lower third: line 1 '{name}', line 2 the role or time (or, for a "
+                 "speaker the record knows only by role, the cast states descriptor: true and no lower third is drawn)"
                  if first and not good and not on_screen else "")) if x)
         lint("archival-lower-third", ok, unit=uid, grammar="6.3, 6.4, 9, A26, A56",
              evidence={"first_line_of_speaker": first, "speaker_name": name, "names_the_speaker": good,
+                       "speaker_is_a_descriptor": descriptor,
                        "provenance_lines": provenance, "sources_data": dict(disclosure, credit="original recording"),
                        "named_on_screen_by_the_source": bool(on_screen), "fix": fix})
     return named_on_screen
