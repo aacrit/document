@@ -183,6 +183,17 @@ def item_for(rec, sound_mov, a7, view, film, n, items_v5c):
     return base
 
 
+def slot_for(slot_v5c, asset, n):
+    """The title slot as the film builders now hold it: TS1 (the shot, 36.403 s) then TS1b (the 6 s lockup), joined
+    by cuts. TS1r (v5c's 14.6 s hold of the record) is gone."""
+    ts1 = dict(next(s for s in slot_v5c if s["id"] == "TS1"), asset=asset, dur=round(n / FPS, 3),
+               transition_in={"type": "cut"})
+    ts1b = {"id": "TS1b", "kind": "card", "card": "lockup", "dur": 6.0, "transition_in": {"type": "cut"},
+            "mark": "CARD", "text": ["void document · As It Was"],
+            "why": "the lockup card, the last 6 s of the title slot (as the film builders hold it)"}
+    return [ts1, ts1b]
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--engine", required=True)
@@ -307,8 +318,7 @@ def main(argv=None):
         if (pose["view_transform"], pose["look"], pose["exposure"]) != (view["name"], view["look"], view["exposure"]):
             raise SystemExit(f"{r}: the declared view {view} is not the pose frame's read-back {pose}")
         item = item_for(r, smov, a7, view, f, n, items_v5c)
-        slot = copy.deepcopy(items_v5c["films"][r]["slot"])
-        slot[0].update({"asset": item["id"], "dur": round(n / FPS, 3)})
+        slot = slot_for(items_v5c["films"][r]["slot"], item["id"], n)
         items["films"][r] = {"film": items_v5c["films"][r].get("film"), "item": item, "slot": slot,
                              "sound": {k: v for k, v in snd.items() if k != "foley"}, "theme_full_mix": str(full)}
         report["films"][r] = {"a7": a7, "master": str(master), "sound_master": str(smov), "preview": str(preview),
