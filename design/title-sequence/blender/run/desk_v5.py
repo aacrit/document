@@ -75,9 +75,10 @@ ITEMS = {
               "h": 0.005, "date": 1500, "on": "piri", "fixed": True, "why": "a pendant cord laid out straight on the "
               "parchment to count its knots (as v4.1)"},
     "weights": {"kind": "object", "scan": "weights", "centre": (1.294, 0.841), "size": (0.07, 0.07), "psi": 0.0,
-                "h": 0.045, "on": "piri", "fixed": True, "why": "the Krakow nested weights hold Piri Reis's far corner"
-                " flat, as a reader weights a curling parchment; next to the coin tray because they weigh coins (the"
-                " lead's glance off them sends it along the back of the desk, v4.1 f335)"},
+                "h": 0.045, "on": "piri", "fixed": True, "why": "the Krakow nested cup weights, set with one edge on Piri"
+                " Reis's cut corner to keep the parchment from creeping, as a reader weights a map; beside the coin"
+                " tray because coins are weighed (the lead's glance off them sends it along the back, v4.1 f335)",
+                "upright_rx_deg": -90.0},
     # -- the oldest record, put away squared at the near-left corner
     "tablet": {"kind": "record", "ledger": "T-01", "centre": (0.165, 0.1625), "size": (0.31, 0.305), "psi": 0.0,
                "h": 0.05, "date": -2040, "on": "oak", "fixed": False, "rests_on_corner": "atlas1",
@@ -86,7 +87,7 @@ ITEMS = {
     "disc": {"kind": "tool", "centre": B.LATCH["disc"], "size": (0.045, 0.045), "psi": 0.0, "h": 0.003, "on": "oak",
              "fixed": True, "why": "the bronze disc of the approved latch"},
     # -- the coin corner, at the back under the lamp: the tray on the lead's line, the weights at its left end
-    "tray": {"kind": "tool", "centre": (1.635, 0.835), "size": (0.33, 0.13), "psi": 0.0, "h": 0.016, "on": "oak",
+    "tray": {"kind": "tool", "centre": (1.635, 0.8515), "size": (0.33, 0.097), "psi": 0.0, "h": 0.016, "on": "oak",
              "fixed": False, "groove_y": LINE_Y, "groove": {"w": 0.020, "depth": 0.006, "x": (1.47, 1.80)},
              "why": "an oak coin tray squared to the back edge, its long groove (open at both ends, as sorting trays"
              " are) along the desk; the coins stand in it on edge to be photographed one by one"},
@@ -148,11 +149,12 @@ PAIR = {"material": B.PAIR_MATERIAL, "from": "galley lip"}
 # its 0.26 m shade 1.40 m over the top, aimed across the desk; the desk is its pool, the felt and the coin tray at its
 # brightest, falling off 1.05 stops to the latch and U1 and 1.7 stops to the near-left corner (lamp_falloff_stops). It
 # is the off-axis key: from the back-right at 46-73 degrees over the path, every sheet edge and every ball throws its
-# contact shadow toward the sitter's side, which is the side the camera works from. No other emitter: the room's fill is this lamp's own
-# light off the plaster wall, the ceiling and the floor (a real room, modelled as plain matte surfaces).
+# contact shadow toward the sitter's side, which is the side the camera works from. No other emitter: the room's fill
+# is this lamp's own light off the plaster wall, the ceiling and the floor (a real room, modelled as matte surfaces).
 LAMP = {"pos": (1.60, 1.25, 1.40), "aim": (1.25, 0.45, 0.0), "shade_d": 0.26, "power_w": 90.0, "kelvin": 3400.0,
         "spread_deg": 110.0, "white_balance_k": 4300.0}
-ROOM = {"wall_y": 1.0 + DESK["wall_gap"], "ceiling_z": 2.45 - DESK["height"], "side_x": (-1.1, 3.3),
+# an old study's 4.3 m ceiling: the crane's wide at 3.40 m over the desk (50 mm, the whole desk in frame) fits under it
+ROOM = {"wall_y": 1.0 + DESK["wall_gap"], "ceiling_z": 4.30 - DESK["height"], "side_x": (-1.1, 3.3),
         "plaster_albedo": 0.42, "floor_albedo": 0.06, "world": 0.0}
 
 
@@ -182,7 +184,7 @@ def lamp_falloff_stops(x, y, ref=(2.08, 0.8645)):
 # clamped to +-1.5 stops. Legibility rules, checked per frame: the lead in frame, inside the centre 60%, at least 28 px
 # across at 1080p, in focus (the focus distance is the lead's), and the pan under 40 px a frame.
 LENS_MM, SENSOR_MM = 50.0, 36.0
-FOLLOW = {"D": 0.42, "elev": 34.0, "az_from_heading": 145.0, "fstop": 4.0, "omega": 3.2, "lead_ahead": 0.04}
+FOLLOW = {"D": 0.45, "elev": 26.0, "az_from_heading": 155.0, "fstop": 4.0, "omega": 3.2, "lead_ahead": 0.09}
 CLOSE = {"D": 0.16, "elev": 16.0, "fstop": 2.8}
 PASSES = [  # (name, t from, t to (v4.1 seconds), pose) close passes: low, the marble large, the background soft
     ("latch", 0.0, 5.6, "approved latch framing, 0.23 m at 25 degrees down, f/4"),
