@@ -52,11 +52,12 @@ const rawFilms = () => yamlParse(read("contract.yaml")).films;
 const partition = () => clone(registry.films.find((f: Film) => f.slug === "partition-of-india"));
 
 describe("films.json", () => {
-  it("as shipped: Partition and The Next Village both live, Partition on the marquee", () => {
+  it("as shipped: Partition, The Next Village and Real World all live, Partition on the marquee", () => {
     expect(registryProblems(live)).toEqual([]);
-    expect(listedFilms(live).map((f: Film) => [f.slug, f.status])).toEqual([
-      ["partition-of-india", "live"],
-      ["smallpox-eradication", "live"],
+    expect(listedFilms(live).map((f: Film) => [f.slug, f.status, f.order])).toEqual([
+      ["partition-of-india", "live", 1],
+      ["smallpox-eradication", "live", 2],
+      ["real-world", "live", 3],
     ]);
     expect(marqueeFilm(live).slug).toBe("partition-of-india");
     const nv = live.films.find((f: Film) => f.slug === "smallpox-eradication");
@@ -65,6 +66,56 @@ describe("films.json", () => {
     const p = sitePages(live, templates);
     expect(p["f/smallpox-eradication/index.html"]).toContain("<title>The Next Village · void document</title>");
     expect(p["index.html"]).toContain('<li><a href="/f/smallpox-eradication/">');
+  });
+
+  it("as shipped: Real World carries the founder-approved copy (2026-10-26) word for word, and no caption track it has not reviewed", () => {
+    const rw = live.films.find((f: Film) => f.slug === "real-world");
+    expect(rw).toMatchObject({
+      title: "Real World",
+      dates: "11 September 2001",
+      logline: "one morning, as it was heard by the people working the sky",
+      synopsis:
+        "On the morning of 11 September 2001, controllers at Boston and New York, the air defence sector at Rome, New York, and the White House tried to understand what was happening in the air above them. The film keeps to what they knew, minute by minute, in their own recorded words: the tapes of the control rooms and the defence sector, and what was said in public that day. A narrator gives the time and the place; the record carries the rest.",
+      content_note:
+        "It concerns the attacks of 11 September 2001. It plays air traffic and air defence recordings made that morning, and shows the towers burning and falling, in wide views.",
+      shows:
+        "This film shows the day as it was broadcast and photographed: the burning towers, the impact and the collapses, the dust and the debris, in wide views. It never shows an identifiable person in their final moments; a wide view is never zoomed in, slowed or held on a person; no final call is played; the dead are shown by what the day left empty.",
+      poster: "poster.jpg",
+      screenplay_path: "~/document-work/sept11/screenplay.json",
+    });
+    // Its own sources.json declares its balance: no fallback.
+    expect(rw.balance_fallback).toBeUndefined();
+    // The English captions are written at release from the render; nobody has reviewed them yet, so none is offered.
+    expect(rw.languages.captions).toEqual([{ lang: "en", name: "English", kind: "captions", review: "in_review" }]);
+    expect(publishedTracks(rw)).toEqual([]);
+    const p = sitePages(live, templates);
+    const page = p["f/real-world/index.html"];
+    expect(page).toContain("<title>Real World · void document</title>");
+    expect(page).not.toContain("/media/real-world/captions-en.vtt");
+    expect(page).toContain("English captions are being reviewed.");
+    expect(p["f/real-world/sources/index.html"]).toBeDefined();
+    expect(p["f/real-world/correct/index.html"]).toBeDefined();
+    expect(p["index.html"]).toContain('<li><a href="/f/real-world/"><span class="t">Real World</span>');
+    // Partition keeps the marquee.
+    expect(marqueeFilm(live).slug).toBe("partition-of-india");
+  });
+
+  it("escapes every registry value it writes into a page, attributes included", () => {
+    const evil = '"><img src=x onerror=alert(1)>';
+    const r = clone(live);
+    const f = r.films.find((x: Film) => x.slug === "real-world");
+    Object.assign(f, { title: evil, dates: `${evil} 2001`, logline: evil, synopsis: evil, content_note: evil, shows: evil, legend: { reconstructed: evil, drawn: evil } });
+    f.languages.captions = [{ lang: "en", name: evil, kind: "captions", review: "reviewed" }];
+    f.related = [{ href: `https://example.test/${evil}`, name: evil, line: evil, where: evil }];
+    // On the marquee too, so the home page's own fields are fed the same value.
+    f.order = 0;
+    const pages = sitePages(r, templates);
+    for (const page of ["index.html", "f/real-world/index.html", "f/real-world/sources/index.html", "f/real-world/correct/index.html"]) {
+      expect(pages[page], page).not.toContain("<img src=x");
+      expect(pages[page], page).not.toContain('"><img src=x');
+      expect(pages[page], page).not.toContain("onerror=alert(1)>");
+      expect(pages[page], page).toContain("&quot;&gt;&lt;img src=x onerror=alert(1)&gt;");
+    }
   });
 
   it("the pilot-era fixture is a sound registry: Partition live on the marquee, Nought in production, in order", () => {
@@ -258,8 +309,13 @@ describe("the contract, expanded from films.json", () => {
   const contract = loadContract(path.join(root, "contract.yaml"));
   const forFilm = (slug: string) => contract.checks.filter((c: { film?: string }) => c.film === slug);
 
-  it("gives Partition every check it had, and The Next Village a live film's checks", () => {
-    expect(contract.checks).toHaveLength(68);
+  it("gives Partition every check it had, and The Next Village and Real World a live film's checks", () => {
+    expect(contract.checks).toHaveLength(87);
+    const rw = forFilm("real-world");
+    expect(rw).toHaveLength(19);
+    expect(rw.find((c: { type: string }) => c.type === "json_has")).toMatchObject({ path: "/media/real-world/sources.json", field: "balance.sides", requires: "deployed" });
+    // No English track is reviewed yet, so the contract asks for none.
+    expect(rw.some((c: { path?: string }) => /captions-/.test(c.path ?? ""))).toBe(false);
     expect(forFilm("partition-of-india")).toHaveLength(22);
     const nv = forFilm("smallpox-eradication");
     expect(nv).toHaveLength(19);

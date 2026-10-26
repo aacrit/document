@@ -79,6 +79,35 @@
         "reconstructed": "archive film enlarged",
         "drawn": "from a period report"
       }
+    },
+    {
+      "slug": "real-world",
+      "title": "Real World",
+      "dates": "11 September 2001",
+      "status": "live",
+      "order": 3,
+      "poster": "poster.jpg",
+      "languages": {
+        "spoken": "en",
+        "captions": [
+          {
+            "lang": "en",
+            "name": "English",
+            "kind": "captions",
+            "review": "in_review"
+          }
+        ]
+      },
+      "related": [],
+      "screenplay_path": "~/document-work/sept11/screenplay.json",
+      "logline": "one morning, as it was heard by the people working the sky",
+      "synopsis": "On the morning of 11 September 2001, controllers at Boston and New York, the air defence sector at Rome, New York, and the White House tried to understand what was happening in the air above them. The film keeps to what they knew, minute by minute, in their own recorded words: the tapes of the control rooms and the defence sector, and what was said in public that day. A narrator gives the time and the place; the record carries the rest.",
+      "content_note": "It concerns the attacks of 11 September 2001. It plays air traffic and air defence recordings made that morning, and shows the towers burning and falling, in wide views.",
+      "shows": "This film shows the day as it was broadcast and photographed: the burning towers, the impact and the collapses, the dust and the debris, in wide views. It never shows an identifiable person in their final moments; a wide view is never zoomed in, slowed or held on a person; no final call is played; the dead are shown by what the day left empty.",
+      "legend": {
+        "reconstructed": "archive film enlarged",
+        "drawn": "from NWS observations, 2001"
+      }
     }
   ]
 }

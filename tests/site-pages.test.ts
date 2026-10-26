@@ -14,8 +14,8 @@ const pages = readdirSync(path.join(root, "web"), { recursive: true, encoding: "
   // web/templates/ holds the page templates the build fills from films.json; the pages are what it writes.
   .filter((f) => f.endsWith(".html") && !f.startsWith("web/templates/"));
 const filmPages = (slug: string) => [`web/f/${slug}/index.html`, `web/f/${slug}/sources/index.html`, `web/f/${slug}/correct/index.html`];
-// The home page and each live film's three pages (films.json): Partition and The Next Village.
-const PUBLIC = ["web/index.html", ...filmPages("partition-of-india"), ...filmPages("smallpox-eradication")];
+// The home page and each live film's three pages (films.json): Partition, The Next Village and Real World.
+const PUBLIC = ["web/index.html", ...filmPages("partition-of-india"), ...filmPages("smallpox-eradication"), ...filmPages("real-world")];
 const visible = (html: string) =>
   html
     .replace(/<script[\s\S]*?<\/script>/g, " ")
