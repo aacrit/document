@@ -126,9 +126,10 @@ def rms_dbfs(x: np.ndarray) -> float:
     return round(float(20 * np.log10(r + 1e-20)), 1)
 
 
-def build(record: str = "C20-METAR-0851", timing_dir: Path = SIM) -> tuple[np.ndarray, dict]:
+def build(record: str = "C20-METAR-0851", timing_dir: Path = SIM, room_tone: bool = True) -> tuple[np.ndarray, dict]:
     """timing_dir: where run-timing.json and run-contact-events.jsonl are read (v5d: sim/v5d, timing_v5d.py's
-    corrected events, release_title_s 0); the bake is always v5c's own (the physics is unchanged)."""
+    corrected events, release_title_s 0); the bake is always v5c's own (the physics is unchanged). room_tone=False:
+    the Foley alone (a mix that lays the room under a longer master adds its own)."""
     rep_sim = load_timing(record, timing_dir)
     fps = 30000 / 1001
     n_frames = math.ceil((rep_sim["rest_sim_s"] + ARRIVE_S) * fps)
@@ -213,7 +214,8 @@ def build(record: str = "C20-METAR-0851", timing_dir: Path = SIM) -> tuple[np.nd
             "foley_wet_peak_dbfs": round(float(20 * np.log10(np.abs(wet).max() + 1e-20)), 1),
         },
     }
-    mix = wet + room
+    mix = wet + room if room_tone else wet
+    rep["room_tone_in_mix"] = room_tone
     fadeout = int(0.05 * SR)
     mix[-fadeout:] *= np.linspace(1, 0, fadeout)
     return mix, rep

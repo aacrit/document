@@ -50,6 +50,11 @@ PROOF = {"res": "854x480", "samples": 128, "threshold": 0.05, "min_samples": 16}
 FINAL = {"res": "2560x1440", "samples": 512, "threshold": 0.02, "min_samples": 64}      # tail_v5c.SAMPLING
 PROBE_STEP = 149                                      # frames 0, 149, ..., 1043: 8 frames across every posture
 MAX_MB = 15.0
+# The pose's exposure, carried over from v5c (the A7 calibration). v5c's meter was taken before the record went dead
+# matte (872e788), so its pose value is not what a re-meter reads (the v5d meter, same pose camera: +1.76): C20's
+# A7 0.39 was measured at v5c's keyed +1.005 at k_from 1061, and S-130 / S-16928 at tail_v5c.POSE_EV. Each film's
+# exposure eases onto its value at <= 1 stop/s (shot_v5c.ease_exposure) and holds it, as tail_v5c does.
+POSE_EV_V5D = {"C20-METAR-0851": 1.005, "S-130": 3.75, "S-16928": 3.25}
 LOG = OUT / "proof-v5d.log"
 
 
@@ -164,16 +169,24 @@ def blender(args, tag):
 # ------------------------------------------------------------------------------------------------ the pieces
 
 
-def meter(n):
+def meter(n, k_from):
     import final_v5c as FV
     mdir = OUT / "meter"
     mdir.mkdir(parents=True, exist_ok=True)
-    r = blender(["--fps", FPS_S, "--frames", f"0:{n - 1}", "--res", "480x270", "--samples", "24", "--threshold", "0.05",
+    have = sorted(p for p in mdir.glob("*.png") if p.stat().st_size > 0)
+    r = {"wall_s": 0.0, "reused": len(have)} if len(have) == len(range(0, n, 6)) else blender(["--fps", FPS_S, "--frames", f"0:{n - 1}", "--res", "480x270", "--samples", "24", "--threshold", "0.05",
                  "--min_samples", "8", "--step", "6", "--blur", "0", "--exposure", "0.0", "--out", str(mdir)], "meter")
     samples = sorted((int(p.stem), FV.meter_value(p)) for p in mdir.glob("*.png") if p.stat().st_size > 0)
-    ev = FV.exposure_curve(samples, n, FPS)
-    (OUT / "exposure.json").write_text(json.dumps({"ev": ev, "meter": samples, "target": FV.TARGET, "ease_s": 0.6,
-                                                   "slew_stops_s": 1.0, "camera": "v5d"}), encoding="utf-8")
+    metered = FV.exposure_curve(samples, n, FPS)
+    delta = POSE_EV_V5D[REC] - metered[k_from]
+    ev, f_ev = SH.ease_exposure(metered, k_from, delta, FPS)
+    ev = [round(float(v), 4) for v in ev]
+    (OUT / "exposure.json").write_text(json.dumps({"ev": ev, "metered_ev": metered, "meter": samples,
+                                                   "target": FV.TARGET, "ease_s": 0.6, "slew_stops_s": 1.0,
+                                                   "camera": "v5d", "pose_ev": POSE_EV_V5D[REC], "k_from": k_from,
+                                                   "pose_delta": round(delta, 4), "eased_from": f_ev}),
+                                      encoding="utf-8")
+    r = dict(r, pose_ev=POSE_EV_V5D[REC], metered_at_pose=metered[k_from], eased_from=f_ev)
     return ev, r
 
 
@@ -256,8 +269,8 @@ def per_film_frames(bake, rest_s, ev):
         redo = {f for f in range(len(fr)) if seen_any[f]}
         redo |= {f for f in range(len(fr)) if not (np.array_equal(fr[f]["eye"], rw[f]["eye"])
                                                     and np.array_equal(fr[f]["tgt"], rw[f]["tgt"]))}
-        if T.POSE_EV[r] is not None:
-            _, f_ev = SH.ease_exposure(ev, k_from, T.POSE_EV[r] - ev[k_from], FPS)
+        if r != REC:                                   # a film whose pose exposure differs from the proof's
+            _, f_ev = SH.ease_exposure(ev, k_from, POSE_EV_V5D[r] - ev[k_from], FPS)
             redo |= set(range(f_ev, len(fr)))
         out[r] = {"frames": len(redo), "runs": T.runs(redo)}
     return out
@@ -276,7 +289,7 @@ def sidecar(path, ev, n, vs_path):
     return out, dv, sum(1 for f in fr if f["recorded"] == "blender")
 
 
-def main():
+def render():
     OUT.mkdir(parents=True, exist_ok=True)
     rep_sim = json.loads((MEDIA / "sim" / "v5c" / "run-timing.json").read_text(encoding="utf-8"))
     bake = json.loads((MEDIA / "sim" / "v5c" / "run-bake.json").read_text(encoding="utf-8"))
@@ -294,7 +307,7 @@ def main():
     preflight()
     take_lock(f"The Run v5d 480p proof (meter, {n} frames at 854x480, an 8-frame final-cost probe)")
     try:
-        ev, r = meter(n)
+        ev, r = meter(n, next(i for i, f in enumerate(frames) if f["end"] >= 1.0))
         report["meter"] = {"wall_s": r["wall_s"], "ev_range": [min(ev), max(ev)], "breaths": breaths(ev)}
         log("meter done", **report["meter"])
         fdir = OUT / "frames-480"
@@ -322,7 +335,20 @@ def main():
         log("final probe done", **report["final_probe"])
     finally:
         drop_lock()
-    # CPU only from here: the Foley, the mux, the sidecar, the sheet, the cost
+    (OUT / "proof-render.json").write_text(json.dumps(report, indent=1, default=str), encoding="utf-8")
+    return report
+
+
+def finish():
+    """CPU only: the Foley, the mux, the sidecar, the sheet, the cost (after render())."""
+    rep_sim = json.loads((MEDIA / "sim" / "v5c" / "run-timing.json").read_text(encoding="utf-8"))
+    bake = json.loads((MEDIA / "sim" / "v5c" / "run-bake.json").read_text(encoding="utf-8"))
+    rest = rep_sim["rest_sim_s"]
+    spec, _ = SD.load_keys()
+    report = json.loads((OUT / "proof-render.json").read_text(encoding="utf-8"))
+    n = report["frames"]
+    ev = json.loads((OUT / "exposure.json").read_text(encoding="utf-8"))["ev"]
+    fdir, vs = OUT / "frames-480", OUT / "view-settings-480.blender.json"
     wav = OUT / "v5d-foley.wav"
     subprocess.run([VENV_PY, str(HERE / "foley_v5c.py"), "--record", REC, "--timing", str(MEDIA / "sim" / "v5d"),
                     "--out", str(wav)], check=True, capture_output=True)
@@ -351,4 +377,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    phase = sys.argv[sys.argv.index("--phase") + 1] if "--phase" in sys.argv else "all"
+    if phase in ("render", "all"):
+        render()
+    if phase in ("finish", "all"):
+        finish()
