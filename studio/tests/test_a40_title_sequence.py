@@ -583,3 +583,102 @@ def test_a40_a_shots_span_across_the_titles_is_the_full_render_byte_for_byte(tmp
         mine = {p.name.split(".")[0]: J.sha256_file(p) for p in (out / f"shots-{a}-{b}" / "segments").glob("*.mp4")}
         assert set(mine) == set(s["rendered"]), (a, b, sorted(mine))
         assert all(mine[k] == full[k] for k in mine), (a, b)
+
+
+# --------------------------------------------------------------------------
+# A40 title slot: a placeholder (title_slot: true) holds the slot until the series title is spliced in
+# (founder ruling 2026-10-18: "the title is standalone, spliced via render --shots; a film never waits for
+# its title"). title-theme accepts the main_title cue over a contiguous run of these shots exactly as over
+# a title_sequence; none of A40's other per-shot checks run for a placeholder (it has no asset, no A7 pose).
+# --------------------------------------------------------------------------
+
+
+def slot_film(tmp_path, *, ids=("TS1", "TS1b"), title_slot=True, edit=None):
+    """The fixture film with the cold open followed by placeholder shot(s) standing in for the series
+    titles, instead of a real title_sequence. Together the placeholders span exactly ``TITLE_S``, so the
+    rest of the film shifts by ``SHIFT`` regardless of how many placeholder shots make up the run.
+    ``edit(play)`` runs last, as in ``titled_film``."""
+    film = make_film(tmp_path / "film")
+    play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
+
+    def move(x):
+        for k in ("start_s", "end_s"):
+            if isinstance(x.get(k), (int, float)):
+                x[k] = round(x[k] + SHIFT, 4)
+    for part in play["parts"]:
+        for coll in ("shots", "lines", "cues", "text"):
+            for x in part.get(coll, []):
+                move(x)
+    for x in play.get("subtitle_source", []) + play.get("music", []) + play.get("moments", []):
+        move(x)
+    play["runtime_target_s"] = play["runtime_target_s"] + SHIFT
+    slot_dur = TITLE_S / len(ids)
+    slots = []
+    for k, sid in enumerate(ids):
+        s = {"id": sid, "kind": "card", "start_s": COLD_S + k * slot_dur, "dur_s": slot_dur, "mark": "CARD",
+             "text": ["The Run"], "transition_in": {"type": "cut"},
+             "why": "The series titles' slot, held by a placeholder until the title is spliced in."}
+        if title_slot:
+            s["title_slot"] = True
+        slots.append(s)
+    play["parts"][:0] = [
+        {"id": "cold", "kind": "cold_open", "title": "Cold open", "shots": [
+            {"id": "CO1", "kind": "black", "start_s": 0.0, "dur_s": COLD_S, "mark": "CARD", "transition_in": {"type": "cut"},
+             "silence": "intended", "why": "The hook, in this test a breath of black."}]},
+        {"id": "series", "kind": "series_title", "title": TS.SERIES, "shots": slots}]
+    if edit:
+        edit(play)
+    (film / "screenplay.json").write_text(json.dumps(play), encoding="utf-8")
+    return film
+
+
+def test_a40_title_slot_a_contiguous_run_of_placeholders_takes_the_main_title_theme(tmp_path):
+    def theme(play):
+        play["music"] = [{"id": "MT", "kind": "music", "role": "main_title", "start_s": COLD_S, "end_s": SHIFT, "wav": "mt.wav"}]
+    film = slot_film(tmp_path, edit=theme)
+    plan, j = plan_of(film)
+    assert not isinstance(plan, Exception), plan
+    # the slot run is accepted (no title-theme refusal); there is no title_sequence shot to emit a pass entry for
+    assert not failed(j, "title-theme")
+    # none of A40's other per-shot checks (provenance, format, A7 pose, and so on) are raised for a placeholder:
+    # there is no title_sequence shot, so none of these ever run
+    for rule in RULES:
+        assert not lints(j, rule), (rule, lints(j, rule))
+
+
+def test_a40_title_slot_a_single_placeholder_also_takes_the_theme(tmp_path):
+    def theme(play):
+        play["music"] = [{"id": "MT", "kind": "music", "role": "main_title", "start_s": COLD_S, "end_s": SHIFT, "wav": "mt.wav"}]
+    film = slot_film(tmp_path, ids=("TS1",), edit=theme)
+    plan, j = plan_of(film)
+    assert not isinstance(plan, Exception), plan
+    assert not failed(j, "title-theme")
+
+
+def test_a40_title_theme_over_a_non_slot_still_still_refuses(tmp_path):
+    """The same shots, the same cue, but without ``title_slot: true``: a plain still is not the slot, so the
+    theme over it refuses exactly as it would over any other non-title shot."""
+    def theme(play):
+        play["music"] = [{"id": "MT", "kind": "music", "role": "main_title", "start_s": COLD_S, "end_s": SHIFT, "wav": "mt.wav"}]
+    film = slot_film(tmp_path, title_slot=False, edit=theme)
+    plan, j = plan_of(film)
+    assert isinstance(plan, R.Refused) and failed(j, "title-theme")
+
+
+def test_a40_title_slot_placeholder_still_obeys_every_other_lint(tmp_path):
+    """A placeholder is an ordinary shot otherwise: voice over it still fails A55 voice-over-black, which is
+    checked at render time (voice_over_black_lints runs after build_plan, inside render()), not at plan time."""
+    def voice(play):
+        play["parts"][1]["lines"] = [{"id": "LX", "kind": "narration", "start_s": COLD_S + 0.2, "text": "Over the slot."}]
+    film = slot_film(tmp_path, edit=voice)
+    tone(film / "audio" / "LX.wav", 1.0)
+    j = J.Journal(film="a40-slot-voice")
+    with pytest.raises(R.Refused, match="voice-over-black"):
+        R.render(film, tmp_path / "out", height=360, workers=1, min_free_gb=1, encode_preset="veryfast", journal=j)
+
+
+def test_a40_title_slot_is_title_slot_and_contiguous_runs_helpers():
+    assert TS.is_title_slot({"title_slot": True}) and not TS.is_title_slot({"title_slot": "true"})
+    assert not TS.is_title_slot({})
+    assert TS._contiguous_runs([2, 3, 4, 7, 8, 11]) == [[2, 3, 4], [7, 8], [11]]
+    assert TS._contiguous_runs([]) == []

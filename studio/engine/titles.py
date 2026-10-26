@@ -66,6 +66,27 @@ def is_title(shot: dict) -> bool:
     return shot.get("kind") == KIND
 
 
+def is_title_slot(shot: dict) -> bool:
+    """A40 placeholder (founder ruling 2026-10-18): a shot holding the title slot with ``title_slot: true``
+    until the series title ("The Run") is spliced in later, by ``render --shots``. It is an ordinary shot
+    otherwise (a still or a card, most often): no asset, nothing burned, no A7 pose, and none of the other
+    A40 checks (provenance, licence, format, marks, lockup, placement, transitions) run for it. Only
+    title-theme treats it specially, accepting the main_title cue over a contiguous run of these shots
+    exactly as over a title_sequence shot; every other lint still applies to it as the shot it is."""
+    return shot.get("title_slot") is True
+
+
+def _contiguous_runs(idx: list[int]) -> list[list[int]]:
+    """``idx``, a sorted list of shot indices, grouped into runs of consecutive indices."""
+    runs: list[list[int]] = []
+    for i in idx:
+        if runs and runs[-1][-1] == i - 1:
+            runs[-1].append(i)
+        else:
+            runs.append([i])
+    return runs
+
+
 # --------------------------------------------------------------------------
 # The master's declared mark timeline
 # --------------------------------------------------------------------------
@@ -470,14 +491,22 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
     out: dict = {}
     idx = [i for i, s in enumerate(shots) if is_title(s)]
     spans_s = [(shots[i]["f0"] / fps, shots[i]["f1"] / fps) for i in idx]
-    for c in cues:                             # the theme plays under the series titles and nowhere else
+    # A40 placeholder (founder ruling 2026-10-18): a contiguous run of title_slot shots holds the slot until
+    # the series title is spliced in, and counts here exactly as a title_sequence shot does; the per-shot
+    # checks below (place, transitions, provenance, format, A7 pose, and so on) stay scoped to a real
+    # title_sequence (``idx``) and never run for a placeholder.
+    slot_runs = _contiguous_runs([i for i, s in enumerate(shots) if is_title_slot(s)])
+    slot_spans_s = [(shots[run[0]]["f0"] / fps, shots[run[-1]]["f1"] / fps) for run in slot_runs]
+    for c in cues:                             # the theme plays under the series titles (or its placeholder slot), nowhere else
         if c.get("kind", "music") != "music" or c.get("role") != THEME_ROLE:
             continue
         a, b = float(c["start_s"]), float(c["end_s"])
-        if not any(t0 - 0.5 / fps <= a and b <= t1 + 0.5 / fps for t0, t1 in spans_s):
+        if not any(t0 - 0.5 / fps <= a and b <= t1 + 0.5 / fps for t0, t1 in spans_s + slot_spans_s):
             lint("title-theme", False, unit=c.get("id"), grammar="A40",
                  evidence={"start_s": a, "end_s": b, "titles": [[round(x, 3) for x in sp] for sp in spans_s],
-                           "fix": "a main_title cue plays under a title_sequence shot only, from its first frame"})
+                           "slots": [[round(x, 3) for x in sp] for sp in slot_spans_s],
+                           "fix": "a main_title cue plays under a title_sequence shot, or a contiguous run of "
+                                  "title_slot placeholder shots, only, from its first frame"})
     if not idx:
         return out
     lint("title-sequence-once", len(idx) == 1, unit=shots[idx[0]]["id"], grammar="A40",
