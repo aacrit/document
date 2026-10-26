@@ -1,0 +1,586 @@
+{
+ "title": "void document · As It Was: Laid Down",
+ "version": "spec 2026-10-26",
+ "fps": "30000/1001",
+ "frames": 1080,
+ "duration_s": 36.036,
+ "lockup": {
+  "kind": "card",
+  "dur_s": 6.0,
+  "transition_in": "cut",
+  "slot_id": "TS1b"
+ },
+ "table": {
+  "size_m": [
+   3.0,
+   1.7
+  ],
+  "pile_centre_m": [
+   1.5,
+   0.85
+  ],
+  "source": "desk_v5 oak (C-02 scan), bare top, no groove"
+ },
+ "camera": {
+  "lens_mm": 50,
+  "sensor_mm": 36,
+  "fstop": 8.0,
+  "shutter_deg": 180,
+  "view_transform": "Standard",
+  "fixed": {
+   "frames": [
+    0,
+    868
+   ],
+   "eye_m": [
+    1.5,
+    0.85,
+    1.3
+   ],
+   "frame_on_table_m": [
+    0.936,
+    0.527
+   ]
+  },
+  "descent": {
+   "frames": [
+    869,
+    1019
+   ],
+   "profile": "smoothstep (shot_v5c._smooth)",
+   "to": "record pose per film (pose_eye_height_m over the record centre, rolled to land_psi_deg)"
+  },
+  "pose_hold": {
+   "frames": [
+    1019,
+    1079
+   ]
+  }
+ },
+ "lamp": {
+  "pos_m": [
+   1.95,
+   1.75,
+   1.4
+  ],
+  "aim_m": [
+   1.5,
+   0.85,
+   0.0
+  ],
+  "shade_d_m": 0.26,
+  "power_w": 90.0,
+  "kelvin": 3400.0,
+  "white_balance_k": 4300.0,
+  "spread_deg": 110.0,
+  "constant": true,
+  "elevation_over_pile_deg": 54.3
+ },
+ "exposure": {
+  "fixed": true,
+  "set_on": "S6 chart paper white at about 0.85"
+ },
+ "black": {
+  "frames": [
+   0,
+   11
+  ],
+  "sound": "room tone; S1 slide audible from frame 6"
+ },
+ "sheets": [
+  {
+   "id": "S1",
+   "ledger": "T-02a",
+   "tex": [
+    "T-02a_keyed.png"
+   ],
+   "date": -1150,
+   "size_m": [
+    0.62,
+    0.13
+   ],
+   "thickness_m": 0.00025,
+   "enter_from": "left",
+   "land_centre_m": [
+    -0.05,
+    0.08
+   ],
+   "land_psi_deg": 4.0,
+   "turn_delta_deg": 3.0,
+   "mu_eff": 0.22,
+   "decel_m_s2": 2.158,
+   "release_centre_m": [
+    -0.9,
+    0.08
+   ],
+   "release_on_table": true,
+   "release_off_frame": true,
+   "slide_total_m": 0.85,
+   "v_release_m_s": 1.915,
+   "t_release_to_stop_s": 0.888,
+   "v_entry_m_s": 1.773,
+   "t_visible_s": 0.821,
+   "enter_s": 0.4,
+   "stop_s": 1.221,
+   "enter_frame": 12,
+   "stop_frame": 37,
+   "release_s": 0.334,
+   "release_frame": 10,
+   "hold_s": 5.6,
+   "trailing_corner_lift_mm_max": 3.0
+  },
+  {
+   "id": "S2",
+   "ledger": "T-03",
+   "tex": [
+    "T-03_board1.jpg",
+    "T-03_board2.jpg"
+   ],
+   "date": 1375,
+   "size_m": [
+    1.0,
+    0.69
+   ],
+   "thickness_m": 0.0012,
+   "enter_from": "right",
+   "land_centre_m": [
+    0.02,
+    -0.01
+   ],
+   "land_psi_deg": -2.5,
+   "turn_delta_deg": -2.5,
+   "mu_eff": 0.16,
+   "decel_m_s2": 1.57,
+   "release_centre_m": [
+    0.99,
+    -0.01
+   ],
+   "release_on_table": true,
+   "release_off_frame": true,
+   "slide_total_m": 0.97,
+   "v_release_m_s": 1.745,
+   "t_release_to_stop_s": 1.112,
+   "v_entry_m_s": 1.725,
+   "t_visible_s": 1.099,
+   "enter_s": 6.821,
+   "stop_s": 7.92,
+   "enter_frame": 204,
+   "stop_frame": 237,
+   "release_s": 6.809,
+   "release_frame": 204,
+   "hold_s": 4.6,
+   "trailing_corner_lift_mm_max": 0.0
+  },
+  {
+   "id": "S3",
+   "ledger": "T-06",
+   "tex": [
+    "T-06_leaf.jpg"
+   ],
+   "date": 1455,
+   "size_m": [
+    0.3,
+    0.42
+   ],
+   "thickness_m": 0.00015,
+   "enter_from": "bottom",
+   "land_centre_m": [
+    0.12,
+    -0.04
+   ],
+   "land_psi_deg": 3.0,
+   "turn_delta_deg": 4.0,
+   "mu_eff": 0.3,
+   "decel_m_s2": 2.943,
+   "release_centre_m": [
+    0.12,
+    -0.6
+   ],
+   "release_on_table": true,
+   "release_off_frame": true,
+   "slide_total_m": 0.56,
+   "v_release_m_s": 1.816,
+   "t_release_to_stop_s": 0.617,
+   "v_entry_m_s": 1.597,
+   "t_visible_s": 0.543,
+   "enter_s": 12.52,
+   "stop_s": 13.063,
+   "enter_frame": 375,
+   "stop_frame": 391,
+   "release_s": 12.446,
+   "release_frame": 373,
+   "hold_s": 3.7,
+   "trailing_corner_lift_mm_max": 3.0
+  },
+  {
+   "id": "S4",
+   "ledger": "T-04",
+   "tex": [
+    "T-04_keyed.png"
+   ],
+   "date": 1513,
+   "size_m": [
+    0.65,
+    0.87
+   ],
+   "thickness_m": 0.0003,
+   "enter_from": "left",
+   "land_centre_m": [
+    -0.1,
+    0.02
+   ],
+   "land_psi_deg": -3.5,
+   "turn_delta_deg": -3.0,
+   "mu_eff": 0.18,
+   "decel_m_s2": 1.766,
+   "release_centre_m": [
+    -0.95,
+    0.02
+   ],
+   "release_on_table": true,
+   "release_off_frame": true,
+   "slide_total_m": 0.85,
+   "v_release_m_s": 1.733,
+   "t_release_to_stop_s": 0.981,
+   "v_entry_m_s": 1.564,
+   "t_visible_s": 0.886,
+   "enter_s": 16.763,
+   "stop_s": 17.649,
+   "enter_frame": 502,
+   "stop_frame": 529,
+   "release_s": 16.668,
+   "release_frame": 500,
+   "hold_s": 2.9,
+   "trailing_corner_lift_mm_max": 3.0
+  },
+  {
+   "id": "S5",
+   "ledger": "T-08",
+   "tex": [
+    "T-08_sheet.jpg"
+   ],
+   "date": 1821,
+   "size_m": [
+    1.0,
+    0.58
+   ],
+   "thickness_m": 8e-05,
+   "enter_from": "right",
+   "land_centre_m": [
+    0.03,
+    -0.02
+   ],
+   "land_psi_deg": 2.0,
+   "turn_delta_deg": 2.0,
+   "mu_eff": 0.14,
+   "decel_m_s2": 1.373,
+   "release_centre_m": [
+    0.99,
+    -0.02
+   ],
+   "release_on_table": true,
+   "release_off_frame": true,
+   "slide_total_m": 0.96,
+   "v_release_m_s": 1.624,
+   "t_release_to_stop_s": 1.182,
+   "v_entry_m_s": 1.605,
+   "t_visible_s": 1.169,
+   "enter_s": 20.549,
+   "stop_s": 21.718,
+   "enter_frame": 616,
+   "stop_frame": 651,
+   "release_s": 20.535,
+   "release_frame": 615,
+   "hold_s": 2.2,
+   "trailing_corner_lift_mm_max": 3.0
+  },
+  {
+   "id": "S6",
+   "ledger": "T-20",
+   "tex": [
+    "T-20_chart.jpg"
+   ],
+   "date": 1931,
+   "size_m": [
+    1.0,
+    0.675
+   ],
+   "thickness_m": 0.00012,
+   "enter_from": "left",
+   "land_centre_m": [
+    -0.02,
+    0.03
+   ],
+   "land_psi_deg": -1.5,
+   "turn_delta_deg": -2.0,
+   "mu_eff": 0.15,
+   "decel_m_s2": 1.472,
+   "release_centre_m": [
+    -0.99,
+    0.03
+   ],
+   "release_on_table": true,
+   "release_off_frame": true,
+   "slide_total_m": 0.97,
+   "v_release_m_s": 1.69,
+   "t_release_to_stop_s": 1.148,
+   "v_entry_m_s": 1.67,
+   "t_visible_s": 1.135,
+   "enter_s": 23.918,
+   "stop_s": 25.053,
+   "enter_frame": 717,
+   "stop_frame": 751,
+   "release_s": 23.905,
+   "release_frame": 716,
+   "hold_s": null,
+   "trailing_corner_lift_mm_max": 3.0
+  }
+ ],
+ "stillness": {
+  "from_s": 25.053,
+  "to_s": 29.0,
+  "frames": [
+   751,
+   868
+  ],
+  "dur_s": 3.947,
+  "rule": "at least 1.4 x the last hold; nothing moves; room tone and the theme only"
+ },
+ "entry_intervals_s": [
+  6.42,
+  5.7,
+  4.24,
+  3.79,
+  3.37,
+  5.08
+ ],
+ "records": {
+  "C20-METAR-0851": {
+   "film": "Real World",
+   "tex": "R-C20-METAR-0851.jpg",
+   "cls": "DRAWN",
+   "label": "Drawn · 2001",
+   "year": 2001,
+   "size_m": [
+    0.2,
+    0.1125
+   ],
+   "px": [
+    3840,
+    2160
+   ],
+   "enter_from": "bottom",
+   "land_centre_m": [
+    0.0,
+    0.0
+   ],
+   "land_psi_deg": 1.5,
+   "turn_delta_deg": 2.0,
+   "mu_eff": 0.28,
+   "release_centre_m": [
+    0.0,
+    -0.6
+   ],
+   "v_release_m_s": 1.816,
+   "v_entry_m_s": 1.325,
+   "t_visible_s": 0.482,
+   "enter_s": 29.0,
+   "stop_s": 29.482,
+   "enter_frame": 869,
+   "stop_frame": 884,
+   "record_window": [
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "window_width_m": 0.2,
+   "pose_eye_height_m": 0.278,
+   "record_pose": {
+    "window": [
+     0.0,
+     0.0,
+     1.0,
+     1.0
+    ],
+    "from_frame": 1019
+   },
+   "flat_hold": {
+    "ramp_from_frame": 1007,
+    "one_from_frame": 1019
+   },
+   "marks": [
+    {
+     "frame": 1019,
+     "cls": "DRAWN",
+     "label": "Drawn · 2001"
+    }
+   ]
+  },
+  "S-130": {
+   "film": "Not a Free Agent",
+   "tex": "R-S-130.jpg",
+   "cls": "ARCHIVE",
+   "label": "Archive · 1947",
+   "year": 1947,
+   "size_m": [
+    0.3,
+    0.465
+   ],
+   "px": [
+    1284,
+    1987
+   ],
+   "enter_from": "bottom",
+   "land_centre_m": [
+    0.0,
+    0.0
+   ],
+   "land_psi_deg": 1.5,
+   "turn_delta_deg": 2.0,
+   "mu_eff": 0.28,
+   "release_centre_m": [
+    0.0,
+    -0.6
+   ],
+   "v_release_m_s": 1.816,
+   "v_entry_m_s": 1.65,
+   "t_visible_s": 0.601,
+   "enter_s": 29.0,
+   "stop_s": 29.601,
+   "enter_frame": 869,
+   "stop_frame": 887,
+   "record_window": [
+    0.0,
+    0.0,
+    1.0,
+    0.363488
+   ],
+   "window_width_m": 0.3,
+   "pose_eye_height_m": 0.417,
+   "record_pose": {
+    "window": [
+     0.0,
+     0.0,
+     1.0,
+     0.363488
+    ],
+    "from_frame": 1019
+   },
+   "flat_hold": {
+    "ramp_from_frame": 1007,
+    "one_from_frame": 1019
+   },
+   "marks": [
+    {
+     "frame": 1019,
+     "cls": "ARCHIVE",
+     "label": "Archive · 1947"
+    }
+   ]
+  },
+  "S-16928": {
+   "film": "The Next Village",
+   "tex": "R-S-16928.jpg",
+   "cls": "ARCHIVE",
+   "label": "Archive · 1976",
+   "year": 1976,
+   "size_m": [
+    0.42,
+    0.246
+   ],
+   "px": [
+    2874,
+    1686
+   ],
+   "enter_from": "bottom",
+   "land_centre_m": [
+    0.0,
+    0.0
+   ],
+   "land_psi_deg": 1.5,
+   "turn_delta_deg": 2.0,
+   "mu_eff": 0.28,
+   "release_centre_m": [
+    0.0,
+    -0.6
+   ],
+   "v_release_m_s": 1.816,
+   "v_entry_m_s": 1.457,
+   "t_visible_s": 0.53,
+   "enter_s": 29.0,
+   "stop_s": 29.53,
+   "enter_frame": 869,
+   "stop_frame": 885,
+   "record_window": [
+    0.0,
+    0.0,
+    1.0,
+    0.958852
+   ],
+   "window_width_m": 0.42,
+   "pose_eye_height_m": 0.583,
+   "record_pose": {
+    "window": [
+     0.0,
+     0.0,
+     1.0,
+     0.958852
+    ],
+    "from_frame": 1019
+   },
+   "flat_hold": {
+    "ramp_from_frame": 1007,
+    "one_from_frame": 1019
+   },
+   "marks": [
+    {
+     "frame": 1019,
+     "cls": "ARCHIVE",
+     "label": "Archive · 1976"
+    }
+   ]
+  }
+ },
+ "shared_prefix_frames": [
+  0,
+  868
+ ],
+ "tail_frames": [
+  869,
+  1079
+ ],
+ "marks": [
+  {
+   "frame": 12,
+   "cls": "DRAWN",
+   "label": "Drawn · from period records"
+  },
+  "then the record's own class at 1019 per film",
+  "CARD on the lockup"
+ ],
+ "foley": {
+  "events_per_sheet": [
+   "slide (continuous, level and brightness by speed)",
+   "edge (leading edge onto the sheet below)",
+   "settle tap 0.25 s after the stop"
+  ],
+  "room": "house IR; room tone -72 dBFS RMS",
+  "lead": "each slide is heard 0.1-0.3 s before the sheet is seen"
+ },
+ "score": {
+  "theme": "the-run-theme-v5d (G Dorian), re-spotted",
+  "landing_notes_on_stop_frames": [
+   37,
+   237,
+   391,
+   529,
+   651,
+   751
+  ],
+  "stretto": "S4-S6",
+  "stillness": "bare restatement or silence",
+  "final_fifth_frame": 1019,
+  "no_attack_within_ms_of_foley": 80
+ }
+}
