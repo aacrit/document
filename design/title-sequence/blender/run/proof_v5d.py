@@ -339,6 +339,16 @@ def render():
     return report
 
 
+def frame_times(log_path):
+    """Blender's own per-frame render times (its 'Time: mm:ss.ss (Saving: ...)' line after each saved frame)."""
+    import re
+    out = []
+    for m in re.finditer(r"Time: (\d+):(\d+(?:\.\d+)?) \(Saving", Path(log_path).read_text(encoding="utf-8",
+                                                                                         errors="replace")):
+        out.append(int(m.group(1)) * 60 + float(m.group(2)))
+    return out
+
+
 def finish():
     """CPU only: the Foley, the mux, the sidecar, the sheet, the cost (after render())."""
     rep_sim = json.loads((MEDIA / "sim" / "v5c" / "run-timing.json").read_text(encoding="utf-8"))
@@ -349,6 +359,11 @@ def finish():
     n = report["frames"]
     ev = json.loads((OUT / "exposure.json").read_text(encoding="utf-8"))["ev"]
     fdir, vs = OUT / "frames-480", OUT / "view-settings-480.blender.json"
+    for key, tag in (("proof_render", "proof"), ("final_probe", "probe")):
+        ft = frame_times(OUT / f"blender-{tag}.log")
+        if ft:                               # measured per frame by Blender (frames already on disk were not rendered)
+            report[key].update({"frames_rendered_this_run": len(ft), "s_per_frame": round(sum(ft) / len(ft), 3),
+                                "s_per_frame_max": round(max(ft), 2), "basis": "Blender's per-frame render time"})
     wav = OUT / "v5d-foley.wav"
     subprocess.run([VENV_PY, str(HERE / "foley_v5c.py"), "--record", REC, "--timing", str(MEDIA / "sim" / "v5d"),
                     "--out", str(wav)], check=True, capture_output=True)

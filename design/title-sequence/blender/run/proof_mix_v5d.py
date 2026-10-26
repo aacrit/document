@@ -81,7 +81,7 @@ def foley(lift_db, timing, room_tone=True):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--engine", required=True, help="a checkout whose studio.engine.motion has lockup_card_frame")
-    ap.add_argument("--lift", type=float, default=None, help="leather lift in dB (default: searched)")
+    ap.add_argument("--lift", type=float, default=9.0, help="the leather bed's lift, dB")
     a = ap.parse_args()
     import clean as CL
     import foley as FO
@@ -89,36 +89,25 @@ def main():
     timing = Path("D:/document-media/title-sequence/run/sim/v5d")
     report = json.loads((OUT / "proof-report.json").read_text(encoding="utf-8")) if (OUT / "proof-report.json").exists() \
         else {}
-    # 1. the leather lift: the smallest whole dB that clears the theme by +6 dB at p10 on the leather (measured with
-    # the music director's own audibility measure)
-    sys.path.insert(0, "C:/Users/aacri/document-work/series-title")
-    import measure_v5d as MV
-    theme = MV.load48(THEME)
-    tl = json.loads(Path(MV.C.TIMELINE).read_text(encoding="utf-8"))
-    evs = [(float(e["t"]), e["event"]) for e in tl["events"] if "contact impulse marble|oak" not in e["event"]]
-
-    def audit(mix):
-        y = mix if FO.SR == MV.RATE else MV.S.resample(mix, int(round(len(mix) * MV.RATE / FO.SR)))
-        return MV.foley_audibility(theme, y, evs)
-
-    lifts = [a.lift] if a.lift is not None else [0, 3, 6, 8, 10, 12]
-    tried = []
-    for lift in lifts:
-        mix, frep = foley(lift, timing)
-        au = audit(mix)
-        tried.append({"lift_db": lift, "leather_p10_db": au["per_surface"]["leather"]["p10_db"],
-                      "oak_p10_db": au["per_surface"]["oak"]["p10_db"], "all_p10_db": au["p10_db"]})
-        if au["per_surface"]["leather"]["p10_db"] >= 6.0:
-            break
+    # 1. the leather lifted by --lift dB (chosen with the music director's measure_v5d.foley_audibility against the
+    # theme, which needs PyYAML and so runs outside this venv: 0 dB -> leather p10 -1.5, 6 -> +4.1, 9 -> +6.6 with the
+    # oak at +7.7; past 9 the Foley's peak normalisation pulls the oak down: 12 -> oak +5.0)
+    lift = a.lift
+    mix, frep = foley(lift, timing)
     stem = OUT / "v5d-foley-lifted.wav"
-    st = np.stack([mix, mix], 1)
-    wavfile.write(stem, FO.SR, (np.clip(st, -1, 1) * 32767).astype(np.int16))
+    wavfile.write(stem, FO.SR, (np.clip(np.stack([mix, mix], 1), -1, 1) * 32767).astype(np.int16))
     (OUT / "v5d-foley-lifted.foley-report.json").write_text(json.dumps(frep, indent=1), encoding="utf-8")
-    report["foley_lift"] = {"tried": tried, "chosen_db": lift, "stem": str(stem), "foley": frep}
+    report["foley_lift"] = {"chosen_db": lift, "stem": str(stem), "foley": frep}
+    sr0, th0 = wavfile.read(THEME)
+    theme = th0.astype(np.float64) / (32768.0 if th0.dtype == np.int16 else 2 ** 31 if th0.dtype == np.int32 else 1.0)
+    if theme.ndim > 1:
+        theme = theme.mean(axis=1)
     # 2. the mix: 42.403 s; the Foley (with its room) to the cut, the room alone under the lockup, the theme at unity
     sr = FO.SR
     n_all = int(round((SHOT_FRAMES / FPS + LOCKUP_S) * sr))
-    th = theme if MV.RATE == sr else MV.S.resample(theme, int(round(len(theme) * sr / MV.RATE)))
+    if sr0 != sr:
+        raise SystemExit(f"the theme is {sr0} Hz, the Foley {sr} Hz")
+    th = theme
     th = np.pad(th, (0, max(0, n_all - len(th))))[:n_all]
     room = CL.room_bed(n_all, "the-run-v5d-proof")
     dry = np.zeros(n_all)
