@@ -89,6 +89,21 @@ def test_a_caption_that_binds_one_name_lifts_the_cap():
     assert info["lifted"].startswith("bound to")
 
 
+def test_a_caption_name_binds_through_the_rulebook_s_subject_box_without_a_human_step():
+    # Real World 4.2: caption_names ["President"], one machine box located, and the rulebook's subject the same
+    # box; A43 lets a machine box bind only as the primary subject, so the binding is judged on that region
+    box = dict(x=0.42, y=0.18, w=0.18, h=0.37, source="auto", confidence=0.9)
+    item = {"title": "The President in his office aboard Air Force One", "caption_names": ["President"],
+            "_people_words": "the President", "people": [dict(box, name="person-1")],
+            "roi": [dict(box, name="subject", kind="person")]}
+    _, info = T.lift_face_caps(item, T.person_regions(item), BIG, A, 3.0)
+    assert info["lifted"] and info["lifted"].startswith("bound to 'President'")
+    # the same caption with the subject region an object, not the person: no binding through it
+    obj = dict(item, roi=[dict(box, name="subject", kind="object")])
+    _, info = T.lift_face_caps(obj, T.person_regions(obj), BIG, A, 3.0)
+    assert info["lifted"] is None
+
+
 def test_the_role_word_list_is_versioned_singular_and_never_read_from_text():
     assert T.PUBLIC_ROLE_WORDS_VERSION == 2 and "firefighter" in T.PUBLIC_ROLE_WORDS
     assert not [w for w in T.PUBLIC_ROLE_WORDS if w.endswith("s") or w in ("police", "crew", "firemen")]

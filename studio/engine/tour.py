@@ -2496,9 +2496,13 @@ def lift_face_caps(item: dict, persons: list[dict], size, aspect: float, zcap: f
         names = item.get("caption_names")
         cands = [names[0]] if isinstance(names, list) and len(names) == 1 and isinstance(names[0], str) else []
         cands += [str(q["name"]) for q in persons if q.get("name") and not GENERIC_NAME.match(str(q["name"]))]
-        region = next((q.get("entry") for q in persons if q.get("entry")), None)
+        # A43 judges the binding on the region the stop would frame: the rulebook's primary ``subject`` (the one
+        # region a machine box may bind a name through) as well as each person's own entry, whichever stands
+        regions = [q.get("entry") for q in persons if q.get("entry") and q.get("name") == "subject"
+                   and (q.get("entry") or {}).get("kind") in PERSON_KINDS]
+        regions += [q.get("entry") for q in persons if q.get("entry") and q.get("name") != "subject"]
         for nm in cands:
-            if not binding_check(item, nm.split(), region, persons):
+            if any(not binding_check(item, nm.split(), region, persons) for region in regions or [None]):
                 bound = nm
                 break
         role = public_role(item, persons)
