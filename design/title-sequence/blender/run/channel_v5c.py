@@ -437,6 +437,43 @@ PLANNED_OVERLAPS = {("coin dupondius", "papyrus"), ("coin sestertius", "papyrus"
                     ("weights", "piri"), ("jeton", "admiralty"), ("felt", "record")}
 
 
+# Each film's record on the felt (one per master): the scan's pixel size (tex-manifest.json), the sheet laid upright
+# (its top along +y) 0.20 m wide from x = 2.690, its height the scan's aspect, its centre across the well at cy.
+# S-130's page is taller, so its centre moves 9 mm toward the far side to keep 5 mm of felt at its near edge.
+RECORD_X0, RECORD_W = 2.690, 0.200
+RECORDS = {
+    "C20-METAR-0851": {"tex": "R-C20-METAR-0851", "px": (3840, 2160), "cy": 1.40125, "cls": "DRAWN", "year": 2001},
+    "S-130": {"tex": "R-S-130", "px": (1284, 1987), "cy": 1.41, "cls": "ARCHIVE", "year": 1947},
+    "S-16928": {"tex": "R-S-16928", "px": (2874, 1686), "cy": 1.40125, "cls": "ARCHIVE", "year": 1976},
+}
+
+
+def record_rect(rec):
+    """The record sheet's footprint (x0, x1, y0, y1) on the felt."""
+    r = RECORDS[rec]
+    h = RECORD_W * r["px"][1] / r["px"][0]
+    return (RECORD_X0, RECORD_X0 + RECORD_W, r["cy"] - h / 2, r["cy"] + h / 2)
+
+
+def record_window(rec):
+    """The record's pose (A7 under A41): the largest 16:9 crop of its scan, as fractions (x0, y0, x1, y1, rows from the
+    top). A sheet taller than 16:9 shows its full width from its top (masthead, title); a wider one its full height,
+    centred. The 16:9 plate is the whole sheet."""
+    w, h = RECORDS[rec]["px"]
+    if w / h >= 16 / 9:
+        cw = h * 16 / 9
+        return ((w - cw) / 2 / w, 0.0, (w + cw) / 2 / w, 1.0)
+    return (0.0, 0.0, 1.0, w * 9 / 16 / h)
+
+
+def record_window_m(rec):
+    """record_window on the table: (x0, x1, y0, y1) in metres (image rows run from the sheet's top, +y, downward)."""
+    x0, x1, y0, y1 = record_rect(rec)
+    u0, v0, u1, v1 = record_window(rec)
+    W, H = x1 - x0, y1 - y0
+    return (x0 + u0 * W, x0 + u1 * W, y1 - v1 * H, y1 - v0 * H)
+
+
 def rect_of(name):
     it = ITEMS[name]
     if "rect" in it:

@@ -3,7 +3,7 @@
 
     blender -b --factory-startup --python design/title-sequence/blender/run/scene_v5c.py -- \
         --fps 30000/1001 --res 2560x1440 --samples 1024 --threshold 0.01 --min_samples 64 \
-        --frames 0:1090 [--step 1] --out <dir> [--expo <json>] [--blur 1] [--blend <path>]
+        --frames 0:1090 [--step 1] --out <dir> [--expo <json>] [--blur 1] [--blend <path>] [--record S-130]
 
 The scene: a 3.0 x 1.7 m oak refectory top (7 glued boards, the C-02 scan) with the channel carved in it (the cove, the
 banks, the two steps, the low release block, the felt well), flush leather in the floor, the seven placements beside the
@@ -37,7 +37,8 @@ RELIEF = Path("D:/document-media/title-sequence/run/relief")
 def _args():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     a = {"fps": "30000/1001", "res": "2560x1440", "samples": "1024", "threshold": "0.01", "min_samples": "64",
-         "frames": "0:0", "step": "1", "out": "", "expo": "", "blur": "1", "blend": "", "exposure": "0.0"}
+         "frames": "0:0", "step": "1", "out": "", "expo": "", "blur": "1", "blend": "", "exposure": "0.0",
+         "record": "C20-METAR-0851", "rec_spec": "0.0", "exr": ""}
     for i, k in enumerate(argv):
         if k.startswith("--") and i + 1 < len(argv):
             a[k[2:]] = argv[i + 1]
@@ -366,6 +367,24 @@ def m_leather():
     return m
 
 
+def record_sheet(rec):
+    x0, x1, y0, y1 = C.record_rect(rec)
+    return {"cx": (x0 + x1) / 2, "cy": (y0 + y1) / 2, "W": x1 - x0, "H": y1 - y0, "psi": 0.0}
+
+
+def m_record(rec):
+    """The film's record, printed on dead-matte stock: no gloss coat and no sheen, so a straight-down camera sees the
+    print and not the lit room reflected off its surface (the measured cause of the v5c A7 failure: a 0.3 specular
+    and 0.1 sheen lifted the plate's black ground from 3 to about 70 of 255)."""
+    m = RT.m_image_crop("record", C.RECORDS[rec]["tex"], rough=1.0, sheen=0.0)
+    b = m.node_tree.nodes["Principled BSDF"]
+    b.inputs["Specular IOR Level"].default_value = RECORD_SPECULAR
+    return m
+
+
+RECORD_SPECULAR = float(A["rec_spec"])         # 0: no gloss coat (the calibration may try a trace)
+
+
 def galley(brass, type_metal):
     x0, x1, y0, y1 = C.ITEMS["galley"]["rect"]
     fl = 0.0015
@@ -449,9 +468,7 @@ def build():
     wx, wy = C.WELL["x"], C.WELL["y"]
     RS.box("black felt (the well)", (wx[1] - wx[0] - 0.0004, wy[1] - wy[0] - 0.0004, C.WELL["felt_t"]),
            ((wx[0] + wx[1]) / 2, (wy[0] + wy[1]) / 2, C.felt_top() - C.WELL["felt_t"] / 2), RT.m_felt(), bevel=0.0003)
-    x0, x1, y0, y1 = I["record"]["rect"]
-    rec = {"cx": (x0 + x1) / 2, "cy": (y0 + y1) / 2, "W": x1 - x0, "H": y1 - y0, "psi": 0.0}
-    RT.sheet("record C20-METAR-0851", rec, RT.m_image_crop("record", "R-C20-METAR-0851", rough=0.8, sheen=0.1),
+    RT.sheet(f"record {A['record']}", record_sheet(A["record"]), m_record(A["record"]),
              C.felt_top() + I["record"]["h"] + 0.00005)
     # the stick chart on the wall behind the far edge
     st = C.WALL_ITEMS["stick"]
@@ -542,6 +559,20 @@ def settings(sc):
     sc.render.use_motion_blur = A["blur"] == "1"
     sc.render.motion_blur_shutter = 0.5
     sc.render.use_compositing = False
+    if A["exr"]:
+        # the same frames also kept scene-linear (half-float EXR, before the view transform and the exposure): the
+        # PNG is unchanged (the Composite node is the render layer as rendered)
+        sc.use_nodes = True
+        tree = sc.node_tree
+        rl = next(n for n in tree.nodes if n.type == "R_LAYERS")
+        fo = tree.nodes.new("CompositorNodeOutputFile")
+        fo.base_path = A["exr"]
+        fo.format.file_format = "OPEN_EXR"
+        fo.format.color_depth = "16"
+        fo.format.exr_codec = "ZIP"
+        fo.file_slots[0].path = "#####"
+        tree.links.new(rl.outputs["Image"], fo.inputs[0])
+        sc.render.use_compositing = True
     sc.view_settings.view_transform = "AgX"
     sc.view_settings.look = "None"
     sc.render.image_settings.file_format = "PNG"
@@ -568,7 +599,7 @@ def main():
     bpy.context.preferences.filepaths.temporary_directory = "D:/document-media/title-sequence/run/tmp/"
     rep = json.loads((SIM / "run-timing.json").read_text(encoding="utf-8"))
     bake = json.loads((SIM / "run-bake.json").read_text(encoding="utf-8"))
-    frames = SH.shot(bake, FPS, rep["rest_sim_s"])
+    frames = SH.shot(bake, FPS, rep["rest_sim_s"], A["record"])
     expo = json.loads(Path(A["expo"]).read_text(encoding="utf-8"))["ev"] if A["expo"] else None
     sc, marble = build()
     animate(sc, marble, frames, expo)

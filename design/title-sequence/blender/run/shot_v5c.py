@@ -26,6 +26,49 @@ def _smooth(t):
     return t * t * t * (t * (6 * t - 15) + 10)
 
 
+def rect_cover(frames, rect, z, n=33):
+    """Per frame, the fraction of the picture whose ray meets the plane z inside a table rectangle (how much of the
+    frame the record fills; nothing occludes the sheet from above the felt)."""
+    x0, x1, y0, y1 = rect
+    tx, ty = C.SENSOR_W / 2 / C.LENS_MM, C.SENSOR_H / 2 / C.LENS_MM
+    a, b = np.meshgrid(np.linspace(-tx, tx, n), np.linspace(-ty, ty, n))
+    out = []
+    for fr in frames:
+        e, t, up = (np.asarray(fr[k], float) for k in ("eye", "tgt", "up"))
+        fwd = (t - e) / np.linalg.norm(t - e)
+        right = np.cross(fwd, up)
+        right /= np.linalg.norm(right)
+        upv = np.cross(right, fwd)
+        D = fwd[None, None] + a[..., None] * right[None, None] + b[..., None] * upv[None, None]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            s = (z - e[2]) / D[..., 2]
+        P = e[None, None] + s[..., None] * D
+        hit = (s > 0) & (P[..., 0] >= x0) & (P[..., 0] <= x1) & (P[..., 1] >= y0) & (P[..., 1] <= y1)
+        out.append(float(hit.mean()))
+    return np.array(out)
+
+
+def tail_from(frames):
+    """The first frame of the move down onto the record: every frame before it is the same in every film's master."""
+    return next(i for i, f in enumerate(frames) if f["end"] > 0)
+
+
+def ease_exposure(meter, k_from, delta, fps, slew=1.0):
+    """The camera's exposure eased onto the record: the metered per-frame EV plus ``delta`` stops, brought in on a
+    smoothstep that ends at ``k_from`` (where the pose rests) and starts as late as the slew allows (the ease itself
+    moves at most ``slew`` stops a second). Returns (per-frame EV, the first frame that differs from the meter)."""
+    meter = [float(v) for v in meter]
+    if abs(delta) < 1e-12:
+        return meter, k_from
+    n = int(math.ceil(1.5 * abs(delta) * fps / slew))
+    f0 = max(k_from - n, 0)
+    out = meter[:f0]
+    for f in range(f0, len(meter)):
+        t = min(max((f - f0) / (k_from - f0), 0.0), 1.0)
+        out.append(meter[f] + delta * t * t * (3 - 2 * t))
+    return out, f0
+
+
 def closeness(s):
     """0 in the follow, 1 over a leather strip (the close pass), eased over LEAD_RAMP each side."""
     s = np.asarray(s, float)
@@ -72,15 +115,38 @@ def s_of(p):
     return float(s[0]) if np.isfinite(u[0]) else 0.0
 
 
-def record_pose():
-    """The record's pose: straight down over its centre at the distance where its 16:9 width fills the 50 mm frame."""
-    x0, x1, y0, y1 = C.ITEMS["record"]["rect"]
+def record_pose(rec="C20-METAR-0851"):
+    """The record's pose: straight down over the centre of its declared 16:9 window (C.record_window), at the distance
+    where the window's width fills the 50 mm frame, the sheet's top at the frame's top (up = +y); focus on the sheet."""
+    x0, x1, y0, y1 = C.record_window_m(rec)
     c = np.array([(x0 + x1) / 2, (y0 + y1) / 2, C.felt_top() + C.ITEMS["record"]["h"]])
     dist = (x1 - x0) * C.LENS_MM / C.SENSOR_W
     return c + np.array([0, 0, dist]), c
 
 
-def shot(bake, fps, t_rest):
+def rect_seen(frames, rect, z, n=41):
+    """Per frame, the fraction of a table rectangle's points inside the 50 mm frame (a frustum test, no occlusion)."""
+    x0, x1, y0, y1 = rect
+    gx, gy = np.meshgrid(np.linspace(x0, x1, n), np.linspace(y0, y1, n))
+    P = np.stack([gx.ravel(), gy.ravel(), np.full(gx.size, z)], 1)
+    tx, ty = C.SENSOR_W / 2 / C.LENS_MM, C.SENSOR_H / 2 / C.LENS_MM
+    out = []
+    for fr in frames:
+        e, t, up = (np.asarray(fr[k], float) for k in ("eye", "tgt", "up"))
+        fwd = (t - e) / np.linalg.norm(t - e)
+        right = np.cross(fwd, up)
+        right /= np.linalg.norm(right)
+        upv = np.cross(right, fwd)
+        d = P - e
+        zc = d @ fwd
+        ok = zc > 1e-6
+        xc = np.where(ok, (d @ right) / np.where(ok, zc, 1.0), 9.0)
+        yc = np.where(ok, (d @ upv) / np.where(ok, zc, 1.0), 9.0)
+        out.append(float(((np.abs(xc) <= tx) & (np.abs(yc) <= ty)).mean()))
+    return np.array(out)
+
+
+def shot(bake, fps, t_rest, rec="C20-METAR-0851"):
     """Per frame: dict(t, marble pos, quat, eye, target, up, focus, fstop). The frame count runs to t_rest + arrive."""
     t_end = t_rest + C.RUNTIME["arrive"]
     n = int(math.ceil(t_end * fps))
@@ -121,7 +187,7 @@ def shot(bake, fps, t_rest):
         tgt = tgt + vt * dt
         fine.append((t, p, q, eye.copy(), tgt.copy(), w))
     o_eye, o_tgt = C.opening_eye()
-    r_eye, r_tgt = record_pose()
+    r_eye, r_tgt = record_pose(rec)
     frames = []
     FT = np.array([f[0] for f in fine])
     for f in range(n):
