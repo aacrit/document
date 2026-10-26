@@ -6,6 +6,7 @@ masters (4 s of 1080p24 FFV1) stand in for the 57 s ones."""
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 
@@ -19,6 +20,7 @@ from studio.engine import motion as M
 from studio.engine import render as R
 from studio.engine import score as SC
 from studio.engine import titles as TS
+from studio.engine import viewxf as VX
 
 N = 96                                  # 4 s
 COLD_S = 2.0
@@ -42,13 +44,15 @@ def _lockup(W, H):
     return img
 
 
-def make_master(path, record_png, *, burned=True, glyph_on_hold=True, n=N, pose=None):
+def make_master(path, record_png, *, burned=True, glyph_on_hold=True, n=N, pose=None, rec_pic=None):
     """A short master in the real ones' shape: the machine (DRAWN), a cut to the record held whole (ARCHIVE), a dip
     and the lockup (CARD), the marks burned in as assemble.py burns them (or none). ``pose`` (window, from_frame): the
-    record beat tours to that window of the scan filling the frame and rests there from from_frame (A7 under A41)."""
+    record beat tours to that window of the scan filling the frame and rests there from from_frame (A7 under A41).
+    ``rec_pic``: the record beat's picture as given (a camera's view of the page) instead of the scan held whole."""
     W, H = TS.SIZE
     fonts = M.Fonts()
-    machine, rec, lock = _machine(W, H), TS.hold_fit(Image.open(record_png), W, H), _lockup(W, H)
+    machine, lock = _machine(W, H), _lockup(W, H)
+    rec = rec_pic if rec_pic is not None else TS.hold_fit(Image.open(record_png), W, H)
     black = Image.new("RGB", (W, H), (0, 0, 0))
     toured = TS.pose_fit(Image.open(record_png), pose[0], W, H) if pose is not None else None
     item = {"marks": TL, "dip": DIP, "frames": n}
@@ -583,6 +587,375 @@ def test_a40_a_shots_span_across_the_titles_is_the_full_render_byte_for_byte(tmp
         mine = {p.name.split(".")[0]: J.sha256_file(p) for p in (out / f"shots-{a}-{b}" / "segments").glob("*.mp4")}
         assert set(mine) == set(s["rendered"]), (a, b, sorted(mine))
         assert all(mine[k] == full[k] for k in mine), (a, b)
+
+
+# --------------------------------------------------------------------------
+# A40 like for like (coordinator, founder-delegated, 2026-10-26): a master rendered through a view transform (The Run:
+# Cycles through AgX) declares it, and A7 passes the SCAN through that same transform before comparing. AgX lifts
+# black ink to grey once white paper sits at the scan's white, so a perfect page through AgX fails A7 as written.
+# The tests force the published curve (no Blender here, as on CI): the ocio backend is the exact one where Blender
+# 4.4.3's pinned config is found.
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def no_blender(tmp_path, monkeypatch):
+    """No Blender here, as on CI; the published curve stands in under the test-only switch."""
+    monkeypatch.setenv("DOCUMENT_BLENDER_DIR", str(tmp_path / "no-blender"))
+    monkeypatch.setenv(VX.TEST_SWITCH, "1")
+    assert VX.blender_ocio() is None
+
+
+def _page(w, h, shift=0.0):
+    """A page as linear albedo, drawn at any size from the same geometry: paper 0.86, eight lines of ink at 0.012."""
+    y, x = np.mgrid[0:h, 0:w] / np.array([h, w], dtype=float)[:, None, None]
+    a = np.full((h, w), 0.86)
+    for r in range(8):
+        y0 = 0.12 + r * 0.1
+        a[(y >= y0) & (y < y0 + 0.035) & (x > 0.1 + shift) & (x < 0.62 + 0.15 * (r * 7 % 3) + shift)] = 0.012
+    return np.repeat(a[..., None], 3, axis=2)
+
+
+def _scan_of(page, path):
+    Image.fromarray(np.round(VX.linear_to_srgb(page) * 255).astype(np.uint8)).save(path)
+    return str(path)
+
+
+AGX = {"name": "AgX", "look": "None", "exposure": 2.5}     # puts the page's paper (241) at its scan's white (239)
+
+
+def _camera(page, view=AGX):
+    """The renderer's view of the page: its linear albedo at the frame's own size, exposed, through AgX. Drawn from
+    the page itself, not from the scan the engine reads."""
+    return np.round(VX.agx_published(page * 2 ** view["exposure"]) * 255).astype(np.uint8)
+
+
+def test_a7_like_for_like_a_page_through_agx_passes_against_its_scan_once_declared(tmp_path, no_blender):
+    W, H = TS.SIZE
+    scan = _scan_of(_page(1600, 900), tmp_path / "scan.png")
+    frame = _camera(_page(W, H))
+    assert TS.record_difference(frame, scan) > TS.RECORD_LIMIT              # A7 as written: AgX's lift reads as a fault
+    assert TS.record_difference(frame, scan, None, AGX) < 1.0               # like for like: the scan through AgX
+    assert TS.reference_frame(scan, W, H, None, AGX)[1] == "published"
+
+
+def test_a7_like_for_like_still_fails_when_the_record_differs(tmp_path, no_blender):
+    W, H = TS.SIZE
+    frame = _camera(_page(W, H))
+    moved = _scan_of(_page(1600, 900, shift=0.08), tmp_path / "moved.png")          # the same page, its text altered
+    assert TS.record_difference(frame, moved, None, AGX) > TS.RECORD_LIMIT
+    other = str(_scan(tmp_path))                                                     # another scan altogether
+    assert TS.record_difference(frame, other, None, AGX) > TS.RECORD_LIMIT
+
+
+def test_a7_like_for_like_keeps_the_edge_strip_check(tmp_path, no_blender):
+    W, H = TS.SIZE
+    page = _page(1600, 1200)
+    scan = _scan_of(page, tmp_path / "scan.png")
+    win = (0.0, 0.0, 1.0, 1600 / 1200 * 9 / 16)
+    with Image.open(scan) as im:
+        lin = VX.to_linear_frame(im, win, W, H)
+    frame = np.round(VX.agx_published(lin * 2 ** AGX["exposure"]) * 255).astype(np.uint8)
+    assert TS.pose_edge_difference(frame, scan, win, AGX) < 1.0
+    assert TS.record_difference(frame, scan, win, AGX) < 1.0
+    frame[:, :40] = 0                                                                # 40 px past the scan onto black
+    assert TS.pose_edge_difference(frame, scan, win, AGX) > TS.POSE_EDGE_LIMIT
+
+
+def test_a7_like_for_like_an_undeclared_item_is_a7_as_before(tmp_path):
+    p = _scan(tmp_path)
+    W, H = TS.SIZE
+    win = (0.1, 0.2, 0.9, 0.2 + 0.8 * 1600 / 1200 * 9 / 16)
+    with Image.open(p) as im:
+        held, posed = np.asarray(TS.hold_fit(im, W, H)), np.asarray(TS.pose_fit(im, win, W, H))
+    assert VX.parse(None) == (None, None)
+    for w, want in ((None, held), (win, posed)):
+        ref, backend = TS.reference_frame(str(p), W, H, w)
+        assert backend is None and np.array_equal(ref, want)                         # the scan as it always was
+
+
+def test_a7_like_for_like_a_declaration_is_checked():
+    ok = {"name": "AgX", "sidecar": "m.view.json"}
+    assert VX.parse(ok) == ({"name": "AgX", "look": "None", "sidecar": "m.view.json", "exposure": None}, None)
+    assert VX.parse(dict(ok, exposure=3.75))[0]["exposure"] == 3.75
+    for bad, says in (("AgX", "an object"), ({"name": "AgX"}, "sidecar"), (dict(ok, name="Filmic"), "not one of"),
+                      (dict(ok, exposure="3"), "stops"), (dict(ok, exposure=float("nan")), "stops"),
+                      (dict(ok, exposure=6.5), "within 6"), (dict(ok, look=""), "look")):
+        spec, why = VX.parse(bad)
+        assert spec is None and says in why, (bad, why)
+    with pytest.raises(ValueError, match="Blender's own config"):
+        VX.published(np.zeros((1, 1, 3)), {"name": "AgX", "look": "Punchy", "exposure": 0.0})
+
+
+def test_a7_like_for_like_the_published_curves(no_blender):
+    v = np.array([0.0, 0.002, 0.02, 0.18, 1.0, 4.0, 16.0])
+    lin = np.repeat(v[None, :, None], 3, axis=2)
+    agx = VX.display(lin, {"name": "AgX", "look": "None", "exposure": 0.0})[0][0, :, 0]
+    std = VX.display(lin, {"name": "Standard", "look": "None", "exposure": 0.0})[0][0, :, 0]
+    assert np.all(np.diff(agx.astype(int)) > 0) and agx[0] <= 1 and agx[-1] >= 250  # monotone, black to near white
+    assert agx[3] == 127                                                              # mid grey, Wrensch's fit
+    assert std.tolist() == [0, 7, 39, 118, 255, 255, 255]                             # the sRGB curve, clipped
+
+
+def test_a7_like_for_like_the_exact_backend_is_pinned(tmp_path, monkeypatch):
+    root = tmp_path / "blender"
+    cm = root / VX.BLENDER_VERSION / "datafiles" / "colormanagement"
+    (cm / "luts").mkdir(parents=True)
+    (root / VX.BLENDER_VERSION / "python" / "bin").mkdir(parents=True)
+    (root / VX.BLENDER_VERSION / "python" / "bin" / ("python.exe" if os.name == "nt" else "python3.11")).write_text("")
+    for k in VX.PINS:
+        (cm / k).write_text("not Blender 4.4.3's colour management", encoding="utf-8")
+    monkeypatch.setenv("DOCUMENT_BLENDER_DIR", str(root))
+    assert VX.blender_ocio() is None                    # a config that is not the pinned one is never used
+    assert VX.self_check() == 2                         # the local self-check says the exact backend is unavailable
+
+
+def _agx_master(masters, film, name, ev):
+    rec = film / "stills" / "FX-STILL-B.png"
+    with Image.open(rec) as im:
+        W, H = TS.SIZE
+        pic = Image.fromarray(np.round(VX.agx_published(VX.to_linear_frame(im, None, W, H) * 2 ** ev)
+                                       * 255).astype(np.uint8))
+    return make_master(masters["dir"] / name, rec, rec_pic=pic)
+
+
+def _sidecar(master, ev, tag="", **kw):
+    """The render's view sidecar (viewxf.SIDECAR_SCHEMA) beside the master, as tail_v5c.py writes it."""
+    sc = {"schema": VX.SIDECAR_SCHEMA, "renderer": "a test master", "master": master.name, "master_sha256": _sha(master),
+          "display_device": "sRGB", "view_transform": "AgX", "look": "None", "gamma": 1.0, "use_curve_mapping": False,
+          "exposure": [ev] * N}
+    sc.update(kw)
+    p = master.with_name(master.stem + tag + ".view.json")
+    p.write_text(json.dumps(sc), encoding="utf-8")
+    return p.name
+
+
+def _px_ev(j):
+    return lints(j, "title-record-pixels")[-1]["evidence"]
+
+
+def test_a7_like_for_like_in_the_plan(tmp_path, masters, film, no_blender):
+    m = dict(masters, agx=_agx_master(masters, film, "agx.mkv", AGX["exposure"]))
+    decl = {"name": "AgX", "look": "None", "sidecar": _sidecar(m["agx"], AGX["exposure"])}
+    plan, j = plan_of(titled_film(tmp_path / "a", m, master="agx", item={"view_transform": decl}))
+    assert passed(j, "title-record-pixels"), _px_ev(j)
+    ev = _px_ev(j)
+    assert ev["view_backend"] == "published" and set(ev["view_exposure"].values()) == {AGX["exposure"]}
+    assert "through the master's own view transform" in ev["measure"]
+    plan, j = plan_of(titled_film(tmp_path / "b", m, master="agx"))                  # undeclared: A7 as written
+    assert isinstance(plan, R.Refused) and failed(j, "title-record-pixels") and "view_transform" not in _px_ev(j)
+    plan, j = plan_of(titled_film(tmp_path / "c", m, master="agx", item={"view_transform": dict(decl, name="Filmic")}))
+    assert isinstance(plan, R.Refused) and "not one of" in _px_ev(j)["difference"]["error"]
+    plan, j = plan_of(titled_film(tmp_path / "d", masters, item={"view_transform": decl}))  # another master's sidecar
+    assert isinstance(plan, R.Refused) and "not the played" in _px_ev(j)["difference"]["error"]
+
+
+def test_a7_like_for_like_the_declaration_is_bound_to_the_render(tmp_path, masters, film, no_blender):
+    m = dict(masters, agx=_agx_master(masters, film, "agx-bound.mkv", AGX["exposure"]))
+    base = {"name": "AgX", "look": "None"}
+    for k, (decl, says) in enumerate((
+            (dict(base, sidecar=_sidecar(m["agx"], 2.5, "-0", master_sha256="0" * 64)), "master_sha256"),
+            (dict(base, sidecar=_sidecar(m["agx"], 2.5), exposure=3.0), "not the render's own"),     # a gamed exposure
+            (dict(base, sidecar=_sidecar(m["agx"], 2.5, "-1", look="Punchy")), "look"),
+            (dict(base, sidecar=_sidecar(m["agx"], 2.5, "-2", use_curve_mapping=True)), "curve mapping"),
+            (dict(base, sidecar=_sidecar(m["agx"], 2.5, "-3", exposure=[2.5] * 10)), "frames"),
+            (dict(base, sidecar="missing.view.json"), "unreadable"))):
+        plan, j = plan_of(titled_film(tmp_path / f"a{k}", m, master="agx", item={"view_transform": decl}))
+        assert isinstance(plan, R.Refused) and says in _px_ev(j)["difference"]["error"], (says, _px_ev(j))
+
+
+def test_a7_like_for_like_a_washed_out_scan_never_passes(tmp_path, masters, film, no_blender):
+    # a render exposed so far that the record goes to white: the transformed scan keeps no structure, so it is refused
+    m = dict(masters, agx=_agx_master(masters, film, "agx-washed.mkv", 6.0))
+    decl = {"name": "AgX", "look": "None", "sidecar": _sidecar(m["agx"], 6.0)}
+    plan, j = plan_of(titled_film(tmp_path, m, master="agx", item={"view_transform": decl}))
+    assert isinstance(plan, R.Refused) and "washed out" in _px_ev(j)["difference"]["error"], _px_ev(j)
+
+
+def test_a7_like_for_like_fails_closed_without_the_exact_backend(tmp_path, masters, film, monkeypatch):
+    monkeypatch.setenv("DOCUMENT_BLENDER_DIR", str(tmp_path / "no-blender"))
+    monkeypatch.delenv(VX.TEST_SWITCH, raising=False)
+    m = dict(masters, agx=_agx_master(masters, film, "agx-closed.mkv", AGX["exposure"]))
+    decl = {"name": "AgX", "look": "None", "sidecar": _sidecar(m["agx"], AGX["exposure"])}
+    plan, j = plan_of(titled_film(tmp_path, m, master="agx", item={"view_transform": decl}))
+    assert isinstance(plan, R.Refused) and "exact backend unavailable" in _px_ev(j)["difference"]["error"]
+
+
+def test_a7_like_for_like_the_test_switch_is_for_tests_only(monkeypatch):
+    monkeypatch.setenv(VX.TEST_SWITCH, "1")
+    assert VX.exact_required() is False                         # inside pytest
+    monkeypatch.delenv("PYTEST_CURRENT_TEST")
+    assert VX.exact_required() is True                          # a real plan never takes the published curve
+
+
+def test_a7_like_for_like_display_gamma_and_curves_are_recorded_or_declared_defaults(tmp_path, masters, film, no_blender):
+    m = dict(masters, agx=_agx_master(masters, film, "agx-defaults.mkv", AGX["exposure"]))
+    base = {"name": "AgX", "look": "None"}
+    unrecorded = {"display_device": None, "gamma": None, "use_curve_mapping": None}
+
+    def sidecar(tag, **kw):
+        name = _sidecar(m["agx"], AGX["exposure"], tag, **kw)
+        p = m["agx"].parent / name
+        sc = json.loads(p.read_text(encoding="utf-8"))
+        for k, v in list(sc.items()):
+            if v is None:
+                del sc[k]                                        # the render never recorded it
+        p.write_text(json.dumps(sc), encoding="utf-8")
+        return name
+    plan, j = plan_of(titled_film(tmp_path / "a", m, master="agx",
+                                  item={"view_transform": dict(base, sidecar=sidecar("-a", **unrecorded))}))
+    assert isinstance(plan, R.Refused) and "did not record its display, gamma or curve mapping" in _px_ev(j)["difference"]["error"]
+    keys = list(VX.DISPLAY_DEFAULTS)
+    plan, j = plan_of(titled_film(tmp_path / "b", m, master="agx", item={"view_transform": dict(
+        base, sidecar=sidecar("-b", **unrecorded, defaults_assumed=keys))}))           # assumed without a basis
+    assert isinstance(plan, R.Refused) and "defaults_basis" in _px_ev(j)["difference"]["error"]
+    why = "Blender 4.4.3 factory default, not set by the scene script"
+    plan, j = plan_of(titled_film(tmp_path / "c", m, master="agx", item={"view_transform": dict(
+        base, sidecar=sidecar("-c", **unrecorded, defaults_assumed=keys, defaults_basis=why))}))
+    assert passed(j, "title-record-pixels"), _px_ev(j)
+    assert _px_ev(j)["view_defaults_assumed"] == keys and _px_ev(j)["view_defaults_basis"] == why
+    plan, j = plan_of(titled_film(tmp_path / "d", m, master="agx", item={"view_transform": dict(
+        base, sidecar=sidecar("-d", gamma=2.2))}))                                     # recorded, and not reproduced
+    assert isinstance(plan, R.Refused) and "not one this check reproduces" in _px_ev(j)["difference"]["error"]
+
+
+def test_a7_like_for_like_has_an_absolute_structure_floor(tmp_path, masters, film, no_blender, monkeypatch):
+    m = dict(masters, agx=_agx_master(masters, film, "agx-floor.mkv", AGX["exposure"]))
+    decl = {"name": "AgX", "look": "None", "sidecar": _sidecar(m["agx"], AGX["exposure"], "-floor")}
+    monkeypatch.setattr(VX, "STRUCTURE_MIN", 1000.0)            # no record keeps 1000 levels: the floor binds alone
+    plan, j = plan_of(titled_film(tmp_path, m, master="agx", item={"view_transform": decl}))
+    assert isinstance(plan, R.Refused) and "levels" in _px_ev(j)["difference"]["error"], _px_ev(j)
+
+
+# --------------------------------------------------------------------------
+# A40 lockup card (coordinator, founder-delegated, 2026-10-26, implementing the 2026-10-18 ruling: The Run is one
+# physics-only shot with no fades; the series lockup is a separate CARD shot after it, on a hard cut). title-lockup
+# is met by the master's own lockup or by the series-title part ending on the house lockup card, {card: lockup}.
+# --------------------------------------------------------------------------
+
+NO_LOCKUP = {"lockup_frame": 20}               # a machine frame: this master carries no lockup of its own
+HOLD = {"id": "TS1r", "kind": "archive_still", "asset": "FX-REC", "preset": "DRIFT", "fill_ok": False,
+        "fill_exception": "a small test scan: the fill would pass 1.6x at 360p", "dur_s": 1.0, "mark": "ARCHIVE",
+        "transition_in": {"type": "cut"}, "why": "The title's record held whole after its resting pose.",
+        "repeat_reason": "The title's own record, held whole again so it can be read before the slot ends."}
+CARD = {"id": "TS1b", "kind": "card", "card": "lockup", "dur_s": 5.0, "mark": "CARD",
+        "transition_in": {"type": "cut"}, "why": "The series lockup, on a hard cut after the title."}
+
+
+def with_shots(after=(), next_part=()):
+    """An edit for titled_film: shots appended to the series-title part after TS1 (``after``) or put first in the next
+    part (``next_part``), everything after them moved on by their length."""
+    def edit(play):
+        add = [dict(s) for s in list(after) + list(next_part)]
+        t = COLD_S + TITLE_S
+        extra = sum(s["dur_s"] for s in add)
+
+        def move(x):
+            for k in ("start_s", "end_s"):
+                if isinstance(x.get(k), (int, float)) and x[k] >= t - 1e-6:
+                    x[k] = round(x[k] + extra, 4)
+        for part in play["parts"][2:]:
+            for coll in ("shots", "lines", "cues", "text"):
+                for x in part.get(coll, []):
+                    move(x)
+        for x in play.get("subtitle_source", []) + play.get("music", []) + play.get("moments", []):
+            move(x)
+        play["runtime_target_s"] += extra
+        for s in add:
+            s["start_s"] = round(t, 4)
+            t += s["dur_s"]
+        play["parts"][1]["shots"] += add[:len(after)]
+        play["parts"][2]["shots"][:0] = add[len(after):]
+    return edit
+
+
+def _lockup_lint(j):
+    got = lints(j, "title-lockup")
+    assert got, [(e.get("rule"), e.get("unit")) for e in J.read(j.path) if e.get("kind") == "lint" and e.get("status") == "fail"]
+    return got[-1]
+
+
+def test_a40_lockup_card_after_the_title_and_its_record_hold_meets_the_lockup(tmp_path, masters):
+    for k, after in enumerate(((HOLD, CARD), (CARD,), (HOLD, dict(CARD, text=[TS.SERIES])))):
+        plan, j = plan_of(titled_film(tmp_path / f"a{k}", masters, item=NO_LOCKUP, edit=with_shots(after)))
+        ev = _lockup_lint(j)
+        assert ev["status"] == "pass" and ev["evidence"]["lockup_card"] == "TS1b", ev
+        assert ev["evidence"]["in_master"] is False and ev["evidence"]["card_problem"] is None
+        assert ev["evidence"]["card_bright_px"] >= TS.LOCKUP_MIN_PX
+
+
+def test_a40_lockup_missing_or_misplaced_is_refused(tmp_path, masters):
+    plan, j = plan_of(titled_film(tmp_path / "a", masters, item=NO_LOCKUP, edit=with_shots((HOLD,))))
+    assert isinstance(plan, R.Refused) and failed(j, "title-lockup")
+    assert "a archive_still" in _lockup_lint(j)["evidence"]["card_problem"]               # the part ends on the hold
+    plan, j = plan_of(titled_film(tmp_path / "b", masters, item=NO_LOCKUP))
+    assert isinstance(plan, R.Refused) and "no lockup card" in _lockup_lint(j)["evidence"]["card_problem"]
+    plan, j = plan_of(titled_film(tmp_path / "c", masters, item=NO_LOCKUP, edit=with_shots(next_part=(CARD,))))
+    assert isinstance(plan, R.Refused) and "outside the series-title part" in _lockup_lint(j)["evidence"]["card_problem"]
+
+
+def test_a40_lockup_card_must_be_the_house_lockup(tmp_path, masters):
+    for k, (card, says) in enumerate(((dict(CARD, card="title", text=[TS.SERIES]), "not a lockup card"),
+                                      (dict(CARD, transition_in={"type": "dip", "s": 0.5}), "not a cut"))):
+        plan, j = plan_of(titled_film(tmp_path / f"a{k}", masters, item=NO_LOCKUP, edit=with_shots((HOLD, card))))
+        assert isinstance(plan, R.Refused) and failed(j, "title-lockup"), card
+        assert says in _lockup_lint(j)["evidence"]["card_problem"], (card, _lockup_lint(j)["evidence"])
+
+
+def _S(id_, kind, f0, f1, **kw):
+    return dict({"id": id_, "kind": kind, "_part": "series", "_part_kind": "series_title", "_first_in_part": False,
+                 "f0": f0, "f1": f1, "transition_in": {"type": "cut"}}, **kw)
+
+
+def _part(*middle, card=None, after=None):
+    shots = [_S("TS1", "title_sequence", 0, 96)] + list(middle)
+    end = shots[-1]["f1"]
+    shots.append(card or _S("TS1b", "card", end, end + 120, card="lockup"))
+    shots.append(after or dict(_S("P1", "card", shots[-1]["f1"], shots[-1]["f1"] + 24, card="title"), _part="title"))
+    return shots
+
+
+def test_a40_lockup_card_rules_on_the_part(tmp_path, masters):
+    hold = _S("TS1r", "archive_still", 96, 120, asset="R")
+    lock = lambda shots: TS.lockup_card(shots, 0, {"record": "R"}, R.card_kind, 24)  # noqa: E731
+    assert lock(_part(hold))[:2] == ("TS1b", None)
+    assert lock(_part(dict(hold, kind="drawn")))[1] is None                          # a drawn record, held as drawn
+    for shots, says in (
+            (_part(dict(hold, transition_in={"type": "dip", "s": 0.5})), "not a cut"),
+            (_part(dict(hold, transition_in={"type": "dissolve", "s": 0.75})), "not a cut"),
+            (_part(hold, after=dict(_S("P1", "card", 240, 264, card="title"), _part="title",
+                                    transition_in={"type": "dissolve", "s": 0.5})), "out of the card"),
+            (_part(dict(hold, kind="map")), "only holds"), (_part(dict(hold, kind="archive_video")), "only holds"),
+            (_part(dict(hold, kind="card")), "only holds"), (_part(dict(hold, asset="OTHER")), "only holds"),
+            (_part(hold, card=_S("TS1b", "card", 120, 240, card="lockup", text=["void document"])), "not the series lockup"),
+            (_part(hold, card=_S("TS1b", "card", 120, 121, card="lockup")), "dwells at least"),       # a 0.04 s card
+            (_part(hold, card=_S("TS1b", "card", 120, 240, card="title", text=[TS.SERIES])), "not a lockup card")):
+        why = lock(shots)[1]
+        assert why is not None and says in why, (says, why)
+    plan, j = plan_of(titled_film(tmp_path, masters))                                     # the fixture's own lockup
+    assert _lockup_lint(j)["status"] == "pass" and _lockup_lint(j)["evidence"]["in_master"] is True
+
+
+def test_a40_lockup_card_draws_brand_kit_15(tmp_path):
+    """The lockup card's frames: black on the cut in (no ARRIVE, no fade: the words whole from the first frame), the
+    logomark's corners closing on drift, no second wordmark, and the same lockup on its last frame (a hard cut out).
+    The sheet is written for review."""
+    fonts = M.Fonts()
+    W, H = TS.SIZE
+    lay = M.lockup_layout(M.Layout(W, H), fonts)
+    assert lay["text"] == TS.SERIES and lay["px"] == M.Layout(W, H).px(5.6)
+    frames = [np.asarray(M.lockup_card_frame(Image.new("RGB", (W, H)), t, start=0.0, end=5.0, fonts=fonts).convert("RGB"))
+              for t in (0.0, 0.5, 1.5, 4.95)]
+    band = slice(H // 3, 2 * H // 3)
+    words = slice(int(lay["x0"] + lay["px"] + lay["ring_d"]), W)
+    assert all(np.array_equal(f[band, words], frames[0][band, words]) for f in frames)  # the words never move or fade
+    assert all(TS.lockup_pixels(f) >= TS.LOCKUP_MIN_PX for f in frames)
+    assert not np.array_equal(frames[0], frames[-1])                                     # the logomark moves
+    assert not frames[-1][: H // 3].any() and not frames[-1][2 * H // 3:].any()           # one line: no second wordmark
+    sheet = Image.new("RGB", (W // 2 * 2, H // 2 * 2))
+    for k, f in enumerate(frames):
+        sheet.paste(Image.fromarray(f).resize((W // 2, H // 2)), ((k % 2) * W // 2, (k // 2) * H // 2))
+    sheet.save(tmp_path / "lockup_card_sheet.png")
 
 
 # --------------------------------------------------------------------------

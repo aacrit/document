@@ -30,6 +30,7 @@ from PIL import Image
 
 from studio.engine import cadence as CAD
 from studio.engine import motion as M
+from studio.engine import viewxf as VX
 
 KIND = "title_sequence"
 SERIES = "void document · As It Was"
@@ -141,7 +142,8 @@ def select_master(item: dict, fps: float) -> tuple[dict, str]:
             continue
         if abs(r - fps) < 1e-6 and isinstance(alt, dict) and alt.get("file"):
             # an alternate's frame numbers are its own: it never inherits the item's record_pose (A40 refined)
-            out = {k: v for k, v in item.items() if k not in ("masters", "record_pose")}
+            # nor its view_transform (A40, 2026-10-26): each master states the camera it was rendered through
+            out = {k: v for k, v in item.items() if k not in ("masters", "record_pose", "view_transform")}
             out.update(alt, fps=CAD.rate_str(CAD.parse_rate(name)), master_of=item.get("file"))
             if item.get("_path"):
                 out["_path"] = str((Path(item["_path"]).parent / alt["file"]).resolve())
@@ -399,13 +401,22 @@ def pose_problem(window, scan_size: tuple[int, int], W: int, H: int) -> str | No
     return None
 
 
-def record_difference(arr: np.ndarray, record_path: str, window=None) -> float:
+def reference_frame(record_path: str, W: int, H: int, window=None, view: dict | None = None) -> tuple[np.ndarray, str | None]:
+    """(the record's scan as A7 compares it, the view-transform backend or None): held whole at the master's size or,
+    under A41, its declared ``window`` filling the frame; and, when the title declares its ``view_transform`` (A40,
+    2026-10-26), seen through that same transform (``viewxf``), so A7 compares like for like."""
+    if view is not None:
+        return VX.reference(record_path, window, W, H, view)
+    with Image.open(record_path) as im:
+        return np.asarray(pose_fit(im, window, W, H) if window is not None else hold_fit(im, W, H)), None
+
+
+def record_difference(arr: np.ndarray, record_path: str, window=None, view: dict | None = None) -> float:
     """A7's low-pass mean difference between a master frame and the film's record scan (marks masked): held whole at
     the master's size (0.03 for the masters' own records, about 150 against another film's), or, under A41, its
-    declared ``window`` filling the frame."""
+    declared ``window`` filling the frame; through the title's declared ``view`` transform when it states one."""
     H, W = arr.shape[:2]
-    with Image.open(record_path) as im:
-        ref = np.asarray(pose_fit(im, window, W, H) if window is not None else hold_fit(im, W, H))
+    ref = reference_frame(record_path, W, H, window, view)[0]
 
     def lp(x):
         return np.asarray(Image.fromarray(np.clip(x, 0, 255).astype(np.uint8)).resize((96, 54), Image.BOX), dtype=np.float32)
@@ -413,13 +424,13 @@ def record_difference(arr: np.ndarray, record_path: str, window=None) -> float:
     return float(np.abs(lp(_masked(arr)) - lp(_masked(ref))).mean())
 
 
-def pose_edge_difference(arr: np.ndarray, record_path: str, window) -> float:
+def pose_edge_difference(arr: np.ndarray, record_path: str, window, view: dict | None = None) -> float:
     """A7 under A41, "nothing but the scan in the frame": the mean difference, at full size, between the master frame's
-    outer POSE_EDGE_PX strips and the same strips of the scan's window filling the frame, outside the marks' masks. The
-    low-pass A7 measure alone lets a frame overshoot the scan's edge onto black by tens of pixels."""
+    outer POSE_EDGE_PX strips and the same strips of the scan's window filling the frame (through the declared ``view``
+    transform when the title states one), outside the marks' masks. The low-pass A7 measure alone lets a frame
+    overshoot the scan's edge onto black by tens of pixels."""
     H, W = arr.shape[:2]
-    with Image.open(record_path) as im:
-        ref = np.asarray(pose_fit(im, window, W, H)).astype(np.float32)
+    ref = reference_frame(record_path, W, H, window, view)[0].astype(np.float32)
     keep = np.zeros((H, W), bool)
     e = POSE_EDGE_PX
     keep[:e, :] = keep[-e:, :] = True
@@ -427,6 +438,54 @@ def pose_edge_difference(arr: np.ndarray, record_path: str, window) -> float:
     keep[int(0.90 * H):, int(0.55 * W):] = False            # the masks of _masked: the label and glyph, the watermark
     keep[:int(0.15 * H), int(0.85 * W):] = False
     return float(np.abs(arr.astype(np.float32)[keep] - ref[keep]).mean())
+
+
+def record_box(scan_size: tuple[int, int], window, W: int, H: int):
+    """Where the scan lies in the frame, as fractions (x0, y0, x1, y1): the whole frame for an A41 window, else the
+    HOLD fit's rectangle."""
+    if window is not None:
+        return (0.0, 0.0, 1.0, 1.0)
+    k = min(W / scan_size[0], H / scan_size[1])
+    w, h = scan_size[0] * k / W, scan_size[1] * k / H
+    return ((1 - w) / 2, (1 - h) / 2, (1 + w) / 2, (1 + h) / 2)
+
+
+def view_specs(view: dict, master_path: str, n: int, record_path: str, window, frames) -> tuple[dict, str | None, dict]:
+    """A40 like for like: ({frame: the transform spec A7 uses there}, None, evidence), or ({}, why not, evidence).
+    The render's sidecar must bind the declaration to the played master, the exact backend must be at hand (unless the
+    test-only switch is set), and the transformed scan must keep its structure (STRUCTURE_FLOOR of the plain scan's
+    low-pass spread inside the record's box), so no exposure can wash the record out to pass."""
+    sc, why = VX.sidecar(view, master_path, n)
+    if why is not None:
+        return {}, why, {}
+    specs = {k: {"name": view["name"], "look": view["look"], "exposure": VX.exposure_at(sc, k)} for k in frames}
+    ev = {"view_sidecar": sc["_path"], "view_exposure": {k: s["exposure"] for k, s in specs.items()},
+          "view_defaults_assumed": sc.get("defaults_assumed") or [], "view_defaults_basis": sc.get("defaults_basis")}
+    if view.get("exposure") is not None:
+        off = {k: s["exposure"] for k, s in specs.items() if abs(s["exposure"] - view["exposure"]) > 1e-4}
+        if off:
+            return {}, (f"view_transform.exposure {view['exposure']:+g} is not the render's own at frames {off} "
+                        "(its sidecar)"), ev
+    backend = "ocio" if VX.blender_ocio() else "published"
+    ev["view_backend"] = backend
+    if backend != "ocio" and VX.exact_required():
+        return {}, ("exact backend unavailable: Blender 4.4.3's pinned colour config was not found, and the published "
+                    "curve is not the render's (python -m studio.engine.viewxf --self-check)"), ev
+    W, H = SIZE
+    with Image.open(record_path) as im:
+        box = record_box(im.size, window, W, H)
+    plain = reference_frame(record_path, W, H, window)[0]
+    floor = {}
+    for k, spec in specs.items():
+        ref = reference_frame(record_path, W, H, window, spec)[0]
+        floor[k] = (round(VX.spread(ref, box), 2), round(VX.spread(plain, box), 2))
+    ev["view_structure"] = {"transformed_vs_plain_spread": floor, "floor": VX.STRUCTURE_FLOOR,
+                            "min_spread": VX.STRUCTURE_MIN}
+    thin = {k: v for k, v in floor.items() if v[0] < VX.STRUCTURE_FLOOR * v[1] or v[0] < VX.STRUCTURE_MIN}
+    if thin:
+        return {}, (f"the transformed scan keeps under {VX.STRUCTURE_FLOOR:g} of the plain scan's low-pass spread, or "
+                    f"under {VX.STRUCTURE_MIN:g} levels, at frames {sorted(thin)}: the record is washed out, not seen"), ev
+    return specs, None, ev
 
 
 def lockup_pixels(arr: np.ndarray) -> int:
@@ -744,23 +803,37 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
                                "declare the tour's resting pose as a 16:9 window inside the scan, and the frame it rests from"})
             diffs: dict = {}
             edges: dict = {}
-            if why is None:
+            # A40 like for like (2026-10-26): a master rendered through a declared view transform is compared with
+            # the scan passed through that same transform (viewxf), bound to the render by its sidecar, on the exact
+            # backend only; with no declaration, A7 exactly as before
+            ks = sorted({k_from, rframes[-1], (k_from + rframes[-1]) // 2})
+            view, vx_why = VX.parse(item.get("view_transform"))
+            vx = {}
+            if vx_why is None and view is not None and why is None:
+                specs, vx_why, vx = view_specs(view, path, n, rec["_path"], window, ks)
+            if vx_why is not None:
+                diffs = {"error": vx_why}
+            elif why is None:
                 try:
-                    for k in sorted({k_from, rframes[-1], (k_from + rframes[-1]) // 2}):
+                    for k in ks:
                         arr = read_frame(ff, path, k, fps=_r(item))
-                        diffs[k] = round(record_difference(arr, rec["_path"], window), 3)
+                        spec = specs[k] if view is not None else None
+                        diffs[k] = round(record_difference(arr, rec["_path"], window, spec), 3)
                         if window is not None:
-                            edges[k] = round(pose_edge_difference(arr, rec["_path"], window), 2)
+                            edges[k] = round(pose_edge_difference(arr, rec["_path"], window, spec), 2)
                 except Exception as e:
                     diffs = {"error": f"{type(e).__name__}: {e}"}
             px_ok = (bool(diffs) and "error" not in diffs and max(diffs.values()) <= RECORD_LIMIT
                      and (not edges or max(edges.values()) <= POSE_EDGE_LIMIT))
+            seen = (f", the scan through the master's own view transform ({view['name']}, look {view['look']}, "
+                    "its render's exposure per frame, from its sidecar)") if view is not None else ""
             lint("title-record-pixels", px_ok, unit=sid, grammar="A40, A7" + (", A41" if window is not None else ""),
                  evidence={"record": rid, "file": rec["_path"], "difference": diffs, "limit": RECORD_LIMIT,
                            **({"edge_difference": edges, "edge_limit": POSE_EDGE_LIMIT, "edge_px": POSE_EDGE_PX} if edges else {}),
-                           "measure": ("low-pass mean difference against the scan's declared window filling the frame "
-                                       "(the tour's resting pose), marks masked") if window is not None else
-                                      "low-pass mean difference against the scan held whole, marks masked"})
+                           **({"view_transform": view, **vx} if view is not None else {}),
+                           "measure": (("low-pass mean difference against the scan's declared window filling the frame "
+                                        "(the tour's resting pose), marks masked") if window is not None else
+                                       "low-pass mean difference against the scan held whole, marks masked") + seen})
         # The marks: burned in and right, or absent and drawn by the engine (never both)
         sample = set()
         for k, m in enumerate(tl):
@@ -815,7 +888,79 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
             lp = lockup_pixels(read_frame(ff, path, int(lf), fps=_r(item))) if lf is not None else 0
         except Exception:
             lp = 0
-        lint("title-lockup", lp >= LOCKUP_MIN_PX, unit=sid, grammar="A40, BRAND-KIT 2",
+        in_master = lp >= LOCKUP_MIN_PX
+        card_id, card_why, card_px = lockup_card(shots, i, item, R.card_kind, fps)
+        lk_ok = in_master or card_why is None
+        lint("title-lockup", lk_ok, unit=sid, grammar="A40, BRAND-KIT 2, BRAND-KIT 15",
              evidence={"frame": lf, "bright_px": lp, "min_px": LOCKUP_MIN_PX, "lockup": SERIES,
-                       "fix": None if lp >= LOCKUP_MIN_PX else "the master ends on the series lockup; the engine never draws it"})
+                       "in_master": in_master, "lockup_card": card_id, "card_problem": card_why,
+                       "card_bright_px": card_px, "card_min_s": LOCKUP_CARD_MIN_S,
+                       "fix": None if lk_ok else ("the master ends on the series lockup, or the series-title part ends on "
+                                                  "the lockup card ({kind: card, card: lockup}, at least "
+                                                  f"{LOCKUP_CARD_MIN_S:g} s, cut in after the title and its record "
+                                                  "holds, and cut out)")})
     return out
+
+
+LOCKUP_CARD_KIND = "lockup"
+HOLD_KINDS = ("archive_still", "drawn")    # a hold of the title's record: the still kinds a film's own record is held as
+# The lockup card's least dwell: the master lockup's own, from its cut-in to its end (title.json: the dip's centre
+# 52.0 s plus half its 0.75 s, to 57.0 s; design/title-sequence/blender/assemble.py)
+LOCKUP_CARD_MIN_S = 57.0 - (52.0 + 0.75 / 2)
+
+
+def _words(text) -> str:
+    return " ".join(str(text or "").split())
+
+
+def lockup_card_pixels(dur_s: float, fps: float) -> int:
+    """lockup_pixels on the lockup card's own last frame as the engine draws it, at 1080p."""
+    t = max(0.0, dur_s - 1.0 / fps)
+    img = M.lockup_card_frame(Image.new("RGB", SIZE), t, start=0.0, end=dur_s, fonts=M.Fonts())
+    return lockup_pixels(np.asarray(img.convert("RGB")))
+
+
+def lockup_card(shots: list[dict], i: int, item: dict, card_kind, fps: float = FPS) -> tuple[str | None, str | None, int | None]:
+    """A40 lockup card (2026-10-26, implementing the founder's 2026-10-18 ruling: the title is one physics-only shot
+    with no fades, and the series lockup a separate CARD shot after it, on a hard cut): (the card's id, None, its
+    bright lockup pixels) when the series-title part holding the title shot ``i`` ends on the house lockup card, else
+    (its last shot's id or None, why not, the pixels or None). The card is ``{kind: card, card: lockup}`` (BRAND-KIT
+    15's lockup, drawn by motion.lockup_card_frame; its text, if stated, is the lockup alone), last in the same part,
+    at least LOCKUP_CARD_MIN_S long, after the title and only holds of the title's own record (archive_still or drawn,
+    the record's asset), every one of them and the card joined by a cut, and cut out of."""
+    part = shots[i].get("_part")
+    own = [j for j, s in enumerate(shots) if s.get("_part") == part]
+    last = own[-1] if own else i
+    if last == i:
+        nxt = shots[i + 1] if i + 1 < len(shots) else None
+        if nxt is not None and nxt.get("kind") == "card" and card_kind(nxt) == LOCKUP_CARD_KIND:
+            return nxt["id"], f"the lockup card {nxt['id']} is outside the series-title part: it ends that part", None
+        return None, "the series-title part has no lockup card after the title", None
+    c = shots[last]
+    if c.get("kind") != "card" or card_kind(c) != LOCKUP_CARD_KIND:
+        return c["id"], f"the series-title part ends on {c['id']}, a {c.get('kind')} (not a lockup card: card: lockup)", None
+    texts = [_words(t) for t in (c.get("text") or [])]
+    if texts and texts != [SERIES]:
+        return c["id"], f"{c['id']}'s text is {texts}, not the series lockup [{SERIES!r}]", None
+    before = [shots[j]["id"] for j in own if j < i]
+    if before:
+        return c["id"], f"the title is not the first shot of its part: {before} come before it", None
+    not_cut = [shots[j]["id"] for j in own if j > i and (shots[j].get("transition_in") or {}).get("type", "cut") != "cut"]
+    after = shots[last + 1] if last + 1 < len(shots) else None
+    if after is not None and (after.get("transition_in") or {}).get("type", "cut") != "cut":
+        not_cut.append(f"{after['id']} (out of the card)")
+    if not_cut:
+        return c["id"], f"the series-title part is joined by cuts only, in and out of the lockup card: not a cut at {not_cut}", None
+    rec = item.get("record")
+    stray = [shots[j]["id"] for j in own if i < j < last
+             and (not rec or shots[j].get("kind") not in HOLD_KINDS or shots[j].get("asset") != rec)]
+    if stray:
+        return c["id"], (f"between the title and its lockup card only holds of the title's record ({rec}, as "
+                         f"{' or '.join(HOLD_KINDS)}) may stand: {stray}"), None
+    dur = (c["f1"] - c["f0"]) / fps if "f0" in c and "f1" in c else float(c.get("dur_s") or 0.0)
+    if dur < LOCKUP_CARD_MIN_S - 0.5 / fps:
+        return c["id"], f"{c['id']} holds {dur:.3f} s: the lockup dwells at least {LOCKUP_CARD_MIN_S:g} s, as the master's", None
+    px = lockup_card_pixels(dur, fps)
+    if px < LOCKUP_MIN_PX:
+        return c["id"], f"{c['id']}'s drawn frame shows {px} lockup pixels (at least {LOCKUP_MIN_PX})", px
+    return c["id"], None, px
