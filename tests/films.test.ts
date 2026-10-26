@@ -73,26 +73,29 @@ describe("films.json", () => {
     expect(rw).toMatchObject({
       title: "Real World",
       dates: "11 September 2001",
-      logline: "one morning, as it was heard by the people working the sky",
+      logline: "one day, as it was heard by the people working the sky and the city below",
       synopsis:
-        "On the morning of 11 September 2001, controllers at Boston and New York, the air defence sector at Rome, New York, and the White House tried to understand what was happening in the air above them. The film keeps to what they knew, minute by minute, in their own recorded words: the tapes of the control rooms and the defence sector, and what was said in public that day. A narrator gives the time and the place; the record carries the rest.",
+        "On 11 September 2001, controllers at Boston and New York and the air defence sector tried to understand what was happening in the air. The film keeps to what was known that day, hour by hour: the tapes of the control rooms and the defence sector in the morning, and what was said and reported in public as the day went on. A narrator gives the time, the place and what was reported; the recordings carry the rest.",
       content_note:
-        "It concerns the attacks of 11 September 2001. It plays air traffic and air defence recordings made that morning, and shows the towers burning and falling, in wide views.",
+        "It concerns the attacks of 11 September 2001. It plays air traffic and air defence recordings made that day, and shows the towers burning, the second impact, the Pentagon security camera's view of the impact, and the dust after the collapses, in wide views.",
       shows:
-        "This film shows the day as it was broadcast and photographed: the burning towers, the impact and the collapses, the dust and the debris, in wide views. It never shows an identifiable person in their final moments; a wide view is never zoomed in, slowed or held on a person; no final call is played; the dead are shown by what the day left empty.",
+        "This film shows the day as it was broadcast and photographed: the burning towers, the second impact, the Pentagon security camera's view of the impact, and the dust after the collapses, in wide views. It never shows an identifiable person in their final moments; a wide view is never zoomed in, slowed or held on a person; no final call is played; the dead are shown by what the day left empty.",
+      legend: { reconstructed: "none in this film", drawn: "from NWS observations, 2001" },
       poster: "poster.jpg",
       screenplay_path: "~/document-work/sept11/screenplay.json",
     });
     // Its own sources.json declares its balance: no fallback.
     expect(rw.balance_fallback).toBeUndefined();
-    // The English captions are written at release from the render; nobody has reviewed them yet, so none is offered.
-    expect(rw.languages.captions).toEqual([{ lang: "en", name: "English", kind: "captions", review: "in_review" }]);
+    // Nobody has reviewed the English captions release-film writes, and none is being reviewed: planned, so none is
+    // offered and release-film does not upload them (tests/release-film.test.ts).
+    expect(rw.languages.captions).toEqual([{ lang: "en", name: "English", kind: "captions", review: "planned" }]);
     expect(publishedTracks(rw)).toEqual([]);
     const p = sitePages(live, templates);
     const page = p["f/real-world/index.html"];
     expect(page).toContain("<title>Real World · void document</title>");
     expect(page).not.toContain("/media/real-world/captions-en.vtt");
-    expect(page).toContain("English captions are being reviewed.");
+    expect(page).toContain("English captions are planned.");
+    expect(page).not.toContain("being reviewed");
     expect(p["f/real-world/sources/index.html"]).toBeDefined();
     expect(p["f/real-world/correct/index.html"]).toBeDefined();
     expect(p["index.html"]).toContain('<li><a href="/f/real-world/"><span class="t">Real World</span>');
@@ -105,7 +108,11 @@ describe("films.json", () => {
     const r = clone(live);
     const f = r.films.find((x: Film) => x.slug === "real-world");
     Object.assign(f, { title: evil, dates: `${evil} 2001`, logline: evil, synopsis: evil, content_note: evil, shows: evil, legend: { reconstructed: evil, drawn: evil } });
-    f.languages.captions = [{ lang: "en", name: evil, kind: "captions", review: "reviewed" }];
+    // A reviewed track (the <track> and menu button) and one in review (the review note, in the menu and after it).
+    f.languages.captions = [
+      { lang: "en", name: evil, kind: "captions", review: "reviewed" },
+      { lang: "fr", name: evil, kind: "subtitles", review: "in_review" },
+    ];
     f.related = [{ href: `https://example.test/${evil}`, name: evil, line: evil, where: evil }];
     // On the marquee too, so the home page's own fields are fed the same value.
     f.order = 0;
@@ -116,6 +123,8 @@ describe("films.json", () => {
       expect(pages[page], page).not.toContain("onerror=alert(1)>");
       expect(pages[page], page).toContain("&quot;&gt;&lt;img src=x onerror=alert(1)&gt;");
     }
+    // The review note went through the renderer, escaped.
+    expect(pages["f/real-world/index.html"]).toContain("&quot;&gt;&lt;img src=x onerror=alert(1)&gt; subtitles are being reviewed.");
   });
 
   it("the pilot-era fixture is a sound registry: Partition live on the marquee, Nought in production, in order", () => {

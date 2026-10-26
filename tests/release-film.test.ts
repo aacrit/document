@@ -2,8 +2,8 @@
 // uploads to the film's folder in R2 with --remote and sources.json last, and
 // a dry run is plain data that never runs a command.
 import { describe, expect, it } from "vitest";
-import { BUCKET, MAX_PUT_BYTES, PACKET_ROOT, UPLOAD_ORDER, commandLine, gopFrames, rateProblems, videoKbps, webEncodeArgs, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease, readLedgers, posterSource } from "../scripts/release-film.mjs";
-import { mkdtempSync, writeFileSync as wfs, mkdirSync as mkd } from "node:fs";
+import { BUCKET, MAX_PUT_BYTES, PACKET_ROOT, UPLOAD_ORDER, captionReview, commandLine, gopFrames, rateProblems, videoKbps, webEncodeArgs, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease, readLedgers, posterSource } from "../scripts/release-film.mjs";
+import { mkdtempSync, readFileSync, writeFileSync as wfs, mkdirSync as mkd } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as pjoin } from "node:path";
 
@@ -137,6 +137,39 @@ describe("release-film", () => {
     expect(rateProblems(o, { film: "25/1", trailer: "24/1" }, all)).toEqual([expect.stringMatching(/25\/1 fps, not 24 or 30000\/1001/)]);
     expect(rateProblems(parseArgs(["r/master.mp4"]), { film: "24/1", trailer: null }, all)).toEqual([]);
     expect(rateProblems(o, { film: null, trailer: null }, () => false)).toEqual([]);   // a missing file is refused elsewhere
+  });
+
+  it("uploads the English captions only once films.json has them in review or reviewed, never while they are planned", () => {
+    const planFor = (review: string | null | undefined) =>
+      planRelease(parseArgs(["r/master.mp4"]), { ...tools, durations: { film: 1205, trailer: 120 }, captionsReview: review }) as { steps: Step[]; files: string[] };
+    const puts = (review: string | null | undefined) =>
+      planFor(review).steps.filter((s) => s.args?.includes("put")).map((s) => s.args?.[s.args.indexOf("put") + 1]);
+    for (const review of ["reviewed", "in_review"]) expect(puts(review), review).toContain(`${BUCKET}/partition-of-india/captions-en.vtt`);
+    for (const review of ["planned", null]) {
+      expect(puts(review), String(review)).toEqual([`${BUCKET}/partition-of-india/film.mp4`, `${BUCKET}/partition-of-india/poster.jpg`, `${BUCKET}/partition-of-india/sources.json`]);
+      expect(planFor(review).files.some((f) => /captions/.test(f)), String(review)).toBe(false);
+      // publish still writes the track, and the plan still checks it is a WebVTT file with cues.
+      expect(planFor(review).steps.some((s) => s.check === "captions")).toBe(true);
+    }
+    // A film films.json does not list (undefined): the captions go up as before.
+    expect(puts(undefined)).toContain(`${BUCKET}/partition-of-india/captions-en.vtt`);
+  });
+
+  it("reads a film's English caption review from films.json: planned, missing, or the film unlisted", () => {
+    const reg = { films: [
+      { slug: "a", languages: { captions: [{ lang: "en", review: "planned" }] } },
+      { slug: "b", languages: { captions: [{ lang: "hi", review: "reviewed" }] } },
+      { slug: "c", languages: { captions: [{ lang: "en", review: "reviewed" }] } },
+    ] };
+    expect(captionReview(reg, "a")).toBe("planned");
+    expect(captionReview(reg, "b")).toBeNull();
+    expect(captionReview(reg, "c")).toBe("reviewed");
+    expect(captionReview(reg, "z")).toBeUndefined();
+    // As shipped: Real World's are planned, so its release puts no captions up.
+    const shipped = JSON.parse(readFileSync(new URL("../films.json", import.meta.url), "utf8"));
+    expect(captionReview(shipped, "real-world")).toBe("planned");
+    expect(captionReview(shipped, "partition-of-india")).toBe("reviewed");
+    expect(captionReview(shipped, "smallpox-eradication")).toBe("in_review");
   });
 
   it("prints a command line a person can paste", () => {
