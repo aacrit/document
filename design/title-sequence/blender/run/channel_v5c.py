@@ -124,6 +124,22 @@ def project(X, Y):
     return best_s, best_u, best_k
 
 
+def past_lip(x, y):
+    """True once the marble is over the lip and in the felt well. Turn 1 also reaches x 2.70 (at y 0.12-0.85), so x past
+    LIP_X alone is not "past the lip" (the v5c bug: 104 frames of turn 1 were taken for the well); the well is also
+    bounded across, y inside WELL["y"]."""
+    return bool(x > LIP_X - 1e-4 and WELL["y"][0] <= y <= WELL["y"][1])
+
+
+def arc_s(x, y):
+    """(s, u): the marble's arc length along the run and its offset left of the heading. Past the lip, s runs on into
+    the well along reach 3's line (s = LENGTH + the distance past the lip). u is inf where no segment projects."""
+    if past_lip(x, y):
+        return LENGTH + float(x - LIP_X), float(y - REACH_Y[2])
+    s, u, _k = project(np.array([float(x)]), np.array([float(y)]))
+    return float(s[0]), float(u[0])
+
+
 # ------------------------------------------------------------------------------------------------ the fall (slope schedule)
 
 # The release block: the marble rests against the latch's bronze disc on a 3 degree cup floor; released, it runs down a
@@ -435,6 +451,31 @@ WALL_ITEMS = {"stick": {"ledger": "T-19", "x": (1.10, 1.90), "z": (0.30, 1.04), 
 
 PLANNED_OVERLAPS = {("coin dupondius", "papyrus"), ("coin sestertius", "papyrus"), ("atlas", "folder"),
                     ("weights", "piri"), ("jeton", "admiralty"), ("felt", "record")}
+
+# The Run v5d layout L0 (Fable, founder approved 2026-10-26): the only move is the jeton, from the Admiralty's corner to
+# the Atlas board's free corner inside turn 1 (top at z 0.0155 on the folder and board, spun 10 degrees). Nothing the
+# marble touches moves (the jeton is visual only: sim_v5c's model holds the top, the leather, the felt and the record).
+# The Admiralty keeps no weight: its roll holds it, and its open corner nearest reach 3 is lifted 1.5 mm.
+LAYOUTS = {
+    "v5c": {"jeton": None, "admiralty_lift": 0.0},
+    "L0": {"jeton": {"at": (2.300, 0.700), "on": "atlas", "z_top": 0.0155, "spin_deg": 10.0}, "admiralty_lift": 0.0015},
+}
+
+
+def items(layout="v5c"):
+    """ITEMS as laid out in ``layout`` (a copy; v5c is ITEMS as they are)."""
+    out = {k: dict(v) for k, v in ITEMS.items()}
+    j = LAYOUTS[layout]["jeton"]
+    if j:
+        out["jeton"].update({"at": j["at"], "on": j["on"], "z_top": j["z_top"], "spin_deg": j["spin_deg"],
+                             "why": "the Krakow jeton on the Atlas board's free corner inside turn 1 (v5d L0)"})
+    return out
+
+
+def planned_overlaps(layout="v5c"):
+    if LAYOUTS[layout]["jeton"]:
+        return (PLANNED_OVERLAPS - {("jeton", "admiralty")}) | {("jeton", "atlas"), ("jeton", "folder")}
+    return set(PLANNED_OVERLAPS)
 
 
 # Each film's record on the felt (one per master): the scan's pixel size (tex-manifest.json), the sheet laid upright

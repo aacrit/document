@@ -60,9 +60,9 @@ ZONE = {"oak": (1.0, 3500.0), "leather": (10 ** (-9 / 20), 2200.0), "felt": (10 
 V_REF = 0.28                        # a mid run speed (v_max 0.34, slowest-on-the-run 0.165): the level/pitch anchor
 
 
-def load_timing(record: str) -> dict:
-    p = SIM / "run-timing.json"
-    if not p.exists():
+def load_timing(record: str, timing_dir: Path = SIM) -> dict:
+    p = Path(timing_dir) / "run-timing.json"
+    if not p.exists() and Path(timing_dir) == SIM:
         p = LAYOUT / "v5c-physics.json"
     return json.loads(p.read_text(encoding="utf-8"))
 
@@ -73,7 +73,9 @@ def zone_segments(events: list[dict]) -> list[tuple[float, str]]:
     for e in events:
         name = e["event"]
         if name.startswith("onto "):
-            zone = "felt" if "felt" in name else ("leather" if "leather" in name else "oak")
+            # the surface is the word after "onto": "onto leather (L8 before the felt)" is leather, not felt
+            word = name[5:].split(" ")[0]
+            zone = word if word in ZONE else "oak"
         elif name == "over the lip onto the felt":
             zone = "felt"
         else:
@@ -124,8 +126,10 @@ def rms_dbfs(x: np.ndarray) -> float:
     return round(float(20 * np.log10(r + 1e-20)), 1)
 
 
-def build(record: str = "C20-METAR-0851") -> tuple[np.ndarray, dict]:
-    rep_sim = load_timing(record)
+def build(record: str = "C20-METAR-0851", timing_dir: Path = SIM) -> tuple[np.ndarray, dict]:
+    """timing_dir: where run-timing.json and run-contact-events.jsonl are read (v5d: sim/v5d, timing_v5d.py's
+    corrected events, release_title_s 0); the bake is always v5c's own (the physics is unchanged)."""
+    rep_sim = load_timing(record, timing_dir)
     fps = 30000 / 1001
     n_frames = math.ceil((rep_sim["rest_sim_s"] + ARRIVE_S) * fps)
     dur_s = n_frames / fps
@@ -135,7 +139,7 @@ def build(record: str = "C20-METAR-0851") -> tuple[np.ndarray, dict]:
     track = np.array(bake["track"])                      # [t, s, u, v, z]
     T, V = track[:, 0], track[:, 3]
 
-    contacts = fix_contact_times(E.read_jsonl(SIM / "run-contact-events.jsonl"), release_title_s)
+    contacts = fix_contact_times(E.read_jsonl(Path(timing_dir) / "run-contact-events.jsonl"), release_title_s)
     zones = zone_segments(rep_sim["events"])
     steps = step_events(rep_sim["events"])
 
@@ -194,7 +198,7 @@ def build(record: str = "C20-METAR-0851") -> tuple[np.ndarray, dict]:
     room = CL.room_bed(n, "the-run-v5c")
 
     rep = {
-        "record": record, "frames": n_frames, "fps": "30000/1001", "duration_s": round(dur_s, 3),
+        "record": record, "timing": str(Path(timing_dir) / "run-timing.json"), "frames": n_frames, "fps": "30000/1001", "duration_s": round(dur_s, 3),
         "release_title_s_corrected_for": release_title_s, "zones": [(round(t, 3), z) for t, z in zones],
         "step_events": [e["event"] for e in steps], "contacts_used": len(contacts),
         "oak_contact_hits": len(oak_hits), "felt_contact_hits": len(felt_hits),
@@ -225,8 +229,9 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--record", default="C20-METAR-0851")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--timing", default=str(SIM), help="the run-timing.json / contact events directory (v5d: sim/v5d)")
     a = ap.parse_args()
-    mix, rep = build(a.record)
+    mix, rep = build(a.record, Path(a.timing))
     out = Path(a.out)
     write_stereo(out, mix)
     (out.with_suffix(".foley-report.json")).write_text(json.dumps(rep, indent=1), encoding="utf-8")

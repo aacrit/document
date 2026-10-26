@@ -109,6 +109,15 @@ def marble_track(bake, times):
 
 
 def s_of(p):
+    """The marble's arc length (corrected, channel_v5c.arc_s: past the lip only inside the well)."""
+    s, u = C.arc_s(p[0], p[1])
+    return s if np.isfinite(u) else 0.0
+
+
+def s_of_as_rendered_v5c(p):
+    """The v5c masters' arc length, kept only so their own plans (tail_v5c, view_settings_v5c) still reproduce the
+    camera they were rendered through. It is WRONG in turn 1 (x > LIP_X without a y check: frames 239-342 were taken
+    for the well) and is never used by v5d."""
     if p[0] > C.LIP_X - 1e-4:
         return C.LENGTH + float(p[0] - C.LIP_X)
     s, u, k = C.project(np.array([p[0]]), np.array([p[1]]))
@@ -167,7 +176,7 @@ def shot(bake, fps, t_rest, rec="C20-METAR-0851"):
     Vm = np.stack([np.convolve(np.pad(Vm[:, j], 48, mode="edge"), k, mode="valid") for j in range(3)], 1)
     lag = 2.0 / om
     for (t, (p, q)), vel in zip(zip(ts, mt), Vm):
-        s = s_of(p)
+        s = s_of_as_rendered_v5c(p)          # v5c as rendered (see s_of_as_rendered_v5c)
         _, _, h = C.point(min(s, C.LENGTH))
         w = float(closeness(s))
         D = C.FOLLOW["D"] + (C.CLOSE["D"] - C.FOLLOW["D"]) * w

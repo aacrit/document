@@ -225,10 +225,8 @@ def run(m, d):
             q = d.xquat[mid].copy()
             v = d.qvel[:3].copy()
             poses.append([round(t, 6), *map(float, p), *map(float, q)])
-            s, u, kk = C.project(np.array([p[0]]), np.array([p[1]]))
-            s, u = float(s[0]), float(u[0])
-            if p[0] > C.LIP_X - 1e-4:                    # past the lip: measured on into the well along the line
-                s, u = C.LENGTH + float(p[0] - C.LIP_X), float(p[1] - C.REACH_Y[2])
+            # past the lip (x AND y in the well; turn 1 also reaches x 2.70): measured on into the well along the line
+            s, u = C.arc_s(p[0], p[1])
             track.append([round(t, 5), s, u if np.isfinite(u) else None, float(np.linalg.norm(v)), float(p[2])])
             next_bake += 1 / BAKE_HZ
         if k % per_log == 0:
@@ -243,7 +241,7 @@ def run(m, d):
                 contacts.append({"t_s": round(t, 4), "pair": "|".join(sorted((gname[c.geom1], gname[c.geom2]))),
                                  "v_n": float(-sgn * np.dot(vel, n)), "f_n": float(f6[0])})
         speed = float(np.linalg.norm(d.qvel[:3]))
-        if speed < 0.001 and d.xpos[mid][0] > C.LIP_X:
+        if speed < 0.001 and C.past_lip(d.xpos[mid][0], d.xpos[mid][1]):
             still_since = t if still_since is None else still_since
             if t - still_since > 0.5:
                 break
