@@ -1,5 +1,5 @@
 {
- "what": "The Run v5d: camera keys for the one continuous shot (Fable, 2026-10-26). Keys sit on marble-timeline.json frames; the marble, the bake, the lamp and the ending are unchanged from v5c. Trimmed copy for the build (source: Agentique reports/briefs/title-v5d/camera-v5d-keys.json). Builder departures are marked builder_note.",
+ "what": "The Run v5d: camera keys for the one continuous shot (Fable, 2026-10-26). Keys sit on marble-timeline.json frames; the marble, the bake, the lamp and the ending are unchanged from v5c.",
  "fps": "30000/1001",
  "frames": 1091,
  "runtime_s": 36.403,
@@ -128,10 +128,30 @@
     0,
     90
    ],
+   "t_s": [
+    0,
+    3
+   ],
    "reads": [
     "the whole run and every artifact, the lamp's pool; the latch releases"
    ],
-   "move": "the opening wide from 1.6 m, descending obliquely to the lead"
+   "move": "the opening wide from 1.6 m, descending obliquely to the lead",
+   "lens_mm": 50,
+   "D_m": [
+    3.04,
+    0.56
+   ],
+   "elev_deg": [
+    28,
+    22
+   ],
+   "fstop": [
+    8,
+    11
+   ],
+   "focus": "run centroid, then split marble/tablet",
+   "why": "the table is seen once, whole, as a plan of time; the descent lands ahead of the marble so the first thing read is where it started",
+   "breath": false
   },
   {
    "id": "B1",
@@ -139,12 +159,23 @@
     90,
     104
    ],
+   "t_s": [
+    3,
+    3.47
+   ],
    "reads": [
     "Umma tablet (-2047)",
     "dupondius (-30)",
     "papyrus (-1150)"
    ],
-   "move": "lead: the camera ahead on the near side, retreating at the marble's speed, looking back"
+   "move": "lead: the camera ahead on the near side, retreating at the marble's speed, looking back",
+   "lens_mm": 50,
+   "D_m": 0.56,
+   "elev_deg": 22,
+   "fstop": 11,
+   "focus": "split marble/tablet (0.79 m)",
+   "why": "the tablet stands behind the marble, the papyrus runs toward the camera; f/11 carries both (marble blur 6.7 px, tablet 5-8 px)",
+   "breath": false
   },
   {
    "id": "B2",
@@ -152,11 +183,28 @@
     104,
     118
    ],
+   "t_s": [
+    3.47,
+    3.94
+   ],
    "reads": [
     "papyrus",
     "sestertius (~107) in the foreground"
    ],
-   "move": "lead, continuing"
+   "move": "lead, continuing",
+   "lens_mm": 50,
+   "D_m": [
+    0.54,
+    0.52
+   ],
+   "elev_deg": 22,
+   "fstop": [
+    11,
+    8
+   ],
+   "focus": "split marble/coin, then marble/papyrus",
+   "why": "the two coins bracket the sheet; the sestertius passes between camera and marble",
+   "breath": false
   },
   {
    "id": "B3",
@@ -164,10 +212,30 @@
     118,
     176
    ],
+   "t_s": [
+    3.94,
+    5.87
+   ],
    "reads": [
     "Catalan Atlas (1375) entering behind the marble"
    ],
-   "move": "the park: the camera stops on the near side by the Atlas; the marble approaches, the frame turns with it"
+   "move": "the park: the camera stops on the near side by the Atlas; the marble approaches, the frame turns with it",
+   "lens_mm": 50,
+   "D_m": [
+    0.6,
+    0.43
+   ],
+   "elev_deg": [
+    18,
+    23
+   ],
+   "fstop": [
+    8,
+    4
+   ],
+   "focus": "marble",
+   "why": "a parked camera lets the marble do the moving; as it comes abeam the Atlas board lies directly behind it. Band A's leaf and galley sweep through the far frame at 1 m, 15-25 px soft",
+   "breath": false
   },
   {
    "id": "B4",
@@ -175,10 +243,21 @@
     176,
     206
    ],
+   "t_s": [
+    5.87,
+    6.87
+   ],
    "reads": [
     "Atlas board, its painted coast"
    ],
-   "move": "rack focus on leather L3 (170-188): marble sharp to 184, onto the Atlas by 190, held to 198, back by 206"
+   "move": "rack focus on leather L3 (170-188): marble sharp to 184, onto the Atlas by 190, held to 198, back by 206",
+   "lens_mm": 50,
+   "D_m": 0.42,
+   "elev_deg": 22,
+   "fstop": 4,
+   "focus": "marble -> atlas_near (0.68 m) -> marble",
+   "why": "the maker slowed the marble here; the camera's attention lifts to the record beside it. Marble blur at the rack 33 px of 102 px (0.33)",
+   "breath": false
   },
   {
    "id": "B5",
@@ -186,12 +265,36 @@
     206,
     305
    ],
+   "t_s": [
+    6.87,
+    10.18
+   ],
    "reads": [
     "Atlas inside the loop",
     "jeton (1450) on its corner",
     "the bank itself"
    ],
-   "move": "crane-up to the +x corner (3.06, -0.14, 0.55), then parked: the turn-1 breath"
+   "move": "crane-up to the +x corner (3.06, -0.14, 0.55), then parked: the turn-1 breath",
+   "lens_mm": 50,
+   "D_m": [
+    0.46,
+    1.02
+   ],
+   "elev_deg": [
+    24,
+    33
+   ],
+   "fstop": [
+    4.5,
+    8
+   ],
+   "focus": "split marble/Atlas",
+   "why": "from high on the +x corner the marble rounds the bank at the frame's right while the Atlas fills the left; the frame top cuts the table at about 1.3 m so band B and the well stay out (well 2% for 17 frames). The dark room is not in frame, so the meter stays calm",
+   "breath": true,
+   "breath_frames": [
+    252,
+    305
+   ]
   },
   {
    "id": "B5b",
@@ -199,10 +302,30 @@
     305,
     374
    ],
+   "t_s": [
+    10.18,
+    12.48
+   ],
    "reads": [
     "jeton on the Atlas corner, beside the groove (352-385)"
    ],
-   "move": "traverse along the table's end to the far side of reach 2, descending behind the marble"
+   "move": "traverse along the table's end to the far side of reach 2, descending behind the marble",
+   "lens_mm": 50,
+   "D_m": [
+    1,
+    0.68
+   ],
+   "elev_deg": [
+    30,
+    28
+   ],
+   "fstop": [
+    8,
+    5.6
+   ],
+   "focus": "marble, then the jeton (0.70 m; the marble at 0.63 m is sharp too)",
+   "why": "the 15th-century counter is read where it now lies, between the Atlas and the leaf. The marble stays at the frame's right so the frame extends over the Atlas, not over band B; the Admiralty's near margin shows at the right edge for about 20 frames, foreshortened and 20 px soft",
+   "breath": false
   },
   {
    "id": "B6",
@@ -210,11 +333,25 @@
     374,
     428
    ],
+   "t_s": [
+    12.48,
+    14.28
+   ],
    "reads": [
     "brass galley",
     "Gutenberg leaf (1455)"
    ],
-   "move": "far-side follow (over band B), looking steeply down into band A; the marble in the lower frame"
+   "move": "far-side follow (over band B), looking steeply down into band A; the marble in the lower frame",
+   "lens_mm": 50,
+   "D_m": [
+    0.5,
+    0.44
+   ],
+   "elev_deg": 36,
+   "fstop": 8,
+   "focus": "split marble/galley",
+   "why": "L0: the camera's side keeps the Ino and the Admiralty below the frame; only their blank near margin enters the bottom 5%, at 0.3 m, 20-30 px soft",
+   "breath": false
   },
   {
    "id": "B7",
@@ -222,10 +359,21 @@
     428,
     460
    ],
+   "t_s": [
+    14.28,
+    15.35
+   ],
    "reads": [
     "Gutenberg leaf, its type"
    ],
-   "move": "rack focus on leather L4 (428-456): marble to 433, onto the leaf by 441, held to 452, back by 460"
+   "move": "rack focus on leather L4 (428-456): marble to 433, onto the leaf by 441, held to 452, back by 460",
+   "lens_mm": 50,
+   "D_m": 0.36,
+   "elev_deg": 36,
+   "fstop": 4,
+   "focus": "marble -> leaf_near (0.59 m) -> marble",
+   "why": "the smallest type at the slowest marble (0.22 m/s). Marble blur 39 px of 119 px (0.33)",
+   "breath": false
   },
   {
    "id": "B8",
@@ -233,36 +381,91 @@
     460,
     500
    ],
+   "t_s": [
+    15.35,
+    16.68
+   ],
    "reads": [
     "leaf leaving left",
     "Piri Reis open edge entering right"
    ],
-   "move": "the crossing: the camera passes behind the marble over step 1 (475), from the far side to the near side"
+   "move": "the crossing: the camera passes behind the marble over step 1 (475), from the far side to the near side",
+   "lens_mm": 50,
+   "D_m": [
+    0.38,
+    0.4
+   ],
+   "elev_deg": [
+    32,
+    20
+   ],
+   "fstop": [
+    4,
+    4.5
+   ],
+   "focus": "marble",
+   "why": "both 1455 and 1513 share the frame for a second in the order the groove gives them; the step's tok lands with the marble sharp",
+   "breath": false
   },
   {
    "id": "B9",
    "frames": [
     500,
-    530
+    528
+   ],
+   "t_s": [
+    16.68,
+    17.62
    ],
    "reads": [
     "Piri Reis (1513), its coast",
     "nested weights standing on its roll"
    ],
-   "move": "near-side low follow; rack focus on leather L5 (493-516): onto Piri by 514, held to 522, back by 530"
+   "move": "near-side low follow; rack focus on leather L5 (493-516): onto Piri by 514, held to 522, back by 528",
+   "lens_mm": 50,
+   "D_m": 0.36,
+   "elev_deg": 20,
+   "fstop": 4,
+   "focus": "marble -> piri_near (0.45 m) -> marble",
+   "why": "the open edge faces reach 2; from the near side the sheet lies beyond the marble with the weights as its vertical. Marble blur 21 px of 119 px (0.17)",
+   "breath": false
   },
   {
    "id": "B10",
    "frames": [
-    530,
+    528,
     656
    ],
-   "reads": [
-    "Doppelmayr globe (1728), whole",
-    "the bank",
-    "the weights (1750) in the foreground at the exit"
+   "t_s": [
+    17.62,
+    21.89
    ],
-   "move": "turn-2 breath from inside the bank, low (1.60, 0.96-1.16, 0.26), nearly parked; the frame pans with the marble"
+   "reads": [
+    "Doppelmayr globe (1728), whole from 584 to 642 (its top cap clipped by the frame edge for 0.3 s at the breath's entry and exit)",
+    "the bank from above",
+    "the weights (1750) at the exit"
+   ],
+   "move": "crane-up (528-575) to a high eye inside the bank, (1.42-1.46, 1.02-1.18, 0.98-1.02), then parked: the turn-2 breath, panning with the marble",
+   "lens_mm": 50,
+   "D_m": [
+    0.4,
+    1.51
+   ],
+   "elev_deg": [
+    22,
+    48
+   ],
+   "fstop": [
+    5.6,
+    8
+   ],
+   "focus": "split marble/globe (1.45-1.50 m)",
+   "why": "the marble clears the groove's lip only from 40 deg or more here (visible share 0.62-1.0 by the ray-cast); from 1.0 m up inside the bank the whole globe still fits the 50 mm frame with the marble at the bottom (28-30 px). The lower two-thirds of the frame is lit oak and the globe stands against the table's end, so the meter sees oak, not the dark wall",
+   "breath": true,
+   "breath_frames": [
+    575,
+    656
+   ]
   },
   {
    "id": "B11",
@@ -270,12 +473,32 @@
     656,
     767
    ],
+   "t_s": [
+    21.89,
+    25.59
+   ],
    "reads": [
     "nested weights (1750) beside the marble",
     "the globe behind",
     "Piri's roll as the paper under the weights"
    ],
-   "move": "the camera crosses the groove 0.6 m ahead of the marble to the wall side, then leads it looking back; rack focus on leather L6 (729-763): onto the weights by 745, held to 757, back by 767"
+   "move": "the camera descends across the groove 0.6 m ahead of the marble to the wall side, then leads it nearly along the groove (az 20-25 deg, 24 deg elevation) looking back; rack focus on leather L6 (729-763): onto the weights by 745, held to 757, back by 767",
+   "lens_mm": 50,
+   "D_m": [
+    0.86,
+    0.4
+   ],
+   "elev_deg": [
+    45,
+    24
+   ],
+   "fstop": [
+    7,
+    5.6
+   ],
+   "focus": "marble -> weights_top (0.79 m) -> marble",
+   "why": "along the groove the lip cannot hide the marble (share 0.9-1.0). The weights stand behind the marble at the frame's left with the globe beyond. Marble blur at the rack 34 px of 107 (0.32)",
+   "breath": false
   },
   {
    "id": "B12",
@@ -283,10 +506,34 @@
     767,
     841
    ],
-   "reads": [
-    "Ino's sheet (1821), its survey"
+   "t_s": [
+    25.59,
+    28.06
    ],
-   "move": "the pass on the wall side: the marble rolls by the parked camera, the frame turns onto the Ino ahead; rack focus on leather L7 (799-839): onto the Ino by 815, held to 830, back by 841"
+   "reads": [
+    "Ino's sheet (1821), its survey, from above"
+   ],
+   "move": "the crane-over: the camera lifts to 50 deg over the marble as it passes beneath (abeam at 790) and settles high behind-left (46 deg, az +135); rack focus on leather L7 (799-839): onto the Ino by 816, held to 830, back by 841",
+   "lens_mm": 50,
+   "D_m": [
+    0.42,
+    0.44
+   ],
+   "elev_deg": [
+    30,
+    46
+   ],
+   "fstop": [
+    5.6,
+    4
+   ],
+   "focus": "split marble/Ino, then marble -> ino_near (0.59 m) -> marble",
+   "why": "abeam the marble is visible only from about 50 deg, so the pass is taken over the top; a flat sheet reads best from above anyway. Marble share 0.81-0.92; blur at the rack 21 px of 97 (0.22)",
+   "breath": true,
+   "breath_frames": [
+    816,
+    830
+   ]
   },
   {
    "id": "B13",
@@ -294,11 +541,25 @@
     841,
     885
    ],
+   "t_s": [
+    28.06,
+    29.53
+   ],
    "reads": [
     "Admiralty chart 983 (1931) entering ahead",
     "the Ino leaving"
    ],
-   "move": "wall-side follow from behind-left, the marble sharp through the slowest point (860) and step 2 (863)"
+   "move": "high 3/4 follow from behind-left (44 deg, az +140); the marble sharp through the slowest point (860) and step 2 (863)",
+   "lens_mm": 50,
+   "D_m": 0.44,
+   "elev_deg": 44,
+   "fstop": [
+    4,
+    4.5
+   ],
+   "focus": "marble",
+   "why": "the step's tok and the re-acceleration are the marble's own beat; nothing racks here. Marble share 0.75-0.83",
+   "breath": false
   },
   {
    "id": "B14",
@@ -306,11 +567,28 @@
     885,
     926
    ],
-   "reads": [
-    "Admiralty chart 983, its soundings",
-    "the well's edge at the frame's left from 885"
+   "t_s": [
+    29.53,
+    30.9
    ],
-   "move": "abeam-behind from the wall side, deep stop; the marble at the frame's left so the frame extends over the chart"
+   "reads": [
+    "Admiralty chart 983, its soundings, from above",
+    "the well's mouth at the frame's left from 897"
+   ],
+   "move": "high 3/4 from the wall side (50-52 deg, az +126-128), deep stop; the marble at the frame's left so the frame extends over the chart and away from the record",
+   "lens_mm": 50,
+   "D_m": [
+    0.5,
+    0.46
+   ],
+   "elev_deg": [
+    50,
+    46
+   ],
+   "fstop": 8,
+   "focus": "split marble/admiralty_near (0.50-0.55 m)",
+   "why": "the last record before the film's own reads at depth, not by a rack, so the eye stays with the marble as it slows on L8 toward the lip. The record enters only at 931-933. Marble share 0.6-0.77",
+   "breath": false
   },
   {
    "id": "B15",
@@ -318,16 +596,48 @@
     927,
     1090
    ],
+   "t_s": [
+    30.93,
+    36.37
+   ],
    "reads": [
     "the film's record on the felt"
    ],
-   "move": "the ending as v5c: the pose blends from the frame-926 camera to record_pose(rec) by 1061 (up from +z to +y), held to 1090; hard cut to the lockup"
+   "move": "the ending as v5c: the pose blends from the frame-926 camera (0.46 m, 46 deg, wall side) to record_pose(rec) by 1061 (up from +z to +y), held to 1090; hard cut to the lockup",
+   "lens_mm": 50,
+   "D_m": [
+    0.46,
+    0.278
+   ],
+   "elev_deg": [
+    46,
+    90
+   ],
+   "fstop": [
+    8,
+    5.6
+   ],
+   "focus": "marble -> the sheet",
+   "why": "unchanged so POSE_EV, the albedo and A7 carry over. The approach comes from the wall side and above; the per-film tail starts at 897 (the well) and the record first enters at 931",
+   "breath": true,
+   "breath_frames": [
+    926,
+    941
+   ]
   }
  ],
  "keys": [
   {
    "f": 0,
+   "t_s": 0,
    "beat": "B0 opening wide (whole run), descending to B1 over 3.0 s",
+   "marble_xyz": [
+    0.086,
+    0.12,
+    0.0086
+   ],
+   "marble_v_ms": 0.006,
+   "marble_heading_deg": 0,
    "rig": {
     "mode": "opening"
    },
@@ -341,19 +651,53 @@
     0.8124,
     0
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     0,
     0
    ],
+   "focal_mm": 50,
    "fstop": 8,
    "focus_m": 3.04,
    "focus_target": "run centroid",
    "marble_px_1080p": 14,
-   "marble_blur_px": 0
+   "marble_blur_px": 0,
+   "in_frame": {
+    "tablet": 1,
+    "papyrus": 1,
+    "coin dupondius": 1,
+    "coin sestertius": 1,
+    "atlas": 1,
+    "jeton": 1,
+    "galley": 1,
+    "leaf": 1,
+    "piri_image": 1,
+    "weights": 1,
+    "globe_mid": 1,
+    "globe_top": 1,
+    "globe_tip": 1,
+    "ino_image": 1,
+    "admiralty_image": 1,
+    "well": 1,
+    "record_s130": 1,
+    "stick": 1
+   }
   },
   {
    "f": 90,
+   "t_s": 3.003,
    "beat": "B1 tablet reveal (lead)",
+   "marble_xyz": [
+    0.9809,
+    0.12,
+    -0.0007
+   ],
+   "marble_v_ms": 0.307,
+   "marble_heading_deg": 0,
    "rig": {
     "mode": "rel",
     "D_m": 0.56,
@@ -370,19 +714,38 @@
     0.0784,
     0.0321
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     0.15,
     -0.16
    ],
+   "focal_mm": 50,
    "fstop": 11,
    "focus_m": 0.7873,
    "focus_target": "split:tablet",
    "marble_px_1080p": 76,
-   "marble_blur_px": 6.7
+   "marble_blur_px": 6.7,
+   "in_frame": {
+    "tablet": 0.47,
+    "papyrus": 0.83,
+    "coin dupondius": 1
+   }
   },
   {
    "f": 104,
+   "t_s": 3.47,
    "beat": "B2 papyrus + coins (lead)",
+   "marble_xyz": [
+    1.1239,
+    0.12,
+    -0.0008
+   ],
+   "marble_v_ms": 0.305,
+   "marble_heading_deg": 0,
    "rig": {
     "mode": "rel",
     "D_m": 0.54,
@@ -399,19 +762,39 @@
     0.0799,
     0.0308
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     0.15,
     -0.16
    ],
+   "focal_mm": 50,
    "fstop": 11,
    "focus_m": 0.7276,
    "focus_target": "split:coin dupondius",
    "marble_px_1080p": 79,
-   "marble_blur_px": 6.2
+   "marble_blur_px": 6.2,
+   "in_frame": {
+    "tablet": 0.04,
+    "papyrus": 1,
+    "coin dupondius": 1,
+    "coin sestertius": 1
+   }
   },
   {
    "f": 118,
+   "t_s": 3.937,
    "beat": "B2",
+   "marble_xyz": [
+    1.2662,
+    0.12,
+    -0.0009
+   ],
+   "marble_v_ms": 0.304,
+   "marble_heading_deg": 0,
    "rig": {
     "mode": "rel",
     "D_m": 0.52,
@@ -428,19 +811,39 @@
     0.0909,
     0.0299
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     0.12,
     -0.16
    ],
+   "focal_mm": 50,
    "fstop": 8,
    "focus_m": 0.6797,
    "focus_target": "split:papyrus",
    "marble_px_1080p": 82,
-   "marble_blur_px": 8.1
+   "marble_blur_px": 8.1,
+   "in_frame": {
+    "papyrus": 1,
+    "coin dupondius": 1,
+    "coin sestertius": 1,
+    "piri_image": 0.05
+   }
   },
   {
    "f": 140,
+   "t_s": 4.671,
    "beat": "B3 park; the marble approaches",
+   "marble_xyz": [
+    1.4884,
+    0.12,
+    -0.0011
+   ],
+   "marble_v_ms": 0.301,
+   "marble_heading_deg": 0,
    "rig": {
     "mode": "abs"
    },
@@ -454,19 +857,41 @@
     0.0607,
     0.0391
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     0.2,
     -0.18
    ],
+   "focal_mm": 50,
    "fstop": 6.3,
    "focus_m": 0.6049,
    "focus_target": "marble",
    "marble_px_1080p": 71,
-   "marble_blur_px": 0
+   "marble_blur_px": 0,
+   "in_frame": {
+    "tablet": 1,
+    "papyrus": 1,
+    "coin dupondius": 1,
+    "coin sestertius": 1,
+    "leaf": 0.35,
+    "piri_image": 0.31
+   }
   },
   {
    "f": 160,
+   "t_s": 5.339,
    "beat": "B3 the Atlas enters behind the marble",
+   "marble_xyz": [
+    1.6889,
+    0.12,
+    -0.0013
+   ],
+   "marble_v_ms": 0.299,
+   "marble_heading_deg": 0,
    "rig": {
     "mode": "abs"
    },
@@ -480,19 +905,40 @@
     0.1389,
     0.0294
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     -0.05,
     -0.16
    ],
+   "focal_mm": 50,
    "fstop": 5.6,
    "focus_m": 0.5031,
    "focus_target": "marble",
    "marble_px_1080p": 85,
-   "marble_blur_px": 0
+   "marble_blur_px": 0,
+   "in_frame": {
+    "atlas": 0.21,
+    "galley": 1,
+    "leaf": 1,
+    "piri_image": 0.58,
+    "ino_image": 0.42
+   }
   },
   {
    "f": 176,
+   "t_s": 5.873,
    "beat": "B4 L3: the marble slows abeam",
+   "marble_xyz": [
+    1.8477,
+    0.12,
+    -0.0014
+   ],
+   "marble_v_ms": 0.292,
+   "marble_heading_deg": 0,
    "rig": {
     "mode": "abs"
    },
@@ -506,19 +952,38 @@
     0.139,
     0.0172
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     -0.15,
     -0.12
    ],
+   "focal_mm": 50,
    "fstop": 4,
    "focus_m": 0.4344,
    "focus_target": "marble",
    "marble_px_1080p": 98,
-   "marble_blur_px": 0
+   "marble_blur_px": 0,
+   "in_frame": {
+    "atlas": 0.54,
+    "galley": 0.56,
+    "leaf": 0.11
+   }
   },
   {
    "f": 184,
+   "t_s": 6.139,
    "beat": "B4",
+   "marble_xyz": [
+    1.9248,
+    0.12,
+    -0.0014
+   ],
+   "marble_v_ms": 0.285,
+   "marble_heading_deg": 0,
    "rig": {
     "mode": "abs"
    },
@@ -532,19 +997,36 @@
     0.1302,
     0.0163
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     -0.15,
     -0.12
    ],
+   "focal_mm": 50,
    "fstop": 4,
    "focus_m": 0.4193,
    "focus_target": "marble",
    "marble_px_1080p": 102,
-   "marble_blur_px": 0
+   "marble_blur_px": 0,
+   "in_frame": {
+    "atlas": 0.49
+   }
   },
   {
    "f": 190,
+   "t_s": 6.34,
    "beat": "B4 rack onto the Atlas",
+   "marble_xyz": [
+    1.9815,
+    0.12,
+    -0.0015
+   ],
+   "marble_v_ms": 0.282,
+   "marble_heading_deg": 0,
    "rig": {
     "mode": "abs"
    },
@@ -558,19 +1040,36 @@
     0.1234,
     0.0162
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     -0.15,
     -0.12
    ],
+   "focal_mm": 50,
    "fstop": 4,
    "focus_m": 0.679,
    "focus_target": "atlas_near",
    "marble_px_1080p": 102,
-   "marble_blur_px": 33.3
+   "marble_blur_px": 33.3,
+   "in_frame": {
+    "atlas": 0.47
+   }
   },
   {
    "f": 198,
+   "t_s": 6.607,
    "beat": "B4 (on the Atlas)",
+   "marble_xyz": [
+    2.0566,
+    0.12,
+    -0.0015
+   ],
+   "marble_v_ms": 0.281,
+   "marble_heading_deg": 0,
    "rig": {
     "mode": "abs"
    },
@@ -584,19 +1083,36 @@
     0.1143,
     0.0166
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     -0.15,
     -0.12
    ],
+   "focal_mm": 50,
    "fstop": 4,
    "focus_m": 0.679,
    "focus_target": "atlas_near",
    "marble_px_1080p": 100,
-   "marble_blur_px": 31.5
+   "marble_blur_px": 31.5,
+   "in_frame": {
+    "atlas": 0.42
+   }
   },
   {
    "f": 206,
+   "t_s": 6.874,
    "beat": "B4 back to the marble, leaving",
+   "marble_xyz": [
+    2.1315,
+    0.12,
+    -0.0016
+   ],
+   "marble_v_ms": 0.28,
+   "marble_heading_deg": 0,
    "rig": {
     "mode": "abs"
    },
@@ -610,19 +1126,38 @@
     0.0995,
     0.0205
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     -0.2,
     -0.14
    ],
+   "focal_mm": 50,
    "fstop": 4.5,
    "focus_m": 0.4561,
    "focus_target": "marble",
    "marble_px_1080p": 94,
-   "marble_blur_px": 0
+   "marble_blur_px": 0,
+   "in_frame": {
+    "atlas": 0.37,
+    "jeton": 1,
+    "admiralty_image": 0.02
+   }
   },
   {
    "f": 228,
+   "t_s": 7.608,
    "beat": "B5 crane-up",
+   "marble_xyz": [
+    2.3363,
+    0.1215,
+    -0.0018
+   ],
+   "marble_v_ms": 0.279,
+   "marble_heading_deg": 3.2,
    "rig": {
     "mode": "abs"
    },
@@ -636,19 +1171,37 @@
     0.1156,
     0.0315
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     -0.1,
     -0.16
    ],
+   "focal_mm": 50,
    "fstop": 5.6,
    "focus_m": 0.6856,
    "focus_target": "split:atlas_near",
    "marble_px_1080p": 71,
-   "marble_blur_px": 5.4
+   "marble_blur_px": 5.4,
+   "in_frame": {
+    "atlas": 0.17,
+    "jeton": 0.05
+   }
   },
   {
    "f": 252,
+   "t_s": 8.408,
    "beat": "B5 turn-1 breath",
+   "marble_xyz": [
+    2.5468,
+    0.1915,
+    -0.0023
+   ],
+   "marble_v_ms": 0.28,
+   "marble_heading_deg": 35.9,
    "rig": {
     "mode": "abs"
    },
@@ -662,19 +1215,36 @@
     0.2133,
     0.0259
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     0.1,
     -0.12
    ],
+   "focal_mm": 50,
    "fstop": 8,
    "focus_m": 0.8833,
    "focus_target": "split:atlas",
    "marble_px_1080p": 58,
-   "marble_blur_px": 3.9
+   "marble_blur_px": 3.9,
+   "in_frame": {
+    "atlas": 0.25
+   }
   },
   {
    "f": 290,
+   "t_s": 9.676,
    "beat": "B5 apex (parked)",
+   "marble_xyz": [
+    2.697,
+    0.4926,
+    -0.0027
+   ],
+   "marble_v_ms": 0.273,
+   "marble_heading_deg": 91.2,
    "rig": {
     "mode": "abs"
    },
@@ -688,19 +1258,37 @@
     0.3979,
     0.0138
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     0.3,
     -0.1
    ],
+   "focal_mm": 50,
    "fstop": 8,
    "focus_m": 1.0664,
    "focus_target": "split:atlas",
    "marble_px_1080p": 47,
-   "marble_blur_px": 2.9
+   "marble_blur_px": 2.9,
+   "in_frame": {
+    "atlas": 0.41,
+    "jeton": 1
+   }
   },
   {
    "f": 305,
+   "t_s": 10.177,
    "beat": "B5 (parked)",
+   "marble_xyz": [
+    2.6691,
+    0.6247,
+    -0.0028
+   ],
+   "marble_v_ms": 0.27,
+   "marble_heading_deg": 112.7,
    "rig": {
     "mode": "abs"
    },
@@ -714,19 +1302,39 @@
     0.4851,
     0.0016
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     0.34,
     -0.06
    ],
+   "focal_mm": 50,
    "fstop": 8,
    "focus_m": 1.1554,
    "focus_target": "split:atlas",
    "marble_px_1080p": 42,
-   "marble_blur_px": 2
+   "marble_blur_px": 2,
+   "in_frame": {
+    "atlas": 0.62,
+    "jeton": 1,
+    "admiralty_image": 0.2,
+    "well": 0.02
+   }
   },
   {
    "f": 330,
+   "t_s": 11.011,
    "beat": "B5 traverse along the table's end",
+   "marble_xyz": [
+    2.5269,
+    0.7924,
+    -0.003
+   ],
+   "marble_v_ms": 0.266,
+   "marble_heading_deg": 148,
    "rig": {
     "mode": "abs"
    },
@@ -740,19 +1348,38 @@
     0.6051,
     0.0051
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     0.36,
     -0.08
    ],
+   "focal_mm": 50,
    "fstop": 6.3,
    "focus_m": 0.9467,
    "focus_target": "marble",
    "marble_px_1080p": 45,
-   "marble_blur_px": 0
+   "marble_blur_px": 0,
+   "in_frame": {
+    "atlas": 0.6,
+    "jeton": 1,
+    "admiralty_image": 0.38
+   }
   },
   {
    "f": 352,
+   "t_s": 11.745,
    "beat": "B5 traverse; the Atlas left, the marble right",
+   "marble_xyz": [
+    2.3442,
+    0.849,
+    -0.0031
+   ],
+   "marble_v_ms": 0.257,
+   "marble_heading_deg": 176.1,
    "rig": {
     "mode": "abs"
    },
@@ -766,19 +1393,39 @@
     0.62,
     0.0173
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     0.4,
     -0.14
    ],
+   "focal_mm": 50,
    "fstop": 5.6,
    "focus_m": 0.8192,
    "focus_target": "marble",
    "marble_px_1080p": 52,
-   "marble_blur_px": 0
+   "marble_blur_px": 0,
+   "in_frame": {
+    "atlas": 0.68,
+    "jeton": 1,
+    "ino_image": 0.06,
+    "admiralty_image": 0.15
+   }
   },
   {
    "f": 374,
+   "t_s": 12.479,
    "beat": "B6 the jeton on the Atlas corner, beside the groove",
+   "marble_xyz": [
+    2.159,
+    0.8505,
+    -0.0031
+   ],
+   "marble_v_ms": 0.251,
+   "marble_heading_deg": 180,
    "rig": {
     "mode": "abs"
    },
@@ -792,19 +1439,41 @@
     0.7258,
     0.0494
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     0.22,
     -0.2
    ],
+   "focal_mm": 50,
    "fstop": 5.6,
    "focus_m": 0.7202,
    "focus_target": "jeton",
    "marble_px_1080p": 55,
-   "marble_blur_px": 2.8
+   "marble_blur_px": 2.8,
+   "in_frame": {
+    "atlas": 0.85,
+    "jeton": 1,
+    "galley": 1,
+    "leaf": 0.96,
+    "ino_image": 0.05,
+    "admiralty_image": 0.19
+   }
   },
   {
    "f": 398,
+   "t_s": 13.28,
    "beat": "B6 galley, leaf",
+   "marble_xyz": [
+    1.9593,
+    0.8505,
+    -0.0033
+   ],
+   "marble_v_ms": 0.248,
+   "marble_heading_deg": 180,
    "rig": {
     "mode": "rel",
     "D_m": 0.5,
@@ -821,19 +1490,39 @@
     0.8314,
     0.0582
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     0,
     -0.36
    ],
+   "focal_mm": 50,
    "fstop": 8,
    "focus_m": 0.6404,
    "focus_target": "split:galley",
    "marble_px_1080p": 85,
-   "marble_blur_px": 7.9
+   "marble_blur_px": 7.9,
+   "in_frame": {
+    "atlas": 0.3,
+    "galley": 1,
+    "leaf": 0.3,
+    "ino_image": 0.1
+   }
   },
   {
    "f": 414,
+   "t_s": 13.814,
    "beat": "B6",
+   "marble_xyz": [
+    1.8273,
+    0.8505,
+    -0.0034
+   ],
+   "marble_v_ms": 0.246,
+   "marble_heading_deg": 180,
    "rig": {
     "mode": "rel",
     "D_m": 0.44,
@@ -850,19 +1539,39 @@
     0.8332,
     0.0501
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     0,
     -0.36
    ],
+   "focal_mm": 50,
    "fstop": 8,
    "focus_m": 0.5475,
    "focus_target": "split:galley",
    "marble_px_1080p": 97,
-   "marble_blur_px": 8.2
+   "marble_blur_px": 8.2,
+   "in_frame": {
+    "atlas": 0.12,
+    "galley": 1,
+    "leaf": 0.33,
+    "ino_image": 0.09
+   }
   },
   {
    "f": 428,
+   "t_s": 14.281,
    "beat": "B7 L4 rack to the leaf",
+   "marble_xyz": [
+    1.7126,
+    0.8505,
+    -0.0035
+   ],
+   "marble_v_ms": 0.244,
+   "marble_heading_deg": 180,
    "rig": {
     "mode": "rel",
     "D_m": 0.36,
@@ -879,19 +1588,39 @@
     0.8378,
     0.037
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     0,
     -0.33
    ],
+   "focal_mm": 50,
    "fstop": 4,
    "focus_m": 0.36,
    "focus_target": "marble",
    "marble_px_1080p": 119,
-   "marble_blur_px": 0
+   "marble_blur_px": 0,
+   "in_frame": {
+    "atlas": 0.04,
+    "galley": 0.93,
+    "leaf": 0.33,
+    "ino_image": 0.05
+   }
   },
   {
    "f": 433,
+   "t_s": 14.448,
    "beat": "B7",
+   "marble_xyz": [
+    1.6722,
+    0.8505,
+    -0.0035
+   ],
+   "marble_v_ms": 0.24,
+   "marble_heading_deg": 180,
    "rig": {
     "mode": "rel",
     "D_m": 0.36,
@@ -908,19 +1637,38 @@
     0.8378,
     0.0369
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     0,
     -0.33
    ],
+   "focal_mm": 50,
    "fstop": 4,
    "focus_m": 0.36,
    "focus_target": "marble",
    "marble_px_1080p": 119,
-   "marble_blur_px": 0
+   "marble_blur_px": 0,
+   "in_frame": {
+    "galley": 0.8,
+    "leaf": 0.44,
+    "ino_image": 0.06
+   }
   },
   {
    "f": 441,
+   "t_s": 14.715,
    "beat": "B7 (on the leaf)",
+   "marble_xyz": [
+    1.6091,
+    0.8505,
+    -0.0036
+   ],
+   "marble_v_ms": 0.233,
+   "marble_heading_deg": 180,
    "rig": {
     "mode": "rel",
     "D_m": 0.36,
@@ -937,19 +1685,39 @@
     0.8378,
     0.0369
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     0,
     -0.33
    ],
+   "focal_mm": 50,
    "fstop": 4,
    "focus_m": 0.5863,
    "focus_target": "leaf_near",
    "marble_px_1080p": 119,
-   "marble_blur_px": 39.1
+   "marble_blur_px": 39.1,
+   "in_frame": {
+    "galley": 0.56,
+    "leaf": 0.53,
+    "piri_image": 0.02,
+    "ino_image": 0.04
+   }
   },
   {
    "f": 452,
+   "t_s": 15.082,
    "beat": "B7",
+   "marble_xyz": [
+    1.5255,
+    0.8505,
+    -0.0036
+   ],
+   "marble_v_ms": 0.223,
+   "marble_heading_deg": 180,
    "rig": {
     "mode": "rel",
     "D_m": 0.36,
@@ -966,19 +1734,39 @@
     0.8378,
     0.0368
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     0,
     -0.33
    ],
+   "focal_mm": 50,
    "fstop": 4,
    "focus_m": 0.5231,
    "focus_target": "leaf_near",
    "marble_px_1080p": 119,
-   "marble_blur_px": 31.9
+   "marble_blur_px": 31.9,
+   "in_frame": {
+    "galley": 0.22,
+    "leaf": 0.62,
+    "piri_image": 0.04,
+    "ino_image": 0.02
+   }
   },
   {
    "f": 460,
+   "t_s": 15.349,
    "beat": "B7 back; begin the crossing",
+   "marble_xyz": [
+    1.4666,
+    0.8505,
+    -0.0037
+   ],
+   "marble_v_ms": 0.22,
+   "marble_heading_deg": 180,
    "rig": {
     "mode": "rel",
     "D_m": 0.38,
@@ -995,19 +1783,38 @@
     0.8305,
     0.0338
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     0.05,
     -0.28
    ],
+   "focal_mm": 50,
    "fstop": 4,
    "focus_m": 0.38,
    "focus_target": "marble",
    "marble_px_1080p": 112,
-   "marble_blur_px": 0
+   "marble_blur_px": 0,
+   "in_frame": {
+    "galley": 0.09,
+    "leaf": 0.56,
+    "piri_image": 0.07
+   }
   },
   {
    "f": 478,
+   "t_s": 15.949,
    "beat": "B8 crossing (step 1 at 475)",
+   "marble_xyz": [
+    1.3273,
+    0.8505,
+    -0.0067
+   ],
+   "marble_v_ms": 0.292,
+   "marble_heading_deg": 180,
    "rig": {
     "mode": "rel",
     "D_m": 0.4,
@@ -1024,19 +1831,37 @@
     0.851,
     0.0258
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     0,
     -0.22
    ],
+   "focal_mm": 50,
    "fstop": 4.5,
    "focus_m": 0.4,
    "focus_target": "marble",
    "marble_px_1080p": 107,
-   "marble_blur_px": 0
+   "marble_blur_px": 0,
+   "in_frame": {
+    "leaf": 0.2,
+    "piri_image": 0.42
+   }
   },
   {
    "f": 500,
+   "t_s": 16.683,
    "beat": "B9 L5 Piri",
+   "marble_xyz": [
+    1.1147,
+    0.8505,
+    -0.0069
+   ],
+   "marble_v_ms": 0.283,
+   "marble_heading_deg": 180,
    "rig": {
     "mode": "rel",
     "D_m": 0.38,
@@ -1053,19 +1878,37 @@
     0.8796,
     0.0249
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     -0.1,
     -0.22
    ],
+   "focal_mm": 50,
    "fstop": 4,
    "focus_m": 0.38,
    "focus_target": "marble",
    "marble_px_1080p": 112,
-   "marble_blur_px": 0
+   "marble_blur_px": 0,
+   "in_frame": {
+    "piri_image": 0.48,
+    "weights": 0.81
+   }
   },
   {
    "f": 506,
+   "t_s": 16.884,
    "beat": "B9",
+   "marble_xyz": [
+    1.0585,
+    0.8505,
+    -0.007
+   ],
+   "marble_v_ms": 0.278,
+   "marble_heading_deg": 180,
    "rig": {
     "mode": "rel",
     "D_m": 0.36,
@@ -1082,19 +1925,37 @@
     0.8826,
     0.0273
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     -0.12,
     -0.25
    ],
+   "focal_mm": 50,
    "fstop": 4,
    "focus_m": 0.36,
    "focus_target": "marble",
    "marble_px_1080p": 119,
-   "marble_blur_px": 0
+   "marble_blur_px": 0,
+   "in_frame": {
+    "piri_image": 0.47,
+    "weights": 0.95
+   }
   },
   {
    "f": 514,
+   "t_s": 17.15,
    "beat": "B9 (on Piri)",
+   "marble_xyz": [
+    0.9852,
+    0.8505,
+    -0.007
+   ],
+   "marble_v_ms": 0.271,
+   "marble_heading_deg": 180,
    "rig": {
     "mode": "rel",
     "D_m": 0.36,
@@ -1111,19 +1972,37 @@
     0.8826,
     0.0272
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     -0.12,
     -0.25
    ],
+   "focal_mm": 50,
    "fstop": 4,
    "focus_m": 0.4487,
    "focus_target": "piri_near",
    "marble_px_1080p": 119,
-   "marble_blur_px": 20.6
+   "marble_blur_px": 20.6,
+   "in_frame": {
+    "piri_image": 0.36,
+    "weights": 0.17
+   }
   },
   {
    "f": 522,
+   "t_s": 17.417,
    "beat": "B9",
+   "marble_xyz": [
+    0.9132,
+    0.8505,
+    -0.0071
+   ],
+   "marble_v_ms": 0.269,
+   "marble_heading_deg": 180,
    "rig": {
     "mode": "rel",
     "D_m": 0.36,
@@ -1140,19 +2019,36 @@
     0.8826,
     0.0271
    ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "marble_screen": [
     -0.12,
     -0.25
    ],
+   "focal_mm": 50,
    "fstop": 4,
    "focus_m": 0.4168,
    "focus_target": "piri_near",
    "marble_px_1080p": 119,
-   "marble_blur_px": 14.3
+   "marble_blur_px": 14.3,
+   "in_frame": {
+    "piri_image": 0.26
+   }
   },
   {
-   "f": 530,
+   "f": 528,
+   "t_s": 17.618,
    "beat": "B9 back to the marble",
+   "marble_xyz": [
+    0.8594,
+    0.8505,
+    -0.0071
+   ],
+   "marble_v_ms": 0.268,
+   "marble_heading_deg": 180,
    "rig": {
     "mode": "rel",
     "D_m": 0.4,
@@ -1160,594 +2056,1058 @@
     "az_from_heading_deg": -205
    },
    "eye": [
-    1.1776,
+    1.1955,
     0.6938,
     0.1427
    ],
    "look_at": [
-    0.8444,
+    0.8623,
     0.8817,
     0.026
+   ],
+   "up": [
+    0,
+    0,
+    1
    ],
    "marble_screen": [
     -0.1,
     -0.22
    ],
+   "focal_mm": 50,
    "fstop": 5.6,
    "focus_m": 0.4,
    "focus_target": "marble",
    "marble_px_1080p": 107,
-   "marble_blur_px": 0
+   "marble_blur_px": 0,
+   "in_frame": {
+    "piri_image": 0.17
+   }
   },
   {
-   "f": 566,
-   "beat": "B10 turn-2 breath (globe)",
+   "f": 552,
+   "t_s": 18.418,
+   "beat": "B10 crane-up into the breath",
+   "marble_xyz": [
+    0.6455,
+    0.8531,
+    -0.0075
+   ],
+   "marble_v_ms": 0.269,
+   "marble_heading_deg": 175.1,
    "rig": {
     "mode": "abs"
    },
    "eye": [
-    1.6,
-    0.96,
-    0.26
+    1.3,
+    0.82,
+    0.45
    ],
    "look_at": [
-    0.4999,
-    1.081,
-    0.1465
+    0.6064,
+    0.9878,
+    0.0695
    ],
-   "marble_screen": [
-    -0.25,
-    -0.36
-   ],
-   "fstop": 8,
-   "focus_m": 1.271,
-   "focus_target": "split:globe_c",
-   "marble_px_1080p": 38,
-   "marble_blur_px": 1.9
-  },
-  {
-   "f": 614,
-   "beat": "B10 apex",
-   "rig": {
-    "mode": "abs"
-   },
-   "eye": [
-    1.6,
-    1,
-    0.26
-   ],
-   "look_at": [
-    0.2779,
-    1.2222,
-    0.195
-   ],
-   "marble_screen": [
+   "up": [
     0,
-    -0.38
-   ],
-   "fstop": 8,
-   "focus_m": 1.4059,
-   "focus_target": "split:globe_c",
-   "marble_px_1080p": 32,
-   "marble_blur_px": 0.6
-  },
-  {
-   "f": 656,
-   "beat": "B10 exit; the camera begins to drift to the wall side",
-   "rig": {
-    "mode": "abs"
-   },
-   "eye": [
-    1.56,
-    1.16,
-    0.27
-   ],
-   "look_at": [
-    0.3973,
-    1.3143,
-    0.1363
-   ],
-   "marble_screen": [
-    0.26,
-    -0.32
-   ],
-   "fstop": 8,
-   "focus_m": 1.2897,
-   "focus_target": "split:globe_c",
-   "marble_px_1080p": 36,
-   "marble_blur_px": 1.2
-  },
-  {
-   "f": 681,
-   "beat": "B11 crossing ahead of the marble",
-   "rig": {
-    "mode": "abs"
-   },
-   "eye": [
-    1.5,
-    1.45,
-    0.27
-   ],
-   "look_at": [
-    0.6387,
-    1.423,
-    0.0728
-   ],
-   "marble_screen": [
-    0.25,
-    -0.25
-   ],
-   "fstop": 7,
-   "focus_m": 0.884,
-   "focus_target": "marble",
-   "marble_px_1080p": 48,
-   "marble_blur_px": 0
-  },
-  {
-   "f": 704,
-   "beat": "B11 lead",
-   "rig": {
-    "mode": "abs"
-   },
-   "eye": [
-    1.44,
-    1.8,
-    0.24
-   ],
-   "look_at": [
-    0.8712,
-    1.5079,
-    0.0359
-   ],
-   "marble_screen": [
-    0.15,
-    -0.18
-   ],
-   "fstop": 6.3,
-   "focus_m": 0.6712,
-   "focus_target": "marble",
-   "marble_px_1080p": 64,
-   "marble_blur_px": 0
-  },
-  {
-   "f": 722,
-   "beat": "B11 lead: the weights beside the marble, the globe behind",
-   "rig": {
-    "mode": "rel",
-    "D_m": 0.44,
-    "elev_deg": 20,
-    "az_from_heading_deg": 45
-   },
-   "eye": [
-    1.2921,
-    1.8734,
-    0.1417
-   ],
-   "look_at": [
-    1.0234,
-    1.5504,
-    0.0109
-   ],
-   "marble_screen": [
-    0.12,
-    -0.12
-   ],
-   "fstop": 5.6,
-   "focus_m": 0.44,
-   "focus_target": "marble",
-   "marble_px_1080p": 97,
-   "marble_blur_px": 0
-  },
-  {
-   "f": 731,
-   "beat": "B11 L6 rack to the weights",
-   "rig": {
-    "mode": "rel",
-    "D_m": 0.38,
-    "elev_deg": 16,
-    "az_from_heading_deg": 45
-   },
-   "eye": [
-    1.3292,
-    1.8393,
-    0.0959
-   ],
-   "look_at": [
-    1.0921,
-    1.5554,
-    0.0087
-   ],
-   "marble_screen": [
-    0.12,
-    -0.12
-   ],
-   "fstop": 5.6,
-   "focus_m": 0.38,
-   "focus_target": "marble",
-   "marble_px_1080p": 112,
-   "marble_blur_px": 0
-  },
-  {
-   "f": 737,
-   "beat": "B11",
-   "rig": {
-    "mode": "rel",
-    "D_m": 0.38,
-    "elev_deg": 16,
-    "az_from_heading_deg": 45
-   },
-   "eye": [
-    1.3757,
-    1.8393,
-    0.0959
-   ],
-   "look_at": [
-    1.1386,
-    1.5554,
-    0.0086
-   ],
-   "marble_screen": [
-    0.12,
-    -0.12
-   ],
-   "fstop": 5.6,
-   "focus_m": 0.38,
-   "focus_target": "marble",
-   "marble_px_1080p": 112,
-   "marble_blur_px": 0
-  },
-  {
-   "f": 745,
-   "beat": "B11 (on the weights)",
-   "rig": {
-    "mode": "rel",
-    "D_m": 0.38,
-    "elev_deg": 16,
-    "az_from_heading_deg": 45
-   },
-   "eye": [
-    1.436,
-    1.8393,
-    0.0958
-   ],
-   "look_at": [
-    1.1989,
-    1.5554,
-    0.0086
-   ],
-   "marble_screen": [
-    0.12,
-    -0.12
-   ],
-   "fstop": 5.6,
-   "focus_m": 0.7758,
-   "focus_target": "weights_top",
-   "marble_px_1080p": 112,
-   "marble_blur_px": 34.2
-  },
-  {
-   "f": 757,
-   "beat": "B11",
-   "rig": {
-    "mode": "rel",
-    "D_m": 0.38,
-    "elev_deg": 16,
-    "az_from_heading_deg": 45
-   },
-   "eye": [
-    1.523,
-    1.8393,
-    0.0958
-   ],
-   "look_at": [
-    1.2859,
-    1.5554,
-    0.0085
-   ],
-   "marble_screen": [
-    0.12,
-    -0.12
-   ],
-   "fstop": 5.6,
-   "focus_m": 0.8485,
-   "focus_target": "weights_top",
-   "marble_px_1080p": 112,
-   "marble_blur_px": 36.8
-  },
-  {
-   "f": 767,
-   "beat": "B11 back; the pass begins",
-   "rig": {
-    "mode": "rel",
-    "D_m": 0.4,
-    "elev_deg": 22,
-    "az_from_heading_deg": 62
-   },
-   "eye": [
-    1.5084,
-    1.9085,
-    0.1408
-   ],
-   "look_at": [
-    1.3296,
-    1.5722,
-    0.0183
-   ],
-   "marble_screen": [
     0,
-    -0.18
-   ],
-   "fstop": 5.6,
-   "focus_m": 0.4,
-   "focus_target": "marble",
-   "marble_px_1080p": 107,
-   "marble_blur_px": 0
-  },
-  {
-   "f": 790,
-   "beat": "B12 the pass; the Ino revealed",
-   "rig": {
-    "mode": "rel",
-    "D_m": 0.42,
-    "elev_deg": 24,
-    "az_from_heading_deg": 100
-   },
-   "eye": [
-    1.4255,
-    1.9589,
-    0.1617
-   ],
-   "look_at": [
-    1.4331,
-    1.558,
-    0.0366
+    1
    ],
    "marble_screen": [
     -0.2,
     -0.3
    ],
-   "fstop": 5.6,
-   "focus_m": 0.5191,
-   "focus_target": "split:ino_near",
-   "marble_px_1080p": 102,
-   "marble_blur_px": 12
+   "focal_mm": 50,
+   "fstop": 7,
+   "focus_m": 1.0224,
+   "focus_target": "split:globe_c",
+   "marble_px_1080p": 50,
+   "marble_blur_px": 3.7,
+   "in_frame": {
+    "piri_image": 0.1
+   },
+   "builder_note": "Fable's section 10 fallback (turn-2 meter swing over 0.7 stop): the entry eye held 0.1 m lower until 585"
   },
   {
-   "f": 805,
-   "beat": "B12 L7 rack to the Ino",
+   "f": 575,
+   "t_s": 19.186,
+   "beat": "B10 turn-2 breath (globe)",
+   "marble_xyz": [
+    0.4529,
+    0.9221,
+    -0.0078
+   ],
+   "marble_v_ms": 0.268,
+   "marble_heading_deg": 144.1,
    "rig": {
-    "mode": "rel",
-    "D_m": 0.38,
-    "elev_deg": 24,
-    "az_from_heading_deg": 125
+    "mode": "abs"
    },
    "eye": [
-    1.3944,
-    1.8654,
-    0.1453
+    1.46,
+    1.02,
+    0.92
    ],
    "look_at": [
-    1.5488,
-    1.5373,
-    0.0318
+    0.32,
+    1.2324,
+    0.1624
    ],
-   "marble_screen": [
-    -0.22,
-    -0.3
-   ],
-   "fstop": 4,
-   "focus_m": 0.38,
-   "focus_target": "marble",
-   "marble_px_1080p": 112,
-   "marble_blur_px": 0
-  },
-  {
-   "f": 816,
-   "beat": "B12 (on the Ino)",
-   "rig": {
-    "mode": "rel",
-    "D_m": 0.38,
-    "elev_deg": 24,
-    "az_from_heading_deg": 130
-   },
-   "eye": [
-    1.4349,
-    1.8469,
-    0.1453
-   ],
-   "look_at": [
-    1.6173,
-    1.5335,
-    0.0317
-   ],
-   "marble_screen": [
-    -0.22,
-    -0.3
-   ],
-   "fstop": 4,
-   "focus_m": 0.5728,
-   "focus_target": "ino_near",
-   "marble_px_1080p": 112,
-   "marble_blur_px": 32.4,
-   "builder_note": "moved from frame 815 (Fable) to 816: 815-830 is 15 frames = 0.5005 s, over the 0.5 s rack hold; 816 holds 0.467 s and the pull out takes 0.367 s (under 0.5)"
-  },
-  {
-   "f": 830,
-   "beat": "B12",
-   "rig": {
-    "mode": "rel",
-    "D_m": 0.38,
-    "elev_deg": 24,
-    "az_from_heading_deg": 130
-   },
-   "eye": [
-    1.5262,
-    1.8469,
-    0.1452
-   ],
-   "look_at": [
-    1.7086,
-    1.5335,
-    0.0317
-   ],
-   "marble_screen": [
-    -0.22,
-    -0.3
-   ],
-   "fstop": 4,
-   "focus_m": 0.5401,
-   "focus_target": "ino_near",
-   "marble_px_1080p": 112,
-   "marble_blur_px": 28.6
-  },
-  {
-   "f": 841,
-   "beat": "B13 slowest; step 2 at 863",
-   "rig": {
-    "mode": "rel",
-    "D_m": 0.36,
-    "elev_deg": 20,
-    "az_from_heading_deg": 130
-   },
-   "eye": [
-    1.5947,
-    1.8401,
-    0.1137
-   ],
-   "look_at": [
-    1.7864,
-    1.5501,
-    0.0204
-   ],
-   "marble_screen": [
-    -0.15,
-    -0.22
-   ],
-   "fstop": 4,
-   "focus_m": 0.36,
-   "focus_target": "marble",
-   "marble_px_1080p": 119,
-   "marble_blur_px": 0
-  },
-  {
-   "f": 863,
-   "beat": "B13 step 2",
-   "rig": {
-    "mode": "rel",
-    "D_m": 0.36,
-    "elev_deg": 20,
-    "az_from_heading_deg": 128
-   },
-   "eye": [
-    1.7284,
-    1.8476,
-    0.1107
-   ],
-   "look_at": [
-    1.9035,
-    1.5464,
-    0.0198
-   ],
-   "marble_screen": [
-    -0.18,
-    -0.24
-   ],
-   "fstop": 4.5,
-   "focus_m": 0.36,
-   "focus_target": "marble",
-   "marble_px_1080p": 119,
-   "marble_blur_px": 0
-  },
-  {
-   "f": 885,
-   "beat": "B14 Admiralty",
-   "rig": {
-    "mode": "rel",
-    "D_m": 0.42,
-    "elev_deg": 28,
-    "az_from_heading_deg": 118
-   },
-   "eye": [
-    1.9491,
-    1.9084,
-    0.1845
-   ],
-   "look_at": [
-    2.0605,
-    1.5328,
-    0.0334
-   ],
-   "marble_screen": [
-    -0.25,
-    -0.32
-   ],
-   "fstop": 8,
-   "focus_m": 0.4861,
-   "focus_target": "split:admiralty_near",
-   "marble_px_1080p": 102,
-   "marble_blur_px": 6
-  },
-  {
-   "f": 910,
-   "beat": "B14",
-   "rig": {
-    "mode": "rel",
-    "D_m": 0.42,
-    "elev_deg": 28,
-    "az_from_heading_deg": 108
-   },
-   "eye": [
-    2.2051,
-    1.9337,
-    0.1844
-   ],
-   "look_at": [
-    2.2406,
-    1.5426,
-    0.0355
+   "up": [
+    0,
+    0,
+    1
    ],
    "marble_screen": [
     -0.28,
-    -0.34
+    -0.44
    ],
+   "focal_mm": 50,
    "fstop": 8,
-   "focus_m": 0.4827,
-   "focus_target": "split:admiralty_near",
-   "marble_px_1080p": 102,
-   "marble_blur_px": 5.7
+   "focus_m": 1.4875,
+   "focus_target": "split:globe_c",
+   "marble_px_1080p": 30,
+   "marble_blur_px": 0.4,
+   "in_frame": {
+    "globe_mid": 1
+   },
+   "builder_note": "Fable's section 10 fallback (turn-2 meter swing over 0.7 stop): the entry eye held 0.1 m lower until 585"
   },
   {
-   "f": 926,
-   "beat": "B15 lip; the ending's blend starts at 927",
+   "f": 585,
+   "t_s": 19.52,
+   "beat": "B10 the breath's entry held low (Fable's section 10 fallback)",
+   "marble_xyz": [
+    0.4529,
+    0.9221,
+    -0.0078
+   ],
+   "marble_v_ms": 0.268,
+   "marble_heading_deg": 144.1,
+   "rig": {
+    "mode": "abs"
+   },
+   "eye": [
+    1.4556,
+    1.0266,
+    0.9178
+   ],
+   "look_at": [
+    0.32,
+    1.2324,
+    0.1624
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "marble_screen": [
+    -0.2491,
+    -0.4378
+   ],
+   "focal_mm": 50,
+   "fstop": 8.0,
+   "focus_m": 1.4875,
+   "focus_target": "split:globe_c",
+   "marble_px_1080p": 30,
+   "marble_blur_px": 0.4,
+   "in_frame": {
+    "globe_mid": 1
+   },
+   "builder_note": "Fable's section 10 fallback (turn-2 meter swing over 0.7 stop): the entry eye held 0.1 m lower until 585; this key is the re-keyed path at 585, 0.1 m lower"
+  },
+  {
+   "f": 614,
+   "t_s": 20.487,
+   "beat": "B10 apex",
+   "marble_xyz": [
+    0.303,
+    1.218,
+    -0.0082
+   ],
+   "marble_v_ms": 0.262,
+   "marble_heading_deg": 89.7,
+   "rig": {
+    "mode": "abs"
+   },
+   "eye": [
+    1.42,
+    1.08,
+    1
+   ],
+   "look_at": [
+    0.151,
+    1.2368,
+    0.1948
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "marble_screen": [
+    0,
+    -0.42
+   ],
+   "focal_mm": 50,
+   "fstop": 8,
+   "focus_m": 1.4978,
+   "focus_target": "split:globe_c",
+   "marble_px_1080p": 28,
+   "marble_blur_px": 0.1,
+   "in_frame": {
+    "globe_mid": 1,
+    "globe_top": 1,
+    "globe_tip": 1
+   }
+  },
+  {
+   "f": 656,
+   "t_s": 21.889,
+   "beat": "B10 exit",
+   "marble_xyz": [
+    0.4714,
+    1.5218,
+    -0.0086
+   ],
+   "marble_v_ms": 0.255,
+   "marble_heading_deg": 32.3,
+   "rig": {
+    "mode": "abs"
+   },
+   "eye": [
+    1.44,
+    1.18,
+    0.98
+   ],
+   "look_at": [
+    0.2921,
+    1.2879,
+    0.1416
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "marble_screen": [
+    0.25,
+    -0.38
+   ],
+   "focal_mm": 50,
+   "fstop": 8,
+   "focus_m": 1.4554,
+   "focus_target": "split:globe_c",
+   "marble_px_1080p": 30,
+   "marble_blur_px": 0.2,
+   "in_frame": {
+    "globe_mid": 1
+   }
+  },
+  {
+   "f": 686,
+   "t_s": 22.89,
+   "beat": "B11 descending across the groove ahead of the marble",
+   "marble_xyz": [
+    0.7117,
+    1.5809,
+    -0.0085
+   ],
+   "marble_v_ms": 0.242,
+   "marble_heading_deg": 0.7,
+   "rig": {
+    "mode": "abs"
+   },
+   "eye": [
+    1.3,
+    1.5,
+    0.62
+   ],
+   "look_at": [
+    0.6514,
+    1.4537,
+    0.05
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "marble_screen": [
+    0.2,
+    -0.26
+   ],
+   "focal_mm": 50,
+   "fstop": 7,
+   "focus_m": 0.8647,
+   "focus_target": "marble",
+   "marble_px_1080p": 49,
+   "marble_blur_px": 0,
+   "in_frame": {
+    "piri_image": 0.11,
+    "weights": 1
+   }
+  },
+  {
+   "f": 712,
+   "t_s": 23.757,
+   "beat": "B11 lead",
+   "marble_xyz": [
+    0.9202,
+    1.581,
+    -0.0087
+   ],
+   "marble_v_ms": 0.239,
+   "marble_heading_deg": 0,
+   "rig": {
+    "mode": "rel",
+    "D_m": 0.44,
+    "elev_deg": 24,
+    "az_from_heading_deg": 25
+   },
+   "eye": [
+    1.2845,
+    1.7509,
+    0.1703
+   ],
+   "look_at": [
+    0.9218,
+    1.5383,
+    0.0404
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "marble_screen": [
+    0.12,
+    -0.3
+   ],
+   "focal_mm": 50,
+   "fstop": 6.3,
+   "focus_m": 0.44,
+   "focus_target": "marble",
+   "marble_px_1080p": 97,
+   "marble_blur_px": 0,
+   "in_frame": {
+    "piri_image": 0.17,
+    "weights": 1
+   }
+  },
+  {
+   "f": 724,
+   "t_s": 24.157,
+   "beat": "B11 lead: the weights beside the marble, the globe behind",
+   "marble_xyz": [
+    1.0156,
+    1.581,
+    -0.0088
+   ],
+   "marble_v_ms": 0.238,
+   "marble_heading_deg": 0,
    "rig": {
     "mode": "rel",
     "D_m": 0.42,
-    "elev_deg": 28,
-    "az_from_heading_deg": 104
+    "elev_deg": 24,
+    "az_from_heading_deg": 22
    },
    "eye": [
-    2.3463,
-    1.9408,
-    0.1818
+    1.3714,
+    1.7247,
+    0.1621
    ],
    "look_at": [
-    2.3634,
-    1.5506,
-    0.0275
+    1.0141,
+    1.5398,
+    0.0413
+   ],
+   "up": [
+    0,
+    0,
+    1
    ],
    "marble_screen": [
-    -0.25,
-    -0.3
+    0.12,
+    -0.32
    ],
-   "fstop": 8,
-   "focus_m": 0.4952,
-   "focus_target": "split:admiralty_near",
+   "focal_mm": 50,
+   "fstop": 5.6,
+   "focus_m": 0.42,
+   "focus_target": "marble",
    "marble_px_1080p": 102,
-   "marble_blur_px": 6.7
+   "marble_blur_px": 0,
+   "in_frame": {
+    "piri_image": 0.23,
+    "weights": 1
+   }
+  },
+  {
+   "f": 731,
+   "t_s": 24.391,
+   "beat": "B11 L6 rack to the weights",
+   "marble_xyz": [
+    1.0709,
+    1.581,
+    -0.0088
+   ],
+   "marble_v_ms": 0.235,
+   "marble_heading_deg": 0,
+   "rig": {
+    "mode": "rel",
+    "D_m": 0.4,
+    "elev_deg": 24,
+    "az_from_heading_deg": 20
+   },
+   "eye": [
+    1.4143,
+    1.706,
+    0.1539
+   ],
+   "look_at": [
+    1.0681,
+    1.5419,
+    0.0389
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "marble_screen": [
+    0.12,
+    -0.32
+   ],
+   "focal_mm": 50,
+   "fstop": 5.6,
+   "focus_m": 0.4,
+   "focus_target": "marble",
+   "marble_px_1080p": 107,
+   "marble_blur_px": 0,
+   "in_frame": {
+    "piri_image": 0.26,
+    "weights": 1
+   }
+  },
+  {
+   "f": 737,
+   "t_s": 24.591,
+   "beat": "B11",
+   "marble_xyz": [
+    1.1174,
+    1.581,
+    -0.0089
+   ],
+   "marble_v_ms": 0.23,
+   "marble_heading_deg": 0,
+   "rig": {
+    "mode": "rel",
+    "D_m": 0.4,
+    "elev_deg": 24,
+    "az_from_heading_deg": 20
+   },
+   "eye": [
+    1.4608,
+    1.706,
+    0.1538
+   ],
+   "look_at": [
+    1.1146,
+    1.5419,
+    0.0388
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "marble_screen": [
+    0.12,
+    -0.32
+   ],
+   "focal_mm": 50,
+   "fstop": 5.6,
+   "focus_m": 0.4,
+   "focus_target": "marble",
+   "marble_px_1080p": 107,
+   "marble_blur_px": 0,
+   "in_frame": {
+    "piri_image": 0.31,
+    "weights": 1
+   }
+  },
+  {
+   "f": 745,
+   "t_s": 24.858,
+   "beat": "B11 (on the weights)",
+   "marble_xyz": [
+    1.1777,
+    1.581,
+    -0.0089
+   ],
+   "marble_v_ms": 0.222,
+   "marble_heading_deg": 0,
+   "rig": {
+    "mode": "rel",
+    "D_m": 0.4,
+    "elev_deg": 24,
+    "az_from_heading_deg": 20
+   },
+   "eye": [
+    1.5211,
+    1.706,
+    0.1538
+   ],
+   "look_at": [
+    1.1749,
+    1.5419,
+    0.0388
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "marble_screen": [
+    0.12,
+    -0.32
+   ],
+   "focal_mm": 50,
+   "fstop": 5.6,
+   "focus_m": 0.793,
+   "focus_target": "weights_top",
+   "marble_px_1080p": 107,
+   "marble_blur_px": 31.5,
+   "in_frame": {
+    "piri_image": 0.4,
+    "weights": 1
+   }
+  },
+  {
+   "f": 757,
+   "t_s": 25.259,
+   "beat": "B11",
+   "marble_xyz": [
+    1.2647,
+    1.581,
+    -0.009
+   ],
+   "marble_v_ms": 0.212,
+   "marble_heading_deg": 0,
+   "rig": {
+    "mode": "rel",
+    "D_m": 0.4,
+    "elev_deg": 24,
+    "az_from_heading_deg": 20
+   },
+   "eye": [
+    1.6081,
+    1.706,
+    0.1537
+   ],
+   "look_at": [
+    1.2619,
+    1.5419,
+    0.0387
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "marble_screen": [
+    0.12,
+    -0.32
+   ],
+   "focal_mm": 50,
+   "fstop": 5.6,
+   "focus_m": 0.8729,
+   "focus_target": "weights_top",
+   "marble_px_1080p": 107,
+   "marble_blur_px": 34.2,
+   "in_frame": {
+    "piri_image": 0.51,
+    "weights": 1
+   }
+  },
+  {
+   "f": 767,
+   "t_s": 25.592,
+   "beat": "B11 back; the crane-over begins",
+   "marble_xyz": [
+    1.3343,
+    1.581,
+    -0.009
+   ],
+   "marble_v_ms": 0.207,
+   "marble_heading_deg": 0,
+   "rig": {
+    "mode": "rel",
+    "D_m": 0.42,
+    "elev_deg": 30,
+    "az_from_heading_deg": 40
+   },
+   "eye": [
+    1.6129,
+    1.8148,
+    0.201
+   ],
+   "look_at": [
+    1.3251,
+    1.5732,
+    0.0134
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "marble_screen": [
+    0,
+    -0.15
+   ],
+   "focal_mm": 50,
+   "fstop": 5.6,
+   "focus_m": 0.42,
+   "focus_target": "marble",
+   "marble_px_1080p": 102,
+   "marble_blur_px": 0,
+   "in_frame": {
+    "piri_image": 0.17
+   }
+  },
+  {
+   "f": 790,
+   "t_s": 26.36,
+   "beat": "B12 over the marble; the Ino revealed below",
+   "marble_xyz": [
+    1.4921,
+    1.581,
+    -0.0092
+   ],
+   "marble_v_ms": 0.204,
+   "marble_heading_deg": 0,
+   "rig": {
+    "mode": "rel",
+    "D_m": 0.48,
+    "elev_deg": 50,
+    "az_from_heading_deg": 90
+   },
+   "eye": [
+    1.4921,
+    1.8895,
+    0.3586
+   ],
+   "look_at": [
+    1.434,
+    1.5434,
+    0.0312
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "marble_screen": [
+    -0.15,
+    -0.32
+   ],
+   "focal_mm": 50,
+   "fstop": 5.6,
+   "focus_m": 0.5609,
+   "focus_target": "split:ino_near",
+   "marble_px_1080p": 89,
+   "marble_blur_px": 7.9,
+   "in_frame": {
+    "piri_image": 0.06,
+    "ino_image": 0.16
+   }
+  },
+  {
+   "f": 805,
+   "t_s": 26.86,
+   "beat": "B12 L7 rack to the Ino",
+   "marble_xyz": [
+    1.5935,
+    1.581,
+    -0.0092
+   ],
+   "marble_v_ms": 0.198,
+   "marble_heading_deg": 0,
+   "rig": {
+    "mode": "rel",
+    "D_m": 0.46,
+    "elev_deg": 48,
+    "az_from_heading_deg": 125
+   },
+   "eye": [
+    1.417,
+    1.8331,
+    0.3326
+   ],
+   "look_at": [
+    1.551,
+    1.5144,
+    0.0292
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "marble_screen": [
+    -0.2,
+    -0.32
+   ],
+   "focal_mm": 50,
+   "fstop": 4,
+   "focus_m": 0.46,
+   "focus_target": "marble",
+   "marble_px_1080p": 93,
+   "marble_blur_px": 0,
+   "in_frame": {
+    "ino_image": 0.3
+   }
+  },
+  {
+   "f": 816,
+   "t_s": 27.227,
+   "beat": "B12 (on the Ino)",
+   "marble_xyz": [
+    1.6643,
+    1.581,
+    -0.0093
+   ],
+   "marble_v_ms": 0.188,
+   "marble_heading_deg": 0,
+   "rig": {
+    "mode": "rel",
+    "D_m": 0.44,
+    "elev_deg": 46,
+    "az_from_heading_deg": 135
+   },
+   "eye": [
+    1.4482,
+    1.7971,
+    0.3072
+   ],
+   "look_at": [
+    1.6351,
+    1.5121,
+    0.029
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "marble_screen": [
+    -0.2,
+    -0.32
+   ],
+   "focal_mm": 50,
+   "fstop": 4,
+   "focus_m": 0.5899,
+   "focus_target": "ino_near",
+   "marble_px_1080p": 97,
+   "marble_blur_px": 21,
+   "in_frame": {
+    "ino_image": 0.33
+   }
+  },
+  {
+   "f": 830,
+   "t_s": 27.694,
+   "beat": "B12",
+   "marble_xyz": [
+    1.7493,
+    1.581,
+    -0.0094
+   ],
+   "marble_v_ms": 0.176,
+   "marble_heading_deg": 0,
+   "rig": {
+    "mode": "rel",
+    "D_m": 0.44,
+    "elev_deg": 46,
+    "az_from_heading_deg": 135
+   },
+   "eye": [
+    1.5332,
+    1.7971,
+    0.3071
+   ],
+   "look_at": [
+    1.7201,
+    1.5121,
+    0.0289
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "marble_screen": [
+    -0.2,
+    -0.32
+   ],
+   "focal_mm": 50,
+   "fstop": 4,
+   "focus_m": 0.5619,
+   "focus_target": "ino_near",
+   "marble_px_1080p": 97,
+   "marble_blur_px": 18,
+   "in_frame": {
+    "ino_image": 0.28,
+    "admiralty_image": 0.02
+   }
+  },
+  {
+   "f": 841,
+   "t_s": 28.061,
+   "beat": "B13 slowest; step 2 at 863",
+   "marble_xyz": [
+    1.8121,
+    1.581,
+    -0.0094
+   ],
+   "marble_v_ms": 0.168,
+   "marble_heading_deg": 0,
+   "rig": {
+    "mode": "rel",
+    "D_m": 0.44,
+    "elev_deg": 44,
+    "az_from_heading_deg": 140
+   },
+   "eye": [
+    1.5696,
+    1.7844,
+    0.2962
+   ],
+   "look_at": [
+    1.7983,
+    1.5257,
+    0.0235
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "marble_screen": [
+    -0.15,
+    -0.26
+   ],
+   "focal_mm": 50,
+   "fstop": 4,
+   "focus_m": 0.44,
+   "focus_target": "marble",
+   "marble_px_1080p": 97,
+   "marble_blur_px": 0,
+   "in_frame": {
+    "ino_image": 0.21,
+    "admiralty_image": 0.07
+   }
+  },
+  {
+   "f": 863,
+   "t_s": 28.795,
+   "beat": "B13 step 2",
+   "marble_xyz": [
+    1.9367,
+    1.581,
+    -0.0124
+   ],
+   "marble_v_ms": 0.242,
+   "marble_heading_deg": 0,
+   "rig": {
+    "mode": "rel",
+    "D_m": 0.44,
+    "elev_deg": 44,
+    "az_from_heading_deg": 140
+   },
+   "eye": [
+    1.6942,
+    1.7844,
+    0.2932
+   ],
+   "look_at": [
+    1.9147,
+    1.5196,
+    0.0196
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "marble_screen": [
+    -0.18,
+    -0.26
+   ],
+   "focal_mm": 50,
+   "fstop": 4.5,
+   "focus_m": 0.44,
+   "focus_target": "marble",
+   "marble_px_1080p": 97,
+   "marble_blur_px": 0,
+   "in_frame": {
+    "ino_image": 0.11,
+    "admiralty_image": 0.19
+   }
+  },
+  {
+   "f": 885,
+   "t_s": 29.53,
+   "beat": "B14 Admiralty",
+   "marble_xyz": [
+    2.1232,
+    1.581,
+    -0.0126
+   ],
+   "marble_v_ms": 0.246,
+   "marble_heading_deg": 0,
+   "rig": {
+    "mode": "rel",
+    "D_m": 0.5,
+    "elev_deg": 50,
+    "az_from_heading_deg": 128
+   },
+   "eye": [
+    1.9253,
+    1.8343,
+    0.3704
+   ],
+   "look_at": [
+    2.043,
+    1.4926,
+    0.0248
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "marble_screen": [
+    -0.3,
+    -0.34
+   ],
+   "focal_mm": 50,
+   "fstop": 8,
+   "focus_m": 0.5509,
+   "focus_target": "split:admiralty_near",
+   "marble_px_1080p": 85,
+   "marble_blur_px": 3.4,
+   "in_frame": {
+    "ino_image": 0.05,
+    "admiralty_image": 0.32
+   }
+  },
+  {
+   "f": 910,
+   "t_s": 30.364,
+   "beat": "B14",
+   "marble_xyz": [
+    2.3197,
+    1.581,
+    -0.0128
+   ],
+   "marble_v_ms": 0.225,
+   "marble_heading_deg": 0,
+   "rig": {
+    "mode": "rel",
+    "D_m": 0.5,
+    "elev_deg": 52,
+    "az_from_heading_deg": 128
+   },
+   "eye": [
+    2.1302,
+    1.8236,
+    0.3812
+   ],
+   "look_at": [
+    2.2386,
+    1.4926,
+    0.0225
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "marble_screen": [
+    -0.3,
+    -0.34
+   ],
+   "focal_mm": 50,
+   "fstop": 8,
+   "focus_m": 0.5328,
+   "focus_target": "split:admiralty_near",
+   "marble_px_1080p": 85,
+   "marble_blur_px": 2.3,
+   "in_frame": {
+    "admiralty_image": 0.28,
+    "well": 0.09
+   }
+  },
+  {
+   "f": 926,
+   "t_s": 30.898,
+   "beat": "B15 lip; the ending's blend starts at 927",
+   "marble_xyz": [
+    2.436,
+    1.581,
+    -0.0154
+   ],
+   "marble_v_ms": 0.214,
+   "marble_heading_deg": 0,
+   "rig": {
+    "mode": "rel",
+    "D_m": 0.46,
+    "elev_deg": 46,
+    "az_from_heading_deg": 126
+   },
+   "eye": [
+    2.2482,
+    1.8395,
+    0.3155
+   ],
+   "look_at": [
+    2.3371,
+    1.5067,
+    0.0107
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "marble_screen": [
+    -0.36,
+    -0.28
+   ],
+   "focal_mm": 50,
+   "fstop": 8,
+   "focus_m": 0.5009,
+   "focus_target": "split:admiralty_near",
+   "marble_px_1080p": 93,
+   "marble_blur_px": 3.3,
+   "in_frame": {
+    "admiralty_image": 0.2,
+    "well": 0.19
+   }
   },
   {
    "f": 941,
+   "t_s": 31.398,
    "beat": "follow component at rest (blended)",
+   "marble_xyz": [
+    2.4891,
+    1.581,
+    -0.0159
+   ],
+   "marble_v_ms": 0.004,
+   "marble_heading_deg": 0,
    "rig": {
     "mode": "abs"
    },
@@ -1757,19 +3117,30 @@
     0.2
    ],
    "look_at": [
-    2.4606,
-    1.5571,
-    0.0171
+    2.4609,
+    1.5557,
+    0.0205
+   ],
+   "up": [
+    0,
+    0,
+    1
    ],
    "marble_screen": [
     -0.1,
-    -0.2
+    -0.22
    ],
+   "focal_mm": 50,
    "fstop": 8,
    "focus_m": 0.4606,
    "focus_target": "marble",
    "marble_px_1080p": 94,
-   "marble_blur_px": 0.8
+   "marble_blur_px": 0.8,
+   "in_frame": {
+    "admiralty_image": 0.16,
+    "well": 0.51,
+    "record_s130": 0.28
+   }
   }
  ],
  "samples_every_10_frames": [
@@ -1792,7 +3163,8 @@
    ],
    "fstop": 8,
    "focus_m": 3.04,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 14
   },
   {
    "f": 10,
@@ -1813,7 +3185,8 @@
    ],
    "fstop": 8.03,
    "focus_m": 3.014,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 14
   },
   {
    "f": 20,
@@ -1834,7 +3207,8 @@
    ],
    "fstop": 8.23,
    "focus_m": 2.8679,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 15
   },
   {
    "f": 30,
@@ -1855,7 +3229,8 @@
    ],
    "fstop": 8.63,
    "focus_m": 2.5672,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 17
   },
   {
    "f": 40,
@@ -1876,7 +3251,8 @@
    ],
    "fstop": 9.19,
    "focus_m": 2.1464,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 23
   },
   {
    "f": 50,
@@ -1897,7 +3273,8 @@
    ],
    "fstop": 9.81,
    "focus_m": 1.6809,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 35
   },
   {
    "f": 60,
@@ -1918,7 +3295,8 @@
    ],
    "fstop": 10.37,
    "focus_m": 1.2601,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 57
   },
   {
    "f": 70,
@@ -1939,7 +3317,8 @@
    ],
    "fstop": 10.77,
    "focus_m": 0.9595,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 69
   },
   {
    "f": 80,
@@ -1960,7 +3339,8 @@
    ],
    "fstop": 10.97,
    "focus_m": 0.8133,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 69
   },
   {
    "f": 90,
@@ -1981,7 +3361,8 @@
    ],
    "fstop": 11,
    "focus_m": 0.7873,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 76
   },
   {
    "f": 100,
@@ -2002,7 +3383,8 @@
    ],
    "fstop": 11,
    "focus_m": 0.7362,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 77
   },
   {
    "f": 110,
@@ -2023,7 +3405,8 @@
    ],
    "fstop": 9.9,
    "focus_m": 0.71,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 81
   },
   {
    "f": 120,
@@ -2044,7 +3427,8 @@
    ],
    "fstop": 7.99,
    "focus_m": 0.6792,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 84
   },
   {
    "f": 130,
@@ -2065,7 +3449,8 @@
    ],
    "fstop": 7.01,
    "focus_m": 0.636,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 74
   },
   {
    "f": 140,
@@ -2086,7 +3471,8 @@
    ],
    "fstop": 6.3,
    "focus_m": 0.6049,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 71
   },
   {
    "f": 150,
@@ -2107,7 +3493,8 @@
    ],
    "fstop": 5.95,
    "focus_m": 0.554,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 77
   },
   {
    "f": 160,
@@ -2128,7 +3515,8 @@
    ],
    "fstop": 5.6,
    "focus_m": 0.5031,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 85
   },
   {
    "f": 170,
@@ -2149,7 +3537,8 @@
    ],
    "fstop": 4.44,
    "focus_m": 0.4533,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 94
   },
   {
    "f": 180,
@@ -2170,7 +3559,8 @@
    ],
    "fstop": 4,
    "focus_m": 0.4269,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 100
   },
   {
    "f": 190,
@@ -2191,7 +3581,8 @@
    ],
    "fstop": 4,
    "focus_m": 0.679,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 102
   },
   {
    "f": 200,
@@ -2212,7 +3603,8 @@
    ],
    "fstop": 4.05,
    "focus_m": 0.656,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 99
   },
   {
    "f": 210,
@@ -2233,7 +3625,8 @@
    ],
    "fstop": 4.55,
    "focus_m": 0.4664,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 90
   },
   {
    "f": 220,
@@ -2254,7 +3647,8 @@
    ],
    "fstop": 5.32,
    "focus_m": 0.6267,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 77
   },
   {
    "f": 230,
@@ -2275,7 +3669,8 @@
    ],
    "fstop": 5.61,
    "focus_m": 0.6866,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 70
   },
   {
    "f": 240,
@@ -2296,7 +3691,8 @@
    ],
    "fstop": 6.8,
    "focus_m": 0.7845,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 66
   },
   {
    "f": 250,
@@ -2317,7 +3713,8 @@
    ],
    "fstop": 7.99,
    "focus_m": 0.8823,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 58
   },
   {
    "f": 260,
@@ -2338,7 +3735,8 @@
    ],
    "fstop": 8,
    "focus_m": 0.8954,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 55
   },
   {
    "f": 270,
@@ -2359,7 +3757,8 @@
    ],
    "fstop": 8,
    "focus_m": 0.9658,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 54
   },
   {
    "f": 280,
@@ -2380,7 +3779,8 @@
    ],
    "fstop": 8,
    "focus_m": 1.0448,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 51
   },
   {
    "f": 290,
@@ -2401,7 +3801,8 @@
    ],
    "fstop": 8,
    "focus_m": 1.0664,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 47
   },
   {
    "f": 300,
@@ -2422,7 +3823,8 @@
    ],
    "fstop": 8,
    "focus_m": 1.1367,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 43
   },
   {
    "f": 310,
@@ -2443,7 +3845,8 @@
    ],
    "fstop": 7.9,
    "focus_m": 1.1433,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 41
   },
   {
    "f": 320,
@@ -2464,7 +3867,8 @@
    ],
    "fstop": 6.84,
    "focus_m": 1.0129,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 45
   },
   {
    "f": 330,
@@ -2485,7 +3889,8 @@
    ],
    "fstop": 6.3,
    "focus_m": 0.9467,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 45
   },
   {
    "f": 340,
@@ -2506,7 +3911,8 @@
    ],
    "fstop": 6.01,
    "focus_m": 0.8937,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 48
   },
   {
    "f": 350,
@@ -2527,7 +3933,8 @@
    ],
    "fstop": 5.6,
    "focus_m": 0.82,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 53
   },
   {
    "f": 360,
@@ -2548,7 +3955,8 @@
    ],
    "fstop": 5.6,
    "focus_m": 0.7938,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 53
   },
   {
    "f": 370,
@@ -2569,7 +3977,8 @@
    ],
    "fstop": 5.6,
    "focus_m": 0.7246,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 56
   },
   {
    "f": 380,
@@ -2590,7 +3999,8 @@
    ],
    "fstop": 5.85,
    "focus_m": 0.7119,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 55
   },
   {
    "f": 390,
@@ -2611,7 +4021,8 @@
    ],
    "fstop": 7.5,
    "focus_m": 0.6572,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 79
   },
   {
    "f": 400,
@@ -2632,7 +4043,8 @@
    ],
    "fstop": 8,
    "focus_m": 0.6389,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 84
   },
   {
    "f": 410,
@@ -2653,7 +4065,8 @@
    ],
    "fstop": 8,
    "focus_m": 0.5571,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 99
   },
   {
    "f": 420,
@@ -2674,7 +4087,8 @@
    ],
    "fstop": 6.53,
    "focus_m": 0.4785,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 103
   },
   {
    "f": 430,
@@ -2695,7 +4109,8 @@
    ],
    "fstop": 4,
    "focus_m": 0.36,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 118
   },
   {
    "f": 440,
@@ -2716,7 +4131,8 @@
    ],
    "fstop": 4,
    "focus_m": 0.5827,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 120
   },
   {
    "f": 450,
@@ -2737,7 +4153,8 @@
    ],
    "fstop": 4,
    "focus_m": 0.5259,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 121
   },
   {
    "f": 460,
@@ -2758,7 +4175,8 @@
    ],
    "fstop": 4,
    "focus_m": 0.38,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 112
   },
   {
    "f": 470,
@@ -2779,7 +4197,8 @@
    ],
    "fstop": 4.3,
    "focus_m": 0.3921,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 113
   },
   {
    "f": 480,
@@ -2800,7 +4219,8 @@
    ],
    "fstop": 4.5,
    "focus_m": 0.3999,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 103
   },
   {
    "f": 490,
@@ -2821,7 +4241,8 @@
    ],
    "fstop": 4.21,
    "focus_m": 0.3883,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 114
   },
   {
    "f": 500,
@@ -2842,7 +4263,8 @@
    ],
    "fstop": 4,
    "focus_m": 0.38,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 112
   },
   {
    "f": 510,
@@ -2863,7 +4285,8 @@
    ],
    "fstop": 4,
    "focus_m": 0.4044,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 118
   },
   {
    "f": 520,
@@ -2884,418 +4307,20 @@
    ],
    "fstop": 4,
    "focus_m": 0.4201,
-   "end_blend": 0
+   "end_blend": 0,
+   "marble_px": 121
   },
   {
    "f": 530,
    "eye": [
-    1.1776,
-    0.6938,
-    0.1427
+    1.1961,
+    0.6944,
+    0.1448
    ],
    "look_at": [
-    0.8444,
-    0.8817,
-    0.026
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 5.6,
-   "focus_m": 0.4,
-   "end_blend": 0
-  },
-  {
-   "f": 540,
-   "eye": [
-    1.2346,
-    0.7297,
-    0.1585
-   ],
-   "look_at": [
-    0.7524,
-    0.8981,
-    0.0408
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 5.92,
-   "focus_m": 0.5175,
-   "end_blend": 0
-  },
-  {
-   "f": 550,
-   "eye": [
-    1.4324,
-    0.8544,
-    0.2135
-   ],
-   "look_at": [
-    0.6499,
-    0.9628,
-    0.0863
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 7.05,
-   "focus_m": 0.9255,
-   "end_blend": 0
-  },
-  {
-   "f": 560,
-   "eye": [
-    1.585,
-    0.9506,
-    0.2558
-   ],
-   "look_at": [
-    0.5485,
-    1.0483,
-    0.1353
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 7.91,
-   "focus_m": 1.2401,
-   "end_blend": 0
-  },
-  {
-   "f": 570,
-   "eye": [
-    1.6,
-    0.9602,
-    0.26
-   ],
-   "look_at": [
-    0.4713,
-    1.1016,
-    0.1511
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 8,
-   "focus_m": 1.2717,
-   "end_blend": 0
-  },
-  {
-   "f": 580,
-   "eye": [
-    1.6,
-    0.9661,
-    0.26
-   ],
-   "look_at": [
-    0.404,
-    1.1352,
-    0.1638
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 8,
-   "focus_m": 1.2916,
-   "end_blend": 0
-  },
-  {
-   "f": 590,
-   "eye": [
-    1.6,
-    0.98,
-    0.26
-   ],
-   "look_at": [
-    0.3443,
-    1.1336,
-    0.1776
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 8,
-   "focus_m": 1.3385,
-   "end_blend": 0
-  },
-  {
-   "f": 600,
-   "eye": [
-    1.6,
-    0.9939,
-    0.26
-   ],
-   "look_at": [
-    0.3005,
-    1.1355,
-    0.1883
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 8,
-   "focus_m": 1.3854,
-   "end_blend": 0
-  },
-  {
-   "f": 610,
-   "eye": [
-    1.6,
-    0.9998,
-    0.26
-   ],
-   "look_at": [
-    0.2793,
-    1.1879,
-    0.194
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 8,
-   "focus_m": 1.4052,
-   "end_blend": 0
-  },
-  {
-   "f": 620,
-   "eye": [
-    1.5991,
-    1.0037,
-    0.2602
-   ],
-   "look_at": [
-    0.281,
-    1.2695,
-    0.1948
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 8,
-   "focus_m": 1.4032,
-   "end_blend": 0
-  },
-  {
-   "f": 630,
-   "eye": [
-    1.5886,
-    1.0456,
-    0.2629
-   ],
-   "look_at": [
-    0.2902,
-    1.29,
-    0.1826
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 8,
-   "focus_m": 1.3728,
-   "end_blend": 0
-  },
-  {
-   "f": 640,
-   "eye": [
-    1.5714,
-    1.1144,
-    0.2671
-   ],
-   "look_at": [
-    0.3152,
-    1.2674,
-    0.1594
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 8,
-   "focus_m": 1.3228,
-   "end_blend": 0
-  },
-  {
-   "f": 650,
-   "eye": [
-    1.5609,
-    1.1563,
-    0.2698
-   ],
-   "look_at": [
-    0.3626,
-    1.2812,
-    0.1414
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 8,
-   "focus_m": 1.2924,
-   "end_blend": 0
-  },
-  {
-   "f": 660,
-   "eye": [
-    1.5581,
-    1.1692,
-    0.27
-   ],
-   "look_at": [
-    0.4249,
-    1.3373,
-    0.1318
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 7.97,
-   "focus_m": 1.2768,
-   "end_blend": 0
-  },
-  {
-   "f": 670,
-   "eye": [
-    1.5233,
-    1.3373,
-    0.27
-   ],
-   "look_at": [
-    0.5297,
-    1.3898,
-    0.0967
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 7.39,
-   "focus_m": 1.0416,
-   "end_blend": 0
-  },
-  {
-   "f": 680,
-   "eye": [
-    1.5,
-    1.4498,
-    0.27
-   ],
-   "look_at": [
-    0.6307,
-    1.4215,
-    0.0737
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 7,
-   "focus_m": 0.8842,
-   "end_blend": 0
-  },
-  {
-   "f": 690,
-   "eye": [
-    1.4818,
-    1.5559,
-    0.2609
-   ],
-   "look_at": [
-    0.7293,
-    1.4557,
-    0.0573
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 6.79,
-   "focus_m": 0.8196,
-   "end_blend": 0
-  },
-  {
-   "f": 700,
-   "eye": [
-    1.4424,
-    1.7861,
-    0.2412
-   ],
-   "look_at": [
-    0.8381,
-    1.5028,
-    0.0386
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 6.33,
-   "focus_m": 0.6797,
-   "end_blend": 0
-  },
-  {
-   "f": 710,
-   "eye": [
-    1.409,
-    1.8154,
-    0.2194
-   ],
-   "look_at": [
-    0.9216,
-    1.5193,
-    0.0282
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 6.15,
-   "focus_m": 0.6227,
-   "end_blend": 0
-  },
-  {
-   "f": 720,
-   "eye": [
-    1.2938,
-    1.8725,
-    0.1429
-   ],
-   "look_at": [
-    1.0073,
-    1.5488,
-    0.0116
+    0.8442,
+    0.883,
+    0.0275
    ],
    "up": [
     0,
@@ -3303,20 +4328,439 @@
     1
    ],
    "fstop": 5.61,
-   "focus_m": 0.4427,
-   "end_blend": 0
+   "focus_m": 0.4032,
+   "end_blend": 0,
+   "marble_px": 103
+  },
+  {
+   "f": 540,
+   "eye": [
+    1.2478,
+    0.7569,
+    0.3464
+   ],
+   "look_at": [
+    0.7373,
+    0.9246,
+    0.0454
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 6.3,
+   "focus_m": 0.7112,
+   "end_blend": 0,
+   "marble_px": 69
+  },
+  {
+   "f": 550,
+   "eye": [
+    1.2995,
+    0.8194,
+    0.5479
+   ],
+   "look_at": [
+    0.6243,
+    0.9843,
+    0.0672
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 6.99,
+   "focus_m": 1.0192,
+   "end_blend": 0,
+   "marble_px": 50
+  },
+  {
+   "f": 560,
+   "eye": [
+    1.3371,
+    0.8664,
+    0.6589
+   ],
+   "look_at": [
+    0.5155,
+    1.0366,
+    0.0912
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 7.23,
+   "focus_m": 1.1302,
+   "end_blend": 0,
+   "marble_px": 42
+  },
+  {
+   "f": 570,
+   "eye": [
+    1.4485,
+    1.0056,
+    0.9861
+   ],
+   "look_at": [
+    0.3598,
+    1.1881,
+    0.1506
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 7.93,
+   "focus_m": 1.454,
+   "end_blend": 0,
+   "marble_px": 31
+  },
+  {
+   "f": 580,
+   "eye": [
+    1.4593,
+    1.021,
+    1.0197
+   ],
+   "look_at": [
+    0.2925,
+    1.2628,
+    0.1686
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 8,
+   "focus_m": 1.4877,
+   "end_blend": 0,
+   "marble_px": 29
+  },
+  {
+   "f": 590,
+   "eye": [
+    1.4484,
+    1.0375,
+    1.0142
+   ],
+   "look_at": [
+    0.2273,
+    1.2531,
+    0.1842
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 8,
+   "focus_m": 1.4905,
+   "end_blend": 0,
+   "marble_px": 29
+  },
+  {
+   "f": 600,
+   "eye": [
+    1.43,
+    1.065,
+    1.005
+   ],
+   "look_at": [
+    0.1733,
+    1.1864,
+    0.1931
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 8,
+   "focus_m": 1.4952,
+   "end_blend": 0,
+   "marble_px": 28
+  },
+  {
+   "f": 610,
+   "eye": [
+    1.4204,
+    1.0794,
+    1.0002
+   ],
+   "look_at": [
+    0.1521,
+    1.2004,
+    0.1942
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 8,
+   "focus_m": 1.4977,
+   "end_blend": 0,
+   "marble_px": 28
+  },
+  {
+   "f": 620,
+   "eye": [
+    1.4205,
+    1.0823,
+    0.9995
+   ],
+   "look_at": [
+    0.1554,
+    1.2885,
+    0.1949
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 8,
+   "focus_m": 1.4968,
+   "end_blend": 0,
+   "marble_px": 28
+  },
+  {
+   "f": 630,
+   "eye": [
+    1.4257,
+    1.1085,
+    0.9943
+   ],
+   "look_at": [
+    0.1701,
+    1.3011,
+    0.187
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 8,
+   "focus_m": 1.4857,
+   "end_blend": 0,
+   "marble_px": 28
+  },
+  {
+   "f": 640,
+   "eye": [
+    1.4343,
+    1.1515,
+    0.9857
+   ],
+   "look_at": [
+    0.2047,
+    1.2555,
+    0.1667
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 8,
+   "focus_m": 1.4675,
+   "end_blend": 0,
+   "marble_px": 29
+  },
+  {
+   "f": 650,
+   "eye": [
+    1.4395,
+    1.1777,
+    0.9805
+   ],
+   "look_at": [
+    0.2583,
+    1.2544,
+    0.1475
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 8,
+   "focus_m": 1.4564,
+   "end_blend": 0,
+   "marble_px": 29
+  },
+  {
+   "f": 660,
+   "eye": [
+    1.4373,
+    1.1861,
+    0.9731
+   ],
+   "look_at": [
+    0.3198,
+    1.3131,
+    0.1366
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 7.98,
+   "focus_m": 1.444,
+   "end_blend": 0,
+   "marble_px": 30
+  },
+  {
+   "f": 670,
+   "eye": [
+    1.3787,
+    1.3201,
+    0.8224
+   ],
+   "look_at": [
+    0.4526,
+    1.3872,
+    0.0962
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 7.56,
+   "focus_m": 1.1969,
+   "end_blend": 0,
+   "marble_px": 36
+  },
+  {
+   "f": 680,
+   "eye": [
+    1.3081,
+    1.4815,
+    0.6409
+   ],
+   "look_at": [
+    0.5966,
+    1.4438,
+    0.0579
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 7.06,
+   "focus_m": 0.8989,
+   "end_blend": 0,
+   "marble_px": 46
+  },
+  {
+   "f": 690,
+   "eye": [
+    1.2996,
+    1.5072,
+    0.6072
+   ],
+   "look_at": [
+    0.6853,
+    1.4594,
+    0.047
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 6.98,
+   "focus_m": 0.8526,
+   "end_blend": 0,
+   "marble_px": 51
+  },
+  {
+   "f": 700,
+   "eye": [
+    1.2911,
+    1.6435,
+    0.3628
+   ],
+   "look_at": [
+    0.8013,
+    1.5062,
+    0.045
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 6.6,
+   "focus_m": 0.6218,
+   "end_blend": 0,
+   "marble_px": 71
+  },
+  {
+   "f": 710,
+   "eye": [
+    1.2846,
+    1.7499,
+    0.1721
+   ],
+   "look_at": [
+    0.9055,
+    1.5371,
+    0.0421
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 6.3,
+   "focus_m": 0.4417,
+   "end_blend": 0,
+   "marble_px": 94
+  },
+  {
+   "f": 720,
+   "eye": [
+    1.3531,
+    1.7302,
+    0.1638
+   ],
+   "look_at": [
+    0.9829,
+    1.5388,
+    0.0425
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 5.75,
+   "focus_m": 0.4242,
+   "end_blend": 0,
+   "marble_px": 98
   },
   {
    "f": 730,
    "eye": [
-    1.3288,
-    1.8397,
-    0.0965
+    1.4133,
+    1.7064,
+    0.1541
    ],
    "look_at": [
-    1.0843,
-    1.5548,
-    0.0089
+    1.0603,
+    1.5414,
+    0.0397
    ],
    "up": [
     0,
@@ -3324,20 +4768,21 @@
     1
    ],
    "fstop": 5.6,
-   "focus_m": 0.3807,
-   "end_blend": 0
+   "focus_m": 0.4005,
+   "end_blend": 0,
+   "marble_px": 105
   },
   {
    "f": 740,
    "eye": [
-    1.3923,
-    1.8393,
-    0.0959
+    1.4774,
+    1.706,
+    0.1538
    ],
    "look_at": [
-    1.1615,
-    1.5559,
-    0.0084
+    1.1374,
+    1.5423,
+    0.0381
    ],
    "up": [
     0,
@@ -3345,20 +4790,21 @@
     1
    ],
    "fstop": 5.6,
-   "focus_m": 0.4889,
-   "end_blend": 0
+   "focus_m": 0.5082,
+   "end_blend": 0,
+   "marble_px": 108
   },
   {
    "f": 750,
    "eye": [
-    1.4661,
-    1.8393,
-    0.0958
+    1.5512,
+    1.706,
+    0.1538
    ],
    "look_at": [
-    1.2358,
-    1.556,
-    0.0083
+    1.2117,
+    1.5423,
+    0.038
    ],
    "up": [
     0,
@@ -3366,20 +4812,21 @@
     1
    ],
    "fstop": 5.6,
-   "focus_m": 0.801,
-   "end_blend": 0
+   "focus_m": 0.8207,
+   "end_blend": 0,
+   "marble_px": 108
   },
   {
    "f": 760,
    "eye": [
-    1.5206,
-    1.8506,
-    0.1031
+    1.6089,
+    1.7237,
+    0.1614
    ],
    "look_at": [
-    1.3036,
-    1.5598,
-    0.0096
+    1.2828,
+    1.5475,
+    0.0332
    ],
    "up": [
     0,
@@ -3387,20 +4834,21 @@
     1
    ],
    "fstop": 5.6,
-   "focus_m": 0.7754,
-   "end_blend": 0
+   "focus_m": 0.799,
+   "end_blend": 0,
+   "marble_px": 109
   },
   {
    "f": 770,
    "eye": [
-    1.5069,
-    1.9094,
-    0.1412
+    1.6107,
+    1.8162,
+    0.2038
    ],
    "look_at": [
-    1.3498,
-    1.5723,
-    0.018
+    1.3452,
+    1.5731,
+    0.0129
    ],
    "up": [
     0,
@@ -3408,20 +4856,21 @@
     1
    ],
    "fstop": 5.6,
-   "focus_m": 0.4022,
-   "end_blend": 0
+   "focus_m": 0.4225,
+   "end_blend": 0,
+   "marble_px": 105
   },
   {
    "f": 780,
    "eye": [
-    1.4569,
-    1.9398,
-    0.1538
+    1.5379,
+    1.8612,
+    0.2988
    ],
    "look_at": [
-    1.3862,
-    1.5716,
-    0.028
+    1.3839,
+    1.567,
+    0.0229
    ],
    "up": [
     0,
@@ -3429,292 +4878,20 @@
     1
    ],
    "fstop": 5.6,
-   "focus_m": 0.474,
-   "end_blend": 0
+   "focus_m": 0.5075,
+   "end_blend": 0,
+   "marble_px": 99
   },
   {
    "f": 790,
    "eye": [
-    1.4255,
-    1.9589,
-    0.1617
+    1.4921,
+    1.8895,
+    0.3586
    ],
    "look_at": [
-    1.4331,
-    1.558,
-    0.0366
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 5.6,
-   "focus_m": 0.5191,
-   "end_blend": 0
-  },
-  {
-   "f": 800,
-   "eye": [
-    1.4009,
-    1.885,
-    0.1488
-   ],
-   "look_at": [
-    1.5117,
-    1.5435,
-    0.0314
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 4.34,
-   "focus_m": 0.4092,
-   "end_blend": 0
-  },
-  {
-   "f": 810,
-   "eye": [
-    1.4146,
-    1.8561,
-    0.1453
-   ],
-   "look_at": [
-    1.5834,
-    1.5353,
-    0.0317
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 4,
-   "focus_m": 0.4764,
-   "end_blend": 0
-  },
-  {
-   "f": 820,
-   "eye": [
-    1.454,
-    1.8469,
-    0.1453
-   ],
-   "look_at": [
-    1.6489,
-    1.5319,
-    0.0327
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 4,
-   "focus_m": 0.5659,
-   "end_blend": 0
-  },
-  {
-   "f": 830,
-   "eye": [
-    1.5262,
-    1.8469,
-    0.1452
-   ],
-   "look_at": [
-    1.7086,
-    1.5335,
-    0.0317
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 4,
-   "focus_m": 0.5401,
-   "end_blend": 0
-  },
-  {
-   "f": 840,
-   "eye": [
-    1.5942,
-    1.8402,
-    0.1139
-   ],
-   "look_at": [
-    1.7806,
-    1.5505,
-    0.0202
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 4,
-   "focus_m": 0.3612,
-   "end_blend": 0
-  },
-  {
-   "f": 850,
-   "eye": [
-    1.6392,
-    1.8426,
-    0.1127
-   ],
-   "look_at": [
-    1.8344,
-    1.548,
-    0.0217
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 4.17,
-   "focus_m": 0.36,
-   "end_blend": 0
-  },
-  {
-   "f": 860,
-   "eye": [
-    1.7257,
-    1.8474,
-    0.1108
-   ],
-   "look_at": [
-    1.8846,
-    1.5487,
-    0.0218
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 4.49,
-   "focus_m": 0.36,
-   "end_blend": 0
-  },
-  {
-   "f": 870,
-   "eye": [
-    1.7699,
-    1.859,
-    0.1246
-   ],
-   "look_at": [
-    1.9596,
-    1.5406,
-    0.0237
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 5.16,
-   "focus_m": 0.3837,
-   "end_blend": 0
-  },
-  {
-   "f": 880,
-   "eye": [
-    1.9312,
-    1.9035,
-    0.1786
-   ],
-   "look_at": [
-    2.0206,
-    1.5384,
-    0.0307
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 7.72,
-   "focus_m": 0.4759,
-   "end_blend": 0
-  },
-  {
-   "f": 890,
-   "eye": [
-    1.9639,
-    1.9099,
-    0.1845
-   ],
-   "look_at": [
-    2.1018,
-    1.528,
-    0.0353
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 8,
-   "focus_m": 0.4859,
-   "end_blend": 0
-  },
-  {
-   "f": 900,
-   "eye": [
-    2.1238,
-    1.9257,
-    0.1844
-   ],
-   "look_at": [
-    2.1688,
-    1.5419,
-    0.034
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 8,
-   "focus_m": 0.4838,
-   "end_blend": 0
-  },
-  {
-   "f": 910,
-   "eye": [
-    2.2051,
-    1.9337,
-    0.1844
-   ],
-   "look_at": [
-    2.2406,
-    1.5426,
-    0.0355
-   ],
-   "up": [
-    0,
-    0,
-    1
-   ],
-   "fstop": 8,
-   "focus_m": 0.4827,
-   "end_blend": 0
-  },
-  {
-   "f": 920,
-   "eye": [
-    2.3074,
-    1.9389,
-    0.1825
-   ],
-   "look_at": [
-    2.3185,
-    1.5508,
+    1.434,
+    1.5434,
     0.0312
    ],
    "up": [
@@ -3722,21 +4899,308 @@
     0,
     1
    ],
+   "fstop": 5.6,
+   "focus_m": 0.5609,
+   "end_blend": 0,
+   "marble_px": 89
+  },
+  {
+   "f": 800,
+   "eye": [
+    1.4327,
+    1.845,
+    0.3381
+   ],
+   "look_at": [
+    1.5117,
+    1.5225,
+    0.0277
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 4.34,
+   "focus_m": 0.4812,
+   "end_blend": 0,
+   "marble_px": 94
+  },
+  {
+   "f": 810,
+   "eye": [
+    1.4299,
+    1.8182,
+    0.3221
+   ],
+   "look_at": [
+    1.5896,
+    1.5128,
+    0.0293
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 4,
+   "focus_m": 0.5139,
+   "end_blend": 0,
+   "marble_px": 94
+  },
+  {
+   "f": 820,
+   "eye": [
+    1.4605,
+    1.7971,
+    0.3072
+   ],
+   "look_at": [
+    1.6615,
+    1.5107,
+    0.0302
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 4,
+   "focus_m": 0.5859,
+   "end_blend": 0,
+   "marble_px": 96
+  },
+  {
+   "f": 830,
+   "eye": [
+    1.5332,
+    1.7971,
+    0.3071
+   ],
+   "look_at": [
+    1.7201,
+    1.5121,
+    0.0289
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 4,
+   "focus_m": 0.5619,
+   "end_blend": 0,
+   "marble_px": 97
+  },
+  {
+   "f": 840,
+   "eye": [
+    1.5694,
+    1.7845,
+    0.2963
+   ],
+   "look_at": [
+    1.7922,
+    1.526,
+    0.0231
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 4,
+   "focus_m": 0.4408,
+   "end_blend": 0,
+   "marble_px": 98
+  },
+  {
+   "f": 850,
+   "eye": [
+    1.6112,
+    1.7844,
+    0.2952
+   ],
+   "look_at": [
+    1.8465,
+    1.5231,
+    0.0239
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 4.17,
+   "focus_m": 0.44,
+   "end_blend": 0,
+   "marble_px": 96
+  },
+  {
+   "f": 860,
+   "eye": [
+    1.6917,
+    1.7844,
+    0.2933
+   ],
+   "look_at": [
+    1.8947,
+    1.5216,
+    0.0213
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 4.49,
+   "focus_m": 0.44,
+   "end_blend": 0,
+   "marble_px": 99
+  },
+  {
+   "f": 870,
+   "eye": [
+    1.7377,
+    1.7938,
+    0.3077
+   ],
+   "look_at": [
+    1.9687,
+    1.5101,
+    0.0229
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 5.16,
+   "focus_m": 0.4608,
+   "end_blend": 0,
+   "marble_px": 92
+  },
+  {
+   "f": 880,
+   "eye": [
+    1.9066,
+    1.8302,
+    0.3641
+   ],
+   "look_at": [
+    2.0028,
+    1.5007,
+    0.0223
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 7.72,
+   "focus_m": 0.5419,
+   "end_blend": 0,
+   "marble_px": 88
+  },
+  {
+   "f": 890,
+   "eye": [
+    1.9372,
+    1.8336,
+    0.371
+   ],
+   "look_at": [
+    2.0888,
+    1.4853,
+    0.0273
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
    "fstop": 8,
-   "focus_m": 0.4918,
-   "end_blend": 0
+   "focus_m": 0.5498,
+   "end_blend": 0,
+   "marble_px": 83
+  },
+  {
+   "f": 900,
+   "eye": [
+    2.0652,
+    1.827,
+    0.3778
+   ],
+   "look_at": [
+    2.1599,
+    1.4965,
+    0.0221
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 8,
+   "focus_m": 0.5385,
+   "end_blend": 0,
+   "marble_px": 86
+  },
+  {
+   "f": 910,
+   "eye": [
+    2.1302,
+    1.8236,
+    0.3812
+   ],
+   "look_at": [
+    2.2386,
+    1.4926,
+    0.0225
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 8,
+   "focus_m": 0.5328,
+   "end_blend": 0,
+   "marble_px": 85
+  },
+  {
+   "f": 920,
+   "eye": [
+    2.2157,
+    1.8351,
+    0.3336
+   ],
+   "look_at": [
+    2.2976,
+    1.5066,
+    0.015
+   ],
+   "up": [
+    0,
+    0,
+    1
+   ],
+   "fstop": 8,
+   "focus_m": 0.5097,
+   "end_blend": 0,
+   "marble_px": 92
   },
   {
    "f": 930,
    "eye": [
-    2.3493,
-    1.9443,
-    0.184
+    2.2631,
+    1.8553,
+    0.3014
    ],
    "look_at": [
-    2.3937,
-    1.5473,
-    0.0266
+    2.3722,
+    1.5086,
+    0.0137
    ],
    "up": [
     0,
@@ -3744,20 +5208,21 @@
     1
    ],
    "fstop": 8,
-   "focus_m": 0.4911,
-   "end_blend": 0
+   "focus_m": 0.4961,
+   "end_blend": 0,
+   "marble_px": 92
   },
   {
    "f": 940,
    "eye": [
-    2.3739,
-    1.9646,
-    0.2005
+    2.3736,
+    1.9643,
+    0.2008
    ],
    "look_at": [
-    2.4633,
-    1.5557,
-    0.0167
+    2.4636,
+    1.5542,
+    0.0201
    ],
    "up": [
     0,
@@ -3766,7 +5231,8 @@
    ],
    "fstop": 7.98,
    "focus_m": 0.4632,
-   "end_blend": 0.009
+   "end_blend": 0.009,
+   "marble_px": 94
   },
   {
    "f": 950,
@@ -3776,9 +5242,9 @@
     0.2023
    ],
    "look_at": [
-    2.4744,
-    1.5506,
-    0.0154
+    2.4747,
+    1.5492,
+    0.0186
    ],
    "up": [
     0,
@@ -3787,7 +5253,8 @@
    ],
    "fstop": 7.9,
    "focus_m": 0.4712,
-   "end_blend": 0.042
+   "end_blend": 0.042,
+   "marble_px": 98
   },
   {
    "f": 960,
@@ -3797,9 +5264,9 @@
     0.2057
    ],
    "look_at": [
-    2.4952,
-    1.5408,
-    0.0128
+    2.4955,
+    1.5395,
+    0.0158
    ],
    "up": [
     0,
@@ -3808,7 +5275,8 @@
    ],
    "fstop": 7.75,
    "focus_m": 0.4829,
-   "end_blend": 0.105
+   "end_blend": 0.105,
+   "marble_px": 106
   },
   {
    "f": 970,
@@ -3818,9 +5286,9 @@
     0.2107
    ],
    "look_at": [
-    2.5259,
-    1.5262,
-    0.009
+    2.5262,
+    1.5251,
+    0.0117
    ],
    "up": [
     0,
@@ -3829,7 +5297,8 @@
    ],
    "fstop": 7.52,
    "focus_m": 0.4909,
-   "end_blend": 0.198
+   "end_blend": 0.198,
+   "marble_px": 119
   },
   {
    "f": 980,
@@ -3839,9 +5308,9 @@
     0.2171
    ],
    "look_at": [
-    2.5649,
-    1.5078,
-    0.0041
+    2.5651,
+    1.5068,
+    0.0065
    ],
    "up": [
     0,
@@ -3850,7 +5319,8 @@
    ],
    "fstop": 7.24,
    "focus_m": 0.4857,
-   "end_blend": 0.317
+   "end_blend": 0.317,
+   "marble_px": 136
   },
   {
    "f": 990,
@@ -3860,9 +5330,9 @@
     0.2243
    ],
    "look_at": [
-    2.6091,
-    1.4869,
-    -0.0013
+    2.6093,
+    1.4861,
+    0.0005
    ],
    "up": [
     0,
@@ -3871,7 +5341,8 @@
    ],
    "fstop": 6.92,
    "focus_m": 0.4607,
-   "end_blend": 0.451
+   "end_blend": 0.451,
+   "marble_px": 151
   },
   {
    "f": 1000,
@@ -3881,9 +5352,9 @@
     0.2318
    ],
    "look_at": [
-    2.6546,
-    1.4653,
-    -0.007
+    2.6548,
+    1.4647,
+    -0.0056
    ],
    "up": [
     0,
@@ -3892,7 +5363,8 @@
    ],
    "fstop": 6.59,
    "focus_m": 0.4172,
-   "end_blend": 0.589
+   "end_blend": 0.589,
+   "marble_px": 150
   },
   {
    "f": 1010,
@@ -3902,9 +5374,9 @@
     0.2389
    ],
    "look_at": [
-    2.6976,
-    1.445,
-    -0.0123
+    2.6977,
+    1.4446,
+    -0.0114
    ],
    "up": [
     0,
@@ -3913,7 +5385,8 @@
    ],
    "fstop": 6.27,
    "focus_m": 0.3659,
-   "end_blend": 0.72
+   "end_blend": 0.72,
+   "marble_px": 136
   },
   {
    "f": 1020,
@@ -3923,9 +5396,9 @@
     0.2449
    ],
    "look_at": [
-    2.7345,
-    1.4275,
-    -0.0169
+    2.7346,
+    1.4273,
+    -0.0163
    ],
    "up": [
     0,
@@ -3934,7 +5407,8 @@
    ],
    "fstop": 6,
    "focus_m": 0.322,
-   "end_blend": 0.832
+   "end_blend": 0.832,
+   "marble_px": 119
   },
   {
    "f": 1030,
@@ -3945,8 +5419,8 @@
    ],
    "look_at": [
     2.7625,
-    1.4143,
-    -0.0204
+    1.4141,
+    -0.0201
    ],
    "up": [
     0,
@@ -3955,7 +5429,8 @@
    ],
    "fstop": 5.8,
    "focus_m": 0.2947,
-   "end_blend": 0.917
+   "end_blend": 0.917,
+   "marble_px": 107
   },
   {
    "f": 1040,
@@ -3966,8 +5441,8 @@
    ],
    "look_at": [
     2.7803,
-    1.4059,
-    -0.0226
+    1.4058,
+    -0.0225
    ],
    "up": [
     0,
@@ -3976,7 +5451,8 @@
    ],
    "fstop": 5.67,
    "focus_m": 0.2824,
-   "end_blend": 0.97
+   "end_blend": 0.97,
+   "marble_px": 100
   },
   {
    "f": 1050,
@@ -3988,7 +5464,7 @@
    "look_at": [
     2.7884,
     1.402,
-    -0.0236
+    -0.0235
    ],
    "up": [
     0,
@@ -3997,7 +5473,8 @@
    ],
    "fstop": 5.61,
    "focus_m": 0.2784,
-   "end_blend": 0.995
+   "end_blend": 0.995,
+   "marble_px": 97
   },
   {
    "f": 1060,
@@ -4018,7 +5495,8 @@
    ],
    "fstop": 5.6,
    "focus_m": 0.2778,
-   "end_blend": 1
+   "end_blend": 1,
+   "marble_px": 96
   },
   {
    "f": 1070,
@@ -4039,7 +5517,8 @@
    ],
    "fstop": 5.6,
    "focus_m": 0.2778,
-   "end_blend": 1
+   "end_blend": 1,
+   "marble_px": 96
   },
   {
    "f": 1080,
@@ -4060,7 +5539,8 @@
    ],
    "fstop": 5.6,
    "focus_m": 0.2778,
-   "end_blend": 1
+   "end_blend": 1,
+   "marble_px": 96
   },
   {
    "f": 1090,
@@ -4081,33 +5561,35 @@
    ],
    "fstop": 5.6,
    "focus_m": 0.2778,
-   "end_blend": 1
+   "end_blend": 1,
+   "marble_px": 96
   }
  ],
  "checks": {
   "marble_in_frame": "frames 0-975 (leaves the frame during the ending's move onto the record, as in v5c)",
   "eye_inside_room_and_above_table": true,
-  "well_in_frame_frames": "0-33, 303-314, 844-850, 863-874, 885-1090",
-  "per_film_frames_estimate": 271,
+  "well_in_frame_frames": "0-33, 303-314, 890-1090",
+  "per_film_frames_estimate": 247,
   "artifact_in_frame_frames": {
-   "tablet": "0-104, 113-115, 128-151, 551-561, 697-706, 743, 753-755",
-   "papyrus": "0-157, 726-762",
-   "coin dupondius": "0-147, 727-760",
-   "coin sestertius": "0-52, 93-155, 761",
-   "atlas": "0-44, 149-440, 782-798, 802-874",
-   "jeton": "0-37, 204-228, 237-238, 257-265, 286-385, 833-872",
-   "galley": "0-47, 149-182, 364-466, 780-813",
-   "leaf": "0-53, 116-178, 365-501, 760-805",
-   "piri_image": "0-49, 107-167, 381-386, 399-405, 415-420, 429-430, 433-582, 651-800",
-   "weights": "0-42, 141-147, 497-517, 564-762",
-   "globe_mid": "0-43, 547-685",
-   "globe_top": "0-36, 581-638",
-   "ino_image": "0-42, 152-171, 335-337, 347-470, 767-884, 901-906",
-   "admiralty_image": "0-38, 170-174, 205-212, 292-402, 795-964",
-   "well": "0-33, 303-314, 844-850, 863-874, 885-1090",
-   "record_s130": "0-31, 930-1090",
+   "tablet": "0-104, 113-115, 128-151",
+   "papyrus": "0-157",
+   "coin dupondius": "0-147",
+   "coin sestertius": "0-52, 93-155",
+   "atlas": "0-44, 149-440",
+   "jeton": "0-37, 204-228, 237-238, 257-265, 286-385",
+   "galley": "0-47, 149-182, 364-466",
+   "leaf": "0-53, 116-178, 365-501",
+   "piri_image": "0-49, 107-167, 381-386, 399-405, 415-420, 429-430, 433-563, 675-802",
+   "weights": "0-42, 141-147, 497-517, 563, 675-760",
+   "globe_mid": "0-43, 562-672",
+   "globe_top": "0-36, 577-649",
+   "globe_tip": "0-35, 584-642",
+   "ino_image": "0-42, 152-171, 335-337, 347-470, 768-887",
+   "admiralty_image": "0-38, 170-174, 205-212, 292-402, 820-965",
+   "well": "0-33, 303-314, 890-1090",
+   "record_s130": "0-31, 931-1090",
    "stick": "0-16"
   },
-  "render_cost_estimate": "prefix 1091 x 8.1 s = 2.45 h; per-film extra 2 x 271 x ~9 s = 1.35 h; wides (turn breaths, ~250 frames) +~3 s each = +0.2 h; meter 70 s; total about 4.0 h at 512 spp"
+  "render_cost_estimate": "prefix 1091 x 8.1 s = 2.45 h; per-film extra 2 x 247 x ~9 s = 1.24 h; wides (turn breaths, ~250 frames) +~3 s each = +0.2 h; meter 70 s; total about 3.9 h at 512 spp"
  }
 }

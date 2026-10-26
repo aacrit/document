@@ -50,6 +50,7 @@ PROOF = {"res": "854x480", "samples": 128, "threshold": 0.05, "min_samples": 16}
 FINAL = {"res": "2560x1440", "samples": 512, "threshold": 0.02, "min_samples": 64}      # tail_v5c.SAMPLING
 PROBE_STEP = 149                                      # frames 0, 149, ..., 1043: 8 frames across every posture
 MAX_MB = 15.0
+METER_ONLY = False
 # The pose's exposure, carried over from v5c (the A7 calibration). v5c's meter was taken before the record went dead
 # matte (872e788), so its pose value is not what a re-meter reads (the v5d meter, same pose camera: +1.76): C20's
 # A7 0.39 was measured at v5c's keyed +1.005 at k_from 1061, and S-130 / S-16928 at tail_v5c.POSE_EV. Each film's
@@ -312,6 +313,9 @@ def render():
         ev, r = meter(n, next(i for i, f in enumerate(frames) if f["end"] >= 1.0))
         report["meter"] = {"wall_s": r["wall_s"], "ev_range": [min(ev), max(ev)], "breaths": breaths(ev)}
         log("meter done", **report["meter"])
+        if METER_ONLY:
+            (OUT / "proof-render.json").write_text(json.dumps(report, indent=1, default=str), encoding="utf-8")
+            return report
         fdir = OUT / "frames-480"
         fdir.mkdir(exist_ok=True)
         vs = OUT / "view-settings-480.blender.json"
@@ -395,6 +399,9 @@ def finish():
 
 if __name__ == "__main__":
     phase = sys.argv[sys.argv.index("--phase") + 1] if "--phase" in sys.argv else "all"
+    if phase == "meter":
+        METER_ONLY = True
+        render()
     if phase in ("render", "all"):
         render()
     if phase in ("finish", "all"):
