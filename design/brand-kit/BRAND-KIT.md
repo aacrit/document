@@ -370,6 +370,15 @@ A card (`card: mark_key`, CARD, true black, `text: []`) that teaches the glyphs 
 
 Do: let the key teach the colours so the label can stay down; keep the overlay and the glyph on one right edge. Don't: draw a card's mark as a dot; bring a label up at a cut that repeats class and year; type a key's words or colours into a screenplay; let a label run past 60% of width; set YouTube's branding watermark.
 
+### 12b. The key retired; the dot is the only provenance (2026-10-18, founder; GRAMMAR A56)
+
+Appended; what follows wins over section 12's key card and over every on-screen disclosure in sections 4 and 11 to 12a. The key card ("What the marks mean", `card: mark_key`) is retired from films: the engine no longer draws it, and a screenplay that asks for one is refused (`meta-text`), pointing to the site's About page. The player's opt-in Marks legend stays (site UI, off the picture). Lower thirds are the name and the role, two lines; the third (source) line is gone. A map draws no data credit and no notes. Gap cards, descriptor lower thirds, "read by a computer voice" and "original recording" notes, and shortfall cards are not drawn: all of it is stated in the sources data.
+
+| | Value |
+|---|---|
+| Label words (12a, A56) | the class word and at most one qualifier, about 32 characters at most; no photographer, archive, licence or place names |
+| When it grows (A56, to come) | a class change; a picture dated before or after its moment ("photographed <Mon YYYY>"); a computer voice starting ("computer voice"); a reconstruction ("reconstructed") or a re-use in a new context; and the 40 s re-grow (12a). Until the trigger table ships, section 12's class-or-year rule and 12a's re-grow stand |
+
 ## 13. Marks over archive maps (2026-10-11, R5b; GRAMMAR A32)
 
 A period map sheet is shown as it was printed, and what the film points to is drawn over it, quietly. `studio/engine/overlays.py` implements every number here; `studio/engine/georef.py` holds the georeferencing.

@@ -474,7 +474,7 @@ def _talk_film(tmp_path, talk, *, line_start=15.2, in_s=4.45, out_s=6.45, s6=Non
                         "clip": "FX-TALK", "in_s": in_s, "out_s": out_s, "start_s": line_start, "text": "Words of the fixture talker.",
                         "source": "FX-TALK", "transcript_source": "fixture transcript (transcripts/fx-talk.txt)"})
     ch["text"].append({"id": "T3", "kind": "lower_third", "start_s": line_start, "end_s": line_start + 2.0,
-                       "lines": ["Fixture talker", "Test talker, 2026", "Fixture talker, studio test folder  ·  original recording"]})
+                       "lines": ["Fixture talker", "Test talker, 2026"]})
     play["subtitle_source"].append({"ref": "A1", "start_s": line_start, "end_s": line_start + out_s - in_s,
                                     "en": "Words of the fixture talker."})
     (film / "screenplay.json").write_text(json.dumps(play), encoding="utf-8")

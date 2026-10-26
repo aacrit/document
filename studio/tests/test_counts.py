@@ -398,8 +398,8 @@ def test_a_territories_note_is_printed_only_when_a_territory_takes_a_figure_in_v
         s["data"].update(territories={owner: ["TTT"]}, territories_note=note)
         _, info = maps.render_map(s, root, data_root=root)
         return [b["text"] for b in info["boxes"] if b["kind"] == "note"]
-    assert notes_drawn("AAA"), "Alpha's figure is drawn on Tee"
-    assert notes_drawn("CCC") == [], "Gamma has no figure, so Tee takes none"
+    # A56: a map's notes are sources data, never drawn, whether or not a territory takes a figure
+    assert notes_drawn("AAA") == [] and notes_drawn("CCC") == []
 
 
 def test_the_render_record_carries_a_pixel_hash(root, tmp_path):
@@ -548,12 +548,9 @@ def test_a_small_zero_country_past_the_full_wash_is_refused(root, tmp_path):
 
 
 def test_a_spec_may_move_the_source_line_and_film_one_keeps_its_place(root):
+    # A56: a map draws no source line wherever source_at puts it; a malformed source_at is still refused
     _, info = maps.render_map(world_map(root, source_at={"x": 0.05, "baseline": 0.94}), root, data_root=root)
-    box = [b for b in info["boxes"] if b["kind"] == "source"][0]["box"]
-    assert abs(box[0] - 0.05 * 1920) < 4 and box[3] < 0.955 * 1080
-    _, info = maps.render_map(world_map(root), root, data_root=root)
-    box = [b for b in info["boxes"] if b["kind"] == "source"][0]["box"]
-    assert abs(box[0] - 0.04 * 1920) < 4, "a spec without source_at keeps film 1's position"
+    assert not [b for b in info["boxes"] if b["kind"] == "source"]
     with pytest.raises(maps.MapRefused, match="source_at"):
         maps.render_map(world_map(root, source_at={"x": 0.5, "baseline": 0.5}), root, data_root=root)
 

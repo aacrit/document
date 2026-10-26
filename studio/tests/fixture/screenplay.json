@@ -44,9 +44,9 @@
         {"id": "S6", "kind": "archive_video", "start_s": 14.75, "asset": "FX-TESTSRC", "in_s": 0.5, "out_s": 3.5,
          "native_fps": 29.97, "sound": {"mode": "own"}, "transition_in": {"type": "dip", "s": 0.5}, "mark": "DRAWN",
          "why": "Synthetic 4:3 test clip at 29.97 fps: pillarbox geometry and the frame-drop conform."},
-        {"id": "S7", "kind": "card", "silent_record": true, "start_s": 17.75, "dur_s": 2.5, "transition_in": {"type": "dip", "s": 0.5},
-         "text": ["The record holds no open-licence film of this fixture.", "Searched: the test fixture folder."],
-         "mark": "CARD", "why": "Record-is-silent card."},
+        {"id": "S7", "kind": "card", "start_s": 17.75, "dur_s": 2.5, "transition_in": {"type": "dip", "s": 0.5},
+         "text": ["The fixture's statement card.", "A second line of the statement."],
+         "mark": "CARD", "why": "Statement card (A56: a silent-record card is meta-text, refused)."},
         {"id": "S8", "kind": "black", "start_s": 20.25, "dur_s": 1.5, "transition_in": {"type": "cut"}, "mark": "CARD",
          "why": "Black under a voice."}
       ],
@@ -60,7 +60,7 @@
       ],
       "text": [
         {"id": "T1", "kind": "lower_third", "start_s": 8.0, "end_s": 13.0,
-         "lines": ["Fixture speaker", "Test stand-in, 1947", "Fixture source, studio test folder  ·  read by a computer voice"]},
+         "lines": ["Fixture speaker", "Test stand-in, 1947"]},
         {"id": "T2", "kind": "overlay", "start_s": 15.5, "end_s": 17.25, "lines": ["29.97 fps, 4 s"]}
       ]
     },
@@ -75,7 +75,7 @@
   ],
   "subtitle_source": [
     {"ref": "L1", "start_s": 5.0, "end_s": 7.5, "en": "A test tone stands in for the narrator."},
-    {"ref": "T1", "start_s": 8.0, "end_s": 13.0, "en": "[Fixture speaker, test stand-in, 1947. Read by a computer voice.]"},
+    {"ref": "T1", "start_s": 8.0, "end_s": 13.0, "en": "[Fixture speaker, test stand-in, 1947.]"},
     {"ref": "T2", "start_s": 15.5, "end_s": 17.25, "en": "29.97 fps, 4 s"},
     {"ref": "L2", "start_s": 20.3, "end_s": 21.7, "en": "A test reading with no recording."}
   ]

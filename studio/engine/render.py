@@ -76,6 +76,7 @@ from studio.engine import aswas as AW
 from studio.engine import bracket as BR
 from studio.engine import cadence as CAD
 from studio.engine import clips as CL
+from studio.engine import disclosure as DS
 from studio.engine import levels as LV
 from studio.engine import maps as MP
 from studio.engine import motion as M
@@ -268,11 +269,14 @@ SILENT_RE = re.compile(r"^The record holds no .+\.$")
 FLAG_RE = re.compile(r"^Account of .+, \d{4}$")
 CARD_TEXT_KINDS = {"chapter_card", "title_card", "silent_record"}
 CHAPTER_RE = re.compile(r"^(\d+)\s+(.+)$")
-LT_SUFFIXES = ("  ·  read by a computer voice", "  ·  original recording")
+# A56: the mark key card is retired from films; a screenplay that asks for one is pointed here
+MARK_KEY_RETIRED = ("the mark key card is retired from films (A56): the dot is the only provenance in the picture; the "
+                    "key lives on the site's About page (decision 2026-10-18) and in the player's Marks legend, off the "
+                    "picture; drop the card")
 EM_DASH = "—"
 
 _HERE = Path(__file__).resolve().parent
-ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py", "score.py", "overlays.py", "georef.py", "clips.py", "voicing.py", "titles.py", "tour.py", "bracket.py", "moves.py"))).hexdigest()[:12]
+ENGINE_HASH = hashlib.sha256(b"".join((_HERE / f).read_bytes() for f in ("render.py", "motion.py", "score.py", "overlays.py", "georef.py", "clips.py", "voicing.py", "titles.py", "tour.py", "bracket.py", "moves.py", "disclosure.py", "maps.py"))).hexdigest()[:12]
 ENGINE_MODEL = {"name": "studio.engine.render", "version": f"{ENGINE_VERSION}+{ENGINE_HASH}"}
 
 
@@ -678,6 +682,63 @@ def card_kind(shot: dict) -> str:
     return "statement"
 
 
+def meta_text_lints(lint, play: dict, shots: list[dict], lower_thirds: list[dict], overlays: list[dict], *,
+                    burn_subtitles: bool = False) -> list[dict]:
+    """meta-text (A56, blocking): no on-screen string narrates the film's
+    sourcing. Every card element (a period quote, ``quote: true``, is the
+    period's own words and is not read), every lower-third line, every
+    overlay and, when burned, every subtitle cue is read against the
+    versioned patterns (``disclosure.META_TEXT``, version
+    ``META_TEXT_VERSION``); a silent-record card (a source-gap card) and a
+    mark-key card are refused by kind. What they said lives in the sources
+    data. Returns the findings."""
+    found = []
+
+    def add(unit, role, text, hits):
+        found.append({"unit": unit, "role": role, "text": text, "hits": hits})
+
+    for s in shots:
+        if s.get("kind") not in ("card", "black"):
+            continue
+        ck = s.get("_card")
+        if ck == "mark_key":
+            add(s["id"], "card", "", [{"pattern": "mark-key", "what": MARK_KEY_RETIRED, "match": "card: mark_key"}])
+            continue
+        if ck == "silent":
+            add(s["id"], "card", " / ".join(str(x) for x in s.get("text") or []),
+                [{"pattern": "source-gap", "what": "a silent-record card narrates a gap in the record; the gap is stated "
+                                                   "in the sources data", "match": "silent_record"}])
+            continue
+        if s.get("quote") is True:
+            continue
+        for k, x in enumerate(s.get("text") or []):
+            hits = DS.meta_text_problems(x, "card")
+            if hits:
+                add(f"{s['id']}.text[{k}]", "card", str(x), hits)
+    for lt in lower_thirds:
+        for k, x in enumerate(lt["lines"]):
+            hits = DS.meta_text_problems(x, "lower_third" if k == 0 else "overlay")
+            if hits:
+                add(f"{lt['id']}.lines[{k}]", "lower_third", str(x), hits)
+    for o in overlays:
+        hits = DS.meta_text_problems(o["text"], "overlay")
+        if hits:
+            add(o["id"], "overlay", o["text"], hits)
+    if burn_subtitles:
+        for c in play.get("subtitle_source", []):
+            hits = DS.meta_text_problems(c.get("en") or "", "subtitle")
+            if hits:
+                add(f"subtitle:{c.get('ref')}", "subtitle", str(c.get("en") or ""), hits)
+    for f in found:
+        lint("meta-text", False, unit=f["unit"], grammar="A56",
+             evidence={"role": f["role"], "text": f["text"], "patterns": f["hits"], "version": DS.META_TEXT_VERSION,
+                       "fix": "the frame never talks about the film's sourcing: drop it from the picture; a gap, a "
+                              "voice, a recording, a source or a shortfall is stated in the sources data"})
+    if not found:
+        lint("meta-text", True, unit="film", grammar="A56", evidence={"version": DS.META_TEXT_VERSION})
+    return found
+
+
 def ai_label_lint(lint, shots) -> None:
     """ai-label (A31): an AI-GENERATED shot's label is never empty, since it
     is a truth label, up for the whole shot (A16 refined). Blocking."""
@@ -687,7 +748,7 @@ def ai_label_lint(lint, shots) -> None:
                  evidence={"label": s.get("label"), "fix": "an AI-GENERATED shot carries its label (mark_label)"})
 
 
-def card_text_check(shot: dict, W: int, H: int, fonts: M.Fonts | None = None, key_classes=None) -> dict:
+def card_text_check(shot: dict, W: int, H: int, fonts: M.Fonts | None = None) -> dict:
     """E15: what a card shot draws of its ``text[]``, from the same layout the
     drawer uses. Returns ``fits`` (False with ``why`` when the text cannot be
     laid out in the card's safe area at a readable size), ``missing`` (the
@@ -710,12 +771,8 @@ def card_text_check(shot: dict, W: int, H: int, fonts: M.Fonts | None = None, ke
     if ck in ("black", "credits"):          # neither draws the shot's text (the credits draw the plan's blocks)
         out["missing"] = drawn_as([])
         return out
-    if ck == "mark_key":                    # A31: the key draws the class table; a text[] would be words not drawn
-        try:
-            M.mark_key_layout(L, fonts, key_classes)
-        except M.TextOverflow as e:
-            out.update(fits=False, why=str(e))
-        out["missing"] = drawn_as([])
+    if ck == "mark_key":                    # A56: the mark key is retired from films (the About page explains the marks)
+        out.update(fits=False, why=MARK_KEY_RETIRED, missing=drawn_as([]))
         return out
     if ck in ("title", "chapter"):
         try:
@@ -751,11 +808,10 @@ def card_lints(lint, shots: list[dict], W: int, H: int, *, rule_fits: str = "car
     At plan time a shortfall card is checked with its placeholders as written,
     which are longer than any fill; after the fill it is checked again."""
     fonts = M.Fonts()
-    used = M.key_classes(shots)                   # A31: the mark key shows the classes the film's shots use
     for s in shots:
         if s.get("kind") not in ("card", "black") or (only is not None and s["id"] not in only):
             continue
-        c = card_text_check(s, W, H, fonts, used)
+        c = card_text_check(s, W, H, fonts)
         lint(rule_fits, c["fits"], unit=s["id"], stage=stage, grammar="9, BRAND-KIT 6 and 11c",
              evidence={"card": c["card"], "why": c["why"], "scale": c.get("scale"), "lines": c.get("lines"),
                        "fix": None if c["fits"] else "shorten the text or split the card; the engine never cuts text"})
@@ -2345,7 +2401,7 @@ def credits_blocks(plan: dict) -> list:
     def wrap(text):
         return M.credits_wrap(L, text, fonts)
 
-    shots, readings, sound = [], [], []
+    shots, sound = [], []
     for s in plan["shots"]:
         if s["mark"] == "CARD":
             continue
@@ -2355,12 +2411,7 @@ def credits_blocks(plan: dict) -> list:
         parts = [s["id"], it.get("archive_short") or it.get("archive") or "", title,
                  credit_year(title, year_of(it)), it.get("licence") or ""] + ([alt] if alt else [])
         shots += wrap("  ".join(p for p in parts[:1]) + "  " + ", ".join(p for p in parts[1:] if p))
-    seen = set()
-    for ln in plan["lines"]:
-        if ln.get("kind") == "testimony" and ln.get("read_by") and ln.get("speaker") not in seen:
-            seen.add(ln.get("speaker"))
-            name = plan["speakers"].get(ln.get("speaker"), {}).get("name", ln.get("speaker"))
-            readings.append(f"Read by a computer voice. No recording of {name} was used.")
+    # A56: who is read by a computer voice is stated in the sources data (sources.json readings), never in the frame
     recordings, clips_seen = [], set()
     for ln in plan["lines"]:
         # one line per speaker heard from each clip (E15: a debate reel with two speakers credited only the first)
@@ -2369,7 +2420,7 @@ def credits_blocks(plan: dict) -> list:
             it = plan["assets"].get(ln["clip"], {})
             name = plan["speakers"].get(ln.get("speaker"), {}).get("name", ln.get("speaker"))
             title = (it.get("title") or "").strip()
-            recordings += wrap(", ".join(b for b in [f"{name}: original recording", title,
+            recordings += wrap(", ".join(b for b in [name, title,
                                                             it.get("archive") or "", credit_year(title, year_of(it)),
                                                             it.get("licence") or ""] if b))
     for c in plan["cues"]:
@@ -2392,8 +2443,6 @@ def credits_blocks(plan: dict) -> list:
                 series += wrap(", ".join(b for b in [TS.plain(x.get("title")), TS.plain(x.get("credit") or x.get("holder")),
                                                      str(x.get("licence") or "")] if b))
         blocks.append(("Series titles", series))
-    if readings:
-        blocks.append(("Readings", readings))
     if recordings:
         blocks.append(("Recordings", recordings))
     if sound:
@@ -3192,15 +3241,20 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             lint("black-reason", ok, unit=s["id"], grammar="A30 refined",
                  evidence={"kind": s["kind"], "black_reason": reason, "min_words": BLACK_REASON_MIN_WORDS, "fix": fix})
     card_lints(lint, shots, W, H)            # E15: laid out at plan time; overflow refuses, nothing is cut
+    cast_name_set = {_ws(str(sp.get("name"))).lower() for sp in (play.get("cast") or {}).get("speakers", []) if sp.get("name")}
     lower_thirds, subs, overlays = [], [], []
     for t in texts:
         if t["kind"] == "lower_third":
             ln = list(t.get("lines") or [])
-            kind = "place" if len(ln) == 2 else "speaker"
-            ok = (kind == "place") or (len(ln) == 3 and ln[2].endswith(LT_SUFFIXES))
-            if t.get("flag"):
-                ok = ok and bool(FLAG_RE.match(t["flag"]))
-            lint("lower-third-format", ok, unit=t["id"], evidence={"lines": ln, "flag": t.get("flag")}, grammar="9")
+            # A56: name and role, two lines; a speaker's (line 1 names a cast speaker) is drawn as a speaker's, any
+            # other as a place and its date. A third line (a source, "original recording", "read by a computer
+            # voice") is refused: the source lives in the sources data
+            kind = "speaker" if _ws(ln[0] if ln else "").lower() in cast_name_set else "place"
+            probs = DS.lower_third_problems(ln)
+            if t.get("flag") and not FLAG_RE.match(t["flag"]):
+                probs.append(f"flag {t['flag']!r} is not 'Account of <name>, <year>'")
+            lint("lower-third-format", not probs, unit=t["id"], grammar="9, A56",
+                 evidence={"lines": ln, "flag": t.get("flag"), "kind": kind, "problems": probs})
             # A16: a lower third comes and goes; it is drawn for at most M.LT_MAX_S whatever the screenplay's end_s
             shown = M.lower_third_span(float(t["start_s"]), float(t["end_s"]))
             lower_thirds.append({"id": t["id"], "start": shown[0], "end": shown[1], "end_s": float(t["end_s"]), "lines": ln,
@@ -3235,6 +3289,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
              "9, BRAND-KIT 4 and 11c")
     for o in overlays:
         fits("overlay-fits", o["id"], lambda o=o: M.overlay_check(L_, o["text"], fonts_), "9, BRAND-KIT 11c")
+    meta_text_lints(lint, play, shots, lower_thirds, overlays, burn_subtitles=burn_subtitles)
     ai_label_lint(lint, shots)
     for s in shots:
         if s.get("label"):
@@ -3419,7 +3474,6 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                   for s in shots],
         "card_spans": card_spans, "wm_start": (imagery[0]["f0"] / fps) if imagery else None,
         # A31: the mark key's classes, from the whole film (kept by --until), the series titles' own classes with them (A40)
-        "key_classes": list(M.key_classes(shots + [{"mark": c} for s in shots if TS.is_title(s) for c in s["_title"]["classes"]])),
         # A21, A25 and E2's sides: what the sources page states about the film's own rules
         "imagery_rule": rule, "settings": settings, "settings_stated": settings_stated, "shortfalls": shortfalls,
         "score_standard": score_std, "score_standard_stated": score_stated,
@@ -3444,7 +3498,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         for x in named_on_screen:
             nm = _ws(x["name"]).lower()
             in_readings = any(r["id"] == x["id"] and _ws(r.get("name") or "").lower() == nm for r in readings)
-            in_credits = any(_ws(ln).lower().startswith(nm + ": original recording") for ln in recorded)
+            in_credits = any(_ws(ln).lower().startswith(nm + ",") for ln in recorded)
             lint("archival-named-elsewhere", in_readings and in_credits, unit=x["id"], grammar="6.3, 11.5, A26 refined",
                  evidence={"speaker_name": x["name"], "clip": x["clip"], "in_readings": in_readings,
                            "in_credits_recordings": in_credits,
@@ -3554,9 +3608,6 @@ def media_duration(path: Path) -> float | None:
         return None
 
 
-LT_SOURCE_FORM = re.compile(r"^.+\S, \S.+$")   # line 3 before its suffix: "<source title>, <archive>" (BRAND-KIT 4)
-
-
 def archival_lints(lint, film: Path, play: dict, shots: list[dict], lines: list[dict], assets: dict,
                    lower_thirds: list[dict], vl: list[dict], speakers: dict | None = None, fps: float = FPS) -> None:
     """A26 (E11) on every archival span line: its clip resolves to a ledger
@@ -3566,9 +3617,9 @@ def archival_lints(lint, film: Path, play: dict, shots: list[dict], lines: list[
     text word for word; its subtitles (``subtitle_source`` cues with its id as
     ``ref``) are that text; its mark is ARCHIVE; no shot plays the same clip's
     own sound over it; a speaker's first archival line has a lower third that
-    names the speaker (line 1 is the cast's name) and whose line 3 is
-    ``<source title>, <archive>  ·  original recording``, and no lower third
-    over it says ``read by a computer voice`` or is malformed. A26 refined
+    names the speaker (line 1 is the cast's name, line 2 the role), no lower
+    third over it has a third (provenance) line, and the clip's ledger item
+    states the title and archive the sources data prints (A56). A26 refined
     (E15): a source that names its speakers on screen (declared, and the
     ledger item lists the speaker) may omit that lower third; the lines that
     do are returned, and build_plan checks the speaker is still named in the
@@ -3642,15 +3693,15 @@ def archival_lints(lint, film: Path, play: dict, shots: list[dict], lines: list[
              evidence={"shots": double, "fix": None if not double else "mute the shot's own sound (sound: mute, with the reason "
                                                                        "that the archival line plays it)"})
         name = (speakers.get(ln.get("speaker")) or {}).get("name")
-        over = [lt for lt in lower_thirds if lt["kind"] == "speaker" and len(lt["lines"]) == 3 and lt["start"] < b and lt["end"] > a]
-        read_by = [lt["id"] for lt in over if lt["lines"][2].endswith(LT_SUFFIXES[0])]
-        good, bad = [], []
-        for lt in over:
-            if not lt["lines"][2].endswith(LT_SUFFIXES[1]):
-                continue
-            form = bool(LT_SOURCE_FORM.match(lt["lines"][2][: -len(LT_SUFFIXES[1])]))
-            names = bool(name) and _ws(lt["lines"][0]).lower() == _ws(name).lower()
-            (good if form and names else bad).append({"id": lt["id"], "source_form": form, "names_the_speaker": names})
+        # A56: the lower third is the speaker's name and role; the disclosure (an original recording, its source
+        # title and archive) lives in the sources data, from the clip's ledger item, never in the frame
+        over = [lt for lt in lower_thirds if lt["start"] < b and lt["end"] > a]
+        provenance = [lt["id"] for lt in over if len(lt["lines"]) > 2]
+        good = [lt["id"] for lt in over if len(lt["lines"]) == 2 and bool(name)
+                and _ws(lt["lines"][0]).lower() == _ws(name).lower()]
+        disclosure = {"title": ((item or {}).get("title") or "").strip() or None,
+                      "archive": ((item or {}).get("archive") or "").strip() or None}
+        undisclosed = [k for k, v in disclosure.items() if not v]
         first = ln.get("speaker") not in seen
         seen.add(ln.get("speaker"))
         # A26 refined (E15): a source that burns its speakers' names into the picture names them itself; our lower
@@ -3680,58 +3731,60 @@ def archival_lints(lint, film: Path, play: dict, shots: list[dict], lines: list[
                                       f"speakers_on_screen), and a span for {name!r} overlaps the line's in_s to out_s"})
                 if on_screen:
                     named_on_screen.append({"id": uid, "clip": ln["clip"], "speaker": ln.get("speaker"), "name": name})
-        ok = not read_by and not bad and (bool(good) or not first or bool(on_screen))
-        lint("archival-lower-third", ok, unit=uid, grammar="6.3, 6.4, 9, A26",
-             evidence={"first_line_of_speaker": first, "speaker_name": name, "original_recording": good, "malformed": bad,
-                       "read_by_a_computer_voice": read_by, "named_on_screen_by_the_source": bool(on_screen),
-                       "fix": None if ok else (f"the speaker's first line carries a lower third: line 1 '{name}', line 3 "
-                                               f"'<source title>, <archive>{LT_SUFFIXES[1]}'")})
+        ok = not provenance and not undisclosed and (bool(good) or not first or bool(on_screen))
+        fix = None
+        if not ok:
+            fix = "; ".join(x for x in (
+                (f"drop line 3 of {', '.join(provenance)}: a lower third is name and role (A56)" if provenance else ""),
+                (f"the clip's ledger item states its {' and '.join(undisclosed)}, which the sources data prints as the "
+                 "original recording's source" if undisclosed else ""),
+                (f"the speaker's first line carries a lower third: line 1 '{name}', line 2 the role or time"
+                 if first and not good and not on_screen else "")) if x)
+        lint("archival-lower-third", ok, unit=uid, grammar="6.3, 6.4, 9, A26, A56",
+             evidence={"first_line_of_speaker": first, "speaker_name": name, "names_the_speaker": good,
+                       "provenance_lines": provenance, "sources_data": dict(disclosure, credit="original recording"),
+                       "named_on_screen_by_the_source": bool(on_screen), "fix": fix})
     return named_on_screen
 
 
 def shortfall_lints(lint, play: dict, shots: list[dict], settings: dict) -> list[dict]:
-    """A25 refined (E9, CoS design reset): each declared shortfall is well
-    formed (what, the film's own floor, a card to state it) and the card it
-    names prints its numbers only through placeholders, ``{<what>_share}``
-    and ``{<what>_floor}`` with a format (pct, words, fraction), which the
-    engine fills from the film's measurement at the mix. The card, and the
-    subtitles and text elements shown with it, may hold no other digit,
-    number word, fraction or percent sign, and the card holds the
-    ``{<what>_share}`` of every shortfall it states. A placeholder anywhere
-    else is refused (it would be drawn as written). Every declared shortfall
-    is judged; ``measured`` is advisory. Returns the shortfalls."""
+    """A25 refined and A56: each declared shortfall is well formed (what, the
+    film's own floor) and stated in the sources data: its ``statement`` (else
+    the house sentence) prints its numbers only through placeholders,
+    ``{<what>_share}`` and ``{<what>_floor}`` with a format (pct, words,
+    fraction), which the engine fills from the film's measurement at the mix,
+    and holds no other number. No card states a shortfall (A56): a
+    ``stated_on`` that names a card refuses, and a placeholder anywhere in
+    the frame is refused (it would be drawn as written). Every declared
+    shortfall is judged; ``measured`` is advisory. Returns the shortfalls."""
     declared = play.get("shortfalls")
     declared = declared if declared is not None else []
     if not isinstance(declared, list):
         lint("shortfall-stated", False, unit="shortfalls", grammar="6.5, A25", evidence={"why": "shortfalls must be a list"})
         declared = []
     by_id = {s["id"]: s for s in shots}
+    # A56: no card states a shortfall; the sources data does. So no card owns a placeholder, and every placeholder
+    # in the frame (a card, a lower third, an overlay, a subtitle) is refused below
     on_card: dict[str, set] = {}
-    for sf in declared:
-        if isinstance(sf, dict) and sf.get("stated_on") and sf.get("what") in POL.SHORTFALL_WHAT:
-            on_card.setdefault(sf["stated_on"], set()).add(sf["what"])
-    spans = {cid: (by_id[cid]["start_s"], by_id[cid]["start_s"] + by_id[cid]["_dur"]) for cid in on_card if cid in by_id}
+    spans: dict = {}
     out = []
     for k, sf in enumerate(declared):
         probs = POL.shortfall_problems(sf, settings)
         if not isinstance(sf, dict):
-            lint("shortfall-stated", False, unit=f"shortfalls[{k}]", grammar="6.5, A25", evidence={"problems": probs})
+            lint("shortfall-stated", False, unit=f"shortfalls[{k}]", grammar="6.5, A25, A56", evidence={"problems": probs})
             continue
-        card = by_id.get(sf.get("stated_on"))
-        how: dict = {}
-        if sf.get("stated_on") and card is None:
-            probs.append(f"no shot {sf.get('stated_on')!r} in the film")
-        elif card is not None and card["kind"] != "card":
-            probs.append(f"{card['id']} is a {card['kind']} shot, not a card")
-        elif card is not None:
-            text = " ".join(card.get("text") or [])
-            if sf.get("what") in POL.SHORTFALL_WHAT and not POL.states_shortfall(sf["what"], text):
-                probs.append(f"{card['id']} does not print {{{sf['what']}_share}}"
-                             + (" (or {women_speakers_f} with {women_speakers_unsigned})" if sf["what"] == "women" else ""))
-            how = {"card_text": card.get("text")}
-        lint("shortfall-stated", not probs, unit=f"shortfall:{sf.get('what')}", grammar="6.5, A25",
-             evidence={"shortfall": sf, "found": how, "problems": probs})
-        out.append(dict(sf, stated=not probs))
+        card = by_id.get(sf.get("stated_on")) if sf.get("stated_on") else None
+        if card is not None and card["kind"] == "card":
+            probs.append(f"stated_on names the card {card['id']}: a shortfall is stated in the sources data, never in the "
+                         "frame (A56); drop stated_on and the card")
+        elif sf.get("stated_on"):
+            lint("shortfall-stated-on", False, unit=f"shortfall:{sf.get('what')}", severity="warn", grammar="A56",
+                 evidence={"stated_on": sf["stated_on"], "fix": "stated_on is retired (A56): the sources data states the "
+                                                                "shortfall; drop the key"})
+        statement = POL.shortfall_statement(sf)
+        lint("shortfall-stated", not probs, unit=f"shortfall:{sf.get('what')}", grammar="6.5, A25, A56",
+             evidence={"shortfall": sf, "sources_data": {"statement": statement}, "problems": probs})
+        out.append(dict(sf, stated=not probs, statement=statement))
     # every surface that can print a number: the cards themselves, then text elements and subtitles shown with them.
     # A placeholder may stand only in a shortfall card's own text and in a subtitle cue shown with that card; a lower
     # third, an overlay or any other text element is drawn as written, so a placeholder there is refused.
@@ -3762,15 +3815,15 @@ def shortfall_lints(lint, play: dict, shots: list[dict], settings: dict) -> list
             near = [cid for cid, (ca, cb) in spans.items() if a < cb and b > ca]
             whats, own = set().union(*(on_card[c] for c in near)) if near else set(), False
             if kind != "subtitle" and POL.has_placeholder(text):
-                lint("shortfall-card", False, unit=f"{kind}:{sid}", grammar="6.5, A25",
-                     evidence={"text": text, "why": "a placeholder may stand only in a shortfall card's own text and in its "
-                                                    "subtitle cues; here it would be printed as written"})
+                lint("shortfall-card", False, unit=f"{kind}:{sid}", grammar="6.5, A25, A56",
+                     evidence={"text": text, "why": "a placeholder in the frame would be printed as written; a shortfall is "
+                                                    "stated in the sources data (A56)"})
                 continue
             if not near:
                 if POL.has_placeholder(text):
-                    lint("shortfall-card", False, unit=f"{kind}:{sid}", grammar="6.5, A25",
-                         evidence={"text": text, "why": "a subtitle placeholder outside a shortfall card's time would print "
-                                                        "a number no card states"})
+                    lint("shortfall-card", False, unit=f"{kind}:{sid}", grammar="6.5, A25, A56",
+                         evidence={"text": text, "why": "a subtitle placeholder would print a number the frame may not "
+                                                        "state; a shortfall is stated in the sources data (A56)"})
                 continue
         probs, info = POL.template_problems(text, whats, needs_share=own)
         lint("shortfall-card", not probs, unit=f"{kind}:{sid}", grammar="6.5, A25",
@@ -4036,10 +4089,8 @@ class Pictures:
                                        dates=text[1] if len(text) > 1 else "", fonts=f)
         elif ck == "credits":
             img = M.credits_frame(blank, t, start=0.0, blocks=self.plan["credits"], fonts=f)
-        elif ck == "mark_key":                   # A31: drawn from the class table, never from the shot's text
-            if not self.plan.get("key_classes"):       # A31: from the plan, never a default
-                raise Refused(f"shot {s['id']}: the mark key has no key_classes in the plan")
-            img = M.mark_key_frame(blank, t, start=0.0, end=dur, fonts=f, classes=self.plan["key_classes"])
+        elif ck == "mark_key":                   # A56: retired; the plan refuses it (meta-text), so this is a backstop
+            raise Refused(f"shot {s['id']}: {MARK_KEY_RETIRED}")
         else:                                    # silent, perspective, statement: every element of text[] (E15)
             img = M.silent_card_frame(blank, t, start=0.0, end=dur, texts=text, fonts=f)
         return img.convert("RGB")
@@ -6948,9 +6999,12 @@ def shortfall_values(plan: dict, placed: dict) -> dict:
 
 
 def plan_has_placeholders(plan: dict) -> bool:
-    """Any placeholder on a card or in a subtitle cue of the plan."""
+    """Any placeholder to fill: on a card, in a subtitle cue, or in a declared
+    shortfall's statement for the sources data (A56)."""
     return (any(POL.has_placeholder(x) for sh in plan["shots"] for x in sh.get("text") or [])
-            or any(POL.has_placeholder(c.get("text")) for c in plan.get("subtitles", [])))
+            or any(POL.has_placeholder(c.get("text")) for c in plan.get("subtitles", []))
+            or any(isinstance(sf, dict) and POL.has_placeholder(POL.shortfall_statement(sf))
+                   for sf in plan.get("shortfalls") or []))
 
 
 def card_values_problems(values) -> list[str]:
@@ -7002,6 +7056,29 @@ def fills_provenance(prev: dict, master_sha256: str | None) -> str | None:
     return None
 
 
+def fill_statements(plan: dict, values: dict, journal: Journal) -> None:
+    """A56: each declared shortfall's statement for the sources data, filled
+    from the film's own measurement (``filled``) with the share it prints
+    (``measured_cut``). A statement that cannot be filled truthfully refuses
+    the run, as a card's did (A25 refined)."""
+    for sf in plan.get("shortfalls") or []:
+        if not isinstance(sf, dict) or sf.get("what") not in values:
+            continue
+        st = sf.get("statement") or POL.shortfall_statement(sf)
+        try:
+            sf["filled"] = POL.fill_placeholders(st, values) if st else None
+        except (POL.FillError, KeyError, TypeError, ValueError) as e:
+            journal.lint("shortfall-fill", False, stage="assembly", phase="preflight", grammar="6.5, A3, A25, A56",
+                         unit=f"shortfall:{sf['what']}", evidence={"values": values, "statement": st, "why": str(e)})
+            raise Refused(f"shortfall-fill (A56): the {sf['what']} statement: {e}") from None
+        sf["measured_cut"] = values[sf["what"]]["share"]
+        journal.lint("shortfall-fill", True, stage="assembly", phase="preflight", grammar="6.5, A25, A56",
+                     unit=f"shortfall:{sf['what']}", evidence={"values": values[sf["what"]], "statement": sf["filled"]})
+        journal.decision("assembly", f"shortfall {sf['what']} stated in the sources data: {sf['filled']}",
+                         "A56: a shortfall is stated in the sources data with the film's own measurement, never in the frame",
+                         unit=f"shortfall:{sf['what']}", evidence={"values": values[sf["what"]], "statement": sf["filled"]})
+
+
 def fill_cards(plan: dict, values: dict, journal: Journal) -> list[str]:
     """A25 refined: fill every placeholder in the cards and the burned
     subtitles from ``values``, before any card is drawn, and journal each
@@ -7012,7 +7089,11 @@ def fill_cards(plan: dict, values: dict, journal: Journal) -> list[str]:
     its floor, women's share with testimony of unstated gender) or that is
     left anywhere drawn (cards, subtitles, lower thirds, overlays) refuses
     the run. Returns the ids of the shots whose text changed."""
-    if not plan_has_placeholders(plan):
+    fill_statements(plan, values, journal)
+    if any(isinstance(sf, dict) and sf.get("filled") for sf in plan.get("shortfalls") or []):
+        plan["card_fills"] = {"values": values, "texts": {}}      # the statements' values, so --sources-only refills them
+    if not (any(POL.has_placeholder(x) for sh in plan["shots"] for x in sh.get("text") or [])
+            or any(POL.has_placeholder(c.get("text")) for c in plan.get("subtitles", []))):
         left = [x["id"] for x in plan.get("lower_thirds", []) + plan.get("overlays", [])
                 if any(POL.has_placeholder(t) for t in (x.get("lines") or [x.get("text")]))]
         if left:
@@ -7037,10 +7118,6 @@ def fill_cards(plan: dict, values: dict, journal: Journal) -> list[str]:
         raise Refused(f"shortfall-fill (A25 refined): {e}") from None
     journal.lint("shortfall-fill", True, stage="assembly", phase="preflight", grammar="6.5, A25",
                  evidence={"values": values, "cards": texts})
-    for sf in plan.get("shortfalls") or []:
-        if isinstance(sf, dict) and sf.get("what") in values:
-            sf["measured_cut"] = values[sf["what"]]["share"]
-            sf["filled"] = texts.get(sf.get("stated_on"))
     plan["card_fills"] = {"values": values, "texts": texts}
     left = [x["id"] for x in plan["shots"] if any(POL.has_placeholder(t) for t in x.get("text") or [])]
     left += [f"subtitle {c.get('ref')}" for c in plan.get("subtitles", []) if POL.has_placeholder(c.get("text"))]
@@ -7628,43 +7705,11 @@ def attribution_card(shots) -> int | None:
 
 
 def mark_key_lints(journal: Journal, plan: dict, *, draft: bool = False) -> list[str]:
-    """mark-key (A31): a film with picture marks shows the key card
-    (``card: mark_key``) after its title card and before the next picture
-    shot ("head"), and again after its last picture shot and before the
-    attribution card ("end"): the first statement card of the credits part
-    (``attribution_card``), else its credits roll; each key card is
-    on screen at least KEY.min_s. Blocking on a final render of an event film
-    (EVENT_FILM_MIN_S or longer, as the floors), a warning on a draft, a check
-    render (--until) or a short piece. Returns the reasons to refuse."""
-    shots = plan["shots"]
-    pics = [i for i, s in enumerate(shots) if s["mark"] in PICTURE_CLASSES]
-    if not pics:
-        return []
-    length = max(float(plan.get("runtime_target_s") or 0.0), float(plan["duration_s"]))
-    binding = not draft and not plan.get("until_s") and length >= EVENT_FILM_MIN_S
-    keys = [i for i, s in enumerate(shots) if s.get("_card") == "mark_key"]
-    title = next((i for i, s in enumerate(shots) if s.get("_card") == "title"), None)
-    after = title if title is not None else -1
-    nxt_pic = next((i for i in pics if i > after), None)
-    head = next((k for k in keys if k > after and (nxt_pic is None or k < nxt_pic)), None)
-    attr = attribution_card(shots)
-    end = next((k for k in keys if k > pics[-1] and (attr is None or k < attr)), None)
-    out = []
-    for unit, k, where in (("mark-key:head", head, "after the title card, before the first picture shot after it"),
-                           ("mark-key:end", end, "after the last picture shot, before the attribution card")):
-        dur = float(shots[k]["_dur"]) if k is not None else None
-        ok = k is not None and dur >= M.KEY["min_s"] - 1e-6
-        journal.lint("mark-key", ok, stage="scout", phase="preflight", unit=unit, severity="block" if binding else "warn",
-                     grammar="A31, BRAND-KIT 12",
-                     evidence={"where": where, "shot": shots[k]["id"] if k is not None else None, "dur_s": dur,
-                               "min_s": M.KEY["min_s"], "title": shots[title]["id"] if title is not None else None,
-                               "key_cards": [shots[i]["id"] for i in keys], "binding": binding,
-                               "fix": None if ok else (
-                                   f"lengthen it to at least {M.KEY['min_s']:g} s" if k is not None else
-                                   f"add a shot {{kind: card, card: mark_key, mark: CARD, text: []}} {where}, 5 s")})
-        if not ok and binding:
-            out.append(f"mark-key ({unit.split(':')[1]}: {where})")
-    return out
+    """A56: the mark key card is retired from films; the About page (and the
+    player's opt-in Marks legend) explains the marks, off the picture. A
+    screenplay that asks for one is refused by meta-text at plan time. Kept so
+    callers (the plan checks) still run; nothing is required."""
+    return []
 
 
 def card_fill_lints(journal: Journal, plan: dict) -> list[str]:
@@ -7774,18 +7819,18 @@ def sound_lints(journal: Journal, plan: dict, mix: np.ndarray, placed: dict, *, 
                                    "why": "declared short, but the film meets its floor: not short"})
             if binding:
                 out.append(f"shortfall-measured ({what}): the film measures {value:g}, at or over its floor {floor:g}: "
-                           f"not short, so {sf.get('stated_on')} may not say it is")
+                           f"not short, so the sources data may not say it is")
         elif sf.get("stated"):
             journal.lint(rule, False, stage="assembly", phase="preflight", severity="review", grammar=grammar,
                          evidence=dict(ev, shares=sh, binding=binding, **extra,
-                                       result=f"short of the floor, stated on {sf['stated_on']} with the film's own "
-                                              f"measurement: a review item for G3"))
+                                       result=f"short of the floor, stated in the sources data with the film's own "
+                                              f"measurement (A56): a review item for G3"))
         else:
             journal.lint(rule, False, stage="assembly", phase="preflight", severity=severity, grammar=grammar,
                          evidence=dict(ev, shares=sh, binding=binding, warning_because=why, **extra,
-                                       why="the declared shortfall's card does not state it (shortfall-stated)"))
+                                       why="the declared shortfall is not stated in the sources data (shortfall-stated)"))
             if binding and severity == "block":
-                out.append(f"{rule}: {ev} (its declared shortfall is not stated on a card)")
+                out.append(f"{rule}: {ev} (its declared shortfall is not stated in the sources data)")
     journal.event("unit", "assembly", "mix", lens="shares", status="info", shares=sh, narration_ceiling=None,
                   note="A17 lifts the 25% narration ceiling; narration is reported, not capped")
     return out
@@ -8325,9 +8370,8 @@ def shot_key(plan: dict, i: int, asset_hash: dict, env_key: dict | None = None) 
         "subtitles": [c for c in plan["subtitles"] if c["start"] < t1 and c["end"] > t0],
         "wm": [plan["wm_start"], plan["card_spans"]],
         "credits": plan["credits"] if s.get("_card") == "credits" else None,
-        "key_classes": plan.get("key_classes") if s.get("_card") == "mark_key" else None,
     }
-    if plan.get("card_fills"):                      # A25 refined: the filled numbers are part of what is drawn
+    if (plan.get("card_fills") or {}).get("texts"):  # A25 refined: filled numbers on a card are drawn (A56: statements are not)
         rec["card_fills"] = plan["card_fills"]["values"]
     return hashlib.sha256(json.dumps(rec, sort_keys=True, default=str).encode()).hexdigest()[:16]
 

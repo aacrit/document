@@ -51,16 +51,12 @@ def test_a_map_renders_the_same_bytes_twice(rendered):
     assert hashlib.sha256(a).hexdigest() == hashlib.sha256(b).hexdigest()
 
 
-def test_the_frame_carries_its_source_line(rendered):
+def test_the_frame_carries_no_source_line_the_record_does(rendered):
+    """A56: the data credit is sources data (the render record and the drawn ledger), never drawn in the frame."""
     img, info = rendered
     assert info["source_line"] == "Data: Natural Earth; fixture-src:p1"
     assert info["source_line"] == maps.ledger_fields(spec())["source_line"]
-    box = [b for b in info["boxes"] if b["kind"] == "source"]
-    assert len(box) == 1 and box[0]["text"] == info["source_line"]
-    x0, y0, x1, y1 = (int(round(v)) for v in box[0]["box"])
-    assert y1 <= 1080 and y0 > 0.93 * 1080, "below the subtitles and lower thirds"
-    region = np.asarray(img)[y0:y1, x0:x1].astype(int)
-    assert region.max() - region.min() > 60, "the source line's glyphs are on the frame"
+    assert not [b for b in info["boxes"] if b["kind"] in ("source", "note")]
 
 
 def test_the_geodata_used_is_recorded_with_its_hash(rendered):
@@ -372,21 +368,12 @@ def test_check_specs_reports_every_violation_and_exits_non_zero(tmp_path):
     assert maps.main(["check-specs", str(tmp_path / "empty")]) == 1
 
 
-def test_the_source_line_zone_carries_no_map_strokes():
-    """Lines and outlines stop short of the source line: the zone is identical with
-    and without every stroked layer."""
-    base = spec()
-    base["frame"] = [0.04, 0.35, 0.68, 1.12]   # push the land down under the source line
-    base["labels"], base["places"] = [], []
-    fills_only = copy.deepcopy(base)
-    fills_only["layers"] = [ly for ly in base["layers"] if ly["style"] in maps.POLY]
-    a, info = maps.render_map(base, GEO)
-    b, _ = maps.render_map(fills_only, GEO)
-    x0, y0, x1, y1 = (int(round(v)) for v in [b_ for b_ in info["boxes"] if b_["kind"] == "source"][0]["box"])
-    za, zb = np.asarray(a)[y0 - 6:1080, max(0, x0 - 6):x1 + 6], np.asarray(b)[y0 - 6:1080, max(0, x0 - 6):x1 + 6]
-    assert np.array_equal(za, zb)
-    # and the strokes are really there, outside the zone
-    assert not np.array_equal(np.asarray(a), np.asarray(b))
+def test_a56_map_text_that_narrates_its_sourcing_is_refused():
+    s = spec()
+    s["labels"] = list(s.get("labels", [])) + [{"text": "Data: Natural Earth", "style": next(iter(maps.LABEL)),
+                                                 "at": [0.0, 0.0]}]
+    with pytest.raises(maps.MapRefused, match="meta-text"):
+        maps.render_map(s, GEO)
 
 
 @pytest.mark.parametrize("where", [

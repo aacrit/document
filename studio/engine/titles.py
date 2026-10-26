@@ -581,8 +581,7 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
         if "AI-GENERATED" in classes(item):
             ai_bits.append("the master marks an AI-GENERATED stretch")
         lint("title-no-ai", not ai_bits, unit=sid, grammar="A40, 2.6, A31",
-             evidence={"problems": ai_bits, "key_line": M.KEY_NO_AI,
-                       "why": "the series titles hold no AI pixel, so the film's mark key keeps its no-AI line"})
+             evidence={"problems": ai_bits, "why": "the series titles hold no AI pixel"})
         # Format: size, frame rate and duration match the delivery, the ledger and the shot
         path = item.get("_path")
         fmt_ok, ev = False, {"file": path}

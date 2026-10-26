@@ -202,13 +202,10 @@ def test_a40_a_clean_dip_needs_no_warning(tmp_path, masters):
     assert passed(j, "title-dip-hold") and not lints(j, "title-dip-hold-review")
 
 
-def test_a40_the_key_keeps_its_no_ai_line_and_shows_the_titles_classes(tmp_path, masters):
+def test_a40_the_titles_hold_no_ai_and_the_plan_draws_no_key(tmp_path, masters):
     plan, j = plan_of(titled_film(tmp_path, masters))
-    assert "AI-GENERATED" not in plan["key_classes"]
-    assert {"DRAWN", "ARCHIVE", "CARD"} <= set(plan["key_classes"])
-    lay = M.mark_key_layout(M.Layout(1920, 1080), M.Fonts(), plan["key_classes"])
-    assert M.KEY_NO_AI in M.mark_key_drawn_text(lay)
-    assert lints(j, "title-no-ai")[0]["evidence"]["key_line"] == M.KEY_NO_AI
+    assert "key_classes" not in plan                         # A56: the mark key card is retired from films
+    assert lints(j, "title-no-ai")[0]["status"] == "pass"
 
 
 def test_a40_the_plan_marks_hand_the_next_shot_the_class_the_master_ends_on(tmp_path, masters):

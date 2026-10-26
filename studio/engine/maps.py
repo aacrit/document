@@ -39,6 +39,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageChops, ImageDraw
 
+from . import disclosure as DS
 from . import motion as M
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -361,6 +362,11 @@ def check_spec(spec: dict) -> None:
             raise MapRefused(f"{spec['id']}{path}: colour literal in a spec")
         if "—" in s:
             raise MapRefused(f"{spec['id']}{path}: em dash in on-screen copy")
+    for where, t in map_frame_texts(spec):           # A56 (meta-text): the frame never narrates its own sourcing
+        hits = DS.meta_text_problems(t, "map")
+        if hits:
+            raise MapRefused(f"{spec['id']}.{where}: {t!r} is meta-text ({hits[0]['pattern']}: {hits[0]['what']}); "
+                             "a map's sourcing lives in the sources data (A56)")
     for where, t in [("title", (spec.get("title") or ""))] + [(f"notes[{i}]", n) for i, n in enumerate(spec.get("notes", []))]:
         if STUDIO_WORDING.search(str(t)):
             raise MapRefused(f"{spec['id']}.{where}: {t!r} names the studio's own files; a frame says what the open "
@@ -451,6 +457,18 @@ def _lint_data_text(spec: dict, views: list) -> None:
         if bad:
             raise MapRefused(f"{spec['id']}.{where}: {t!r} carries {bad} with no citation; a data map's numbers "
                              "come from its data")
+
+
+def map_frame_texts(spec: dict) -> list[tuple[str, str]]:
+    """Every string a map draws in its frame (A56: the notes and the data credit are not drawn): the title when
+    shown, the legend, the figures, and each view's labels and place names."""
+    out = [("title", str(spec.get("title") or ""))] if spec.get("show_title", True) else []
+    out += [(f"legend[{i}]", str(e.get("text", ""))) for i, e in enumerate(spec.get("legend", []))]
+    out += [(f"figures[{i}]", str(f)) for i, f in enumerate(spec.get("figures", []))]
+    for v in spec.get("views") or [spec]:
+        out += [("label", str(lb.get("text", ""))) for lb in v.get("labels", [])]
+        out += [("place", f"{pl.get('label') or pl.get('name', '')} {pl.get('sub', '')}".strip()) for pl in v.get("places", [])]
+    return out
 
 
 def data_source(spec: dict) -> str:
@@ -1642,16 +1660,7 @@ def _draw_panel(cv: Canvas, spec: dict) -> None:
             cv.text((x0, y), ln, "structure", LABEL["figure"][1], "text", halo=False, kind="figure")
             y += desc * 1.3
         y += 0.010 * H * SS
-    if spec.get("notes"):
-        y += 0.012 * H * SS
-    for note in spec.get("notes", []):
-        f = cv.font("structure", SIZES["note"])
-        asc, desc = f.getmetrics()
-        for ln in _wrap(cv, note, "structure", SIZES["note"], maxw):
-            y += asc
-            cv.text((x0, y), ln, "structure", SIZES["note"], "muted", halo=False, kind="note")
-            y += desc * 1.25
-        y += 0.010 * H * SS
+    # A56: a map's notes are sources data (the drawn ledger and sources.json), never drawn in the frame
     if y / SS > PANEL["bottom"] * H:
         raise MapRefused(f"{spec['id']}: the panel runs to {y / SS / H:.2f} of the frame height; at most {PANEL['bottom']}")
 
@@ -1800,12 +1809,14 @@ def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
     pal = palette(tokens)
     cv = Canvas(pal, fonts)
     show_title = spec.get("show_title", True)
-    panel = bool((show_title and spec.get("title")) or spec.get("legend") or spec.get("notes") or spec.get("figures"))
+    panel = bool((show_title and spec.get("title")) or spec.get("legend") or spec.get("figures"))
     frame = tuple(spec.get("frame") or (DEFAULT_FRAME if panel else FULL_FRAME))
     used: dict[str, str] = {}
+    # A56: the data credit ("Data: Natural Earth; GeoNames") is sources data, never drawn: the frame keeps no source
+    # line and no stroke is kept clear for one
     src = source_line(spec)
-    at = source_at(spec)
-    cv.keepout = _source_keepout(cv, src, at)
+    cv.keepout = None
+    source_at(spec)                      # a malformed source_at is still refused (counts.py draws its own line)
     views = spec.get("views")
     if not views:
         proj = Projection(spec["extent"], frame, (W, H))
@@ -1840,11 +1851,6 @@ def render_map(spec: dict, geodata: Path | str, *, fonts: M.Fonts | None = None,
         spec = {**spec, "notes": [n for n in spec.get("notes", []) if n not in terr_notes]}
     if panel:
         _draw_panel(cv, spec)
-    cv.text((at["x"] * W * SS, at["baseline"] * H * SS), src, "structure", SIZES["source"],
-            "muted", halo=True, kind="source")
-    if cv.boxes[-1]["box"][2] > 0.96 * W:
-        raise MapRefused(f"{spec['id']}: the source line is wider than the frame's safe width")
-    source_clear_of_label(spec["id"], cv.boxes[-1], W, H)
     warnings = []
     for b in cv.boxes:
         bx = b["box"]

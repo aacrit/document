@@ -311,73 +311,71 @@ def test_e9_a_film_setting_is_linted_and_names_its_ai_share(film):
     assert ev["evidence"] == {"generated_frames": 0, "frames": plan["frames"]} and ev["grammar"] == "decision 2026-10-10"
 
 
-CARD_R = [CARD_D[0], "The readings and recordings in this film are about {readings_share:pct} of its running time, under "
-                     "{readings_floor:fraction} the grammar asks."]
+def _with_sf(film, shortfalls):
+    """A56: the film declares these shortfalls; they are stated in the sources data, never on a card."""
+    _edit(film, lambda p: p.update(shortfalls=shortfalls))
 
 
-def _with_card_d(film, shortfalls, text=None):
-    """Card D on S7, stating the given shortfalls; by default the full card when women's is among them, else its readings half."""
-    if text is None:
-        text = CARD_D if any(isinstance(x, dict) and x.get("what") == "women" for x in shortfalls) else CARD_R
-    _edit(film, lambda p: (_shot(p, "S7").update(text=text), p.update(shortfalls=shortfalls)))
+SF_READ = {"what": "readings", "measured": 0.16, "floor": 0.20}
+SF_WOMEN = {"what": "women", "measured": 0.12, "floor": 0.30}
+STATE_R = "The readings and recordings are about {readings_share:pct} of the film, under {readings_floor:fraction}."
 
 
-SF_READ = {"what": "readings", "measured": 0.16, "floor": 0.20, "stated_on": "S7"}
-SF_WOMEN = {"what": "women", "measured": 0.12, "floor": 0.30, "stated_on": "S7"}
-
-
-def test_e9_a_shortfall_card_prints_numbers_only_through_placeholders(film):
-    _with_card_d(film, [SF_READ, SF_WOMEN])
-    plan, j = _plan(film, "card-d")
+def test_e9_a56_a_shortfall_is_stated_in_the_sources_data_never_on_a_card(film):
+    _with_sf(film, [SF_READ, SF_WOMEN])
+    plan, j = _plan(film, "sf-data")
     assert [e["status"] for e in lints(j, "shortfall-stated")] == ["pass", "pass"]
     assert all(sf["stated"] for sf in plan["shortfalls"])
-    card = [e for e in lints(j, "shortfall-card") if e["unit"] == "card:S7"][0]
-    assert card["status"] == "pass" and card["evidence"]["placeholders"] == [
-        "{readings_floor:fraction}", "{readings_share:pct}", "{women_share:pct}"]
-    _with_card_d(film, [dict(SF_READ, stated_on="S5")])
-    with pytest.raises(R.Refused, match=r"not a card"):
-        _plan(film, "not-a-card")
-    _with_card_d(film, [dict(SF_READ, floor=0.30)])
+    assert [sf["statement"] for sf in plan["shortfalls"]] == [POL.SHORTFALL_STATEMENT["readings"],
+                                                             POL.SHORTFALL_STATEMENT["women"]]
+    _edit(film, lambda p: (_shot(p, "S7").update(text=CARD_D), p.update(shortfalls=[dict(SF_READ, stated_on="S7")])))
+    with pytest.raises(R.Refused, match=r"shortfall-stated \(shortfall:readings\).*stated in the sources data, never in the frame"):
+        _plan(film, "sf-card")
+    _edit(film, lambda p: (_shot(p, "S7").update(text=["A plain statement."]),
+                           p.update(shortfalls=[dict(SF_READ, stated_on="S5")])))
+    plan, j = _plan(film, "sf-stale")                                              # a stale stated_on: a warning
+    assert lints(j, "shortfall-stated-on")[0]["severity"] == "warn"
+    _with_sf(film, [dict(SF_READ, floor=0.30)])
     with pytest.raises(R.Refused, match=r"is not the film's readings_floor"):
         _plan(film, "wrong-floor")
-    _with_card_d(film, [dict(SF_READ, measured="about a sixth")])
+    _with_sf(film, [dict(SF_READ, measured="about a sixth")])
     with pytest.raises(R.Refused, match=r"measured \(advisory\) must be a share"):
         _plan(film, "measured-not-a-share")
-    _with_card_d(film, [{k: v for k, v in SF_READ.items() if k != "measured"}])
+    _with_sf(film, [{k: v for k, v in SF_READ.items() if k != "measured"}])
     _plan(film, "measured-advisory")                                               # measured may be left out: the cut decides
 
 
 @pytest.mark.parametrize("words", ["thirty", "two sixths", "30\uff05", "0.30", "one sixth", "twenty-one percent", "a fifth",
                                    "half of them", "per cent", "\u00bd", "a dozen voices", "\u0663\u0660 percent"])
 def test_e9_a_number_outside_a_placeholder_is_refused(film, words):
-    _with_card_d(film, [SF_READ], [CARD_D[0], "The readings are {readings_share:pct} of the film, " + words + "."])
-    with pytest.raises(R.Refused, match=r"shortfall-card \(card:S7\).*numbers outside a placeholder"):
+    _with_sf(film, [dict(SF_READ, statement="The readings are {readings_share:pct} of the film, " + words + ".")])
+    with pytest.raises(R.Refused, match=r"shortfall-stated \(shortfall:readings\).*numbers outside a placeholder"):
         _plan(film, "stray")
 
 
-def test_e9_the_cards_own_share_is_required_and_placeholders_stay_on_their_card(film):
-    _with_card_d(film, [SF_READ, SF_WOMEN], [CARD_D[0], "The readings are {readings_share:pct}, under {readings_floor:fraction}."])
-    with pytest.raises(R.Refused, match=r"shortfall-stated \(shortfall:women\).*does not print \{women_share\}"):
+def test_e9_the_statements_own_share_is_required_and_no_placeholder_is_drawn(film):
+    _with_sf(film, [dict(SF_WOMEN, statement="Women are under {women_floor:fraction}.")])
+    with pytest.raises(R.Refused, match=r"shortfall-stated \(shortfall:women\).*no \{<what>_share\} for women"):
         _plan(film, "no-women-share")
-    _with_card_d(film, [SF_READ], [CARD_D[0], "The readings are {readings_share:pct}; women {women_share:pct}."])
-    with pytest.raises(R.Refused, match=r"placeholders for women, which no shortfall stated on this card declares"):
+    _with_sf(film, [dict(SF_READ, statement="The readings are {readings_share:pct}; women {women_share:pct}.")])
+    with pytest.raises(R.Refused, match=r"placeholders for women"):
         _plan(film, "undeclared-placeholder")
-    _with_card_d(film, [SF_READ], [CARD_D[0], "The readings are {readings_count} of {readings_share:pct}."])
+    _with_sf(film, [dict(SF_READ, statement="The readings are {readings_count} of {readings_share:pct}.")])
     with pytest.raises(R.Refused, match=r"unknown placeholders"):
         _plan(film, "unknown-placeholder")
-    _with_card_d(film, [SF_READ])
+    _with_sf(film, [SF_READ])
     _edit(film, lambda p: p["parts"][1]["text"].append({"id": "T9", "kind": "overlay", "start_s": 15.5, "end_s": 16.0,
                                                         "lines": ["{readings_share:pct}"]}))
     with pytest.raises(R.Refused, match=r"shortfall-card \(text:T9\)"):            # it would be drawn as written
         _plan(film, "placeholder-elsewhere")
 
 
-def test_e9_a_subtitle_shown_with_the_card_obeys_the_card(film):
-    _with_card_d(film, [SF_READ])
+def test_e9_a_subtitle_never_carries_a_placeholder(film):
+    _with_sf(film, [SF_READ])
     _edit(film, lambda p: p["subtitle_source"].append({"ref": "S7", "start_s": 17.75, "end_s": 20.2,
-                                                       "en": "Readings are thirty percent of the film."}))
-    with pytest.raises(R.Refused, match=r"shortfall-card \(subtitle:S7\).*numbers outside a placeholder"):
-        _plan(film, "subtitle-stray")
+                                                       "en": "Readings are {readings_share:pct} of the film."}))
+    with pytest.raises(R.Refused, match=r"shortfall-card \(subtitle:S7\)"):
+        _plan(film, "subtitle-placeholder")
 
 
 def test_e9_the_formatter_table():
@@ -394,27 +392,22 @@ def test_e9_the_formatter_table():
         "asks, and a woman's voice carries only 11 percent of them. The film says so rather than invent.")
 
 
-def test_e9_the_card_is_filled_from_the_cut_and_sources_json_carries_it(film):
-    _with_card_d(film, [SF_READ, SF_WOMEN])
-    _edit(film, lambda p: p["subtitle_source"].append({"ref": "S7", "start_s": 17.75, "end_s": 20.2, "en": CARD_D[1]}))
+def test_e9_the_statement_is_filled_from_the_cut_and_sources_json_carries_it(film):
+    _with_sf(film, [dict(SF_READ, statement=STATE_R), SF_WOMEN])
     plan, j = _plan(film, "fill")
     plan = _event(plan, speakers=SPEAKERS)
     values = R.shortfall_values(plan, _placed(0.135, women_s=30.0))
     assert values["women"]["share"] == pytest.approx(30 / 135, abs=1e-3) and values["readings"]["floor"] == 0.2
     changed = R.fill_cards(plan, values, j)
-    s7 = next(s for s in plan["shots"] if s["id"] == "S7")
-    assert changed == ["S7"] and "about 13 percent of its running time" in s7["text"][1] and "22 percent" in s7["text"][1]
-    assert any("S7 filled from the cut" in e.get("what", "") for e in J.read(j.path) if e["kind"] == "decision")
+    assert changed == []                                                           # no card changes: nothing in the frame
+    sf = {x["what"]: x for x in plan["shortfalls"]}
+    assert sf["readings"]["filled"] == "The readings and recordings are about 13 percent of the film, under a fifth."
+    assert "22 percent" in sf["women"]["filled"] and "{" not in sf["women"]["filled"]
+    assert any("stated in the sources data" in e.get("what", "") for e in J.read(j.path) if e["kind"] == "decision")
     doc = R.sources_doc(plan, j, {})
-    assert next(s for s in doc["shots"] if s["id"] == "S7")["text"] == s7["text"]
-    assert doc["card_fills"]["texts"]["S7"] == s7["text"] and doc["card_fills"]["values"] == values
-    assert next(sf for sf in doc["shortfalls"] if sf["what"] == "readings")["measured_cut"] == values["readings"]["share"]
-    # the captions take the same values; with none, a placeholder is refused, never published as written
-    from studio.engine import captions as C
-    vtt = C.captions(film / "screenplay.json", fills=values)
-    assert "13 percent" in vtt and "{" not in vtt
-    with pytest.raises(C.CaptionError, match="placeholder"):
-        C.captions(film / "screenplay.json")
+    assert next(x for x in doc["shortfalls"] if x["what"] == "readings")["filled"] == sf["readings"]["filled"]
+    assert doc["card_fills"]["values"] == values
+    assert next(x for x in doc["shortfalls"] if x["what"] == "readings")["measured_cut"] == values["readings"]["share"]
 
 
 def _event(plan, **kw):
@@ -438,22 +431,22 @@ MIX = np.full(48000, 1e-3, np.float32)
 
 
 def test_e9_a_stated_shortfall_becomes_a_review_item_and_an_unstated_one_refuses(film):
-    _with_card_d(film, [SF_READ])
+    _with_sf(film, [SF_READ])
     plan, _ = _plan(film, "sf-plan")
     event = _event(plan)
     j = J.Journal(film="sf-stated")
     assert R.sound_lints(j, event, MIX, _placed(0.10)) == []                     # whatever the cut measures, the card prints it
     rf = lints(j, "readings-floor")[0]
-    assert rf["status"] == "review" and rf["severity"] == "review" and "stated on S7" in rf["evidence"]["result"]
+    assert rf["status"] == "review" and rf["severity"] == "review" and "stated in the sources data" in rf["evidence"]["result"]
     out = R.sound_lints(J.Journal(film="sf-unstated"), _event(plan, shortfalls=[]), MIX, _placed(0.16))
     assert any(o.startswith("readings-floor") and "'min': 0.2" in o for o in out)
     out = R.sound_lints(J.Journal(film="sf-unstated-card"), _event(plan, shortfalls=[dict(SF_READ, stated=False)]), MIX,
                         _placed(0.16))
-    assert any("not stated on a card" in o for o in out)
+    assert any("not stated in the sources data" in o for o in out)
 
 
 def test_e9_a_film_that_meets_its_floor_is_refused_a_shortfall(film):
-    _with_card_d(film, [SF_READ])
+    _with_sf(film, [SF_READ])
     plan, _ = _plan(film, "sf-met-plan")
     j = J.Journal(film="sf-met")
     out = R.sound_lints(j, _event(plan), MIX, _placed(0.25))
@@ -506,7 +499,7 @@ ARCH_LINE = {"id": "A1", "kind": "testimony", "speaker": "sp-reel", "year": 2026
              "in_s": 1.0, "out_s": 2.5, "start_s": 17.5, "text": ARCH_TEXT, "source": "FX-REEL",
              "transcript_source": "fixture transcript (transcripts/fx-reel.txt)"}
 ARCH_LT = {"id": "T3", "kind": "lower_third", "start_s": 17.5, "end_s": 19.0,
-           "lines": ["Fixture reel, original narration", "Test reel, 2026", "Fixture reel, studio test folder  ·  original recording"]}
+           "lines": ["Fixture reel, original narration", "Test reel, 2026"]}
 
 
 def _archival(film, line=None, lt=None, cue=None):
@@ -530,7 +523,7 @@ def test_e11_an_archival_span_line_passes_its_lints(film):
     a1 = next(r for r in doc["readings"] if r["id"] == "A1")
     assert (a1["mark"], a1["credit"], a1["dur_s"], a1["clip"]) == ("ARCHIVE", "original recording", 1.5, "FX-REEL")
     rec = dict(plan["credits"])["Recordings"]
-    assert rec and rec[0].startswith("Fixture reel, original narration: original recording")
+    assert rec and rec[0].startswith("Fixture reel, original narration, ")
     assert "Read by a computer voice. No recording of Fixture reel" not in " ".join(dict(plan["credits"]).get("Readings", []))
 
 
@@ -539,7 +532,7 @@ def test_e11_an_archival_span_line_passes_its_lints(film):
     ({"cue": {"en": "The reel speaks, in its own words."}}, "archival-subtitles"),
     ({"lt": {"lines": ["Fixture reel", "Test reel, 2026", "Fixture reel  ·  read by a computer voice"]}}, "archival-lower-third"),
     ({"line": {"out_s": 99.0}}, "archival-span"),
-    ({"lt": {"lines": ["Someone else", "Test reel, 2026", "Fixture reel, studio test folder  ·  original recording"]}},
+    ({"lt": {"lines": ["Someone else", "Test reel, 2026"]}},
      "archival-lower-third"),
     ({"lt": {"lines": ["Fixture reel, original narration", "Test reel, 2026", "National Library of Medicine  ·  original recording"]}},
      "archival-lower-third"),
@@ -668,12 +661,13 @@ def test_e11_a_cached_span_whose_bytes_changed_is_cut_again(film):
 
 def test_e9_a_render_fills_the_card_after_the_mix_and_keys_it_filled(film, tmp_path):
     """--audio-only runs the pre-flight, the mix, the fill and the deferred segment key, and draws no frame."""
-    _with_card_d(film, [SF_READ])
+    _with_sf(film, [SF_READ])
     summary = R.render(film, tmp_path / "out", height=360, workers=1, min_free_gb=1, audio_only=True)
     evs = J.read(summary["journal"])
-    filled = [e for e in evs if e["kind"] == "decision" and e.get("unit") == "S7" and "filled from the cut" in e.get("what", "")]
-    assert filled and "{" not in filled[0]["what"] and "percent of its running time" in filled[0]["what"]
-    assert filled[0]["evidence"]["values"]["readings"]["floor"] == 0.2
+    filled = [e for e in evs if e["kind"] == "decision" and e.get("unit") == "shortfall:readings"
+              and "stated in the sources data" in e.get("what", "")]
+    assert filled and "{" not in filled[0]["what"] and "percent of the film's running time" in filled[0]["what"]
+    assert filled[0]["evidence"]["values"]["floor"] == 0.2
     assert not [e for e in evs if e["kind"] == "error"]
 
 
@@ -786,30 +780,28 @@ def test_review_the_fill_refuses_a_share_printed_as_its_floor(monkeypatch):
 
 
 def test_review_womens_share_is_refused_when_any_gender_is_unstated(film):
-    _with_card_d(film, [SF_READ, SF_WOMEN])
+    _with_sf(film, [SF_READ, dict(SF_WOMEN, statement="Women carry {women_share:pct} of the readings.")])
     plan, j = _plan(film, "unknown-gender")
     plan = _event(plan, speakers={"sp-m": {"name": "M", "side": "usa"}})          # no gender stated for sp-m
     values = R.shortfall_values(plan, _placed(0.135, women_s=30.0))
     assert values["women"]["unknown_s"] > 0
     with pytest.raises(R.Refused, match=r"shortfall-fill.*no stated gender"):
         R.fill_cards(plan, values, j)
-    assert lints(j, "shortfall-fill")[0]["status"] == "fail"
+    assert [e["status"] for e in lints(j, "shortfall-fill")][-1] == "fail"
 
 
-def test_review_every_shot_is_keyed_with_the_filled_values(film):
-    _with_card_d(film, [SF_READ])
+def test_review_a56_filling_the_statements_never_changes_a_shot_key(film):
+    _with_sf(film, [SF_READ])
     plan_a, j = _plan(film, "key-a")
     plan_b, _ = _plan(film, "key-b")
-    assert R.plan_has_placeholders(plan_a)
+    assert R.plan_has_placeholders(plan_a)                                         # the statement's
     va = {"readings": {"share": 0.11, "floor": 0.2}, "voiceless": {"share": 0.5, "floor": 0.1},
           "women": {"share": 0.0, "floor": 0.3, "unknown_s": 0}}
     vb = dict(va, readings={"share": 0.12, "floor": 0.2})
     R.fill_cards(plan_a, va, j)
     R.fill_cards(plan_b, vb, j)
     n = len(plan_a["shots"])
-    ka = [R.shot_key(plan_a, i, {}, None) for i in range(n)]
-    kb = [R.shot_key(plan_b, i, {}, None) for i in range(n)]
-    assert all(a != b for a, b in zip(ka, kb))                                     # S8 too, whose prev is the card
+    assert [R.shot_key(plan_a, i, {}, None) for i in range(n)] == [R.shot_key(plan_b, i, {}, None) for i in range(n)]
 
 
 def test_review_card_fills_only_when_something_was_filled(film):
@@ -822,19 +814,17 @@ def test_review_card_fills_only_when_something_was_filled(film):
     {"id": "T9", "kind": "lower_third", "start_s": 18.0, "end_s": 19.0, "lines": ["Fixture", "{readings_share:pct}"]},
     {"id": "T9", "kind": "overlay", "start_s": 18.0, "end_s": 19.0, "lines": ["{readings_share:pct}"]},
 ])
-def test_review_a_placeholder_only_on_the_card_and_its_subtitles(film, element):
-    _with_card_d(film, [SF_READ])
+def test_review_a56_no_placeholder_anywhere_in_the_frame(film, element):
+    _with_sf(film, [SF_READ])
     _edit(film, lambda p: p["parts"][1]["text"].append(element))
-    with pytest.raises(R.Refused, match=r"shortfall-card \(text:T9\).*only in a shortfall card's own text"):
+    with pytest.raises(R.Refused, match=r"shortfall-card \(text:T9\).*printed as written"):
         _plan(film, "placeholder-near-card")
-    _edit(film, lambda p: (p["parts"][1]["text"].pop(), p["subtitle_source"].append(
-        {"ref": "S7", "start_s": 18.0, "end_s": 20.0, "en": "Readings are {readings_share:pct} of the film."})))
-    _plan(film, "subtitle-placeholder")                                          # a subtitle cue of the card may carry one
 
 
 def test_review_a_null_time_is_a_lint_failure_not_a_crash(film):
-    _with_card_d(film, [SF_READ])
-    _edit(film, lambda p: p["subtitle_source"].append({"ref": "S7", "start_s": None, "end_s": 20.0, "en": "Readings."}))
+    _with_sf(film, [SF_READ])
+    _edit(film, lambda p: p["subtitle_source"].append({"ref": "S7", "start_s": None, "end_s": 20.0,
+                                                       "en": "Readings {readings_share:pct}."}))
     with pytest.raises(R.Refused, match=r"shortfall-card \(subtitle:S7\).*must be numbers"):
         _plan(film, "null-time")
 
@@ -849,7 +839,7 @@ def _master(out: Path, frames: int) -> Path:
 
 
 def test_review_sources_only_refills_only_from_this_masters_full_render(film, tmp_path):
-    _with_card_d(film, [SF_READ])
+    _with_sf(film, [SF_READ])
     plan, _ = _plan(film, "so-plan")
     out = tmp_path / "out"
     master = _master(out, plan["frames"])
@@ -863,7 +853,7 @@ def test_review_sources_only_refills_only_from_this_masters_full_render(film, tm
     prev(good)
     R.sources_only(film, out)
     doc = json.loads((out / "sources.json").read_text(encoding="utf-8"))
-    assert "about 11 percent" in " ".join(next(s for s in doc["shots"] if s["id"] == "S7")["text"])
+    assert "are 11 percent" in next(x for x in doc["shortfalls"] if x["what"] == "readings")["filled"]
     stale = {"master_sha256": R.sha256_file(master)}
     for bad, why in ((dict(good, master_sha256="0" * 64), "another master"), (dict(good, partial=True), "partial render"),
                      (dict(good, card_fills={"values": {"readings": {"share": "x"}}}), "malformed"),
@@ -900,17 +890,18 @@ def test_final_card_values_carry_womens_unknown_seconds():
 
 def test_final_the_captions_check_the_fills_provenance(film, tmp_path):
     from studio.engine import captions as C
-    _with_card_d(film, [SF_READ])
-    _edit(film, lambda p: p["subtitle_source"].append({"ref": "S7", "start_s": 17.75, "end_s": 20.2, "en": CARD_R[1]}))
+    _with_sf(film, [SF_READ])
     plan, _ = _plan(film, "cap-prov")
     out = tmp_path / "out"
     master = _master(out, plan["frames"])
+    # the plan refuses a placeholder in a subtitle (A56); the captions' own check still guards one written in later
+    _edit(film, lambda p: p["subtitle_source"].append({"ref": "S7", "start_s": 17.75, "end_s": 20.2, "en": STATE_R}))
     shutil.copy(film / "screenplay.json", out / "screenplay.json")
     values = {"readings": {"share": 0.11, "floor": 0.2}, "voiceless": {"share": 0.5, "floor": 0.1},
               "women": {"share": 0.0, "floor": 0.3, "unknown_s": 0}}
     good = {"master": "master.mp4", "master_sha256": R.sha256_file(master), "card_fills": {"values": values, "texts": {}}}
     (out / "sources.json").write_text(json.dumps(good), encoding="utf-8")
-    assert "11 percent" in C.captions(out)
+    assert "11 percent" in " ".join(C.captions(out).split())                      # the cue wraps between 11 and percent
     for bad, why in ((dict(good, master_sha256="0" * 64), "another master"), (dict(good, partial=True), "partial render"),
                      (dict(good, card_fills={"values": {"women": {}}}), "malformed")):
         (out / "sources.json").write_text(json.dumps(bad), encoding="utf-8")
@@ -984,7 +975,7 @@ def test_e15_a_source_that_names_its_speaker_on_screen_needs_no_lower_third(film
     assert lints(j, "archival-lower-third")[0]["evidence"]["named_on_screen_by_the_source"] is True
     # (b): still named where the record names every voice
     assert any(r["id"] == "A1" and r["name"] == REEL_NAME for r in R.sources_doc(plan, j, {})["readings"])
-    assert dict(plan["credits"])["Recordings"][0].startswith(f"{REEL_NAME}: original recording")
+    assert dict(plan["credits"])["Recordings"][0].startswith(f"{REEL_NAME}, ")
 
 
 def test_e15_the_ledger_must_list_the_speaker_the_source_names(film):
@@ -1036,20 +1027,22 @@ def test_e15_two_speakers_from_one_clip_are_both_credited(film):
     _reel_names(film, speakers_on_screen=[_on("Second voice")])
     plan, _ = _plan(film, "two-voices")
     rec = dict(plan["credits"])["Recordings"]
-    heads = [r.split(": original recording")[0] for r in rec if ": original recording" in r]
+    heads = [n for n in (REEL_NAME, "Second voice") if any(r.startswith(n + ",") for r in rec)]
     assert heads == [REEL_NAME, "Second voice"]                                 # one clip, two voices, two credits
+    assert not any("original recording" in r for r in rec)                       # A56: the note is sources data
 
 
 def test_e15_a_filled_card_is_drawn_whole_or_refused(film, monkeypatch):
-    _with_card_d(film, [SF_READ, SF_WOMEN])
+    """A56: no card carries a placeholder past the plan, but the post-fill layout check still guards a filled card."""
     plan, j = _plan(film, "fill-drawn")
-    plan = _event(plan, speakers=SPEAKERS)
-    R.fill_cards(plan, R.shortfall_values(plan, _placed(0.135, women_s=30.0)), j)
+    s7 = next(s for s in plan["shots"] if s["id"] == "S7")
+    s7["text"] = ["The fixture's statement card.", "About 13 percent of it."]
+    plan["card_fills"] = {"values": {}, "texts": {"S7": s7["text"]}}
     assert R.card_fill_lints(j, plan) == []
     assert [e["status"] for e in lints(j, "card-fills-drawn")] == ["pass"]
     real = R.M.card_layout
     monkeypatch.setattr(R.M, "card_layout", lambda *a, **k: dict(real(*a, **k), elements=real(*a, **k)["elements"][:1]))
-    out = R.card_fill_lints(J.Journal(film="fill-cut"), plan)                 # the G2 card drew two of card D's three
+    out = R.card_fill_lints(J.Journal(film="fill-cut"), plan)
     assert out and out[0].startswith("card-fills-drawn (S7)")
 
 
@@ -1077,15 +1070,14 @@ def test_a3_refined_the_unsigned_are_measured_apart_as_seconds_and_as_voices(fil
 
 
 def test_a3_refined_a_card_that_prints_the_unsigned_apart_fills(film):
-    _with_card_d(film, [SF_WOMEN], text=[CARD_D[0], "Of {women_speakers} voices in this film, {women_speakers_f} is a "
-                                                   "woman, {women_speakers_m} are men, {women_speakers_unsigned} are unsigned."])
+    _with_sf(film, [dict(SF_WOMEN, statement="Of {women_speakers} voices in this film, {women_speakers_f} is a "
+                                             "woman, {women_speakers_m} are men, {women_speakers_unsigned} are unsigned.")])
     plan, j = _plan(film, "unsigned-card")
-    assert not [e for e in lints(j, "shortfall-card") if e["status"] == "fail"]
+    assert [e["status"] for e in lints(j, "shortfall-stated")] == ["pass"]
     plan = _event(plan, speakers={"sp-m": {"name": "M", "side": "usa"}, "sp-f": {"name": "F", "side": "uk", "gender": "f"}})
     values = R.shortfall_values(plan, _placed(0.135, women_s=30.0))
     R.fill_cards(plan, values, j)
-    s7 = next(s for s in plan["shots"] if s["id"] == "S7")
-    assert s7["text"][1] == "Of 2 voices in this film, 1 is a woman, 0 are men, 1 are unsigned."
+    assert plan["shortfalls"][0]["filled"] == "Of 2 voices in this film, 1 is a woman, 0 are men, 1 are unsigned."
     assert lints(j, "shortfall-fill")[-1]["status"] == "pass"
 
 
