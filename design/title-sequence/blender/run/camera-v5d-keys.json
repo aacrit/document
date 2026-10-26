@@ -121,6 +121,209 @@
   },
   "rack_limit": "the marble may be soft only while its blur diameter <= 0.5 of its own image diameter (measured here: <= 0.33), its image >= 90 px, on a straight, at <= 0.30 m/s, never through a step or a bank; a rack lasts <= 0.5 s out, <= 0.5 s hold, <= 0.4 s back"
  },
+ "beats": [
+  {
+   "id": "B0",
+   "frames": [
+    0,
+    90
+   ],
+   "reads": [
+    "the whole run and every artifact, the lamp's pool; the latch releases"
+   ],
+   "move": "the opening wide from 1.6 m, descending obliquely to the lead"
+  },
+  {
+   "id": "B1",
+   "frames": [
+    90,
+    104
+   ],
+   "reads": [
+    "Umma tablet (-2047)",
+    "dupondius (-30)",
+    "papyrus (-1150)"
+   ],
+   "move": "lead: the camera ahead on the near side, retreating at the marble's speed, looking back"
+  },
+  {
+   "id": "B2",
+   "frames": [
+    104,
+    118
+   ],
+   "reads": [
+    "papyrus",
+    "sestertius (~107) in the foreground"
+   ],
+   "move": "lead, continuing"
+  },
+  {
+   "id": "B3",
+   "frames": [
+    118,
+    176
+   ],
+   "reads": [
+    "Catalan Atlas (1375) entering behind the marble"
+   ],
+   "move": "the park: the camera stops on the near side by the Atlas; the marble approaches, the frame turns with it"
+  },
+  {
+   "id": "B4",
+   "frames": [
+    176,
+    206
+   ],
+   "reads": [
+    "Atlas board, its painted coast"
+   ],
+   "move": "rack focus on leather L3 (170-188): marble sharp to 184, onto the Atlas by 190, held to 198, back by 206"
+  },
+  {
+   "id": "B5",
+   "frames": [
+    206,
+    305
+   ],
+   "reads": [
+    "Atlas inside the loop",
+    "jeton (1450) on its corner",
+    "the bank itself"
+   ],
+   "move": "crane-up to the +x corner (3.06, -0.14, 0.55), then parked: the turn-1 breath"
+  },
+  {
+   "id": "B5b",
+   "frames": [
+    305,
+    374
+   ],
+   "reads": [
+    "jeton on the Atlas corner, beside the groove (352-385)"
+   ],
+   "move": "traverse along the table's end to the far side of reach 2, descending behind the marble"
+  },
+  {
+   "id": "B6",
+   "frames": [
+    374,
+    428
+   ],
+   "reads": [
+    "brass galley",
+    "Gutenberg leaf (1455)"
+   ],
+   "move": "far-side follow (over band B), looking steeply down into band A; the marble in the lower frame"
+  },
+  {
+   "id": "B7",
+   "frames": [
+    428,
+    460
+   ],
+   "reads": [
+    "Gutenberg leaf, its type"
+   ],
+   "move": "rack focus on leather L4 (428-456): marble to 433, onto the leaf by 441, held to 452, back by 460"
+  },
+  {
+   "id": "B8",
+   "frames": [
+    460,
+    500
+   ],
+   "reads": [
+    "leaf leaving left",
+    "Piri Reis open edge entering right"
+   ],
+   "move": "the crossing: the camera passes behind the marble over step 1 (475), from the far side to the near side"
+  },
+  {
+   "id": "B9",
+   "frames": [
+    500,
+    530
+   ],
+   "reads": [
+    "Piri Reis (1513), its coast",
+    "nested weights standing on its roll"
+   ],
+   "move": "near-side low follow; rack focus on leather L5 (493-516): onto Piri by 514, held to 522, back by 530"
+  },
+  {
+   "id": "B10",
+   "frames": [
+    530,
+    656
+   ],
+   "reads": [
+    "Doppelmayr globe (1728), whole",
+    "the bank",
+    "the weights (1750) in the foreground at the exit"
+   ],
+   "move": "turn-2 breath from inside the bank, low (1.60, 0.96-1.16, 0.26), nearly parked; the frame pans with the marble"
+  },
+  {
+   "id": "B11",
+   "frames": [
+    656,
+    767
+   ],
+   "reads": [
+    "nested weights (1750) beside the marble",
+    "the globe behind",
+    "Piri's roll as the paper under the weights"
+   ],
+   "move": "the camera crosses the groove 0.6 m ahead of the marble to the wall side, then leads it looking back; rack focus on leather L6 (729-763): onto the weights by 745, held to 757, back by 767"
+  },
+  {
+   "id": "B12",
+   "frames": [
+    767,
+    841
+   ],
+   "reads": [
+    "Ino's sheet (1821), its survey"
+   ],
+   "move": "the pass on the wall side: the marble rolls by the parked camera, the frame turns onto the Ino ahead; rack focus on leather L7 (799-839): onto the Ino by 815, held to 830, back by 841"
+  },
+  {
+   "id": "B13",
+   "frames": [
+    841,
+    885
+   ],
+   "reads": [
+    "Admiralty chart 983 (1931) entering ahead",
+    "the Ino leaving"
+   ],
+   "move": "wall-side follow from behind-left, the marble sharp through the slowest point (860) and step 2 (863)"
+  },
+  {
+   "id": "B14",
+   "frames": [
+    885,
+    926
+   ],
+   "reads": [
+    "Admiralty chart 983, its soundings",
+    "the well's edge at the frame's left from 885"
+   ],
+   "move": "abeam-behind from the wall side, deep stop; the marble at the frame's left so the frame extends over the chart"
+  },
+  {
+   "id": "B15",
+   "frames": [
+    927,
+    1090
+   ],
+   "reads": [
+    "the film's record on the felt"
+   ],
+   "move": "the ending as v5c: the pose blends from the frame-926 camera to record_pose(rec) by 1061 (up from +z to +y), held to 1090; hard cut to the lockup"
+  }
+ ],
  "keys": [
   {
    "f": 0,
