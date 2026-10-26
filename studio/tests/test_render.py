@@ -76,7 +76,7 @@ def test_every_lint_t1_enforces_ran_and_passed(rendered):
     evs = events(rendered)
     for rule in ("mark-coverage", "ai-generated-share-zero", "still-first-frame-whole", "still-first-frame-whole-pixels",
                  "clip-aspect", "dissolve-same-class", "conform-logged", "resampler-plain", "master-format",
-                 "silent-card-form", "lower-third-format", "no-em-dash", "licence-allowlist", "no-bodies",
+                 "meta-text", "lower-third-format", "no-em-dash", "licence-allowlist", "no-bodies",
                  "still-zoom-limit", "cross-class-dip", "overlay-format", "clip-hold-rendered", "telecine-declared",
                  "loudnorm-linear", "mark-class-valid", "clip-in-out", "still-hold",
                  "card-fits", "card-drawn", "dip-black-hold", "lower-third-time",
@@ -523,7 +523,7 @@ def test_sources_timeline(rendered, plan):
     assert doc["readings"][0]["gender"] == "f"
     assert doc["readings"][0]["dur_s"] == pytest.approx(1.2, abs=0.01)
     heads = [c["heading"] for c in doc["credits"]]
-    assert heads[0] == "Shots" and "Readings" in heads
+    assert heads[0] == "Shots" and "Readings" not in heads           # A56: the reading disclosure is sources data
 
 
 # --------------------------------------------------------------------------
