@@ -480,3 +480,21 @@ def test_a_hand_drawn_path_along_an_unplaced_line_is_refused():
     maps.render_map(s, GEO)
     s["paths"] = [{"style": "line", "points": [[12.4, 11.6], [14.2, 11.0]], "arrow": True}]   # crossing it is a route
     maps.render_map(s, GEO)
+
+
+@pytest.mark.parametrize("title", [None, ""])
+def test_a_drawn_map_may_have_no_title(title):
+    """A55 (founder, 2026-10-18): a map may carry place labels and no title at all; nothing is
+    drawn in the title's place and the ledger carries no title."""
+    s = spec()
+    if title is None:
+        s.pop("title")
+    else:
+        s["title"] = title
+    maps.check_spec(s)
+    _, info = maps.render_map(s, GEO)
+    assert not [b for b in info["boxes"] if b["kind"] == "title"]
+    assert maps.ledger_fields(s)["title"] is None
+    _, titled = maps.render_map(spec(), GEO)
+    assert [b for b in titled["boxes"] if b["kind"] == "title"], "the titled fixture still draws its title"
+    assert maps.ledger_fields(spec())["title"] == spec()["title"]

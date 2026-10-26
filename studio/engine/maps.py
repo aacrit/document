@@ -346,7 +346,8 @@ STUDIO_WORDING = re.compile(r"\bgeodata\b|\bthe studio's\b", re.I)
 
 
 def check_spec(spec: dict) -> None:
-    for k in ("id", "title", "source_short", "sources"):
+    # A55 (founder, 2026-10-18): a map may have no title; its place labels are its content
+    for k in ("id", "source_short", "sources"):
         if k not in spec:
             raise MapRefused(f"spec lacks {k}")
     if len(spec["source_short"]) > SOURCE_SHORT_MAX:
@@ -524,7 +525,7 @@ def ledger_fields(spec: dict) -> dict:
         note = "contains GeoNames data (CC BY 4.0); " + note
     if by:
         note = f"contains data under CC BY 4.0 ({'; '.join(by)}); " + note
-    return {"title": spec["title"], "data_source": ds, "source_short": spec["source_short"],
+    return {"title": spec.get("title") or None, "data_source": ds, "source_short": spec["source_short"],
             "credit": "void document studio, drawn from " + ds,
             # a canonical id the render engine's licence allowlist recognises; the why goes in licence_note
             "licence": "CC-BY-4.0" if (geo or by) else "CC0",
