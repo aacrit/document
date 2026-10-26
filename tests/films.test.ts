@@ -77,7 +77,7 @@ describe("films.json", () => {
       synopsis:
         "On 11 September 2001, controllers at Boston and New York and the air defence sector tried to understand what was happening in the air. The film keeps to what was known that day, hour by hour: the tapes of the control rooms and the defence sector in the morning, and what was said and reported in public as the day went on. A narrator gives the time, the place and what was reported; the recordings carry the rest.",
       content_note:
-        "It concerns the attacks of 11 September 2001. It plays air traffic and air defence recordings made that day, and shows the towers burning, the second impact, the Pentagon security camera's view of the impact, and the dust after the collapses, in wide views.",
+        "It concerns the attacks of 11 September 2001. It plays air traffic and air defence recordings made that day.",
       shows:
         "This film shows the day as it was broadcast and photographed: the burning towers, the second impact, the Pentagon security camera's view of the impact, and the dust after the collapses, in wide views. It never shows an identifiable person in their final moments; a wide view is never zoomed in, slowed or held on a person; no final call is played; the dead are shown by what the day left empty.",
       legend: { reconstructed: "none in this film", drawn: "from NWS observations, 2001" },

@@ -2,14 +2,14 @@
 // uploads to the film's folder in R2 with --remote and sources.json last, and
 // a dry run is plain data that never runs a command.
 import { describe, expect, it } from "vitest";
-import { BUCKET, MAX_PUT_BYTES, PACKET_ROOT, UPLOAD_ORDER, captionReview, commandLine, gopFrames, rateProblems, videoKbps, webEncodeArgs, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease, readLedgers, posterSource } from "../scripts/release-film.mjs";
+import { BUCKET, MAX_PUT_BYTES, PACKET_ROOT, UPLOAD_ORDER, captionReview, commandLine, uploadsCaptions, gopFrames, rateProblems, videoKbps, webEncodeArgs, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease, readLedgers, posterSource } from "../scripts/release-film.mjs";
 import { mkdtempSync, readFileSync, writeFileSync as wfs, mkdirSync as mkd } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as pjoin } from "node:path";
 
 type Step = { id: string; label: string; exe?: string; args?: string[]; check?: string; tolerate?: RegExp };
 
-const tools = { python: "py", ffmpeg: "ffmpeg", wrangler: { exe: "node", pre: ["wrangler.js"] }, ledgers: { slug: "partition-of-india", ledger: "L.json", media: "stills" }, poster: "stills/S-020.jpg" };
+const tools = { python: "py", ffmpeg: "ffmpeg", wrangler: { exe: "node", pre: ["wrangler.js"] }, ledgers: { slug: "partition-of-india", ledger: "L.json", media: "stills" }, poster: "stills/S-020.jpg", captionsReview: "reviewed" };
 const plan = (argv: string[], durations = { film: 1205, trailer: 120 }) => planRelease(parseArgs(argv), { ...tools, durations }) as { steps: Step[]; files: string[]; slug: string };
 
 describe("release-film", () => {
@@ -145,14 +145,18 @@ describe("release-film", () => {
     const puts = (review: string | null | undefined) =>
       planFor(review).steps.filter((s) => s.args?.includes("put")).map((s) => s.args?.[s.args.indexOf("put") + 1]);
     for (const review of ["reviewed", "in_review"]) expect(puts(review), review).toContain(`${BUCKET}/partition-of-india/captions-en.vtt`);
-    for (const review of ["planned", null]) {
+    for (const review of ["planned", null, undefined]) {
       expect(puts(review), String(review)).toEqual([`${BUCKET}/partition-of-india/film.mp4`, `${BUCKET}/partition-of-india/poster.jpg`, `${BUCKET}/partition-of-india/sources.json`]);
       expect(planFor(review).files.some((f) => /captions/.test(f)), String(review)).toBe(false);
       // publish still writes the track, and the plan still checks it is a WebVTT file with cues.
       expect(planFor(review).steps.some((s) => s.check === "captions")).toBe(true);
     }
-    // A film films.json does not list (undefined): the captions go up as before.
-    expect(puts(undefined)).toContain(`${BUCKET}/partition-of-india/captions-en.vtt`);
+    // undefined is a film films.json does not list: nothing says its captions were read, so none go up.
+    expect(uploadsCaptions(undefined)).toBe(false);
+    expect(uploadsCaptions("reviewed")).toBe(true);
+    expect(uploadsCaptions("in_review")).toBe(true);
+    expect(uploadsCaptions("planned")).toBe(false);
+    expect(uploadsCaptions(null)).toBe(false);
   });
 
   it("reads a film's English caption review from films.json: planned, missing, or the film unlisted", () => {

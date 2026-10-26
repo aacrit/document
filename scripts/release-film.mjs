@@ -61,9 +61,9 @@ export function captionReview(reg, slug) {
  * Whether the release puts captions-en.vtt up. Not while they are only planned, or while no English track is
  * listed: nobody has read them and no page offers them, so nothing unread is published. In review, they go up so
  * the reviewer can check them against the served film; a page offers them only once reviewed. A film films.json
- * does not list keeps the earlier behaviour (undefined: uploaded).
+ * does not list (undefined) uploads none either: nothing says anyone has read them.
  */
-export const uploadsCaptions = (review) => review === undefined || review === "reviewed" || review === "in_review";
+export const uploadsCaptions = (review) => review === "reviewed" || review === "in_review";
 
 // The web encode: 1280x720 at the master's own frame rate (24, or 30000/1001 for a
 // film that masters at video's rate: GRAMMAR A44; never re-timed here), a 2 s GOP,
@@ -355,7 +355,10 @@ function main() {
 
   console.log(`release-film: ${o.dryRun ? "DRY RUN, nothing is run" : "releasing"} ${plan.slug} from ${plan.renderDir}`);
   console.log(`release-film: packet ${plan.out}; upload ${o.upload ? plan.files.join(", ") : "skipped (--no-upload)"}`);
-  if (!uploadsCaptions(captionsReview)) console.log(`release-film: films.json lists ${plan.slug}'s English captions as ${captionsReview ?? "absent"}: captions-en.vtt is written and checked, not uploaded`);
+  if (!uploadsCaptions(captionsReview)) {
+    const why = captionsReview === undefined ? `films.json does not list ${plan.slug}` : captionsReview === null ? `films.json lists no English captions for ${plan.slug}` : `films.json lists ${plan.slug}'s English captions as ${captionsReview}`;
+    console.log(`release-film: ${why}: captions-en.vtt is written and checked, not uploaded`);
+  }
   if (!o.trailer) console.log("release-film: no --trailer: no trailer is declared or uploaded, any earlier one is deleted; the site shows none");
   if (o.dryRun) for (const d of [...new Set([plan.out, plan.renderDir].map((x) => driveOf(x)).filter((x) => x === "D:"))]) console.log(`release-film: a real run first checks: fsutil dirty query ${d}`);
   for (const step of plan.steps) {
