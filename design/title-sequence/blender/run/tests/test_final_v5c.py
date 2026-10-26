@@ -153,3 +153,23 @@ def test_view_settings_say_where_each_frame_came_from_and_never_reconstruct():
     assert all(f["view_transform"] == "AgX" and f["look"] == "None" for f in fr)
     with pytest.raises(ValueError):                                       # a read-back that disagrees is an error
         VS.frames(4, {3}, tail, base, {3: dict(dumps[3], exposure=2.75)})
+
+
+def test_the_view_sidecar_records_or_lists_its_display_defaults_never_not_recorded():
+    # the engine (studio.engine.viewxf, A40) refuses a sidecar that neither records display_device, gamma and
+    # use_curve_mapping nor lists them in defaults_assumed with a defaults_basis (the PR #77 review)
+    import pytest
+    import view_settings_v5c as VS
+    doc = {"master": "m.mov", "master_sha256": "0" * 64,
+           "frames": [{"frame": 0, "view_transform": "AgX", "look": "None", "exposure": 0.5, "recorded": "keyed"}]}
+    dv = VS.document_view(doc)
+    assert "not_recorded" not in dv
+    assert dv["defaults_assumed"] == ["display_device", "gamma", "use_curve_mapping"] and dv["defaults_basis"].strip()
+    assert not any(k in dv for k in VS.DISPLAY_KEYS)
+    rec = {"display_device": "sRGB", "gamma": 1.0, "use_curve_mapping": False}
+    dv = VS.document_view(doc, VS.display_of([dict(rec, frames=[])], True))
+    assert {k: dv[k] for k in VS.DISPLAY_KEYS} == rec and "defaults_assumed" not in dv
+    assert VS.display_of([dict(rec)], False) is None                 # a render that did not record: assumed
+    assert VS.display_of([{"frames": []}], True) is None
+    with pytest.raises(ValueError):
+        VS.display_of([rec, dict(rec, gamma=1.2)], True)

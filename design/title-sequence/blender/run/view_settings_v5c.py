@@ -87,24 +87,47 @@ def view_sidecar_name(master):
     return Path(master).stem + ".view.json"
 
 
-def document_view(doc):
+DISPLAY_KEYS = ("display_device", "gamma", "use_curve_mapping")
+DEFAULTS_BASIS = ("scene_v5c.py runs Blender 4.4.3 with --factory-startup and never sets the display device, gamma or "
+                  "curve mapping, so each is Blender's factory default (display_device sRGB, gamma 1.0, "
+                  "use_curve_mapping off); not every render that made this master's frames read them back, so they "
+                  "are stated as assumed defaults, not as measured")
+
+
+def display_of(dump_docs, covers_every_frame):
+    """The display device, gamma and curve mapping as Blender read them back, when every render that made the
+    master's frames recorded them (covers_every_frame) and they agree; else None (the sidecar then lists them as
+    defaults_assumed). A read-back that is not Blender's default is returned as it is (the engine then refuses it)."""
+    if not covers_every_frame or not dump_docs or any(any(k not in d for k in DISPLAY_KEYS) for d in dump_docs):
+        return None
+    vals = {tuple(d[k] for k in DISPLAY_KEYS) for d in dump_docs}
+    if len(vals) != 1:
+        raise ValueError(f"the renders read back different display settings: {sorted(vals)}")
+    (v,) = vals
+    return dict(zip(DISPLAY_KEYS, v))
+
+
+def document_view(doc, display=None):
     """view-settings.json in the engine's schema (document.view/1). The transform and look are one value for every
-    frame or this refuses. display_device, gamma and curve mapping were never read back or logged by these renders
-    (scene_v5c.py runs --factory-startup and never sets them), so they are left out and named as not recorded rather
-    than written as if measured; the engine reads their absence as its defaults (sRGB, 1.0, off)."""
+    frame or this refuses. display_device, gamma and curve mapping: the values Blender read back (``display``, from
+    display_of) when every frame's render recorded them; otherwise listed in defaults_assumed with a defaults_basis
+    (the engine accepts Blender's defaults only that way; it refuses a sidecar that neither records nor lists them)."""
     tl = {(f["view_transform"], f["look"]) for f in doc["frames"]}
     if len(tl) != 1:
         raise ValueError(f"more than one view transform or look across the master: {sorted(tl)}")
     (vt, look), = tl
+    shown = ({k: display[k] for k in DISPLAY_KEYS} if display is not None else
+             {"defaults_assumed": list(DISPLAY_KEYS), "defaults_basis": DEFAULTS_BASIS})
     return {"schema": "document.view/1", "renderer": "Blender 4.4.3", "master": doc["master"],
             "master_sha256": doc["master_sha256"], "view_transform": vt, "look": look,
-            "exposure": [f["exposure"] for f in doc["frames"]],
-            "not_recorded": ["display_device", "gamma", "use_curve_mapping"],
+            "exposure": [f["exposure"] for f in doc["frames"]], **shown,
             "recorded": {"exposure": "per frame, see view-settings.json: "
                          f"{sum(1 for f in doc['frames'] if f['recorded'] == 'blender')} read back from Blender, "
                          f"{sum(1 for f in doc['frames'] if f['recorded'] == 'keyed')} as keyed from the render's "
                          "--expo file", "view_transform_look": "read back from Blender on the frames view-settings.json marks "
-                         "'blender'; on 'keyed' frames, what scene_v5c.py settings() sets (AgX, None), not logged"}}
+                         "'blender'; on 'keyed' frames, what scene_v5c.py settings() sets (AgX, None), not logged",
+                         "display": ("read back from Blender by every render that made the master's frames"
+                                     if display is not None else "not read back by every render: defaults_assumed")}}
 
 
 def main(argv=None):

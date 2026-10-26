@@ -29,6 +29,7 @@ import channel_v5c as C  # noqa: E402
 import run_scene as RS  # noqa: E402
 import run_take as RT  # noqa: E402
 import shot_v5c as SH  # noqa: E402
+import shot_v5d as SD  # noqa: E402
 
 SIM = Path("D:/document-media/title-sequence/run/sim/v5c")
 RELIEF = Path("D:/document-media/title-sequence/run/relief")
@@ -38,7 +39,7 @@ def _args():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     a = {"fps": "30000/1001", "res": "2560x1440", "samples": "1024", "threshold": "0.01", "min_samples": "64",
          "frames": "0:0", "step": "1", "out": "", "expo": "", "blur": "1", "blend": "", "exposure": "0.0",
-         "record": "C20-METAR-0851", "rec_spec": "0.0", "exr": "", "vs": ""}
+         "record": "C20-METAR-0851", "rec_spec": "0.0", "exr": "", "vs": "", "cam": "v5c"}
     for i, k in enumerate(argv):
         if k.startswith("--") and i + 1 < len(argv):
             a[k[2:]] = argv[i + 1]
@@ -179,10 +180,12 @@ def flat_sheet(name, rect, z, mat, side_mat=None, thick=0.0002, turn=False, lift
     return _mesh_from_grid(name, P, UV, mat, side_mat, thick)
 
 
-def rolled_sheet(name, it, full_len, mat, side_mat=None, thick=0.0003):
+def rolled_sheet(name, it, full_len, mat, side_mat=None, thick=0.0003, lift=0.0, lift_w=1.0):
     """A large sheet kept partly rolled (plan section 3): flat over its open length from the open edge, then rolled up
     on the oak, the roll's turns spiralling in. The image runs from the open edge into the roll; the visible part is
-    the open length. it['roll'] = {axis: the roll's axis ('x' or 'y'), at: where the flat part ends, r: outer radius}."""
+    the open length. it['roll'] = {axis: the roll's axis ('x' or 'y'), at: where the flat part ends, r: outer radius}.
+    lift: the open edge's corner at w = lift_w (0 or 1 across the width) raised by this much, as flat_sheet's free corner
+    (a sheet unrolled and left, not pinned; v5d L0's Admiralty after the jeton leaves it)."""
     x0, x1, y0, y1 = it["rect"]
     ro = it["roll"]
     R0 = ro["r"]
@@ -213,6 +216,10 @@ def rolled_sheet(name, it, full_len, mat, side_mat=None, thick=0.0003):
         Y = y0 + Wd * (y1 - y0)
         UV = np.stack([np.meshgrid(ell / full_len, w)[0], Wd], -1)
     Z = Zu + thick + 0.0001 + 0.00025 * (0.5 + 0.5 * np.sin(X * 31.0) * np.sin(Y * 23.0))
+    if lift:
+        Lf, _ = np.meshgrid(ell / open_len, w)
+        r = np.hypot(np.clip(0.2 - Lf, 0, None), np.clip(np.abs(Wd - (1.0 - lift_w)) - 0.8, 0, None)) / 0.2
+        Z = Z + lift * np.clip(r, 0, 1) ** 2
     P = np.stack([X, Y, Z], -1)
     return _mesh_from_grid(name, P, UV, mat, side_mat, thick)
 
@@ -411,7 +418,7 @@ def galley(brass, type_metal):
                0.0002)
 
 
-def build():
+def build(layout="v5c"):
     RS.FPS = 30                               # an int for reset(); the exact rate is set just below
     sc = RS.reset(0, 0)
     sc.render.fps, sc.render.fps_base = FPSV
@@ -471,11 +478,21 @@ def build():
     rolled_sheet("T-08 Ino's sheet (partly rolled)", I["ino"], 1.0,
                  RT.m_image_crop("ino", "T-08_sheet", rough=0.75, sheen=0.2, bump=0.12), RT.fibre("ino", margin("ino")),
                  thick=0.0001)
+    L = C.LAYOUTS[layout]
+    # the open corner nearest reach 3 is the y1 side (w = 1): reach 3 runs at y 1.581, the sheet's y1 is 1.553
     rolled_sheet("T-20 Admiralty chart 983 (partly rolled)", I["admiralty"], 1.0,
                  RT.m_image_crop("chart", "T-20_chart", rough=0.75, sheen=0.15, bump=0.1),
-                 RT.fibre("chart", margin("chart")), thick=0.00015)
-    j = I["jeton"]
-    scan_flat(j["scan"], j["dia"], j["at"][0], j["at"][1], 0.0009, spin_deg=10.0)
+                 RT.fibre("chart", margin("chart")), thick=0.00015, lift=L["admiralty_lift"], lift_w=1.0)
+    j = C.items(layout)["jeton"]
+    if L["jeton"]:
+        # on the Atlas board: the folder (12 mm), the board (1.2 mm) and its cockle (at most 0.4 mm over that)
+        jz = I["folder"]["h"] + 0.0012 + 0.0001 + 0.0004
+        job = scan_flat(j["scan"], j["dia"], j["at"][0], j["at"][1], jz, spin_deg=j["spin_deg"])
+        top = jz + float(np.ptp(np.array([v.co[2] for v in job.data.vertices])))
+        print(f"jeton (L0): on the Atlas board at {j['at']}, bottom z {jz:.4f}, top z {top:.4f} "
+              f"(plan {j['z_top']:.4f})")
+    else:
+        scan_flat(j["scan"], j["dia"], j["at"][0], j["at"][1], 0.0009, spin_deg=10.0)
     # the felt in the well and the film's record on it
     wx, wy = C.WELL["x"], C.WELL["y"]
     RS.box("black felt (the well)", (wx[1] - wx[0] - 0.0004, wy[1] - wy[0] - 0.0004, C.WELL["felt_t"]),
@@ -611,9 +628,12 @@ def main():
     bpy.context.preferences.filepaths.temporary_directory = "D:/document-media/title-sequence/run/tmp/"
     rep = json.loads((SIM / "run-timing.json").read_text(encoding="utf-8"))
     bake = json.loads((SIM / "run-bake.json").read_text(encoding="utf-8"))
-    frames = SH.shot(bake, FPS, rep["rest_sim_s"], A["record"])
+    if A["cam"] == "v5d":
+        frames = SD.shot(bake, FPS, rep["rest_sim_s"], A["record"])
+    else:
+        frames = SH.shot(bake, FPS, rep["rest_sim_s"], A["record"])
     expo = json.loads(Path(A["expo"]).read_text(encoding="utf-8"))["ev"] if A["expo"] else None
-    sc, marble = build()
+    sc, marble = build("L0" if A["cam"] == "v5d" else "v5c")
     animate(sc, marble, frames, expo)
     settings(sc)
     if expo is None:
