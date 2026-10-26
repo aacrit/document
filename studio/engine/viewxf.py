@@ -6,22 +6,32 @@ a perfect page through AgX reads 7.9 against its own scan (A7's limit is 6.0) wh
 Standard read 2.9 to 3.9. A title item that declares its ``view_transform`` has A7 pass the SCAN through the same
 transform first, deterministically (no ML), and then compare: the record is still the film's own scan, held whole.
 
-The declaration is bound to the render. The ledger item names the render's sidecar, and the sidecar names the master:
+The ledger item names the render's view sidecar, and the sidecar names the master:
 
-    "view_transform": {"name": "AgX", "look": "None", "sidecar": "the-run-v5c-S-130-2997.view.json"}
+    "view_transform": {"name": "AgX", "look": "None", "sidecar": "the-run-v5c-S-130-2997-sound.view.json"}
 
-The sidecar (``SIDECAR_SCHEMA``), written by the render chain beside the master (tail_v5c.py, next to exposure.json):
+The sidecar (``SIDECAR_SCHEMA``) is written by the render chain after the render, beside the master, and bound to it
+by the master's sha256 (The Run: design/title-sequence/blender/run/view_settings_v5c.py, called from tail_v5c.py):
 
     {"schema": "document.view/1", "renderer": "Blender 4.4.3",
      "master": "<the master's file name>", "master_sha256": "<sha256 of that file>",
-     "display_device": "sRGB", "view_transform": "AgX", "look": "None", "gamma": 1.0, "use_curve_mapping": false,
-     "exposure": [<scene.view_settings.exposure at master frame 0>, <frame 1>, ...]   # or one number for every frame
+     "view_transform": "AgX", "look": "None",
+     "display_device": "sRGB", "gamma": 1.0, "use_curve_mapping": false,    # as recorded, or else listed in:
+     "defaults_assumed": ["display_device", "gamma", "use_curve_mapping"], "defaults_basis": "<why each is the default>",
+     "exposure": [<the view exposure at master frame 0>, <frame 1>, ...]   # or one number for every frame
     }
 
-``exposure`` is the render's own view exposure (``scene.view_settings.exposure``), in stops, per master frame, and
-nothing else: no light on the page, no fit. The ledger may restate ``exposure``; it must then equal the sidecar's on
-every frame A7 samples. A sidecar whose master or sha256 is not the played master's, or whose transform, look, gamma
-or curve mapping differ from the declaration (or from what this module reproduces), is refused.
+What it holds is what is true of the render: ``exposure`` is the view exposure as keyed in the render's input (its
+--expo file, per frame), read back from Blender on the frames where the render recorded it, in stops, and nothing
+else (no light on the page, no fit); ``view_transform`` and ``look`` are what the scene script sets (scene_v5c.py
+settings()), read back where recorded; display, gamma and curve mapping are the recorded values, or Blender's defaults
+only where the sidecar lists them in ``defaults_assumed`` with a ``defaults_basis`` (both echoed into the lint's
+evidence); a key neither recorded nor listed is refused. The ledger may restate ``exposure``; it must then equal the
+sidecar's on every frame A7 samples. A sidecar for another master or file, or whose transform or look differ from the
+declaration, is refused. The sha256 binding guards against mistakes (a sidecar from another render, a re-encoded
+master), not forgery: anyone who can write the master can write its sidecar. The guard against gaming the exposure
+is the structure floor: the transformed scan must keep its structure (half the plain scan's low-pass spread inside
+the record, and ``STRUCTURE_MIN`` levels), so no exposure can wash the record out to pass.
 
 The chain, as Blender forms the master's pixels: the scan (sRGB, 8 bit) decoded to linear Rec.709 by the sRGB curve
 (as Blender reads an sRGB texture), resampled in linear to the frame (held whole on black, or the A41 window filling
@@ -58,6 +68,9 @@ EXPOSURE_MAX = 6.0                  # stops either way: past this the camera is 
 SIDECAR_SCHEMA = "document.view/1"
 TEST_SWITCH = "DOCUMENT_A7_PUBLISHED_OK"     # test-only: lets the published curve stand in for the exact backend
 STRUCTURE_FLOOR = 0.5               # the transformed scan keeps at least half the plain scan's low-pass p95-p5 spread
+STRUCTURE_MIN = 16.0                # ... and at least this many 8-bit levels of it, whatever the plain scan's (The Run's
+                                    # three records keep 32 (C20-METAR-0851), 56 (S-16928) and 99 (S-130): 2x and more)
+DISPLAY_DEFAULTS = {"display_device": "sRGB", "gamma": 1.0, "use_curve_mapping": False}   # what this check reproduces
 
 BLENDER_DIR = "D:/document-media/tools/blender-4.4.3-windows-x64"
 BLENDER_VERSION = "4.4"
@@ -131,8 +144,18 @@ def sidecar(decl: dict, master_path: str, n_frames: int) -> tuple[dict | None, s
     for k, want in (("view_transform", decl["name"]), ("look", decl["look"])):
         if sc.get(k) != want:
             return None, f"the render's {k} is {sc.get(k)!r}, the ledger declares {want!r}"
-    if sc.get("display_device", "sRGB") != "sRGB" or sc.get("gamma", 1.0) != 1.0 or sc.get("use_curve_mapping"):
-        return None, "the render's display, gamma or curve mapping is not one this check reproduces (sRGB, 1.0, off)"
+    assumed = sc.get("defaults_assumed") or []
+    basis = sc.get("defaults_basis")
+    if not isinstance(assumed, list) or any(k not in DISPLAY_DEFAULTS for k in assumed) \
+            or (assumed and not (isinstance(basis, str) and basis.strip())):
+        return None, ("view sidecar's defaults_assumed lists only display_device, gamma or use_curve_mapping, with a "
+                      "defaults_basis saying why each is the default")
+    missing = [k for k in DISPLAY_DEFAULTS if k not in sc and k not in assumed]
+    if missing:
+        return None, f"the render did not record its display, gamma or curve mapping ({', '.join(missing)})"
+    got = {k: sc.get(k, DISPLAY_DEFAULTS[k]) if k in assumed else sc[k] for k in DISPLAY_DEFAULTS}
+    if got != DISPLAY_DEFAULTS:
+        return None, f"the render's display, gamma or curve mapping {got} is not one this check reproduces {DISPLAY_DEFAULTS}"
     ev = sc.get("exposure")
     evs = ev if isinstance(ev, list) else None
     if evs is not None and len(evs) < n_frames:
@@ -148,7 +171,8 @@ def exposure_at(sc: dict, k: int) -> float:
 
 
 def exact_required() -> bool:
-    return os.environ.get(TEST_SWITCH) != "1"
+    """True unless the test-only switch is set inside a pytest run (PYTEST_CURRENT_TEST): never in a real plan."""
+    return not (os.environ.get(TEST_SWITCH) == "1" and os.environ.get("PYTEST_CURRENT_TEST"))
 
 
 def spread(arr: np.ndarray, box=None) -> float:

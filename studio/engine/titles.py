@@ -459,7 +459,8 @@ def view_specs(view: dict, master_path: str, n: int, record_path: str, window, f
     if why is not None:
         return {}, why, {}
     specs = {k: {"name": view["name"], "look": view["look"], "exposure": VX.exposure_at(sc, k)} for k in frames}
-    ev = {"view_sidecar": sc["_path"], "view_exposure": {k: s["exposure"] for k, s in specs.items()}}
+    ev = {"view_sidecar": sc["_path"], "view_exposure": {k: s["exposure"] for k, s in specs.items()},
+          "view_defaults_assumed": sc.get("defaults_assumed") or [], "view_defaults_basis": sc.get("defaults_basis")}
     if view.get("exposure") is not None:
         off = {k: s["exposure"] for k, s in specs.items() if abs(s["exposure"] - view["exposure"]) > 1e-4}
         if off:
@@ -478,11 +479,12 @@ def view_specs(view: dict, master_path: str, n: int, record_path: str, window, f
     for k, spec in specs.items():
         ref = reference_frame(record_path, W, H, window, spec)[0]
         floor[k] = (round(VX.spread(ref, box), 2), round(VX.spread(plain, box), 2))
-    ev["view_structure"] = {"transformed_vs_plain_spread": floor, "floor": VX.STRUCTURE_FLOOR}
-    thin = {k: v for k, v in floor.items() if v[0] < VX.STRUCTURE_FLOOR * v[1]}
+    ev["view_structure"] = {"transformed_vs_plain_spread": floor, "floor": VX.STRUCTURE_FLOOR,
+                            "min_spread": VX.STRUCTURE_MIN}
+    thin = {k: v for k, v in floor.items() if v[0] < VX.STRUCTURE_FLOOR * v[1] or v[0] < VX.STRUCTURE_MIN}
     if thin:
-        return {}, (f"the transformed scan keeps under {VX.STRUCTURE_FLOOR:g} of the plain scan's low-pass spread at "
-                    f"frames {sorted(thin)}: the record is washed out, not seen"), ev
+        return {}, (f"the transformed scan keeps under {VX.STRUCTURE_FLOOR:g} of the plain scan's low-pass spread, or "
+                    f"under {VX.STRUCTURE_MIN:g} levels, at frames {sorted(thin)}: the record is washed out, not seen"), ev
     return specs, None, ev
 
 

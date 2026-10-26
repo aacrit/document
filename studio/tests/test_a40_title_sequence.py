@@ -781,6 +781,52 @@ def test_a7_like_for_like_fails_closed_without_the_exact_backend(tmp_path, maste
     assert isinstance(plan, R.Refused) and "exact backend unavailable" in _px_ev(j)["difference"]["error"]
 
 
+def test_a7_like_for_like_the_test_switch_is_for_tests_only(monkeypatch):
+    monkeypatch.setenv(VX.TEST_SWITCH, "1")
+    assert VX.exact_required() is False                         # inside pytest
+    monkeypatch.delenv("PYTEST_CURRENT_TEST")
+    assert VX.exact_required() is True                          # a real plan never takes the published curve
+
+
+def test_a7_like_for_like_display_gamma_and_curves_are_recorded_or_declared_defaults(tmp_path, masters, film, no_blender):
+    m = dict(masters, agx=_agx_master(masters, film, "agx-defaults.mkv", AGX["exposure"]))
+    base = {"name": "AgX", "look": "None"}
+    unrecorded = {"display_device": None, "gamma": None, "use_curve_mapping": None}
+
+    def sidecar(tag, **kw):
+        name = _sidecar(m["agx"], AGX["exposure"], tag, **kw)
+        p = m["agx"].parent / name
+        sc = json.loads(p.read_text(encoding="utf-8"))
+        for k, v in list(sc.items()):
+            if v is None:
+                del sc[k]                                        # the render never recorded it
+        p.write_text(json.dumps(sc), encoding="utf-8")
+        return name
+    plan, j = plan_of(titled_film(tmp_path / "a", m, master="agx",
+                                  item={"view_transform": dict(base, sidecar=sidecar("-a", **unrecorded))}))
+    assert isinstance(plan, R.Refused) and "did not record its display, gamma or curve mapping" in _px_ev(j)["difference"]["error"]
+    keys = list(VX.DISPLAY_DEFAULTS)
+    plan, j = plan_of(titled_film(tmp_path / "b", m, master="agx", item={"view_transform": dict(
+        base, sidecar=sidecar("-b", **unrecorded, defaults_assumed=keys))}))           # assumed without a basis
+    assert isinstance(plan, R.Refused) and "defaults_basis" in _px_ev(j)["difference"]["error"]
+    why = "Blender 4.4.3 factory default, not set by the scene script"
+    plan, j = plan_of(titled_film(tmp_path / "c", m, master="agx", item={"view_transform": dict(
+        base, sidecar=sidecar("-c", **unrecorded, defaults_assumed=keys, defaults_basis=why))}))
+    assert passed(j, "title-record-pixels"), _px_ev(j)
+    assert _px_ev(j)["view_defaults_assumed"] == keys and _px_ev(j)["view_defaults_basis"] == why
+    plan, j = plan_of(titled_film(tmp_path / "d", m, master="agx", item={"view_transform": dict(
+        base, sidecar=sidecar("-d", gamma=2.2))}))                                     # recorded, and not reproduced
+    assert isinstance(plan, R.Refused) and "not one this check reproduces" in _px_ev(j)["difference"]["error"]
+
+
+def test_a7_like_for_like_has_an_absolute_structure_floor(tmp_path, masters, film, no_blender, monkeypatch):
+    m = dict(masters, agx=_agx_master(masters, film, "agx-floor.mkv", AGX["exposure"]))
+    decl = {"name": "AgX", "look": "None", "sidecar": _sidecar(m["agx"], AGX["exposure"], "-floor")}
+    monkeypatch.setattr(VX, "STRUCTURE_MIN", 1000.0)            # no record keeps 1000 levels: the floor binds alone
+    plan, j = plan_of(titled_film(tmp_path, m, master="agx", item={"view_transform": decl}))
+    assert isinstance(plan, R.Refused) and "levels" in _px_ev(j)["difference"]["error"], _px_ev(j)
+
+
 # --------------------------------------------------------------------------
 # A40 lockup card (coordinator, founder-delegated, 2026-10-26, implementing the 2026-10-18 ruling: The Run is one
 # physics-only shot with no fades; the series lockup is a separate CARD shot after it, on a hard cut). title-lockup
