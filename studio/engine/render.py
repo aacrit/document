@@ -2867,6 +2867,12 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             if not item.get("_path") or not Path(item["_path"]).exists():
                 lint("asset-file", False, unit=s["id"], evidence={"file": item.get("_path")})
                 continue
+            if kind == "drawn" and MP.map_record(item)[0]:
+                # A56 (brand audit 2026-10-26, H1): a map PNG is used only as this engine draws it, with no data
+                # credit in the frame, and its ledger item carries the engine's off-screen credit
+                probs = MP.drawn_map_check(item)
+                lint("drawn-map-current", not probs, unit=s["id"], grammar="A56, BRAND-KIT 12b",
+                     evidence={"asset": s.get("asset"), "problems": probs})
         allowed = set(KIND_CLASSES.get(kind, set()))
         if is_synthetic(item):
             allowed = {"DRAWN"}            # made by a program (a test pattern, a fixture image): never ARCHIVE

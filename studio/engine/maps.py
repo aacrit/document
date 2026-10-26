@@ -348,10 +348,12 @@ STUDIO_WORDING = re.compile(r"\bgeodata\b|\bthe studio's\b", re.I)
 
 def check_spec(spec: dict) -> None:
     # A55 (founder, 2026-10-18): a map may have no title; its place labels are its content
-    for k in ("id", "source_short", "sources"):
+    # A56 (brand audit 2026-10-26, H1): the frame draws no source line, so `source_short` is optional; when a spec
+    # states one it is the mark plate's short form and must fit it. The credit itself is built from `sources`.
+    for k in ("id", "sources"):
         if k not in spec:
             raise MapRefused(f"spec lacks {k}")
-    if len(spec["source_short"]) > SOURCE_SHORT_MAX:
+    if "source_short" in spec and len(str(spec["source_short"])) > SOURCE_SHORT_MAX:
         raise MapRefused(f"{spec['id']}: source_short is {len(spec['source_short'])} characters; "
                          f"the plate holds {SOURCE_SHORT_MAX}")
     bad = sorted(set(k.lower() for k in _keys(spec)) & _COLOUR_KEYS)
@@ -476,7 +478,21 @@ def data_source(spec: dict) -> str:
 
 
 def source_line(spec: dict) -> str:
+    """The data credit, stated off screen (the drawn ledger, sources.json, description.txt); never drawn (A56)."""
     return "Data: " + data_source(spec)
+
+
+def source_short(spec: dict) -> str:
+    """The mark plate's short form of the sources: the spec's own `source_short`, else the source ids without their
+    licence parentheses ("Natural Earth; GeoNames"), cut at a source to the plate's SOURCE_SHORT_MAX characters."""
+    if spec.get("source_short"):
+        return str(spec["source_short"])
+    ids = [re.sub(r"\s*\([^)]*\)", "", str(x["id"])).strip() for x in spec["sources"]]
+    out = "; ".join(ids)
+    while len(out) > SOURCE_SHORT_MAX and len(ids) > 1:
+        ids.pop()
+        out = "; ".join(ids) + " and others"
+    return out[:SOURCE_SHORT_MAX]
 
 
 APPROX_NOTE = "Line approximate, from the award"
@@ -543,7 +559,7 @@ def ledger_fields(spec: dict) -> dict:
         note = "contains GeoNames data (CC BY 4.0); " + note
     if by:
         note = f"contains data under CC BY 4.0 ({'; '.join(by)}); " + note
-    return {"title": spec.get("title") or None, "data_source": ds, "source_short": spec["source_short"],
+    return {"title": spec.get("title") or None, "data_source": ds, "source_short": source_short(spec),
             "credit": "void document studio, drawn from " + ds,
             # a canonical id the render engine's licence allowlist recognises; the why goes in licence_note
             "licence": "CC-BY-4.0" if (geo or by) else "CC0",
@@ -1951,6 +1967,78 @@ def ledger_for(spec: dict, info: dict) -> dict:
     return out
 
 
+# --------------------------------------------------------------------------
+# A56 at the film render: a map PNG is used only as this engine draws it
+# --------------------------------------------------------------------------
+
+# The off-screen credit a drawn-ledger item carries, copied from the render record's ledger: render.sources_doc puts
+# these in sources.json and description.py prints them (the CC BY attribution lives there, not in the frame).
+CREDIT_KEYS = ("licence", "licence_note", "source_line")
+MAP_GENERATOR = re.compile(r"engine[./\\]maps\b|\bmaps\.py\b")
+RERENDER = "re-render the spec with `python -m studio.engine.maps <spec> --geodata <dir> --out <film>/drawn`"
+
+
+def drawn_map_problems(item: dict, record: dict | None, pixels: str | None) -> list[str]:
+    """Why a drawn-ledger map may not go into a film (brand audit 2026-10-26, H1), or []. ``record`` is the PNG's
+    entry in maps-render.json, ``pixels`` the PNG's pixels_sha256. Pure: the caller reads the files."""
+    if record is None:
+        return [f"no maps-render.json record beside the PNG for {item.get('id')!r}: a map is used only as the engine "
+                f"drew it; {RERENDER}"]
+    out = []
+    if not record.get("pixels_sha256") or pixels != record["pixels_sha256"]:
+        out.append(f"the PNG's pixels ({str(pixels)[:12]}) are not the ones maps-render.json records "
+                   f"({str(record.get('pixels_sha256'))[:12]}): {RERENDER}")
+    if not isinstance(record.get("drawn_text"), list):
+        out.append("drawn before A56: the render record does not list the text the engine drew, and engines before "
+                   f"A56 printed the data credit in the frame (BRAND-KIT 12b); {RERENDER}")
+    else:
+        for d in record["drawn_text"]:
+            t = str((d or {}).get("text", ""))
+            hits = DS.meta_text_problems(t, "map")
+            if (d or {}).get("kind") in ("source", "note") or hits:
+                why = hits[0]["what"] if hits else f"a {d.get('kind')} line"
+                out.append(f"the frame draws {t!r} ({why}): a map draws no data credit and no notes (A56); {RERENDER}")
+    led = record.get("ledger") or {}
+    for k in CREDIT_KEYS:
+        if item.get(k) != led.get(k):
+            out.append(f"the ledger item's {k} is {item.get(k)!r}, the engine states {led.get(k)!r}: copy it from "
+                       "maps-render.json so the credit reaches sources.json and the description (A56)")
+    return out
+
+
+def map_record(item: dict) -> tuple[bool, dict | None]:
+    """(is a map, its maps-render.json record) for a drawn-ledger item: the record is looked up by id beside the
+    PNG. A map is an item with a record of kind "map" or a generator naming this engine."""
+    png = Path(item.get("_path") or "")
+    rec = None
+    report = png.parent / "maps-render.json"
+    if item.get("_path") and report.exists():
+        try:
+            rows = json.loads(report.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            rows = []
+        for r in rows if isinstance(rows, list) else []:
+            if isinstance(r, dict) and (r.get("id") == item.get("id") or Path(str(r.get("file", ""))).name == png.name):
+                rec = r
+                break
+    if rec is not None and rec.get("kind", "map") != "map":
+        return False, None                 # a count card: counts.py's own record
+    return rec is not None or bool(MAP_GENERATOR.search(str(item.get("generator") or ""))), rec
+
+
+def drawn_map_check(item: dict) -> list[str]:
+    """drawn_map_problems for a drawn-ledger item (``_path`` resolved by render.load_ledgers); [] for a drawn
+    page that is not a map."""
+    is_map, rec = map_record(item)
+    if not is_map:
+        return []
+    pixels = None
+    if rec is not None:
+        with Image.open(item["_path"]) as im:
+            pixels = pixels_sha256(im)
+    return drawn_map_problems(item, rec, pixels)
+
+
 def check_specs(folder: Path | str, data_root=None, geodata=None) -> list[str]:
     """Every rule check_spec enforces, over every *.json spec in a folder, without rendering:
     one line per violation (an empty list is a pass). Count cards are checked against their
@@ -2011,7 +2099,10 @@ def main(argv=None) -> int:
                        "sha256": hashlib.sha256(data).hexdigest(), "pixels_sha256": pixels_sha256(img),
                        "doubts_sha256": doubts_pins(spec),
                        "geodata": info["geodata"],
-                       "warnings": info["warnings"], "ledger": ledger_for(spec, info)})
+                       "warnings": info["warnings"], "ledger": ledger_for(spec, info),
+                       # A56: every string the engine drew in the frame, so the film render can refuse a PNG drawn
+                       # by an engine that still printed the data credit (a record without this list is one)
+                       "drawn_text": [{"kind": b["kind"], "text": b["text"]} for b in info["boxes"]]})
         print(f"{spec['id']}: {dst} sha256 {report[-1]['sha256'][:16]}"
               + (f"  warnings: {'; '.join(info['warnings'])}" if info["warnings"] else ""))
     (out / "maps-render.json").write_text(json.dumps(report, indent=1, ensure_ascii=False), encoding="utf-8")
