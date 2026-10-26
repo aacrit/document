@@ -50,6 +50,46 @@ def clock(s) -> str:
     return f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
 
 
+_CC = re.compile(r"(?i)\bCC[- ]?(BY(?:[- ]SA)?)[- ]?(\d\.\d)\b")
+
+
+def licence_uri(lic) -> str | None:
+    """A Creative Commons licence's deed URI ("CC BY 4.0", "CC-BY-4.0" -> https://creativecommons.org/licenses/by/4.0/)."""
+    m = _CC.search(_s(lic))
+    if not m:
+        return None
+    return f"https://creativecommons.org/licenses/{m.group(1).lower().replace(' ', '-').replace('--', '-')}/{m.group(2)}/"
+
+
+def is_map(s: dict) -> bool:
+    return bool(s.get("data_sources")) or _s(s.get("source_line")).startswith("Data:")
+
+
+def shot_name(s: dict) -> str:
+    """What the description calls a shot's item: its title, else a plain description; never the internal ledger id
+    for a map (CC BY attribution names the work, not the studio's file)."""
+    if _s(s.get("title")):
+        return _s(s.get("title"))
+    if is_map(s):
+        return "A drawn map"
+    return _s(s.get("ledger_id"))
+
+
+def map_attribution(s: dict) -> str:
+    """A map's data, each source with its url and licence, a CC licence by its URI (CC BY 4.0 asks for both)."""
+    bits = []
+    for d in s.get("data_sources") or []:
+        if not isinstance(d, dict) or not _s(d.get("id")):
+            continue
+        name = re.sub(r"\s*\([^)]*\)", "", _s(d["id"])).strip() or _s(d["id"])
+        lic = _s(d.get("licence"))
+        uri = licence_uri(lic)
+        bits.append(", ".join(x for x in (name, _s(d.get("url")), lic, uri) if x))
+    if not bits and licence_uri(s.get("licence")):
+        bits.append(licence_uri(s.get("licence")))
+    return ("Data: " + "; ".join(bits)) if bits else ""
+
+
 def _voice(v) -> str:
     """'kokoro:am_onyx' or {engine, voice} -> "Kokoro 'am_onyx'"."""
     if isinstance(v, dict):
@@ -115,12 +155,14 @@ def notes(src: dict) -> dict:
             continue
         seen.add(s["ledger_id"])
         lic = _s(s.get("licence"))
-        bits = [_s(s.get("title")) or _s(s.get("ledger_id")), _s(s.get("archive")), lic, _s(s.get("item_url"))]
+        bits = [shot_name(s), _s(s.get("archive")), lic, _s(s.get("item_url"))]
         line = ". ".join(b for b in bits if b)
         if re.search(r"(?i)\bBY[- ]SA\b", lic) and _s(s.get("credit")):
             line += f". Attribution: {_s(s.get('credit'))}"
         if _s(s.get("licence_note")):
             line += f" ({_s(s.get('licence_note'))})"
+        if is_map(s) and map_attribution(s):
+            line += ". " + map_attribution(s)
         sources.append(line)
     tapes = []
     for r in readings:
@@ -132,11 +174,11 @@ def notes(src: dict) -> dict:
         if not isinstance(s, dict):
             continue
         for n in s.get("notes") or []:
-            t = f"{_s(s.get('title')) or _s(s.get('ledger_id'))}: {_s(n)}"
+            t = f"{shot_name(s)}: {_s(n)}"
             if _s(n) and t not in map_notes:
                 map_notes.append(t)
         line = _s(s.get("source_line"))
-        t = f"{_s(s.get('title')) or _s(s.get('ledger_id'))}: {line}"
+        t = f"{shot_name(s)}: {line}"
         if line and t not in map_notes:
             map_notes.append(t)
     gaps = [{"says": _s(g.get("says")), "searched": _s(g.get("searched"))}
