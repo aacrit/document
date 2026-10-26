@@ -169,7 +169,10 @@ LEATHER_T = 0.002
 LEATHER_BELOW = 0.00005                    # a hair below the oak: the marble rolls down onto it (plan section 2)
 
 # rolling resistance (Crr = rolling length / R), the physics knobs (MuJoCo condim 6 rolling friction = Crr * R)
-CRR = {"oak": 0.0008, "leather": 0.007, "felt": 0.060}
+CRR = {"oak": 0.0008, "leather": 0.0045, "felt": 0.060}
+# measured (sim_v5c against this clock, 2026-10-25): MuJoCo's soft contacts on the facets cost about this much more
+# rolling resistance than the ideal law; the design clock adds it so the design and the proof agree
+SIM_EXTRA_CRR = 0.00055
 
 
 def _smooth(t):
@@ -348,10 +351,13 @@ def crr_at(s):
     return np.where(on_leather(s), CRR["leather"], np.where(s > LENGTH, CRR["felt"], CRR["oak"]))
 
 
-def roll_1d(dt=0.0005, t_max=60.0, crr=None):
+def roll_1d(dt=0.0005, t_max=60.0, crr=None, extra=None):
     """A rolling sphere along the centreline under the slope schedule and the rolling resistance: the design's clock.
     Ignores the bank's climb and contact losses (the MuJoCo run is the truth). Returns times, s, v and the rest."""
-    crr = crr or CRR
+    crr = dict(crr or CRR)
+    extra = SIM_EXTRA_CRR if extra is None else extra
+    crr["oak"] += extra
+    crr["leather"] += extra
     s, v, t = 0.0, 0.0, 0.0
     ts, ss, vs = [0.0], [0.0], [0.0]
     lip_done = False
