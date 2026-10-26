@@ -6,6 +6,7 @@ masters (4 s of 1080p24 FFV1) stand in for the 57 s ones."""
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 
@@ -19,6 +20,7 @@ from studio.engine import motion as M
 from studio.engine import render as R
 from studio.engine import score as SC
 from studio.engine import titles as TS
+from studio.engine import viewxf as VX
 
 N = 96                                  # 4 s
 COLD_S = 2.0
@@ -42,13 +44,15 @@ def _lockup(W, H):
     return img
 
 
-def make_master(path, record_png, *, burned=True, glyph_on_hold=True, n=N, pose=None):
+def make_master(path, record_png, *, burned=True, glyph_on_hold=True, n=N, pose=None, rec_pic=None):
     """A short master in the real ones' shape: the machine (DRAWN), a cut to the record held whole (ARCHIVE), a dip
     and the lockup (CARD), the marks burned in as assemble.py burns them (or none). ``pose`` (window, from_frame): the
-    record beat tours to that window of the scan filling the frame and rests there from from_frame (A7 under A41)."""
+    record beat tours to that window of the scan filling the frame and rests there from from_frame (A7 under A41).
+    ``rec_pic``: the record beat's picture as given (a camera's view of the page) instead of the scan held whole."""
     W, H = TS.SIZE
     fonts = M.Fonts()
-    machine, rec, lock = _machine(W, H), TS.hold_fit(Image.open(record_png), W, H), _lockup(W, H)
+    machine, lock = _machine(W, H), _lockup(W, H)
+    rec = rec_pic if rec_pic is not None else TS.hold_fit(Image.open(record_png), W, H)
     black = Image.new("RGB", (W, H), (0, 0, 0))
     toured = TS.pose_fit(Image.open(record_png), pose[0], W, H) if pose is not None else None
     item = {"marks": TL, "dip": DIP, "frames": n}
@@ -583,6 +587,144 @@ def test_a40_a_shots_span_across_the_titles_is_the_full_render_byte_for_byte(tmp
         mine = {p.name.split(".")[0]: J.sha256_file(p) for p in (out / f"shots-{a}-{b}" / "segments").glob("*.mp4")}
         assert set(mine) == set(s["rendered"]), (a, b, sorted(mine))
         assert all(mine[k] == full[k] for k in mine), (a, b)
+
+
+# --------------------------------------------------------------------------
+# A40 like for like (coordinator, founder-delegated, 2026-10-26): a master rendered through a view transform (The Run:
+# Cycles through AgX) declares it, and A7 passes the SCAN through that same transform before comparing. AgX lifts
+# black ink to grey once white paper sits at the scan's white, so a perfect page through AgX fails A7 as written.
+# The tests force the published curve (no Blender here, as on CI): the ocio backend is the exact one where Blender
+# 4.4.3's pinned config is found.
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def no_blender(tmp_path, monkeypatch):
+    monkeypatch.setenv("DOCUMENT_BLENDER_DIR", str(tmp_path / "no-blender"))
+    assert VX.blender_ocio() is None
+
+
+def _page(w, h, shift=0.0):
+    """A page as linear albedo, drawn at any size from the same geometry: paper 0.86, eight lines of ink at 0.012."""
+    y, x = np.mgrid[0:h, 0:w] / np.array([h, w], dtype=float)[:, None, None]
+    a = np.full((h, w), 0.86)
+    for r in range(8):
+        y0 = 0.12 + r * 0.1
+        a[(y >= y0) & (y < y0 + 0.035) & (x > 0.1 + shift) & (x < 0.62 + 0.15 * (r * 7 % 3) + shift)] = 0.012
+    return np.repeat(a[..., None], 3, axis=2)
+
+
+def _scan_of(page, path):
+    Image.fromarray(np.round(VX.linear_to_srgb(page) * 255).astype(np.uint8)).save(path)
+    return str(path)
+
+
+AGX = {"name": "AgX", "look": "None", "exposure": 2.5}     # puts the page's paper (241) at its scan's white (239)
+
+
+def _camera(page, view=AGX):
+    """The renderer's view of the page: its linear albedo at the frame's own size, exposed, through AgX. Drawn from
+    the page itself, not from the scan the engine reads."""
+    return np.round(VX.agx_published(page * 2 ** view["exposure"]) * 255).astype(np.uint8)
+
+
+def test_a7_like_for_like_a_page_through_agx_passes_against_its_scan_once_declared(tmp_path, no_blender):
+    W, H = TS.SIZE
+    scan = _scan_of(_page(1600, 900), tmp_path / "scan.png")
+    frame = _camera(_page(W, H))
+    assert TS.record_difference(frame, scan) > TS.RECORD_LIMIT              # A7 as written: AgX's lift reads as a fault
+    assert TS.record_difference(frame, scan, None, AGX) < 1.0               # like for like: the scan through AgX
+    assert TS.reference_frame(scan, W, H, None, AGX)[1] == "published"
+
+
+def test_a7_like_for_like_still_fails_when_the_record_differs(tmp_path, no_blender):
+    W, H = TS.SIZE
+    frame = _camera(_page(W, H))
+    moved = _scan_of(_page(1600, 900, shift=0.08), tmp_path / "moved.png")          # the same page, its text altered
+    assert TS.record_difference(frame, moved, None, AGX) > TS.RECORD_LIMIT
+    other = str(_scan(tmp_path))                                                     # another scan altogether
+    assert TS.record_difference(frame, other, None, AGX) > TS.RECORD_LIMIT
+
+
+def test_a7_like_for_like_keeps_the_edge_strip_check(tmp_path, no_blender):
+    W, H = TS.SIZE
+    page = _page(1600, 1200)
+    scan = _scan_of(page, tmp_path / "scan.png")
+    win = (0.0, 0.0, 1.0, 1600 / 1200 * 9 / 16)
+    with Image.open(scan) as im:
+        lin = VX.to_linear_frame(im, win, W, H)
+    frame = np.round(VX.agx_published(lin * 2 ** AGX["exposure"]) * 255).astype(np.uint8)
+    assert TS.pose_edge_difference(frame, scan, win, AGX) < 1.0
+    assert TS.record_difference(frame, scan, win, AGX) < 1.0
+    frame[:, :40] = 0                                                                # 40 px past the scan onto black
+    assert TS.pose_edge_difference(frame, scan, win, AGX) > TS.POSE_EDGE_LIMIT
+
+
+def test_a7_like_for_like_an_undeclared_item_is_a7_as_before(tmp_path):
+    p = _scan(tmp_path)
+    W, H = TS.SIZE
+    win = (0.1, 0.2, 0.9, 0.2 + 0.8 * 1600 / 1200 * 9 / 16)
+    with Image.open(p) as im:
+        held, posed = np.asarray(TS.hold_fit(im, W, H)), np.asarray(TS.pose_fit(im, win, W, H))
+    assert VX.parse(None) == (None, None)
+    for w, want in ((None, held), (win, posed)):
+        ref, backend = TS.reference_frame(str(p), W, H, w)
+        assert backend is None and np.array_equal(ref, want)                         # the scan as it always was
+
+
+def test_a7_like_for_like_a_declaration_is_checked():
+    assert VX.parse("AgX") == ({"name": "AgX", "look": "None", "exposure": 0.0}, None)
+    assert VX.parse({"name": "AgX", "exposure": 3.75})[0]["exposure"] == 3.75
+    for bad, says in (({"name": "Filmic"}, "not one of"), (7, "a name"), ({"name": "AgX", "exposure": "3"}, "stops"),
+                      ({"name": "AgX", "exposure": float("nan")}, "stops"), ({"name": "AgX", "exposure": 40}, "stops"),
+                      ({"name": "AgX", "look": ""}, "look")):
+        spec, why = VX.parse(bad)
+        assert spec is None and says in why, (bad, why)
+    with pytest.raises(ValueError, match="Blender's own config"):
+        VX.published(np.zeros((1, 1, 3)), {"name": "AgX", "look": "Punchy", "exposure": 0.0})
+
+
+def test_a7_like_for_like_the_published_curves(no_blender):
+    v = np.array([0.0, 0.002, 0.02, 0.18, 1.0, 4.0, 16.0])
+    lin = np.repeat(v[None, :, None], 3, axis=2)
+    agx = VX.display(lin, {"name": "AgX", "look": "None", "exposure": 0.0})[0][0, :, 0]
+    std = VX.display(lin, {"name": "Standard", "look": "None", "exposure": 0.0})[0][0, :, 0]
+    assert np.all(np.diff(agx.astype(int)) > 0) and agx[0] <= 1 and agx[-1] >= 250  # monotone, black to near white
+    assert agx[3] == 127                                                              # mid grey, Wrensch's fit
+    assert std.tolist() == [0, 7, 39, 118, 255, 255, 255]                             # the sRGB curve, clipped
+
+
+def test_a7_like_for_like_the_exact_backend_is_pinned(tmp_path, monkeypatch):
+    root = tmp_path / "blender"
+    cm = root / VX.BLENDER_VERSION / "datafiles" / "colormanagement"
+    (cm / "luts").mkdir(parents=True)
+    (root / VX.BLENDER_VERSION / "python" / "bin").mkdir(parents=True)
+    (root / VX.BLENDER_VERSION / "python" / "bin" / ("python.exe" if os.name == "nt" else "python3.11")).write_text("")
+    for k in VX.PINS:
+        (cm / k).write_text("not Blender 4.4.3's colour management", encoding="utf-8")
+    monkeypatch.setenv("DOCUMENT_BLENDER_DIR", str(root))
+    assert VX.blender_ocio() is None                    # a config that is not the pinned one is never used
+
+
+def test_a7_like_for_like_in_the_plan(tmp_path, masters, film, no_blender):
+    rec = film / "stills" / "FX-STILL-B.png"
+    with Image.open(rec) as im:
+        W, H = TS.SIZE
+        pic = Image.fromarray(np.round(VX.agx_published(VX.to_linear_frame(im, None, W, H) * 2 ** AGX["exposure"])
+                                       * 255).astype(np.uint8))
+    m = dict(masters, agx=make_master(masters["dir"] / "agx.mkv", rec, rec_pic=pic))
+    plan, j = plan_of(titled_film(tmp_path / "a", m, master="agx", item={"view_transform": AGX}))
+    assert passed(j, "title-record-pixels"), [x["evidence"] for x in lints(j, "title-record-pixels")]
+    ev = lints(j, "title-record-pixels")[-1]["evidence"]
+    assert ev["view_transform"] == AGX and ev["view_backend"] == "published" and "through the master's declared" in ev["measure"]
+    plan, j = plan_of(titled_film(tmp_path / "b", m, master="agx"))                  # undeclared: A7 as written
+    assert isinstance(plan, R.Refused) and failed(j, "title-record-pixels")
+    assert "view_transform" not in lints(j, "title-record-pixels")[-1]["evidence"]
+    plan, j = plan_of(titled_film(tmp_path / "c", m, master="agx", item={"view_transform": {"name": "Filmic"}}))
+    assert isinstance(plan, R.Refused) and failed(j, "title-record-pixels")
+    assert "not one of" in lints(j, "title-record-pixels")[-1]["evidence"]["difference"]["error"]
+    plan, j = plan_of(titled_film(tmp_path / "d", masters, item={"view_transform": AGX}))   # a plain master declared AgX
+    assert isinstance(plan, R.Refused) and failed(j, "title-record-pixels")
 
 
 # --------------------------------------------------------------------------

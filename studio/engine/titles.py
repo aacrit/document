@@ -30,6 +30,7 @@ from PIL import Image
 
 from studio.engine import cadence as CAD
 from studio.engine import motion as M
+from studio.engine import viewxf as VX
 
 KIND = "title_sequence"
 SERIES = "void document · As It Was"
@@ -141,7 +142,8 @@ def select_master(item: dict, fps: float) -> tuple[dict, str]:
             continue
         if abs(r - fps) < 1e-6 and isinstance(alt, dict) and alt.get("file"):
             # an alternate's frame numbers are its own: it never inherits the item's record_pose (A40 refined)
-            out = {k: v for k, v in item.items() if k not in ("masters", "record_pose")}
+            # nor its view_transform (A40, 2026-10-26): each master states the camera it was rendered through
+            out = {k: v for k, v in item.items() if k not in ("masters", "record_pose", "view_transform")}
             out.update(alt, fps=CAD.rate_str(CAD.parse_rate(name)), master_of=item.get("file"))
             if item.get("_path"):
                 out["_path"] = str((Path(item["_path"]).parent / alt["file"]).resolve())
@@ -399,13 +401,22 @@ def pose_problem(window, scan_size: tuple[int, int], W: int, H: int) -> str | No
     return None
 
 
-def record_difference(arr: np.ndarray, record_path: str, window=None) -> float:
+def reference_frame(record_path: str, W: int, H: int, window=None, view: dict | None = None) -> tuple[np.ndarray, str | None]:
+    """(the record's scan as A7 compares it, the view-transform backend or None): held whole at the master's size or,
+    under A41, its declared ``window`` filling the frame; and, when the title declares its ``view_transform`` (A40,
+    2026-10-26), seen through that same transform (``viewxf``), so A7 compares like for like."""
+    if view is not None:
+        return VX.reference(record_path, window, W, H, view)
+    with Image.open(record_path) as im:
+        return np.asarray(pose_fit(im, window, W, H) if window is not None else hold_fit(im, W, H)), None
+
+
+def record_difference(arr: np.ndarray, record_path: str, window=None, view: dict | None = None) -> float:
     """A7's low-pass mean difference between a master frame and the film's record scan (marks masked): held whole at
     the master's size (0.03 for the masters' own records, about 150 against another film's), or, under A41, its
-    declared ``window`` filling the frame."""
+    declared ``window`` filling the frame; through the title's declared ``view`` transform when it states one."""
     H, W = arr.shape[:2]
-    with Image.open(record_path) as im:
-        ref = np.asarray(pose_fit(im, window, W, H) if window is not None else hold_fit(im, W, H))
+    ref = reference_frame(record_path, W, H, window, view)[0]
 
     def lp(x):
         return np.asarray(Image.fromarray(np.clip(x, 0, 255).astype(np.uint8)).resize((96, 54), Image.BOX), dtype=np.float32)
@@ -413,13 +424,13 @@ def record_difference(arr: np.ndarray, record_path: str, window=None) -> float:
     return float(np.abs(lp(_masked(arr)) - lp(_masked(ref))).mean())
 
 
-def pose_edge_difference(arr: np.ndarray, record_path: str, window) -> float:
+def pose_edge_difference(arr: np.ndarray, record_path: str, window, view: dict | None = None) -> float:
     """A7 under A41, "nothing but the scan in the frame": the mean difference, at full size, between the master frame's
-    outer POSE_EDGE_PX strips and the same strips of the scan's window filling the frame, outside the marks' masks. The
-    low-pass A7 measure alone lets a frame overshoot the scan's edge onto black by tens of pixels."""
+    outer POSE_EDGE_PX strips and the same strips of the scan's window filling the frame (through the declared ``view``
+    transform when the title states one), outside the marks' masks. The low-pass A7 measure alone lets a frame
+    overshoot the scan's edge onto black by tens of pixels."""
     H, W = arr.shape[:2]
-    with Image.open(record_path) as im:
-        ref = np.asarray(pose_fit(im, window, W, H)).astype(np.float32)
+    ref = reference_frame(record_path, W, H, window, view)[0].astype(np.float32)
     keep = np.zeros((H, W), bool)
     e = POSE_EDGE_PX
     keep[:e, :] = keep[-e:, :] = True
@@ -744,23 +755,34 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
                                "declare the tour's resting pose as a 16:9 window inside the scan, and the frame it rests from"})
             diffs: dict = {}
             edges: dict = {}
-            if why is None:
+            # A40 like for like (2026-10-26): a master rendered through a declared view transform is compared with
+            # the scan passed through that same transform (viewxf); with no declaration, A7 exactly as before
+            view, vx_why = VX.parse(item.get("view_transform"))
+            backend = None
+            if vx_why is not None:
+                diffs = {"error": vx_why}
+            elif why is None:
                 try:
+                    if view is not None:
+                        backend = reference_frame(rec["_path"], *SIZE, window, view)[1]
                     for k in sorted({k_from, rframes[-1], (k_from + rframes[-1]) // 2}):
                         arr = read_frame(ff, path, k, fps=_r(item))
-                        diffs[k] = round(record_difference(arr, rec["_path"], window), 3)
+                        diffs[k] = round(record_difference(arr, rec["_path"], window, view), 3)
                         if window is not None:
-                            edges[k] = round(pose_edge_difference(arr, rec["_path"], window), 2)
+                            edges[k] = round(pose_edge_difference(arr, rec["_path"], window, view), 2)
                 except Exception as e:
                     diffs = {"error": f"{type(e).__name__}: {e}"}
             px_ok = (bool(diffs) and "error" not in diffs and max(diffs.values()) <= RECORD_LIMIT
                      and (not edges or max(edges.values()) <= POSE_EDGE_LIMIT))
+            seen = (f", the scan through the master's declared view transform ({view['name']}, look {view['look']}, "
+                    f"exposure {view['exposure']:+g} stops)") if view is not None else ""
             lint("title-record-pixels", px_ok, unit=sid, grammar="A40, A7" + (", A41" if window is not None else ""),
                  evidence={"record": rid, "file": rec["_path"], "difference": diffs, "limit": RECORD_LIMIT,
                            **({"edge_difference": edges, "edge_limit": POSE_EDGE_LIMIT, "edge_px": POSE_EDGE_PX} if edges else {}),
-                           "measure": ("low-pass mean difference against the scan's declared window filling the frame "
-                                       "(the tour's resting pose), marks masked") if window is not None else
-                                      "low-pass mean difference against the scan held whole, marks masked"})
+                           **({"view_transform": view, "view_backend": backend} if view is not None else {}),
+                           "measure": (("low-pass mean difference against the scan's declared window filling the frame "
+                                        "(the tour's resting pose), marks masked") if window is not None else
+                                       "low-pass mean difference against the scan held whole, marks masked") + seen})
         # The marks: burned in and right, or absent and drawn by the engine (never both)
         sample = set()
         for k, m in enumerate(tl):
