@@ -2293,7 +2293,8 @@ SOURCES = ("auto", "human")
 SCALES = ("whole", "field", "detail")
 BOX = ("x", "y", "w", "h")
 PEOPLE_KEYS = set(BOX) | {"name", "facing", "source", "confidence", "model", "face",   # face: A51
-               "minor", "age"}   # A54: the face cap keeps z 1.3 for a minor
+               "minor", "age",   # A54: the face cap keeps z 1.3 for a minor
+               "role", "label"}  # A54: a person's own role (PUBLIC_ROLE_WORDS only) and label lift the face cap
 ROI_KEYS = set(BOX) | {"name", "kind", "facing", "source", "confidence", "model", "cue", "must_show", "person",
                        "lines",     # A50, a text region's line count (its reading pace)
                        "order",     # A54, SURVEY's painter reading order (ticket #10)
@@ -2433,8 +2434,9 @@ def detail_limit_z(size, aspect: float, zcap: float) -> float:
 
 def public_role(item: dict, persons: list[dict] | None = None) -> str | None:
     """The public role of the still's one located person, or None (A54 face cap, review ruling 2026-10-26):
-    only that person's OWN ``people[]`` entry counts: a ``role`` it states, or a singular role word
-    (``PUBLIC_ROLE_WORDS``) in its own ``name`` or ``label``. Captions, titles, ``seen`` and the item's people
+    only that person's OWN ``people[]`` entry counts: a singular role word (``PUBLIC_ROLE_WORDS``, nothing
+    else: "survivor" is no role) in its own ``role``, ``name`` or ``label``; an entry naming two people on one
+    box ("and", "&", a comma) lifts nothing. Captions, titles, ``seen`` and the item's people
     words are never parsed for a role: "Firefighters carry an injured woman" or "a woman and two police
     officers" names the role of someone else in the picture as often as of the one located. A machine
     box (``source: auto``) and the rulebook's generic names (person-1) carry no role."""
@@ -2444,14 +2446,15 @@ def public_role(item: dict, persons: list[dict] | None = None) -> str | None:
         e = q.get("entry") or {}
         if q.get("src") != "people" or source_of(e) != "human":
             continue
-        role = e.get("role")
-        if isinstance(role, str) and role.strip():
-            return role.strip()
         words: list[str] = []
-        for f in ("name", "label"):
+        for f in PUBLIC_ROLE_ENTRY_FIELDS:
             v = e.get(f)
-            if isinstance(v, str) and not GENERIC_NAME.match(v):
-                words += _norm_words(v)
+            if not isinstance(v, str) or GENERIC_NAME.match(v):
+                continue
+            ws = _norm_words(v)
+            if "and" in ws or "&" in v or "," in v:
+                return None                    # one box, two people ("a woman and an officer"): nobody's own role
+            words += ws
         hit = next((w for w in PUBLIC_ROLE_WORDS if w in words), None)
         if hit is not None:
             return hit

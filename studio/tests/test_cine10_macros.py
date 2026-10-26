@@ -138,6 +138,9 @@ def test_the_person_s_own_entry_lifts_by_role_or_a_singular_role_in_its_name_nev
         _, info = T.lift_face_caps(item, T.person_regions(item), BIG, A, 3.0)
         assert info["lifted"] and "own entry" in info["lifted"], p
     for p in (person(0.4, 0.2, 0.15, 0.5, name="firefighters"), person(0.4, 0.2, 0.15, 0.5, name="person-1"),
+              person(0.4, 0.2, 0.15, 0.5, role="survivor"), person(0.4, 0.2, 0.15, 0.5, role="a survivor"),
+              person(0.4, 0.2, 0.15, 0.5, name="a woman and a police officer"),
+              person(0.4, 0.2, 0.15, 0.5, name="officer, survivor"),
               person(0.4, 0.2, 0.15, 0.5, name="a firefighter", source="auto", confidence=0.9)):
         item = {"title": "At the rubble", "people": [p]}
         _, info = T.lift_face_caps(item, T.person_regions(item), BIG, A, 3.0)
