@@ -593,39 +593,48 @@ def test_a40_a_shots_span_across_the_titles_is_the_full_render_byte_for_byte(tmp
 # --------------------------------------------------------------------------
 
 
-def slot_film(tmp_path, *, ids=("TS1", "TS1b"), title_slot=True, edit=None):
+def slot_film(tmp_path, *, ids=("TS1", "TS1b"), title_slot=True, extra_before=0.0, edit=None):
     """The fixture film with the cold open followed by placeholder shot(s) standing in for the series
     titles, instead of a real title_sequence. Together the placeholders span exactly ``TITLE_S``, so the
-    rest of the film shifts by ``SHIFT`` regardless of how many placeholder shots make up the run.
-    ``edit(play)`` runs last, as in ``titled_film``."""
+    rest of the film shifts by the total (``COLD_S + extra_before + TITLE_S``) regardless of how many
+    placeholder shots make up the run. ``extra_before`` inserts one ordinary card between the cold open and
+    the slot run (a misplaced-run fixture: the slot then sits one shot late). ``edit(play)`` runs last, as
+    in ``titled_film``."""
     film = make_film(tmp_path / "film")
     play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
+    total_shift = round(COLD_S + extra_before + TITLE_S, 4)
 
     def move(x):
         for k in ("start_s", "end_s"):
             if isinstance(x.get(k), (int, float)):
-                x[k] = round(x[k] + SHIFT, 4)
+                x[k] = round(x[k] + total_shift, 4)
     for part in play["parts"]:
         for coll in ("shots", "lines", "cues", "text"):
             for x in part.get(coll, []):
                 move(x)
     for x in play.get("subtitle_source", []) + play.get("music", []) + play.get("moments", []):
         move(x)
-    play["runtime_target_s"] = play["runtime_target_s"] + SHIFT
+    play["runtime_target_s"] = play["runtime_target_s"] + total_shift
+    slot_start = round(COLD_S + extra_before, 4)
     slot_dur = TITLE_S / len(ids)
     slots = []
     for k, sid in enumerate(ids):
-        s = {"id": sid, "kind": "card", "start_s": COLD_S + k * slot_dur, "dur_s": slot_dur, "mark": "CARD",
+        s = {"id": sid, "kind": "card", "start_s": round(slot_start + k * slot_dur, 4), "dur_s": slot_dur, "mark": "CARD",
              "text": ["The Run"], "transition_in": {"type": "cut"},
              "why": "The series titles' slot, held by a placeholder until the title is spliced in."}
         if title_slot:
             s["title_slot"] = True
         slots.append(s)
+    series_shots = slots
+    if extra_before:
+        series_shots = [{"id": "X1", "kind": "card", "start_s": COLD_S, "dur_s": extra_before, "mark": "CARD",
+                          "text": ["Not the slot"], "transition_in": {"type": "cut"},
+                          "why": "An ordinary card before the slot (a misplaced-run fixture)."}] + slots
     play["parts"][:0] = [
         {"id": "cold", "kind": "cold_open", "title": "Cold open", "shots": [
             {"id": "CO1", "kind": "black", "start_s": 0.0, "dur_s": COLD_S, "mark": "CARD", "transition_in": {"type": "cut"},
              "silence": "intended", "why": "The hook, in this test a breath of black."}]},
-        {"id": "series", "kind": "series_title", "title": TS.SERIES, "shots": slots}]
+        {"id": "series", "kind": "series_title", "title": TS.SERIES, "shots": series_shots}]
     if edit:
         edit(play)
     (film / "screenplay.json").write_text(json.dumps(play), encoding="utf-8")
@@ -640,9 +649,16 @@ def test_a40_title_slot_a_contiguous_run_of_placeholders_takes_the_main_title_th
     assert not isinstance(plan, Exception), plan
     # the slot run is accepted (no title-theme refusal); there is no title_sequence shot to emit a pass entry for
     assert not failed(j, "title-theme")
-    # none of A40's other per-shot checks (provenance, format, A7 pose, and so on) are raised for a placeholder:
-    # there is no title_sequence shot, so none of these ever run
+    # the run counts once, in the right place, each shot an allowed kind: all three now fire real pass entries
+    assert passed(j, "title-sequence-once") and passed(j, "title-sequence-place") and passed(j, "title-slot-kind")
+    # title-sequence-clear runs over the run too, but only ever as a warning for a placeholder
+    assert lints(j, "title-sequence-clear") and all(e["severity"] == "warn" for e in lints(j, "title-sequence-clear"))
+    # none of A40's other per-shot checks (transitions, provenance, format, A7 pose, and so on) are raised for
+    # a placeholder: there is no title_sequence shot, so none of these ever run (once/place/kind/clear do, and
+    # are checked above instead)
     for rule in RULES:
+        if rule in ("title-sequence-once", "title-sequence-place", "title-sequence-clear"):
+            continue
         assert not lints(j, rule), (rule, lints(j, rule))
 
 
@@ -653,6 +669,7 @@ def test_a40_title_slot_a_single_placeholder_also_takes_the_theme(tmp_path):
     plan, j = plan_of(film)
     assert not isinstance(plan, Exception), plan
     assert not failed(j, "title-theme")
+    assert passed(j, "title-sequence-once") and passed(j, "title-sequence-place") and passed(j, "title-slot-kind")
 
 
 def test_a40_title_theme_over_a_non_slot_still_still_refuses(tmp_path):
@@ -663,6 +680,85 @@ def test_a40_title_theme_over_a_non_slot_still_still_refuses(tmp_path):
     film = slot_film(tmp_path, title_slot=False, edit=theme)
     plan, j = plan_of(film)
     assert isinstance(plan, R.Refused) and failed(j, "title-theme")
+
+
+def test_a40_title_theme_over_a_slot_run_must_start_on_its_first_frame(tmp_path):
+    """The cue is contained in the run but starts a second late: title-theme holds a slot run to the same
+    bound as a title_sequence shot (the per-shot check at titles.py:565), not mere containment."""
+    def theme_late(play):
+        play["music"] = [{"id": "MT", "kind": "music", "role": "main_title", "start_s": COLD_S + 1.0, "end_s": SHIFT, "wav": "mt.wav"}]
+    plan, j = plan_of(slot_film(tmp_path, edit=theme_late))
+    assert isinstance(plan, R.Refused) and failed(j, "title-theme")
+
+
+def test_a40_title_slot_run_not_right_after_the_cold_open_is_misplaced(tmp_path):
+    """An ordinary card sits between the cold open and the slot: one run, correctly formed, in the wrong
+    place. title-sequence-once still passes (there is only one run); title-sequence-place refuses it."""
+    plan, j = plan_of(slot_film(tmp_path, extra_before=1.0))
+    assert isinstance(plan, R.Refused) and failed(j, "title-sequence-place")
+    assert passed(j, "title-sequence-once")
+
+
+def test_a40_title_slot_two_separate_runs_refuses_once(tmp_path):
+    """TS1 and TS1b are split by an ordinary card: two runs, not one, even though each is otherwise fine."""
+    def split(play):
+        series = next(p for p in play["parts"] if p["id"] == "series")
+        ts1, ts1b = series["shots"]
+        mid_dur = 1.0
+        ts1["dur_s"] = round(ts1["dur_s"] - mid_dur, 4)
+        mid = {"id": "MID", "kind": "card", "start_s": round(ts1["start_s"] + ts1["dur_s"], 4), "dur_s": mid_dur,
+               "mark": "CARD", "text": ["Not the slot"], "transition_in": {"type": "cut"}, "why": "Splits the run."}
+        ts1b["start_s"] = round(mid["start_s"] + mid_dur, 4)
+        series["shots"] = [ts1, mid, ts1b]
+    plan, j = plan_of(slot_film(tmp_path, edit=split))
+    assert isinstance(plan, R.Refused) and failed(j, "title-sequence-once")
+    ev = next(e for e in lints(j, "title-sequence-once") if e["status"] == "fail")
+    assert len(ev["evidence"]["slot_runs"]) == 2
+
+
+def test_a40_title_slot_a_real_title_plus_a_slot_both_refuses_once(tmp_path, masters):
+    """A real title_sequence and a title_slot placeholder never coexist, wherever the placeholder sits."""
+    def add_slot(play):
+        s1 = next(sh for part in play["parts"] for sh in part.get("shots", []) if sh["id"] == "S1")
+        s1["title_slot"] = True
+    plan, j = plan_of(titled_film(tmp_path, masters, edit=add_slot))
+    assert isinstance(plan, R.Refused) and failed(j, "title-sequence-once")
+    ev = next(e for e in lints(j, "title-sequence-once") if e["status"] == "fail")
+    assert ev["evidence"]["title_shots"] == ["TS1"] and ev["evidence"]["slot_runs"] == [["S1"]]
+
+
+def test_a40_title_slot_on_a_chapter_black_shot_is_misplaced(tmp_path):
+    """A title_slot flag on an ordinary chapter shot (S8, a black shot deep in the fixture film, not right
+    after any cold open): black is an allowed kind, so only its place is wrong."""
+    film = make_film(tmp_path / "film")
+    play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
+    s8 = next(sh for part in play["parts"] for sh in part.get("shots", []) if sh["id"] == "S8")
+    assert s8["kind"] == "black"
+    s8["title_slot"] = True
+    (film / "screenplay.json").write_text(json.dumps(play), encoding="utf-8")
+    plan, j = plan_of(film)
+    assert isinstance(plan, R.Refused) and failed(j, "title-sequence-place")
+    assert passed(j, "title-slot-kind") and passed(j, "title-sequence-once")
+
+
+def test_a40_title_slot_kind_refuses_a_clip_or_a_video():
+    """Only a still, a card or black may wear the slot: title-slot-kind refuses a video shot flagged
+    title_slot. Called directly against plan_lints with a synthetic shot, independent of the rest of a
+    plan (an archive_video shot needs more setup than this check cares about)."""
+    calls = []
+
+    def lint(rule, ok, **kw):
+        calls.append((rule, ok, kw))
+
+    class StubJournal:
+        def lint(self, *a, **k):
+            pass
+
+        def decision(self, *a, **k):
+            pass
+    shots = [{"id": "V1", "kind": "archive_video", "title_slot": True, "f0": 0, "f1": 48, "_part_kind": "series_title"}]
+    TS.plan_lints(lint, StubJournal(), {"parts": []}, shots, {}, lines=[], texts=[], cues=[], vl=[], silences=[], fps=24.0)
+    assert any(rule == "title-slot-kind" and not ok for rule, ok, kw in calls)
 
 
 def test_a40_title_slot_placeholder_still_obeys_every_other_lint(tmp_path):
