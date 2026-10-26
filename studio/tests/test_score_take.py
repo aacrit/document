@@ -407,7 +407,9 @@ def test_a_digital_zero_gap_and_an_unrested_hole_fail_both_lints(tmp_path, monke
     assert unrested["from_s"] <= 16.5 and unrested["to_s"] >= 24.0
     rests = _get(checks, "silence-rests", "score")
     assert not rests["ok"] and rests["evidence"]["digital_zero_s"] == pytest.approx(1.0) and rests["evidence"]["count"] == 2
-    # log-only during the canary; blocking after it
+    # log-only during the canary; blocking after it (pinned: TAKE_CANARY_UNTIL is a fixed calendar
+    # date, so this must not depend on when the suite happens to run)
+    monkeypatch.setattr(SC, "take_canary", lambda today=None: True)
     jj = J.Journal(film="take-lints-bad")
     assert R.score_lints(jj, plan, stems, registry=[]) == []
     lint = next(e for e in J.read(jj.path) if e.get("kind") == "lint" and e.get("rule") == "music-holes")
