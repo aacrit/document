@@ -38,7 +38,7 @@ def _args():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     a = {"fps": "30000/1001", "res": "2560x1440", "samples": "1024", "threshold": "0.01", "min_samples": "64",
          "frames": "0:0", "step": "1", "out": "", "expo": "", "blur": "1", "blend": "", "exposure": "0.0",
-         "record": "C20-METAR-0851", "rec_spec": "0.0", "exr": ""}
+         "record": "C20-METAR-0851", "rec_spec": "0.0", "exr": "", "vs": ""}
     for i, k in enumerate(argv):
         if k.startswith("--") and i + 1 < len(argv):
             a[k[2:]] = argv[i + 1]
@@ -377,8 +377,20 @@ def m_record(rec):
     print and not the lit room reflected off its surface (the measured cause of the v5c A7 failure: a 0.3 specular
     and 0.1 sheen lifted the plate's black ground from 3 to about 70 of 255)."""
     m = RT.m_image_crop("record", C.RECORDS[rec]["tex"], rough=1.0, sheen=0.0)
-    b = m.node_tree.nodes["Principled BSDF"]
+    nt = m.node_tree
+    b = nt.nodes["Principled BSDF"]
     b.inputs["Specular IOR Level"].default_value = RECORD_SPECULAR
+    k = C.record_albedo(rec)
+    if k != 1.0:
+        # the page printed darker than its scan by a fixed factor (channel_v5c.RECORD_ALBEDO_EV): the paper's albedo
+        # calibrated to the scan's white at the declared exposure, in the scene, not in the measurement
+        t = next(n for n in nt.nodes if n.type == "TEX_IMAGE")
+        sc_ = nt.nodes.new("ShaderNodeVectorMath")
+        sc_.operation = "SCALE"
+        sc_.inputs["Scale"].default_value = k
+        nt.links.new(t.outputs["Color"], sc_.inputs[0])
+        nt.links.new(sc_.outputs["Vector"], b.inputs["Base Color"])
+        print(f"record {rec}: albedo x{k:.4f} ({math.log2(k):+.2f} stop)")
     return m
 
 
@@ -613,6 +625,19 @@ def main():
     if A["blend"]:
         bpy.ops.wm.save_as_mainfile(filepath=A["blend"], compress=False)
     sc.render.filepath = str(Path(A["out"]) / "#####")
+    if A["vs"]:
+        # the view settings each frame renders through, read back from the scene as evaluated at that frame (A40 like
+        # for like binds a title's declared view_transform to these); a frame whose PNG is already on disk is not
+        # rendered again (use_overwrite off) and is marked so
+        vs = []
+        for f in range(f0, f1 + 1, int(A["step"])):
+            sc.frame_set(f)
+            v = sc.view_settings
+            vs.append({"frame": f, "view_transform": v.view_transform, "look": v.look,
+                       "exposure": round(float(v.exposure), 6),
+                       **({"skipped_existing": True} if (Path(A["out"]) / f"{f:05d}.png").exists() else {})})
+        sc.frame_set(f0)
+        Path(A["vs"]).write_text(json.dumps({"blender": bpy.app.version_string, "frames": vs}), encoding="utf-8")
     print("V5C-BUILD " + json.dumps({"frames_total": len(frames), "range": [f0, f1, int(A["step"])],
                                      "build_s": round(time.time() - t0, 1), "renderer": RS.renderer_line(sc)}), flush=True)
     bpy.ops.render.render(animation=True)

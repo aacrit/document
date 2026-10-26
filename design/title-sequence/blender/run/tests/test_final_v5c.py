@@ -119,3 +119,37 @@ def test_the_record_is_dead_matte_and_the_scene_takes_the_record():
     s = (RUN / "scene_v5c.py").read_text(encoding="utf-8")
     assert '"record": "C20-METAR-0851"' in s and 'C.RECORDS[rec]["tex"]' in s
     assert 'rough=1.0, sheen=0.0' in s and 'float(A["rec_spec"])' in s and '"rec_spec": "0.0"' in s
+
+
+def test_the_record_page_is_calibrated_to_its_scan_in_the_scene_not_the_measure():
+    # S-16928's paper sat +0.89 stop over the scan's linear white at the pose (+3.25): its page's albedo is
+    # calibrated down in the scene; the other records keep the scan as printed (factor 1, no node added)
+    assert C.record_albedo("S-16928") == 2.0 ** -0.89
+    assert C.record_albedo("S-130") == 1.0 and C.record_albedo("C20-METAR-0851") == 1.0
+    s = (RUN / "scene_v5c.py").read_text(encoding="utf-8")
+    assert "C.record_albedo(rec)" in s and '"SCALE"' in s
+
+
+def test_the_title_item_declares_the_view_transform_it_was_rendered_through():
+    import tail_v5c as T
+    ev = [0.5] * 1061 + [3.25, 3.249, 3.2481]
+    v = T.view_transform(ev, 1061, "S-16928")
+    assert v == {"name": "AgX", "look": "None", "exposure": 3.25, "basis": v["basis"]}
+    assert "3.2481" in v["basis"]                       # the meter's drift over the rest is stated, not hidden
+    assert "x0.5396" in v["basis"] and "x1.0000" in T.view_transform(ev, 1061, "S-130")["basis"]
+    s = (RUN / "scene_v5c.py").read_text(encoding="utf-8")
+    assert 'view_transform = "AgX"' in s and 'look = "None"' in s   # what the scene actually renders through
+
+
+def test_view_settings_say_where_each_frame_came_from_and_never_reconstruct():
+    import pytest
+    import view_settings_v5c as VS
+    base, tail = [0.5, 0.6, 0.7, 0.8], [0.5, 0.6, 3.0, 3.25]
+    dumps = {3: {"frame": 3, "view_transform": "AgX", "look": "None", "exposure": 3.25},
+             2: {"frame": 2, "view_transform": "AgX", "look": "None", "exposure": 3.0, "skipped_existing": True}}
+    fr = VS.frames(4, {2, 3}, tail, base, dumps)
+    assert [f["recorded"] for f in fr] == ["keyed", "keyed", "keyed", "blender"]
+    assert [f["exposure"] for f in fr] == [0.5, 0.6, 3.0, 3.25]          # prefix frames from the prefix's own meter
+    assert all(f["view_transform"] == "AgX" and f["look"] == "None" for f in fr)
+    with pytest.raises(ValueError):                                       # a read-back that disagrees is an error
+        VS.frames(4, {3}, tail, base, {3: dict(dumps[3], exposure=2.75)})

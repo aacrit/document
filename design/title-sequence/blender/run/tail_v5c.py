@@ -97,6 +97,17 @@ def plan(rec, bake, rest_s, meter):
             "delta": delta, "record_from": r0, "moved_from": moved[0] if moved else None}
 
 
+def view_transform(ev, k_from, rec):
+    """The camera the master was rendered through (A40 like for like): scene_v5c's AgX, look None, and the view
+    exposure keyed at the pose's first frame. The meter keeps breathing over the rest, so the last frame's value is
+    stated in the basis rather than hidden."""
+    e0, e1 = round(float(ev[k_from]), 6), round(float(ev[-1]), 6)
+    return {"name": "AgX", "look": "None", "exposure": e0,
+            "basis": f"scene_v5c.py renders through AgX, look None, the view exposure keyed per frame: {e0:+g} stops "
+                     f"at the pose's first frame {k_from}, {e1:+g} at the last (the meter's own drift); the record's "
+                     f"page albedo x{C.record_albedo(rec):.4f} against its scan (channel_v5c.RECORD_ALBEDO_EV)"}
+
+
 def blender(args, tag, out_dir):
     env = dict(os.environ, TEMP=str(MEDIA / "tmp"), TMP=str(MEDIA / "tmp"))
     for k in range(4):
@@ -143,16 +154,23 @@ def encode(n, redo, tail_dir, master, preview):
         kbps = int(kbps * 0.85)
 
 
-def a7_master(master, rec, frames):
+def a7_master(master, rec, frames, view=None):
+    """A7 as the lint reads it. With an engine that compares like for like (A40, view_transform), the scan is seen
+    through the master's declared view; an engine without it measures as before, and the report says which."""
+    import inspect
+
     from studio.engine import titles as TT
     man = json.loads(Path("D:/document-media/title-sequence/chart/tex-manifest.json").read_text(encoding="utf-8"))
     scan = man[C.RECORDS[rec]["tex"]]["tex"]["file"]
     win = list(C.record_window(rec))
-    out = {"window": win, "by_frame": {}}
+    kw = {}
+    if view is not None and "view" in inspect.signature(TT.record_difference).parameters:
+        kw = {"view": {k: view[k] for k in ("name", "look", "exposure")}}
+    out = {"window": win, "by_frame": {}, "view_transform": kw.get("view")}
     for k in frames:
         arr = TT.read_frame("ffmpeg", str(master), k, fps=FPS)
-        out["by_frame"][k] = {"a7": round(TT.record_difference(arr, scan, win), 3),
-                              "edge_strips": round(TT.pose_edge_difference(arr, scan, win), 2)}
+        out["by_frame"][k] = {"a7": round(TT.record_difference(arr, scan, win, **kw), 3),
+                              "edge_strips": round(TT.pose_edge_difference(arr, scan, win, **kw), 2)}
     out["a7"] = max(v["a7"] for v in out["by_frame"].values())
     out["edge_strips"] = max(v["edge_strips"] for v in out["by_frame"].values())
     out["pass"] = out["a7"] <= TT.RECORD_LIMIT and out["edge_strips"] <= TT.POSE_EDGE_LIMIT
@@ -172,7 +190,10 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--record", required=True, choices=sorted(C.RECORDS))
     ap.add_argument("--plan-only", action="store_true")
+    ap.add_argument("--engine", help="a checkout whose studio.engine measures A7 (default: this repo's)")
     a = ap.parse_args(argv)
+    if a.engine:
+        sys.path.insert(0, str(Path(a.engine).resolve()))
     rec = a.record
     out = BASE / rec
     out.mkdir(parents=True, exist_ok=True)
@@ -219,7 +240,8 @@ def render_runs(P, tail_dir, exr_dir, expo, rec):
         wall = blender(["--fps", FPS_S, "--frames", f"{f0}:{f1}", "--res", "2560x1440", "--samples",
                         str(SAMPLING["samples"]), "--threshold", str(SAMPLING["threshold"]), "--min_samples",
                         str(SAMPLING["min_samples"]), "--blur", "1", "--expo", str(expo), "--record", rec,
-                        "--out", str(tail_dir), "--exr", str(exr_dir)], f"{f0}-{f1}", tail_dir)
+                        "--out", str(tail_dir), "--exr", str(exr_dir),
+                        "--vs", str(tail_dir.parent / f"view-settings-{f0}-{f1}.blender.json")], f"{f0}-{f1}", tail_dir)
         log("rendered", run=[f0, f1], wall_s=wall, s_per_frame=round(wall / (f1 - f0 + 1), 1))
 
 
@@ -228,18 +250,26 @@ def finish(P, rec, out, tail_dir):
     preview = out / f"the-run-v5c-{rec}-2997-preview.mp4"
     encode(P["n"], set(P["redo"]), tail_dir, master, preview)
     last = P["n"] - 1
-    a7 = a7_master(master, rec, sorted({P["k_from"], (P["k_from"] + last) // 2, last}))
+    view = view_transform(P["ev"], P["k_from"], rec)
+    a7 = a7_master(master, rec, sorted({P["k_from"], (P["k_from"] + last) // 2, last}), view)
     log("a7", **a7)
     wav = out / f"the-run-v5c-{rec}-2997.foley.wav"
     subprocess.run([VENV_PY, str(HERE / "foley_v5c.py"), "--record", rec, "--out", str(wav)], check=True)
     sound = out / f"the-run-v5c-{rec}-2997-sound.mov"
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(master), "-i", str(wav), "-map", "0:v:0", "-map",
                     "1:a:0", "-c:v", "copy", "-c:a", "pcm_s16le", "-shortest", str(sound)], check=True)
+    import view_settings_v5c as VS
+    vs_path, vs = VS.write(rec, P["redo"], P["n"], out, BASE, sound)
+    pose = vs["frames"][P["k_from"]]
+    if (pose["view_transform"], pose["look"], pose["exposure"]) != (view["name"], view["look"], view["exposure"]):
+        raise SystemExit(f"the declared view_transform {view} is not the pose frame's own {pose}")
+    log("view settings", path=str(vs_path), pose=pose, last=vs["frames"][-1], sha256=vs["master_sha256"])
     r = C.RECORDS[rec]
     item = {"id": f"TS-v5c-{rec}", "file": sound.name, "record": rec, "fps": FPS_S, "width": 1920, "height": 1080,
             "frames": P["n"], "denoise": False, "burned": False,
             "record_frames": [P["record_from"], last],
             "record_pose": {"window": [round(v, 6) for v in C.record_window(rec)], "from_frame": P["k_from"]},
+            "view_transform": view,
             "marks": [{"frame": 0, "cls": "DRAWN", "label": "Drawn · from period records"},
                       {"frame": P["record_from"], "cls": r["cls"], "label": TITLE_RECORDS[rec]["label"]}],
             "renderer": f"Blender 4.4.3 Cycles (OptiX), adaptive sampling {SAMPLING['samples']} spp, noise threshold "

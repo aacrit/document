@@ -448,6 +448,21 @@ RECORDS = {
 }
 
 
+# The page's albedo against its scan, in stops (A7 like for like, 2026-10-26). A record is printed at the scan's
+# values unless its page, lit by the lamp at the pose, sits over the scan's own linear white at the exposure the
+# title declares. S-16928 did: in the v5c tail's scene-linear EXR of pose frame 1075 its paper (scan code over 200,
+# 60 px in from the frame edge) sat +0.893 stop over the scan's own linear values (the median ratio; +0.904 as a
+# ratio of means). Rather than declare another exposure, its page's white is calibrated to the scan's white: printed
+# 0.89 stop darker, so the rendered paper equals the scan's paper at the real +3.25. The lamp, the room and the
+# exposure are unchanged; the factor is set from the paper, not from the A7 measure.
+RECORD_ALBEDO_EV = {"S-16928": -0.89}
+
+
+def record_albedo(rec):
+    """The factor on the record's printed colour (1.0: the scan as it is)."""
+    return 2.0 ** RECORD_ALBEDO_EV[rec] if rec in RECORD_ALBEDO_EV else 1.0
+
+
 def record_rect(rec):
     """The record sheet's footprint (x0, x1, y0, y1) on the felt."""
     r = RECORDS[rec]
