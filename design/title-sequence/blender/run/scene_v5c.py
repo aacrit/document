@@ -643,7 +643,11 @@ def main():
             old = {}
         vs = [old[d["frame"]] if d.get("skipped_existing") and d["frame"] in old
               and not old[d["frame"]].get("skipped_existing") else d for d in vs]
-        Path(A["vs"]).write_text(json.dumps({"blender": bpy.app.version_string, "frames": vs}), encoding="utf-8")
+        Path(A["vs"]).write_text(json.dumps({"blender": bpy.app.version_string, "frames": vs,
+                                             "display_device": sc.display_settings.display_device,
+                                             "gamma": round(float(sc.view_settings.gamma), 6),
+                                             "use_curve_mapping": bool(sc.view_settings.use_curve_mapping)}),
+                                 encoding="utf-8")
     print("V5C-BUILD " + json.dumps({"frames_total": len(frames), "range": [f0, f1, int(A["step"])],
                                      "build_s": round(time.time() - t0, 1), "renderer": RS.renderer_line(sc)}), flush=True)
     bpy.ops.render.render(animation=True)

@@ -77,7 +77,34 @@ def write(rec, redo, n, rec_dir, base_dir, sound_master):
                        "tail_frames": len(redo), "blender_read_back": sum(1 for f in fr if f["recorded"] == "blender")}}
     p = Path(rec_dir) / "view-settings.json"
     p.write_text(json.dumps(doc, indent=1), encoding="utf-8")
+    dv = document_view(doc)
+    (Path(sound_master).parent / view_sidecar_name(sound_master)).write_text(json.dumps(dv, indent=1), encoding="utf-8")
     return p, doc
+
+
+def view_sidecar_name(master):
+    """The engine's sidecar beside the master (studio.engine.viewxf, document.view/1): <master stem>.view.json."""
+    return Path(master).stem + ".view.json"
+
+
+def document_view(doc):
+    """view-settings.json in the engine's schema (document.view/1). The transform and look are one value for every
+    frame or this refuses. display_device, gamma and curve mapping were never read back or logged by these renders
+    (scene_v5c.py runs --factory-startup and never sets them), so they are left out and named as not recorded rather
+    than written as if measured; the engine reads their absence as its defaults (sRGB, 1.0, off)."""
+    tl = {(f["view_transform"], f["look"]) for f in doc["frames"]}
+    if len(tl) != 1:
+        raise ValueError(f"more than one view transform or look across the master: {sorted(tl)}")
+    (vt, look), = tl
+    return {"schema": "document.view/1", "renderer": "Blender 4.4.3", "master": doc["master"],
+            "master_sha256": doc["master_sha256"], "view_transform": vt, "look": look,
+            "exposure": [f["exposure"] for f in doc["frames"]],
+            "not_recorded": ["display_device", "gamma", "use_curve_mapping"],
+            "recorded": {"exposure": "per frame, see view-settings.json: "
+                         f"{sum(1 for f in doc['frames'] if f['recorded'] == 'blender')} read back from Blender, "
+                         f"{sum(1 for f in doc['frames'] if f['recorded'] == 'keyed')} as keyed from the render's "
+                         "--expo file", "view_transform_look": "read back from Blender on the frames view-settings.json marks "
+                         "'blender'; on 'keyed' frames, what scene_v5c.py settings() sets (AgX, None), not logged"}}
 
 
 def main(argv=None):
