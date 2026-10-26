@@ -153,11 +153,12 @@ def the_lamp():
 # ------------------------------------------------------------------------------------------------ materials
 
 
-def margin(nm):
-    p = RELIEF / f"{nm}.json"
+def margin(pl):
+    """The plate's fibre colour: the Run's relief record where the sheet has one, else the bake's (same method)."""
+    p = RELIEF / f"{pl['name']}.json"
     if p.exists():
         return tuple(json.loads(p.read_text(encoding="utf-8"))["margin_rgb_linear"])
-    return None
+    return tuple(pl["margin_rgb_linear"])
 
 
 def m_mount(pl):
@@ -230,10 +231,9 @@ def m_record_flat_hold(image, exposure_ev):
 
 def plate_materials(pl, exposure_ev):
     nm, kind = pl["name"], pl["kind"]
-    side_rgb = margin(nm)
+    side_rgb = margin(pl)
     if nm.startswith("record "):
         top, val = m_record_flat_hold(pl["tex"], exposure_ev)
-        side_rgb = RT.scan_margin_colour(pl["tex"], False)
         return top, RT.fibre(nm, side_rgb), val
     if kind == "mount":
         top = m_mount(pl)
@@ -244,7 +244,7 @@ def plate_materials(pl, exposure_ev):
     else:
         rough, sheen, bump = {"leaf": (0.72, 0.15, 0.15), "ino": (0.75, 0.2, 0.12)}.get(nm, (0.75, 0.15, 0.1))
         top = RT.m_image_crop(nm, pl["tex"], rough=rough, sheen=sheen, bump=bump)
-    return top, RT.fibre(nm, side_rgb or (0.55, 0.47, 0.36)), None
+    return top, RT.fibre(nm, side_rgb), None
 
 
 # ------------------------------------------------------------------------------------------------ the plates

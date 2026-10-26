@@ -115,6 +115,26 @@ def mount_uv(pl):
     return ((W - w) / 2 / W, (H - h) / 2 / H, (W + w) / 2 / W, (H + h) / 2 / H)
 
 
+def margin_colour(pl):
+    """relief.margin_colour: the median linear colour of the scan's opaque pixels within 3% of its outline (or its
+    border band), the plain fibre colour of the plate's edges."""
+    from PIL import Image
+    from scipy.ndimage import binary_erosion
+    alpha = pl["kind"] in ("mount", "keyed")
+    im = Image.open(TEX / f"{pl['tex']}{'.png' if alpha else '.jpg'}").convert("RGBA")
+    im.thumbnail((600, 600))
+    a = np.asarray(im, np.float32) / 255.0
+    k = max(2, int(0.03 * max(a.shape[:2])))
+    if alpha:
+        m = a[..., 3] > 0.5
+        ring = m & ~binary_erosion(m, iterations=k)
+    else:
+        ring = np.zeros(a.shape[:2], bool)
+        ring[:k, :] = ring[-k:, :] = ring[:, :k] = ring[:, -k:] = True
+    rgb = np.median(a[..., :3][ring], axis=0)
+    return [float(((c + 0.055) / 1.055) ** 2.4 if c > 0.04045 else c / 12.92) for c in rgb]
+
+
 def own_relief(pl):
     """(top, bottom) relative to the plate's base, and its footprint mask, on its texels."""
     from scipy.ndimage import binary_fill_holes, distance_transform_edt, gaussian_filter
@@ -342,7 +362,8 @@ def main():
     np.savez_compressed(OUT / "plates.npz", **store)
     report["frame_cover"] = {str(f): L.topmost_cover(f) for f in (22, 37, 237, 391, 529, 651, 751)}
     (OUT / "poses.json").write_text(json.dumps({"fps": "30000/1001", "pile_centre": list(L.P), "plates": [
-        dict(p) | ({"uv": mount_uv(p)} if p["kind"] == "mount" else {}) for p in PLATES],
+        dict(p) | {"margin_rgb_linear": margin_colour(p)} | ({"uv": mount_uv(p)} if p["kind"] == "mount" else {})
+        for p in PLATES],
         "poses": poses}), encoding="utf-8")
     (OUT / "report.json").write_text(json.dumps(report, indent=1), encoding="utf-8")
     print(json.dumps({"rest": report["rest"], "edge_gaps": report["edge_gaps"]}, indent=1))
