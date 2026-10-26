@@ -837,7 +837,49 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
             lp = lockup_pixels(read_frame(ff, path, int(lf), fps=_r(item))) if lf is not None else 0
         except Exception:
             lp = 0
-        lint("title-lockup", lp >= LOCKUP_MIN_PX, unit=sid, grammar="A40, BRAND-KIT 2",
+        in_master = lp >= LOCKUP_MIN_PX
+        card_id, card_why = lockup_card(shots, i, item, R.card_kind)
+        lk_ok = in_master or card_why is None
+        lint("title-lockup", lk_ok, unit=sid, grammar="A40, BRAND-KIT 2",
              evidence={"frame": lf, "bright_px": lp, "min_px": LOCKUP_MIN_PX, "lockup": SERIES,
-                       "fix": None if lp >= LOCKUP_MIN_PX else "the master ends on the series lockup; the engine never draws it"})
+                       "in_master": in_master, "lockup_card": card_id, "card_problem": card_why,
+                       "fix": None if lk_ok else ("the master ends on the series lockup, or the series-title part ends on "
+                                                  f"the lockup card (a title card {SERIES!r}, cut in after the title and "
+                                                  "its record hold)")})
     return out
+
+
+def _words(text) -> str:
+    return " ".join(str(text or "").split())
+
+
+def lockup_card(shots: list[dict], i: int, item: dict, card_kind) -> tuple[str | None, str | None]:
+    """A40 lockup card (2026-10-26, implementing the founder's 2026-10-18 ruling: the title is one physics-only shot
+    with no fades, and the series lockup a separate CARD shot after it, on a hard cut): (the card's id, None) when the
+    series-title part holding the title shot ``i`` ends on the house lockup card, else (its last shot's id or None,
+    why not). The card is a ``card`` shot drawn as a title card (``card: title``) whose text is the series lockup
+    alone, last in the same part, after the title and any holds of the title's own record, joined by a cut."""
+    part = shots[i].get("_part")
+    own = [j for j, s in enumerate(shots) if s.get("_part") == part]
+    last = own[-1] if own else i
+    if last == i:
+        nxt = shots[i + 1] if i + 1 < len(shots) else None
+        if nxt is not None and nxt.get("kind") == "card" and _words((nxt.get("text") or [""])[0]) == SERIES:
+            return nxt["id"], f"the lockup card {nxt['id']} is outside the series-title part: it ends that part"
+        return None, "the series-title part has no lockup card after the title"
+    c = shots[last]
+    texts = [_words(t) for t in (c.get("text") or [])]
+    if c.get("kind") != "card" or card_kind(c) != "title":
+        return c["id"], f"the series-title part ends on {c['id']}, a {c.get('kind')} (not a title card)"
+    if texts != [SERIES]:
+        return c["id"], f"{c['id']}'s text is {texts}, not the series lockup [{SERIES!r}]"
+    if (c.get("transition_in") or {}).get("type", "cut") != "cut":
+        return c["id"], f"{c['id']} is not joined by a cut"
+    before = [shots[j]["id"] for j in own if j < i]
+    if before:
+        return c["id"], f"the title is not the first shot of its part: {before} come before it"
+    rec = item.get("record")
+    stray = [shots[j]["id"] for j in own if i < j < last and (not rec or shots[j].get("asset") != rec)]
+    if stray:
+        return c["id"], f"between the title and its lockup card only holds of the title's record ({rec}) may stand: {stray}"
+    return c["id"], None

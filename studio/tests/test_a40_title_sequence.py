@@ -728,6 +728,95 @@ def test_a7_like_for_like_in_the_plan(tmp_path, masters, film, no_blender):
 
 
 # --------------------------------------------------------------------------
+# A40 lockup card (coordinator, founder-delegated, 2026-10-26, implementing the 2026-10-18 ruling: The Run is one
+# physics-only shot with no fades; the series lockup is a separate CARD shot after it, on a hard cut). title-lockup
+# is met by the master's own lockup or by the series-title part ending on the house lockup card.
+# --------------------------------------------------------------------------
+
+NO_LOCKUP = {"lockup_frame": 20}               # a machine frame: this master carries no lockup of its own
+HOLD = {"id": "TS1r", "kind": "archive_still", "asset": "FX-REC", "preset": "DRIFT", "fill_ok": False,
+        "fill_exception": "a small test scan: the fill would pass 1.6x at 360p", "dur_s": 1.0, "mark": "ARCHIVE",
+        "transition_in": {"type": "cut"}, "why": "The title's record held whole after its resting pose.",
+        "repeat_reason": "The title's own record, held whole again so it can be read before the slot ends."}
+CARD = {"id": "TS1b", "kind": "card", "card": "title", "text": [TS.SERIES], "dur_s": 1.0, "mark": "CARD",
+        "transition_in": {"type": "cut"}, "why": "The series lockup, on a hard cut after the title."}
+
+
+def with_shots(after=(), next_part=()):
+    """An edit for titled_film: shots appended to the series-title part after TS1 (``after``) or put first in the next
+    part (``next_part``), everything after them moved on by their length."""
+    def edit(play):
+        add = [dict(s) for s in list(after) + list(next_part)]
+        t = COLD_S + TITLE_S
+        extra = sum(s["dur_s"] for s in add)
+
+        def move(x):
+            for k in ("start_s", "end_s"):
+                if isinstance(x.get(k), (int, float)) and x[k] >= t - 1e-6:
+                    x[k] = round(x[k] + extra, 4)
+        for part in play["parts"][2:]:
+            for coll in ("shots", "lines", "cues", "text"):
+                for x in part.get(coll, []):
+                    move(x)
+        for x in play.get("subtitle_source", []) + play.get("music", []) + play.get("moments", []):
+            move(x)
+        play["runtime_target_s"] += extra
+        for s in add:
+            s["start_s"] = round(t, 4)
+            t += s["dur_s"]
+        play["parts"][1]["shots"] += add[:len(after)]
+        play["parts"][2]["shots"][:0] = add[len(after):]
+    return edit
+
+
+def _lockup_lint(j):
+    got = lints(j, "title-lockup")
+    assert got, [(e.get("rule"), e.get("unit")) for e in J.read(j.path) if e.get("kind") == "lint" and e.get("status") == "fail"]
+    return got[-1]
+
+
+def test_a40_lockup_card_after_the_title_and_its_record_hold_meets_the_lockup(tmp_path, masters):
+    for k, after in enumerate(((HOLD, CARD), (CARD,))):
+        plan, j = plan_of(titled_film(tmp_path / f"a{k}", masters, item=NO_LOCKUP, edit=with_shots(after)))
+        ev = _lockup_lint(j)
+        assert ev["status"] == "pass" and ev["evidence"]["lockup_card"] == "TS1b", ev
+        assert ev["evidence"]["in_master"] is False and ev["evidence"]["card_problem"] is None
+
+
+def test_a40_lockup_missing_or_misplaced_is_refused(tmp_path, masters):
+    plan, j = plan_of(titled_film(tmp_path / "a", masters, item=NO_LOCKUP, edit=with_shots((HOLD,))))
+    assert isinstance(plan, R.Refused) and failed(j, "title-lockup")
+    assert "a archive_still" in _lockup_lint(j)["evidence"]["card_problem"]               # the part ends on the hold
+    plan, j = plan_of(titled_film(tmp_path / "b", masters, item=NO_LOCKUP))
+    assert isinstance(plan, R.Refused) and "no lockup card" in _lockup_lint(j)["evidence"]["card_problem"]
+    plan, j = plan_of(titled_film(tmp_path / "c", masters, item=NO_LOCKUP, edit=with_shots(next_part=(CARD,))))
+    assert isinstance(plan, R.Refused) and "outside the series-title part" in _lockup_lint(j)["evidence"]["card_problem"]
+    plan, j = plan_of(titled_film(tmp_path / "d", masters, item=NO_LOCKUP,
+                                  edit=with_shots(({"id": "TS1x", "kind": "black", "dur_s": 1.0, "mark": "CARD", "silence": "intended",
+                                                    "transition_in": {"type": "cut"}, "why": "A breath."}, CARD))))   # not a record hold
+    assert isinstance(plan, R.Refused) and "only holds of the title's record" in _lockup_lint(j)["evidence"]["card_problem"]
+
+
+def test_a40_lockup_card_must_be_the_house_lockup(tmp_path, masters):
+    for k, (card, says) in enumerate(((dict(CARD, text=["void document"]), "not the series lockup"),
+                                      ({k_: v for k_, v in CARD.items() if k_ != "card"}, "not a title card"),
+                                      (dict(CARD, transition_in={"type": "dip", "s": 0.5}), "not joined by a cut"))):
+        plan, j = plan_of(titled_film(tmp_path / f"a{k}", masters, item=NO_LOCKUP, edit=with_shots((HOLD, card))))
+        assert isinstance(plan, R.Refused) and failed(j, "title-lockup"), card
+        assert says in _lockup_lint(j)["evidence"]["card_problem"], (card, _lockup_lint(j)["evidence"])
+
+
+def test_a40_lockup_card_is_pure_and_the_master_lockup_still_counts(tmp_path, masters):
+    def S(id_, kind, part, **kw):
+        return dict({"id": id_, "kind": kind, "_part": part, "_part_kind": "series_title", "_first_in_part": False}, **kw)
+    shots = [S("TS1", "title_sequence", "series"), S("TS1r", "drawn", "series", asset="R"),
+             S("TS1b", "card", "series", card="title", text=["  void document ·  As It Was "])]
+    assert TS.lockup_card(shots, 0, {"record": "R"}, R.card_kind) == ("TS1b", None)     # spacing is not wording
+    plan, j = plan_of(titled_film(tmp_path, masters))                                     # the fixture's own lockup
+    assert _lockup_lint(j)["status"] == "pass" and _lockup_lint(j)["evidence"]["in_master"] is True
+
+
+# --------------------------------------------------------------------------
 # A40 title slot: a placeholder (title_slot: true) holds the slot until the series title is spliced in
 # (founder ruling 2026-10-18: "the title is standalone, spliced via render --shots; a film never waits for
 # its title"). title-theme accepts the main_title cue over a contiguous run of these shots exactly as over
