@@ -43,13 +43,24 @@ CAM = BEATS["camera"]
 LENS_MM, SENSOR_MM = CAM["lens_mm"], CAM["sensor_mm"]
 EYE_Z = CAM["fixed"]["eye_m"][2]
 FRAME_M = (SENSOR_MM / LENS_MM * EYE_Z, SENSOR_MM / LENS_MM * EYE_Z * 9 / 16)
-SHEETS = BEATS["sheets"]
-BY_ID = {s["id"]: s for s in SHEETS}
+ALL_SHEETS = BEATS["sheets"]
+# S1, the Turin papyrus, is dropped under the spec's own fallback (rev 2, section 1 scale note: "if part 1 is over 1.6 m
+# at true scale ... drop S1 and open on the Atlas with five sheets, keeping every other frame"). The scan T-02a is not
+# part 1: T-02b is its verso (their fragment outlines match mirrored, IoU 0.84 against 0.38 unmirrored), so T-02a is the
+# whole recto. The Museo Egizio record (Cat. 1879, collezioni.museoegizio.it) gives the papyrus as 2820 x 410 mm;
+# scaled on its fragments' height (2552 px = 0.41 m) the scan is 2.38 m long, on its length 2.82 m. Either is over 1.6.
+PAPYRUS_TRUE_LENGTH_M = (2.38, 2.82)
+DROPPED = {"S1": "T-02a is the whole recto, 2.38 to 2.82 m at true scale (Museo Egizio Cat. 1879: 2820 x 410 mm); "
+                 "over the spec's 1.6 m, so S1 is dropped and the title opens on the Atlas (rev 2 fallback)"} \
+    if min(PAPYRUS_TRUE_LENGTH_M) > 1.6 else {}
+SHEETS = [s for s in ALL_SHEETS if s["id"] not in DROPPED]
+BY_ID = {s["id"]: s for s in ALL_SHEETS}
+FLOORS = BEATS["checks"]
 RECORDS = BEATS["records"]
 for _k, _r in RECORDS.items():
     _r.setdefault("id", "R")
     _r["record"] = _k
-LIFT_MAX = 0.003
+LIFT_MAX = 0.004                         # rev 2: min(4 mm, 2 mm per m/s of the release speed)
 LIFT_PER_V = 0.002                       # m per m/s
 SETTLE_S = 0.25
 BOARD_LIFT, BOARD_SETTLE_S = 0.001, 0.1
@@ -200,7 +211,7 @@ def _smooth(t):
 
 
 def camera_at(record, frame):
-    """The eye (table coordinates) and the frame's roll (degrees): fixed at 1.30 m over P until the record enters,
+    """The eye (table coordinates) and the frame's roll (degrees): fixed at 2.00 m (rev 2) over P until the record enters,
     then the one descent onto the record's resting pose (its window filling the frame), held from 1019."""
     r = RECORDS[record]
     fixed = (P[0], P[1], EYE_Z)
@@ -223,33 +234,61 @@ def camera_at(record, frame):
 # ------------------------------------------------------------------------------------------------ what the frame shows
 
 
-def topmost_cover(frame, record=None, nx=192, ny=108):
+def topmost_cover(frame, record=None, nx=1440, ny=810, sheets=None):
     """What the fixed frame shows at a frame, as fractions of its area: each sheet's visible share (the latest-laid on
-    top; footprints as rectangles, Piri Reis's torn outline taken as its rectangle) and the bare oak's."""
+    top; footprints as rectangles, Piri Reis's torn outline taken as its rectangle) and the bare oak's. The default
+    raster is the spec generator's (1440 x 810). sheets: the sheets in play (default: SHEETS, S1 dropped)."""
+    import numpy as np
     t = t_of(frame)
-    order = [s for s in SHEETS if visible_at(s, t)]
+    order = [s for s in (SHEETS if sheets is None else sheets) if visible_at(s, t)]
     if record:
         r = RECORDS[record]
         if visible_at(r, t):
             order.append(r)
     fw, fh = FRAME_M[0] / 2, FRAME_M[1] / 2
-    count = {s["id"]: 0 for s in order}
-    count["oak"] = 0
-    poses = [(s, centre_at(s, t), math.radians(psi_at(s, t))) for s in order]
-    for j in range(ny):
-        y = -fh + (j + 0.5) / ny * 2 * fh
-        for i in range(nx):
-            x = -fw + (i + 0.5) / nx * 2 * fw
-            top = "oak"
-            for s, (cx, cy), p in poses:
-                dx, dy = x - cx, y - cy
-                u = dx * math.cos(p) + dy * math.sin(p)
-                v = -dx * math.sin(p) + dy * math.cos(p)
-                if abs(u) <= s["size_m"][0] / 2 and abs(v) <= s["size_m"][1] / 2:
-                    top = s["id"]
-            count[top] += 1
-    n = nx * ny
-    return {k: v / n for k, v in count.items()}
+    x = -fw + (np.arange(nx) + 0.5) / nx * 2 * fw
+    y = -fh + (np.arange(ny) + 0.5) / ny * 2 * fh
+    X, Y = np.meshgrid(x, y)
+    top = np.full(X.shape, -1, np.int16)
+    for k, s in enumerate(order):
+        cx, cy = centre_at(s, t)
+        p = math.radians(psi_at(s, t))
+        u = (X - cx) * math.cos(p) + (Y - cy) * math.sin(p)
+        v = -(X - cx) * math.sin(p) + (Y - cy) * math.cos(p)
+        top[(np.abs(u) <= s["size_m"][0] / 2) & (np.abs(v) <= s["size_m"][1] / 2)] = k
+    n = top.size
+    out = {"oak": float((top == -1).sum()) / n}
+    for k, s in enumerate(order):
+        out[s["id"]] = float((top == k).sum()) / n
+    return out
+
+
+def own_area_fraction(s):
+    """A sheet's own area as a fraction of the frame's."""
+    return s["size_m"][0] * s["size_m"][1] / (FRAME_M[0] * FRAME_M[1])
+
+
+def cover_floors(sheets=None):
+    """The spec's floors (checks) at every stop frame: every earlier sheet keeps at least 8% of the frame, or, for a sheet
+    under 13% of the frame, 60% of its own area; oak keeps 4% at the last stop. Returns rows of
+    (stop frame, sheet, visible fraction, floor, kind, ok)."""
+    sheets = SHEETS if sheets is None else sheets
+    rows = []
+    floor = FLOORS["min_visible_fraction_per_earlier_sheet"]
+    for k, s in enumerate(sheets):
+        f = s["stop_frame"]
+        c = topmost_cover(f, sheets=sheets)
+        for e in sheets[:k]:
+            vis = c.get(e["id"], 0.0)
+            own = own_area_fraction(e)
+            if own < 0.13:
+                rows.append((f, e["id"], vis, 0.60 * own, "60% of own area", vis >= 0.60 * own))
+            else:
+                rows.append((f, e["id"], vis, floor, "8% of frame", vis >= floor))
+    last = sheets[-1]["stop_frame"]
+    oak = topmost_cover(last, sheets=sheets)["oak"]
+    rows.append((last, "oak", oak, 0.04, "4% of frame", oak >= 0.04))
+    return rows
 
 
 def solved_table():

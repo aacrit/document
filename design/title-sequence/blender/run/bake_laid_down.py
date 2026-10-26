@@ -61,6 +61,7 @@ PLATES = [
     {"name": "chart", "sheet": "S6", "tex": "T-20_chart", "size": (1.0, 1.0 * 5529 / 8192), "at": (0.0, 0.0),
      "kind": "paper", "t": 0.00012, "cockle": (0.0012, 0.15, 70.0)},
 ]
+PLATES = [p for p in PLATES if p["sheet"] not in L.DROPPED]          # S1 out under the rev 2 fallback (laid_down.DROPPED)
 for _k, _r in L.RECORDS.items():
     PLATES.append({"name": f"record {_k}", "sheet": f"R {_k}", "tex": _r["tex"].rsplit(".", 1)[0],
                    "size": tuple(_r["size_m"]), "at": (0.0, 0.0), "kind": "paper", "t": 0.00012,

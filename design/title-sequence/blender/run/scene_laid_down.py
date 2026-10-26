@@ -4,14 +4,14 @@
         --frame 751 --res 1920x1080 --samples 1024 --min_samples 512 --threshold 0.005 --exposure 0.0 \
         --out <png> [--meter 1] [--view Standard] [--record C20-METAR-0851] [--blur 1] [--blend <path>]
 
-The scene (spec section 0-5): the v5c table (3.0 x 1.7 m, seven oak boards of the C-02 scan) with a bare top, no
-groove; the plaster room under a 4.3 m ceiling as the only fill; one wall-arm lamp (desk_v5.LAMP: 0.26 m shade, 90 W,
+The scene (spec rev 2, sections 0-5): the v5c table grown to 4.0 x 2.0 m (eight oak boards of the C-02 scan) with a
+bare top, no groove; the plaster room under a 4.3 m ceiling as the only fill; one wall-arm lamp (desk_v5.LAMP: 0.26 m shade, 90 W,
 3400 K against a 4300 K white balance, 110 degree spread, the emitter inside its shade) at the spec's place, aimed at
 the pile centre; the world black. The six sheets and the film's record are the bake's plates (each its real scan, real
 thickness and own relief), keyed every frame from the bake's closed-form poses: centre, turn, the pile's height, the
 trailing corner (shape key "lift") and the lie onto the pile (shape key "lie"). The record carries the chart scene's
 flat-hold (lit diffuse paper mixed toward emission of the scan; its strength set against the view exposure so the
-pose writes the scan's own values). One camera: 50 mm, f/8, 180 degree shutter, exactly top-down at 1.30 m over the
+pose writes the scan's own values). One camera: 50 mm, f/8, 180 degree shutter, exactly top-down at 2.00 m over the
 pile, fixed until the record enters, then the one descent. View transform Standard (the spec); --view AgX is its
 stated fallback.
 
@@ -43,8 +43,8 @@ BAKE = Path("D:/document-media/title-sequence/laid-down/bake")
 RELIEF = Path("D:/document-media/title-sequence/run/relief")
 TMP = Path("D:/document-media/title-sequence/laid-down/tmp")
 LIFT_REF = 0.003                      # the "lift" shape key at 1.0 is a 3 mm corner (the Atlas pair's: 1 mm)
-TABLE = C.TABLE
-ROOM = {"wall_y": TABLE["size"][1] + 0.45, "near_y": -3.0, "side_x": (-1.6, 4.6), "ceiling_z": 4.30 - TABLE["height"],
+TABLE = {**C.TABLE, "size": L.TABLE["size"], "boards": 8}   # rev 2: the v5c oak top grown to 4.0 x 2.0 m (0.25 m boards)
+ROOM = {"wall_y": TABLE["size"][1] + 0.40, "near_y": -3.0, "side_x": (-1.6, 5.6), "ceiling_z": 4.30 - TABLE["height"],
         "plaster_albedo": 0.42, "floor_albedo": 0.06}          # desk_v5.ROOM's study (4.3 m ceiling) around the v5c table
 LAMP = {**L.BEATS["lamp"]}
 PAPER_WHITE_DISPLAY = 0.85
@@ -395,7 +395,8 @@ def camera(sc):
     sc.camera = cam
     cam.data.dof.use_dof = True
     cam.data.dof.aperture_fstop = L.CAM["fstop"]
-    pile_top = 0.0072                               # the bake's pile top (report.json): focus on the pile's surface
+    rep = json.loads((BAKE / "report.json").read_text(encoding="utf-8"))
+    pile_top = max(v.get("pile_top_mm", 0.0) for v in rep["rest"].values()) / 1e3   # focus on the pile's surface
     for f in sorted({0, L.DESCENT[0]} | set(range(L.DESCENT[0], L.DESCENT[1] + 1)) | {L.FRAMES - 1}):
         eye, roll = L.camera_at(A["record"], f)
         cam.location = eye

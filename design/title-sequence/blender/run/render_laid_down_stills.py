@@ -1,16 +1,16 @@
-"""Laid Down: render the two lit stills for the founder's judgement under the machine rules (D: venv; one heavy job).
+"""Laid Down: render the lit stills for the founder's judgement under the machine rules (D: venv; one heavy job).
 
     D:/document-media/tools/run-venv/Scripts/python.exe design/title-sequence/blender/run/render_laid_down_stills.py \
-        [--smoke] [--samples 1024] [--min_samples 512] [--threshold 0.005]
+        [--smoke] [--frames 772,40,239] [--samples 1024] [--min_samples 512] [--threshold 0.005]
 
 Before anything: D: must not be dirty (`fsutil dirty query D:`) and C: and D: must each have more than 10 GB free.
 For each still: wait while HEAVY.lock is held by a live process (the coordinator's renders go first; a lock held by a
 dead pid is cleared), write this job's purpose and pid into it, run Blender (-noaudio), and release the lock in a
-finally, so another job can take it between the two stills. Frame 751 (the pile complete) runs first with the meter:
-its exposure puts the chart's paper white at 0.85; frame 22 (the papyrus moving, 180 degree blur) takes that exposure,
+finally, so another job can take it between stills. The first frame (772 in rev 2, the pile complete) runs with the meter:
+its exposure puts the chart's paper white at 0.85; the others (--frames, default 772,40,239) take that exposure,
 since the exposure is fixed for the shot. Writes D:/document-media/title-sequence/laid-down/stills/
-laid-down-f0751.png and -f0022.png (1920x1080, 16-bit), a 50% JPG of each under 2 MB, and stills.json.
---smoke: both frames at 480x270, 16 spp, to D:/document-media/title-sequence/laid-down/smoke/.
+laid-down-f<frame>.png (1920x1080, 16-bit), a 50% JPG of each under 2 MB, and stills.json.
+--smoke: the same frames at 480x270, 16 spp, to D:/document-media/title-sequence/laid-down/smoke/.
 """
 
 from __future__ import annotations
@@ -130,11 +130,14 @@ def main():
     mn = 16 if smoke else int(arg("--min_samples", "512"))
     th = 0.05 if smoke else float(arg("--threshold", "0.005"))
     rec = {"free_gb": free, "stills": []}
-    a = blender(751, out / "laid-down-f0751.png", res, spp, mn, th, meter=True)
+    # rev 2: the pile complete (f772) carries the meter; the opening at f40, and, with S1 dropped under the spec's
+    # fallback, the Atlas three frames before its stop (f239), the same moment f40 was for the papyrus
+    frames = [int(f) for f in arg("--frames", "772,40,239").split(",")]
+    a = blender(frames[0], out / f"laid-down-f{frames[0]:04d}.png", res, spp, mn, th, meter=True)
     rec["stills"].append(a)
     ev = a["exposure"]
-    b = blender(22, out / "laid-down-f0022.png", res, spp, mn, th, exposure=ev)
-    rec["stills"].append(b)
+    for f in frames[1:]:
+        rec["stills"].append(blender(f, out / f"laid-down-f{f:04d}.png", res, spp, mn, th, exposure=ev))
     for s in rec["stills"]:
         jp, q = half_jpg(Path(s["out"]))
         s["jpg"], s["jpg_quality"], s["jpg_bytes"] = str(jp), q, jp.stat().st_size

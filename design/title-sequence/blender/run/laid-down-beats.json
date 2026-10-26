@@ -1,6 +1,6 @@
 {
  "title": "void document · As It Was: Laid Down",
- "version": "spec 2026-10-26",
+ "version": "spec v2 2026-10-26",
  "fps": "30000/1001",
  "frames": 1080,
  "duration_s": 36.036,
@@ -12,14 +12,14 @@
  },
  "table": {
   "size_m": [
-   3.0,
-   1.7
+   4.0,
+   2.0
   ],
   "pile_centre_m": [
-   1.5,
-   0.85
+   2.0,
+   1.0
   ],
-  "source": "desk_v5 oak (C-02 scan), bare top, no groove"
+  "source": "desk_v5 oak (C-02 scan, 1.2 m tiles), bare top, no groove; 4.0 x 2.0 so every sheet can start its slide off frame and on the table; its edges are never in frame"
  },
  "camera": {
   "lens_mm": 50,
@@ -33,14 +33,15 @@
     868
    ],
    "eye_m": [
-    1.5,
-    0.85,
-    1.3
+    2.0,
+    1.0,
+    2.0
    ],
    "frame_on_table_m": [
-    0.936,
-    0.527
-   ]
+    1.44,
+    0.81
+   ],
+   "px_per_mm_at_1080p": 1.33
   },
   "descent": {
    "frames": [
@@ -59,13 +60,13 @@
  },
  "lamp": {
   "pos_m": [
-   1.95,
-   1.75,
+   2.45,
+   1.9,
    1.4
   ],
   "aim_m": [
-   1.5,
-   0.85,
+   2.0,
+   1.0,
    0.0
   ],
   "shade_d_m": 0.26,
@@ -78,7 +79,8 @@
  },
  "exposure": {
   "fixed": true,
-  "set_on": "S6 chart paper white at about 0.85"
+  "set_on": "S6 chart paper white at about 0.85",
+  "flat_hold_emission": "2^-EV (builder)"
  },
  "black": {
   "frames": [
@@ -87,47 +89,60 @@
   ],
   "sound": "room tone; S1 slide audible from frame 6"
  },
+ "checks": {
+  "min_visible_fraction_per_earlier_sheet": 0.08,
+  "small_sheet_rule": "a sheet under 13% of the frame keeps at least 60% of its own area visible instead",
+  "all_pass": true,
+  "rendered_once": "hold frames (after the 0.25 s settle) and the pose hold are static: render one frame, repeat it"
+ },
  "sheets": [
   {
    "id": "S1",
    "ledger": "T-02a",
    "tex": [
-    "T-02a_keyed.png"
+    "originals/T-02a.jpg whole (the fragments on the museum mount board, as photographed; no keying, no linen)"
    ],
    "date": -1150,
    "size_m": [
-    0.62,
-    0.13
+    1.45,
+    0.262
    ],
-   "thickness_m": 0.00025,
-   "enter_from": "left",
+   "thickness_m": 0.003,
+   "enter_from": "bottom",
    "land_centre_m": [
-    -0.05,
-    0.08
+    0.024,
+    0.327
    ],
-   "land_psi_deg": 4.0,
-   "turn_delta_deg": 3.0,
-   "mu_eff": 0.22,
-   "decel_m_s2": 2.158,
+   "land_psi_deg": 3.5,
+   "turn_delta_deg": 1.5,
+   "mu_eff": 0.16,
+   "decel_m_s2": 1.57,
    "release_centre_m": [
-    -0.9,
-    0.08
+    0.024,
+    -0.566
    ],
    "release_on_table": true,
    "release_off_frame": true,
-   "slide_total_m": 0.85,
-   "v_release_m_s": 1.915,
-   "t_release_to_stop_s": 0.888,
-   "v_entry_m_s": 1.773,
-   "t_visible_s": 0.821,
+   "slide_total_m": 0.893,
+   "v_release_m_s": 1.674,
+   "t_release_to_stop_s": 1.067,
+   "v_entry_m_s": 1.646,
+   "t_visible_s": 1.049,
    "enter_s": 0.4,
-   "stop_s": 1.221,
+   "stop_s": 1.449,
    "enter_frame": 12,
-   "stop_frame": 37,
-   "release_s": 0.334,
-   "release_frame": 10,
+   "stop_frame": 43,
+   "release_s": 0.382,
+   "release_frame": 11,
    "hold_s": 5.6,
-   "trailing_corner_lift_mm_max": 3.0
+   "width_fraction_of_frame": 1.007,
+   "cover_at_stop": {
+    "oak": 0.7439,
+    "S1": 0.2561
+   },
+   "earlier_sheets_min_visible_ok": true,
+   "trailing_corner_lift_mm_max": 0.0,
+   "scale_note": "1.45 m long assumed for part 1 (whole papyrus about 2.8 m, Museo Egizio); builder confirms; if over 1.6 m, drop S1 and open on the Atlas"
   },
   {
    "id": "S2",
@@ -142,33 +157,40 @@
     0.69
    ],
    "thickness_m": 0.0012,
-   "enter_from": "right",
+   "enter_from": "left",
    "land_centre_m": [
-    0.02,
-    -0.01
+    -0.407,
+    -0.106
    ],
-   "land_psi_deg": -2.5,
-   "turn_delta_deg": -2.5,
+   "land_psi_deg": -4,
+   "turn_delta_deg": -2.0,
    "mu_eff": 0.16,
    "decel_m_s2": 1.57,
    "release_centre_m": [
-    0.99,
-    -0.01
+    -1.25,
+    -0.106
    ],
    "release_on_table": true,
    "release_off_frame": true,
-   "slide_total_m": 0.97,
-   "v_release_m_s": 1.745,
-   "t_release_to_stop_s": 1.112,
-   "v_entry_m_s": 1.725,
-   "t_visible_s": 1.099,
-   "enter_s": 6.821,
-   "stop_s": 7.92,
-   "enter_frame": 204,
-   "stop_frame": 237,
-   "release_s": 6.809,
-   "release_frame": 204,
+   "slide_total_m": 0.843,
+   "v_release_m_s": 1.627,
+   "t_release_to_stop_s": 1.036,
+   "v_entry_m_s": 1.598,
+   "t_visible_s": 1.018,
+   "enter_s": 7.049,
+   "stop_s": 8.066,
+   "enter_frame": 211,
+   "stop_frame": 242,
+   "release_s": 7.03,
+   "release_frame": 211,
    "hold_s": 4.6,
+   "width_fraction_of_frame": 0.694,
+   "cover_at_stop": {
+    "oak": 0.3366,
+    "S1": 0.2172,
+    "S2": 0.4461
+   },
+   "earlier_sheets_min_visible_ok": true,
    "trailing_corner_lift_mm_max": 0.0
   },
   {
@@ -185,32 +207,40 @@
    "thickness_m": 0.00015,
    "enter_from": "bottom",
    "land_centre_m": [
-    0.12,
-    -0.04
+    -0.531,
+    0.222
    ],
-   "land_psi_deg": 3.0,
+   "land_psi_deg": 4,
    "turn_delta_deg": 4.0,
    "mu_eff": 0.3,
    "decel_m_s2": 2.943,
    "release_centre_m": [
-    0.12,
-    -0.6
+    -0.531,
+    -0.645
    ],
    "release_on_table": true,
    "release_off_frame": true,
-   "slide_total_m": 0.56,
-   "v_release_m_s": 1.816,
-   "t_release_to_stop_s": 0.617,
-   "v_entry_m_s": 1.597,
-   "t_visible_s": 0.543,
-   "enter_s": 12.52,
-   "stop_s": 13.063,
-   "enter_frame": 375,
-   "stop_frame": 391,
-   "release_s": 12.446,
-   "release_frame": 373,
+   "slide_total_m": 0.867,
+   "v_release_m_s": 2.259,
+   "t_release_to_stop_s": 0.768,
+   "v_entry_m_s": 2.22,
+   "t_visible_s": 0.754,
+   "enter_s": 12.666,
+   "stop_s": 13.421,
+   "enter_frame": 380,
+   "stop_frame": 402,
+   "release_s": 12.653,
+   "release_frame": 379,
    "hold_s": 3.7,
-   "trailing_corner_lift_mm_max": 3.0
+   "width_fraction_of_frame": 0.208,
+   "cover_at_stop": {
+    "oak": 0.3366,
+    "S1": 0.177,
+    "S2": 0.385,
+    "S3": 0.1014
+   },
+   "earlier_sheets_min_visible_ok": true,
+   "trailing_corner_lift_mm_max": 4.0
   },
   {
    "id": "S4",
@@ -224,34 +254,43 @@
     0.87
    ],
    "thickness_m": 0.0003,
-   "enter_from": "left",
+   "enter_from": "right",
    "land_centre_m": [
-    -0.1,
-    0.02
+    -0.142,
+    0.192
    ],
-   "land_psi_deg": -3.5,
+   "land_psi_deg": -0.2,
    "turn_delta_deg": -3.0,
    "mu_eff": 0.18,
    "decel_m_s2": 1.766,
    "release_centre_m": [
-    -0.95,
-    0.02
+    1.075,
+    0.192
    ],
    "release_on_table": true,
    "release_off_frame": true,
-   "slide_total_m": 0.85,
-   "v_release_m_s": 1.733,
-   "t_release_to_stop_s": 0.981,
-   "v_entry_m_s": 1.564,
-   "t_visible_s": 0.886,
-   "enter_s": 16.763,
-   "stop_s": 17.649,
-   "enter_frame": 502,
-   "stop_frame": 529,
-   "release_s": 16.668,
-   "release_frame": 500,
+   "slide_total_m": 1.217,
+   "v_release_m_s": 2.073,
+   "t_release_to_stop_s": 1.174,
+   "v_entry_m_s": 2.047,
+   "t_visible_s": 1.159,
+   "enter_s": 17.121,
+   "stop_s": 18.28,
+   "enter_frame": 513,
+   "stop_frame": 548,
+   "release_s": 17.106,
+   "release_frame": 513,
    "hold_s": 2.9,
-   "trailing_corner_lift_mm_max": 3.0
+   "width_fraction_of_frame": 0.451,
+   "cover_at_stop": {
+    "oak": 0.3051,
+    "S1": 0.0858,
+    "S2": 0.175,
+    "S3": 0.0724,
+    "S4": 0.3617
+   },
+   "earlier_sheets_min_visible_ok": true,
+   "trailing_corner_lift_mm_max": 4.0
   },
   {
    "id": "S5",
@@ -267,32 +306,42 @@
    "thickness_m": 8e-05,
    "enter_from": "right",
    "land_centre_m": [
-    0.03,
-    -0.02
+    0.387,
+    -0.223
    ],
-   "land_psi_deg": 2.0,
-   "turn_delta_deg": 2.0,
+   "land_psi_deg": -1.6,
+   "turn_delta_deg": -2.0,
    "mu_eff": 0.14,
    "decel_m_s2": 1.373,
    "release_centre_m": [
-    0.99,
-    -0.02
+    1.25,
+    -0.223
    ],
    "release_on_table": true,
    "release_off_frame": true,
-   "slide_total_m": 0.96,
-   "v_release_m_s": 1.624,
-   "t_release_to_stop_s": 1.182,
-   "v_entry_m_s": 1.605,
-   "t_visible_s": 1.169,
-   "enter_s": 20.549,
-   "stop_s": 21.718,
-   "enter_frame": 616,
-   "stop_frame": 651,
-   "release_s": 20.535,
-   "release_frame": 615,
+   "slide_total_m": 0.863,
+   "v_release_m_s": 1.54,
+   "t_release_to_stop_s": 1.121,
+   "v_entry_m_s": 1.513,
+   "t_visible_s": 1.101,
+   "enter_s": 21.18,
+   "stop_s": 22.282,
+   "enter_frame": 635,
+   "stop_frame": 668,
+   "release_s": 21.16,
+   "release_frame": 634,
    "hold_s": 2.2,
-   "trailing_corner_lift_mm_max": 3.0
+   "width_fraction_of_frame": 0.694,
+   "cover_at_stop": {
+    "oak": 0.0743,
+    "S1": 0.0858,
+    "S2": 0.148,
+    "S3": 0.0724,
+    "S4": 0.2815,
+    "S5": 0.338
+   },
+   "earlier_sheets_min_visible_ok": true,
+   "trailing_corner_lift_mm_max": 4.0
   },
   {
    "id": "S6",
@@ -308,51 +357,62 @@
    "thickness_m": 0.00012,
    "enter_from": "left",
    "land_centre_m": [
-    -0.02,
-    0.03
+    0.003,
+    -0.142
    ],
-   "land_psi_deg": -1.5,
+   "land_psi_deg": -4,
    "turn_delta_deg": -2.0,
    "mu_eff": 0.15,
    "decel_m_s2": 1.472,
    "release_centre_m": [
-    -0.99,
-    0.03
+    -1.25,
+    -0.142
    ],
    "release_on_table": true,
    "release_off_frame": true,
-   "slide_total_m": 0.97,
-   "v_release_m_s": 1.69,
-   "t_release_to_stop_s": 1.148,
-   "v_entry_m_s": 1.67,
-   "t_visible_s": 1.135,
-   "enter_s": 23.918,
-   "stop_s": 25.053,
-   "enter_frame": 717,
-   "stop_frame": 751,
-   "release_s": 23.905,
-   "release_frame": 716,
+   "slide_total_m": 1.253,
+   "v_release_m_s": 1.92,
+   "t_release_to_stop_s": 1.305,
+   "v_entry_m_s": 1.897,
+   "t_visible_s": 1.289,
+   "enter_s": 24.482,
+   "stop_s": 25.771,
+   "enter_frame": 734,
+   "stop_frame": 772,
+   "release_s": 24.466,
+   "release_frame": 733,
    "hold_s": null,
-   "trailing_corner_lift_mm_max": 3.0
+   "width_fraction_of_frame": 0.694,
+   "cover_at_stop": {
+    "oak": 0.044,
+    "S1": 0.0858,
+    "S2": 0.0866,
+    "S3": 0.0701,
+    "S4": 0.1109,
+    "S5": 0.0866,
+    "S6": 0.516
+   },
+   "earlier_sheets_min_visible_ok": true,
+   "trailing_corner_lift_mm_max": 4.0
   }
  ],
  "stillness": {
-  "from_s": 25.053,
+  "from_s": 25.771,
   "to_s": 29.0,
   "frames": [
-   751,
+   772,
    868
   ],
-  "dur_s": 3.947,
+  "dur_s": 3.229,
   "rule": "at least 1.4 x the last hold; nothing moves; room tone and the theme only"
  },
  "entry_intervals_s": [
-  6.42,
-  5.7,
-  4.24,
-  3.79,
-  3.37,
-  5.08
+  6.65,
+  5.62,
+  4.45,
+  4.06,
+  3.3,
+  4.52
  ],
  "records": {
   "C20-METAR-0851": {
@@ -371,23 +431,23 @@
    ],
    "enter_from": "bottom",
    "land_centre_m": [
-    0.0,
-    0.0
+    0.053000000000000005,
+    -0.172
    ],
    "land_psi_deg": 1.5,
    "turn_delta_deg": 2.0,
    "mu_eff": 0.28,
    "release_centre_m": [
-    0.0,
-    -0.6
+    0.053,
+    -0.491
    ],
-   "v_release_m_s": 1.816,
-   "v_entry_m_s": 1.325,
-   "t_visible_s": 0.482,
+   "v_release_m_s": 1.324,
+   "v_entry_m_s": 1.261,
+   "t_visible_s": 0.459,
    "enter_s": 29.0,
-   "stop_s": 29.482,
+   "stop_s": 29.459,
    "enter_frame": 869,
-   "stop_frame": 884,
+   "stop_frame": 883,
    "record_window": [
     0.0,
     0.0,
@@ -408,6 +468,16 @@
    "flat_hold": {
     "ramp_from_frame": 1007,
     "one_from_frame": 1019
+   },
+   "cover_at_stop": {
+    "oak": 0.044,
+    "S1": 0.0858,
+    "S2": 0.0866,
+    "S3": 0.0701,
+    "S4": 0.1109,
+    "S5": 0.0866,
+    "S6": 0.4967,
+    "R": 0.0193
    },
    "marks": [
     {
@@ -433,21 +503,21 @@
    ],
    "enter_from": "bottom",
    "land_centre_m": [
-    0.0,
-    0.0
+    0.053000000000000005,
+    -0.172
    ],
    "land_psi_deg": 1.5,
    "turn_delta_deg": 2.0,
    "mu_eff": 0.28,
    "release_centre_m": [
-    0.0,
-    -0.6
+    0.053,
+    -0.667
    ],
-   "v_release_m_s": 1.816,
-   "v_entry_m_s": 1.65,
-   "t_visible_s": 0.601,
+   "v_release_m_s": 1.65,
+   "v_entry_m_s": 1.599,
+   "t_visible_s": 0.582,
    "enter_s": 29.0,
-   "stop_s": 29.601,
+   "stop_s": 29.582,
    "enter_frame": 869,
    "stop_frame": 887,
    "record_window": [
@@ -470,6 +540,16 @@
    "flat_hold": {
     "ramp_from_frame": 1007,
     "one_from_frame": 1019
+   },
+   "cover_at_stop": {
+    "oak": 0.044,
+    "S1": 0.0858,
+    "S2": 0.0866,
+    "S3": 0.0701,
+    "S4": 0.1109,
+    "S5": 0.0866,
+    "S6": 0.3961,
+    "R": 0.1199
    },
    "marks": [
     {
@@ -495,23 +575,23 @@
    ],
    "enter_from": "bottom",
    "land_centre_m": [
-    0.0,
-    0.0
+    0.053000000000000005,
+    -0.172
    ],
    "land_psi_deg": 1.5,
    "turn_delta_deg": 2.0,
    "mu_eff": 0.28,
    "release_centre_m": [
-    0.0,
-    -0.6
+    0.053,
+    -0.558
    ],
-   "v_release_m_s": 1.816,
-   "v_entry_m_s": 1.457,
-   "t_visible_s": 0.53,
+   "v_release_m_s": 1.456,
+   "v_entry_m_s": 1.398,
+   "t_visible_s": 0.509,
    "enter_s": 29.0,
-   "stop_s": 29.53,
+   "stop_s": 29.509,
    "enter_frame": 869,
-   "stop_frame": 885,
+   "stop_frame": 884,
    "record_window": [
     0.0,
     0.0,
@@ -532,6 +612,16 @@
    "flat_hold": {
     "ramp_from_frame": 1007,
     "one_from_frame": 1019
+   },
+   "cover_at_stop": {
+    "oak": 0.044,
+    "S1": 0.0858,
+    "S2": 0.0866,
+    "S3": 0.0701,
+    "S4": 0.1109,
+    "S5": 0.0866,
+    "S6": 0.4271,
+    "R": 0.0889
    },
    "marks": [
     {
@@ -571,12 +661,12 @@
  "score": {
   "theme": "the-run-theme-v5d (G Dorian), re-spotted",
   "landing_notes_on_stop_frames": [
-   37,
-   237,
-   391,
-   529,
-   651,
-   751
+   43,
+   242,
+   402,
+   548,
+   668,
+   772
   ],
   "stretto": "S4-S6",
   "stillness": "bare restatement or silence",
