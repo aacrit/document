@@ -167,7 +167,7 @@ def test_face_boxes_drop_a_machine_figure_under_the_floor():
 
 
 def test_the_rulebook_hands_on_the_face_inside_a_figure():
-    assert RB.RULEBOOK_VERSION == "10"               # 9 brought the face; 10 (A52) keeps it
+    assert RB.RULEBOOK_VERSION == "11"               # 9 brought the face; 10 (A52) and 11 (A53) keep it
     face = {"x": 0.4, "y": 0.1, "w": 0.05, "h": 0.05, "score": 0.9, "kp": []}
     stray = {"x": 0.9, "y": 0.9, "w": 0.05, "h": 0.05, "score": 0.9, "kp": []}
     m = {"size": [1600, 1200], "model": "mp:test", "faces": [face, stray],
