@@ -139,11 +139,29 @@ def film(tmp_path_factory) -> Path:
 
 
 @pytest.fixture(scope="session")
-def rendered(film, tmp_path_factory) -> dict:
+def film_safe(film, tmp_path_factory) -> Path:
+    """A55 (voice-over-black): a copy of ``film`` with L2 moved off the black shot S8 (it defaults to 20.3 s,
+    0.05 s inside S8, which starts at 20.25 s) onto S5 (an archive_still, never black). A final render now refuses
+    a voice heard over black like any other (``black_reason`` no longer excuses it either); the many generic
+    rendering-mechanics tests that need a real completed render, or a check render of a span, and don't care
+    where L2 sits, use this instead of ``film``. The shared ``film`` and ``plan`` fixtures, and every A30/A55
+    test, keep L2 over S8 untouched."""
+    import json
+    dest = tmp_path_factory.mktemp("film_safe") / "fixture"
+    shutil.copytree(film, dest)
+    play = json.loads((dest / "screenplay.json").read_text(encoding="utf-8"))
+    next(ln for p in play["parts"] for ln in p.get("lines", []) if ln["id"] == "L2")["start_s"] = 12.5
+    (dest / "screenplay.json").write_text(json.dumps(play), encoding="utf-8")
+    return dest
+
+
+@pytest.fixture(scope="session")
+def rendered(film_safe, tmp_path_factory) -> dict:
     from studio.engine.render import render
     out = tmp_path_factory.mktemp("out")
-    summary = render(film, out, height=HEIGHT, workers=WORKERS, min_free_gb=1, encode_preset="veryfast")
+    summary = render(film_safe, out, height=HEIGHT, workers=WORKERS, min_free_gb=1, encode_preset="veryfast")
     summary["out"] = out
+    summary["film"] = film_safe  # tests needing the exact source rendered used (cache or byte-identical checks)
     return summary
 
 

@@ -108,12 +108,13 @@ def test_span_view_puts_the_span_at_time_zero(plan):
 
 
 @pytest.fixture(scope="module")
-def span(film, rendered):
+def span(film_safe, rendered):
     out = rendered["out"]
     keep = lambda: {str(p.relative_to(out)): J.sha256_file(p) for p in out.rglob("*") if p.is_file()
                     and not str(p.relative_to(out)).startswith(("check-", "shots-", "master.check-", "master.shots-"))}
     before = keep()
-    s = R.render(film, out, height=HEIGHT, workers=WORKERS, min_free_gb=1, encode_preset="veryfast", shots="S4..S6")
+    # A55: film_safe is the exact source rendered built its cache from (voice-over-black moved L2)
+    s = R.render(film_safe, out, height=HEIGHT, workers=WORKERS, min_free_gb=1, encode_preset="veryfast", shots="S4..S6")
     return {"summary": s, "out": out, "before": before, "after": keep()}
 
 
@@ -189,17 +190,17 @@ def test_a_spans_sound_is_the_full_mix_cut_to_the_sample(span, rendered, plan):
     ({"shots": "S4..S5", "from_shot": "S4"}, "--shots with --from"),
     ({"shots": "S4..S5", "audio_only": True}, "--shots with --audio-only"),
 ])
-def test_bad_spans_refuse_before_any_frame(film, tmp_path, kw, match):
+def test_bad_spans_refuse_before_any_frame(film_safe, tmp_path, kw, match):
     j = J.Journal(film="shots-refused")
     with pytest.raises(R.Refused, match=match):
-        R.render(film, tmp_path / "o", height=HEIGHT, workers=1, min_free_gb=1, journal=j, **kw)
+        R.render(film_safe, tmp_path / "o", height=HEIGHT, workers=1, min_free_gb=1, journal=j, **kw)
     evs = J.read(j.path)
     assert evs[0]["lens"] == "run.start" and evs[-1]["lens"] == "run.end" and evs[-1]["outcome"] == "refused"
     assert "--from" not in evs[-1]["resume"]["command"] or "from_shot" in kw    # a span resumes by running it again
     assert not list((tmp_path / "o").rglob("*.mp4"))
 
 
-def test_the_cli_refuses_a_bad_span_with_exit_code_2(film, tmp_path):
-    r = subprocess.run([sys.executable, "-m", "studio.engine.render", str(film), "--out", str(tmp_path / "o"),
+def test_the_cli_refuses_a_bad_span_with_exit_code_2(film_safe, tmp_path):
+    r = subprocess.run([sys.executable, "-m", "studio.engine.render", str(film_safe), "--out", str(tmp_path / "o"),
                         "--res", "720", "--shots", "S5..S4", "--workers", "1"], cwd=ROOT, capture_output=True, text=True)
     assert r.returncode == 2 and "reversed range" in r.stderr

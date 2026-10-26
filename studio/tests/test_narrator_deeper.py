@@ -165,7 +165,7 @@ def test_document_over_black_warns_past_ten_seconds_and_never_refuses(tmp_path, 
     assert e["status"] == status and e["severity"] == "warn" and e["evidence"]["advisory"] is True
     assert e["evidence"]["black_s"] == pytest.approx(black_s - 1.0, abs=0.1)     # the reading starts 1 s in
     if status == "fail":
-        assert "quote cards" in e["evidence"]["fix"]
+        assert "replace with an image" in e["evidence"]["fix"]
 
 
 def test_document_over_black_leaves_out_a_count_of_the_dead_and_unsourced_lines(tmp_path):
