@@ -230,6 +230,68 @@ def rostrum(t: float, dur: float, ramp: float = 0.9) -> float:
     return 1.0 - vmax * r * (u ** 3 - 0.5 * u ** 4)
 
 
+def rostrum_v(t: float, dur: float, v0: float = 0.0, v1: float = 0.0, ramp: float = 0.9) -> float:
+    """``rostrum`` that may enter and leave moving (A54, entering mid-move): the
+    velocity (a share of the leg a second) ramps on a smoothstep from ``v0``
+    to the cruise over ``ramp`` seconds, holds, and ramps down to ``v1``, so a
+    leg that opens a still or lands into a creep is never from rest and never
+    a dead stop. ``v0 = v1 = 0`` is ``rostrum`` exactly. Each end speed is
+    clipped to the leg's own mean (1 / dur), where the leg runs at one speed
+    (a creep). Closed form, as ``rostrum``."""
+    if dur <= 0.0:
+        return 1.0
+    v0 = min(max(v0, 0.0), 1.0 / dur)
+    v1 = min(max(v1, 0.0), 1.0 / dur)
+    r = min(ramp, 0.3 * dur)
+    t = min(max(t, 0.0), dur)
+    vmax = (1.0 - r * (v0 + v1) / 2.0) / (dur - r)
+    if t < r:
+        u = t / r
+        return v0 * t + (vmax - v0) * r * (u ** 3 - 0.5 * u ** 4)
+    if t <= dur - r:
+        return r * (v0 + vmax) / 2.0 + vmax * (t - r)
+    s = dur - t
+    u = s / r
+    return 1.0 - (v1 * s + (vmax - v1) * r * (u ** 3 - 0.5 * u ** 4))
+
+
+def creep_rate(pan: float, zl: float) -> float:
+    """A54: the creep's own speed as a share of a leg a second, for a leg of
+    ``pan`` (frame shares) and ``zl`` (zoom, a log ratio): the leg taken at
+    ``TOUR['creep_drift_per_s']`` and ``TOUR['creep_scale_per_s']``. 0 for a
+    leg that does not move."""
+    tc = max(pan / TOUR["creep_drift_per_s"], zl / math.log(1.0 + TOUR["creep_scale_per_s"]))
+    return 0.0 if tc <= 1e-12 else 1.0 / tc
+
+
+def enter_moving(segs: list[dict], dist) -> list[dict]:
+    """A54 (entering mid-move, founder 2026-10-18): each segment's end speeds
+    ``v0``/``v1`` (``rostrum_v``). The still's first segment enters at the
+    creep's speed (never from rest after a cut), its last leaves at it (never
+    a dead stop before one), a creep runs at one speed, and a leg next to a
+    creep slows to (or rises from) the creep's speed rather than stopping.
+    A short ``hold`` between two legs keeps its rest. ``dist(a, b)`` is
+    (pan, zoom log) for a segment's two framings. In place; returns segs."""
+    live = [g for g in segs if g["t1"] - g["t0"] > 1e-9]       # a zero-length segment is no neighbour
+    for g in segs:
+        g["v0"] = g["v1"] = 0.0
+    n = len(live)
+    for i, g in enumerate(live):
+        v = min(creep_rate(*dist(g["a"], g["b"])), 1.0 / (g["t1"] - g["t0"]))
+        creep = g["kind"] == "creep"
+        g["v0"] = v if (i == 0 or creep or live[i - 1]["kind"] == "creep") else 0.0
+        g["v1"] = v if (i == n - 1 or creep or (i + 1 < n and live[i + 1]["kind"] == "creep")) else 0.0
+    return segs
+
+
+def eased(g: dict, t: float) -> float:
+    """The eased share 0..1 of segment ``g`` at shot time ``t`` (``rostrum_v``
+    with its own ``v0``/``v1``, none for a segment built before A54)."""
+    if g["t1"] <= g["t0"]:
+        return 1.0
+    return rostrum_v(t - g["t0"], g["t1"] - g["t0"], g.get("v0", 0.0), g.get("v1", 0.0))
+
+
 def dissolve_weight(t: float, dur: float) -> float:
     """Weight of the incoming shot during a dissolve (GRAMMAR 7.3: 0.5 to 1.5 s,
     same mark class only). Sine in-out: both pictures are held a beat longer at
@@ -1923,7 +1985,16 @@ TOUR = dict(hold_creep_after_s=1.5, creep_scale_per_s=0.015, creep_drift_per_s=0
 #   dissolve_budget_s       the house guidance budget: about one dissolve every this many seconds of film
 #   dissolve_match_tol      `dissolve-rule`'s position-match tolerance, a share of the frame, read against
 #                           `tour.match_start`'s own leftover error (doctrine 2.9: matched within about 5%)
+#   A54 (the move chooser; founder ruling 2026-10-18 on the face cap):
+#   face_detail             FACE_DETAIL: "proposal" (the ruling) lifts the face cap to the DETAIL limit for one
+#                           person the caption binds (A43) or one located adult the item's own text names in a public
+#                           role (tour.PUBLIC_ROLE_WORDS), never in a crowd, a no_zoom still, a minor or a
+#                           `dignity: true` item; "strict" keeps z 1.3 for every face
+#   face_detail_share       ... the lifted limit: the window still shows at least this share of the picture
+#   field_const_share       a no_zoom still's constant-scale pan sits at this share of the picture (FIELD) where
+#                           the softness cap allows, else at the fill
 WHOLE_HOLD_MIN_SHOWN = 0.90
+FACE_DETAIL = "proposal"
 CINE = dict(face_zmax=1.3, framed_share=0.5, auto_confidence_floor=0.5, anchor_early_s=0.8, anchor_late_s=0.25,
             anchor_estimated_lead_s=1.0, anchor_lead_s=0.5, nest_share=0.8,
             settle_s=1.0, settle_read_s=1.5, whole_weight=0.38, whole_weight_record=0.5, golden_band=(0.30, 0.44),
@@ -1932,7 +2003,8 @@ CINE = dict(face_zmax=1.3, framed_share=0.5, auto_confidence_floor=0.5, anchor_e
             thirds=(1 / 3, 2 / 3), action_safe=0.035, graphics_safe=0.05, under_text_share=0.10,
             under_text_block_share=0.90, whole_share=0.8, detail_share=0.4,
             face_under_text_share=0.0, head_share=0.22,
-            dissolve_default_s=0.9, dissolve_budget_s=180.0, dissolve_match_tol=0.05)
+            dissolve_default_s=0.9, dissolve_budget_s=180.0, dissolve_match_tol=0.05,
+            face_detail=FACE_DETAIL, face_detail_share=0.25, field_const_share=0.6)
 
 # A50 (cinematography ticket #12; founder ruling 3, 2026-10-17: "Detail stop in a fill_exception shot: (b). One DETAIL
 # stop within 3x, bracketed by the whole picture at both ends"): a still held whole under fill_exception may move in

@@ -83,7 +83,10 @@ def test_a_long_hold_keeps_creeping_and_a_short_one_may_rest():
     assert all(a != b for a, b in zip(fs[1:-1], fs[2:-1]))           # no frozen frame
     assert fs[-1]["z"] / fs[0]["z"] == pytest.approx(1 + M.TOUR["creep_scale_per_s"] * 6.0, rel=1e-6)
     tl = T.build([{"t": 0.0, "z": 1.0, "x": 0.5, "y": 0.5}], 1.2, (1920, 1080), A, 2.0)
-    assert [g["kind"] for g in tl["segments"]] == ["hold"]               # 1.2 s, under hold_creep_after_s
+    assert [g["kind"] for g in tl["segments"]] == ["creep"]              # A54: a still's own edges always creep
+    tl = T.build([{"t": 0.0, "z": 1.3, "x": 0.3, "y": 0.5}, {"t": 2.0, "z": 1.3, "x": 0.5, "y": 0.5, "hold": 1.2},
+                  {"t": 4.0, "z": 1.3, "x": 0.7, "y": 0.5}], 6.0, LANDSCAPE43, A, 2.0)
+    assert [g["kind"] for g in tl["segments"]][:2] == ["move", "hold"]  # a short hold between legs may rest
     # a stop held in the middle of a path creeps too, then the next move starts from where it crept to
     tl = T.build([{"t": 0.0, "z": 1.0, "x": 0.5, "y": 0.5, "hold": 3.0}, {"t": 5.0, "z": 1.3, "x": 0.3, "y": 0.5}],
                  5.0, LANDSCAPE43, A, 2.0)
@@ -433,10 +436,13 @@ def test_an_unlocated_person_tours_a_hold_rather_than_crop_them_out(film):
     _edit(film, lambda p: _shot(p, "S3").update(preset="HOLD"))
     plan, j = _plan(film, "a41-cover")
     cam = next(s for s in plan["shots"] if s["id"] == "S3")["_cam"]
-    assert cam["covering"] and cam["macro"] == "HOLD"
+    # A54: HOLD lets the move chooser choose; with nobody located and no subject it takes the WHOLE, whose pass
+    # sweeps the whole picture for the unlocated person (A7) exactly as the covering pass did
+    assert cam["covering"] or ((cam.get("move") or {}).get("move") == "WHOLE" and cam["subject"]["need_whole"])
     evs = J.read(j.path)
     assert [e["status"] for e in lints(evs, "tour-people") if e["unit"] == "S3"] == ["pass"]
-    assert any(e["kind"] == "decision" and e.get("unit") == "S3" and "covering" in e.get("what", "") for e in evs)
+    assert any(e["kind"] == "decision" and e.get("unit") == "S3" and ("covering" in e.get("what", "")
+               or "WHOLE" in e.get("what", "")) for e in evs)
 
 
 def test_the_softness_cap_refuses_without_a_stated_exception(film):
@@ -546,12 +552,14 @@ def test_a_hold_that_shows_part_of_the_picture_tours_it_unless_authored(film):
     cam = next(s for s in plan["shots"] if s["id"] == "S3")["_cam"]
     # A47: the HOLD becomes the default pass, which ends on the subject; nobody is in the picture and the ledger
     # names no subject, so the subject is the whole picture. Its fill shows 80% of it, under WHOLE_HOLD_MIN_SHOWN
-    # (founder ruling, option (c)): one sweep end to end shows it all, then a drift
-    assert cam["covering"] and cam["cover"] == "subject" and cam["subject"]["src"] == "whole"
+    # (founder ruling, option (c)): one sweep end to end shows it all, then a drift. A54: the move chooser gives
+    # a still with no subject the WHOLE move, which draws that pass itself, so no covering re-draw is needed
+    assert cam["move"]["move"] == "WHOLE" and cam["macro"] == "DEFAULT" and not cam["covering"]
+    assert cam["subject"]["src"] == "whole"
     assert cam["subject"]["whole_mode"] == "sweep" and not T.reversals(cam["tour"])
     assert T.covered([w for _, w in R.still_windows(cam, {"_dur": 4.0}, (1500, 1050), W, H)], (0, 0, 1, 1), (1500, 1050))
     evs = J.read(j.path)
-    assert any(e["kind"] == "decision" and e.get("unit") == "S3" and "ending on the subject" in e.get("what", "")
+    assert any(e["kind"] == "decision" and e.get("unit") == "S3" and e.get("what", "").startswith("S3: WHOLE")
                for e in evs)
     assert not [e for e in lints(evs, "tour-partial") if e["unit"] == "S3"]
     # a person the ledger has not located still needs the whole picture: the pass covers it (A7)

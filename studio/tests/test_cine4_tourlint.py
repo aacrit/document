@@ -131,21 +131,28 @@ def test_settle_before_move_requires_1_5s_for_a_face():
 # --------------------------------------------------------------------------
 
 
-def test_min_move_after_cut_warns_on_an_early_move():
-    segs = [{"t0": 0.0, "t1": 4.0, "kind": "move", "a": {"z": 1.0, "x": 0.1, "y": 0.5},
-             "b": {"z": 1.0, "x": 0.9, "y": 0.5}}]
-    tl = make_tl(segs)
-    r = TL.min_move_after_cut(tl)
-    assert not r["ok"] and r["move_t0"] == 0.0
-
-
-def test_min_move_after_cut_passes_with_a_settle_first():
+def test_never_from_rest_warns_on_a_dead_opening_hold():
+    # A54: min-move-after-cut is now "never from rest": an opening that sits still warns
     segs = [{"t0": 0.0, "t1": 0.6, "kind": "hold", "a": {"z": 1.0, "x": 0.1, "y": 0.5},
              "b": {"z": 1.0, "x": 0.1, "y": 0.5}},
             {"t0": 0.6, "t1": 4.0, "kind": "move", "a": {"z": 1.0, "x": 0.1, "y": 0.5},
              "b": {"z": 1.0, "x": 0.9, "y": 0.5}}]
-    tl = make_tl(segs)
-    assert TL.min_move_after_cut(tl)["ok"]
+    r = TL.min_move_after_cut(make_tl(segs))
+    assert not r["ok"] and r["from_rest"] and r["rule"] == "never from rest"
+
+
+def test_never_from_rest_warns_on_a_move_eased_from_zero():
+    segs = [{"t0": 0.0, "t1": 4.0, "kind": "move", "a": {"z": 1.0, "x": 0.1, "y": 0.5},
+             "b": {"z": 1.0, "x": 0.9, "y": 0.5}}]
+    assert not TL.min_move_after_cut(make_tl(segs))["ok"]          # no v0: the rostrum's own ease from rest
+
+
+def test_never_from_rest_passes_a_move_entered_at_the_creep():
+    segs = [{"t0": 0.0, "t1": 4.0, "kind": "move", "a": {"z": 1.0, "x": 0.1, "y": 0.5},
+             "b": {"z": 1.0, "x": 0.9, "y": 0.5}}]
+    M.enter_moving(segs, lambda a, b: (abs(b["x"] - a["x"]), 0.0))
+    r = TL.min_move_after_cut(make_tl(segs))
+    assert r["ok"] and segs[0]["v0"] > 0
 
 
 def test_min_move_after_cut_waived_when_the_move_continues():
@@ -349,7 +356,7 @@ def test_check_still_runs_against_a_real_engine_cam():
     cam = R.engine_cover(s, cam, size, EW, EH, [], None, fps=24.0)
     row = TL.check_still(s, cam, size, fps=24.0)
     assert row["id"] == "X"
-    assert row["min_move"]["ok"]      # A49's engine fix: the default pass settles 0.5 s before its first leg
+    assert row["min_move"]["ok"]      # A54: the default pass leaves the cut already moving (never from rest)
     assert row["scale"] in ("whole", "field", "detail")
     assert row["blocks"] == []                              # no must_show region: nothing here can block
 

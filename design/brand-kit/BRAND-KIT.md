@@ -530,6 +530,20 @@ A still shown whole under `fill_exception` may move in to one DETAIL inside its 
 | `dissolve-rule` (guidance) | warns on: a different mark class (also a BLOCK elsewhere, `dissolve-same-class`, 4.4); a different picture class or named subject (the ledger's own `roi` or `people` name); no narration or testimony line spanning the join; a position match left off by more than `CINE["dissolve_match_tol"]` (0.05, about 5% of the frame). Never blocks (A39) |
 | The film budget (guidance) | about one dissolve every `CINE["dissolve_budget_s"]` (180) seconds of film; a film short of that density is never a problem, only a denser one warns |
 
+### 14i. The smart camera: READ, PORTRAIT, SURVEY, the move chooser, cut-ins, entering moving, the face cap (2026-10-18, founder; GRAMMAR A54)
+
+| Part | Numbers |
+|---|---|
+| READ | a tilt (a page, fit by its width) or a pan (a banner, fit by its height) at the deepest legible zoom (x-height 14 px or more on the 1080p master, a line 2.4 x-heights); one line per `BRACKET["read_line_s"]` (1.25 s) when the narration reads it (a `testimony` word), else the 7-second pass (`BRACKET["cross_s"]`); the last line held `CINE["settle_read_s"]` (1.5 s) |
+| PORTRAIT | the face (golden placement, lead room by facing) to the fill (reveal), or the fill to the face (explain); the face held 1.5 s, the fill landed `CINE["settle_s"]` (1.0 s) before the cut |
+| SURVEY | at most 3 regions (or a crowd's located people) in reading order (rows `SURVEY_ROW_TOL` 0.12 of the height; a stated `order` first), each its settle (1.5 s a face, a person or text, else 1.0 s), then the widest fill; `reverse` runs the other way |
+| The chooser (`moves.py`) | declared `whole` or no subject: WHOLE; `no_zoom`: PAN at one scale (`CINE["field_const_share"]` 0.6 of the picture where the softness cap allows, else the fill); one located person: PORTRAIT; two or more: SURVEY; `must_show` text: READ (a document, or `lines`), else EXPLAIN onto it; a subject: EXPLAIN (to DETAIL) or REVEAL (from DETAIL) |
+| Variety | per chapter at least one WHOLE end and one DETAIL end; no more than `MAX_RUN` (2) stills in a row with one move or one direction (in, out, left, right, up, down); a PAN continues the direction before it; same input, same film |
+| DETAIL | a window showing `CINE["detail_share"]` (0.4) of the picture or less, as deep as the softness cap (3x on the 1080p master) allows; measured and reported per still, never promised |
+| CUT-IN | hard cuts inside one shot between WIDE, MEDIUM and CLOSE framings: when the narration names the subject before the move could arrive and settle (cut on the beat, `CINE["anchor_lead_s"]` 0.5 s before the word), or when the move cannot keep the speed guides in the shot; `CUT_SCALE_MIN` 1.6x between framings of one subject (else no cut-in), a match cut where the subject stays whole; at most `CUT_MAX_FRAMINGS` 3, each about `CUT_FRAMING_MIN_S` 1.5 s; never under `no_zoom`; one showing is one A35 use; the glyph does not re-grow |
+| Entering moving | every still leaves the cut at the creep's speed (`TOUR["creep_scale_per_s"]` 1.5%/s, `creep_drift_per_s` 1%/s) in its first leg's direction and ends slowing to it (`motion.rostrum_v`); replaces A49's opening settle (0.5 to 1.5 s) |
+| The face cap | z 1.3 (`CINE["face_zmax"]`); lifted to the zoom where the window still shows `CINE["face_detail_share"]` (0.25) of the picture, inside the softness cap, for one person the caption binds (A43) or one located adult the item's own text names in a public role (`PUBLIC_ROLE_WORDS`, version 1); kept for crowds, `no_zoom`, minors and `dignity: true`. `CINE["face_detail"]`: `"proposal"` (the ruling) or `"strict"` |
+
 ## 15. The series titles: `void document · As It Was` (2026-10-17; GRAMMAR A40)
 
 The founder: "a cinematic ... intro ... after the hook of each video like it's a documentary episode." The series titles are the archive machine (`design/title-sequence/`: 12 beats, 57.0 s, G2 approved 2026-10-16), rendered once per film with that film's own record, and played by the engine as they are.
