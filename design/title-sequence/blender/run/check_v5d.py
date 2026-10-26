@@ -106,6 +106,31 @@ def _point_runs(keys, is_point):
     return out
 
 
+VISIBLE_MIN = 0.5           # the share of the marble's camera-facing surface that must clear the carved top
+
+
+def marble_visible(eye, p, n_pts=48, n_steps=160, reach=0.12):
+    """The share of the marble's camera-facing surface the eye sees past the carved top (channel_v5c.height: the
+    groove's own walls and the banks). Sheets, rolls and objects are not modelled, so this is an upper bound."""
+    eye, p = np.asarray(eye, float), np.asarray(p, float)
+    v = eye - p
+    v /= np.linalg.norm(v)
+    rng = np.random.default_rng(0)
+    d = rng.normal(size=(n_pts * 4, 3))
+    d /= np.linalg.norm(d, axis=1)[:, None]
+    d = d[d @ v > 0.15][:n_pts]                       # points on the hemisphere facing the eye
+    pts = p + C.R * d
+    seen = 0
+    for q in pts:
+        ray = eye - q
+        L = np.linalg.norm(ray)
+        t = np.linspace(0.0015, min(reach, L), n_steps) / L
+        P = q + t[:, None] * ray
+        if (P[:, 2] >= C.height(P[:, 0], P[:, 1]) - 1e-5).all():
+            seen += 1
+    return seen / max(len(pts), 1)
+
+
 def check(frames, keys, speed):
     n = len(frames)
     res = {"frames": n}
@@ -119,6 +144,16 @@ def check(frames, keys, speed):
     res["marble_in_frame"] = {"frames": [a, b], "pass": not out, "out_frames": out[:20],
                               "min_margin_px_1080p": round(min(margin[a:b + 1]), 1),
                               "min_margin_at": int(np.argmin(margin[a:b + 1])) + a, "first_out_after": first_out}
+    # 1b. the marble seen past the groove's walls (every 3rd frame, 0-975): reported apart from the frustum check
+    vis = {f: marble_visible(frames[f]["eye"], frames[f]["p"]) for f in range(a, b + 1, 3)}
+    low = [f for f, s in vis.items() if s < VISIBLE_MIN]
+    hid = np.zeros(n, bool)
+    for f in low:
+        hid[f:min(f + 3, b + 1)] = True                 # each sample stands for its 3 frames
+    res["marble_unoccluded"] = {"frames": [a, b], "step": 3, "min_share": VISIBLE_MIN, "pass": not low,
+                                "hidden_runs": runs(hid),
+                                "hidden_sampled": len(low), "worst": round(min(vis.values()), 2),
+                                "note": "ray-cast against the carved top only (sheets and rolls not modelled)"}
     # 2. the records dark
     z = C.felt_top() + C.ITEMS["record"]["h"]
     rec = {}
@@ -163,8 +198,9 @@ def check(frames, keys, speed):
     res["focus_pulls_not_racks"] = focus_pulls(keys, frames)
     # the marble at the steps and the latch: sharp (the plan: the camera is sharp on the marble at all three)
     res["accents"] = {str(f): round(frames[f]["marble_blur_px"], 1) for f in (0,) + STEPS}
-    res["pass"] = all(res[k]["pass"] for k in ("marble_in_frame", "record_never_in_frame", "well_windows",
-                                                "blur_ratio_everywhere")) and all(r["pass"] for r in rk)
+    res["pass_specified"] = all(res[k]["pass"] for k in ("marble_in_frame", "record_never_in_frame", "well_windows",
+                                                          "blur_ratio_everywhere")) and all(r["pass"] for r in rk)
+    res["pass"] = res["pass_specified"] and res["marble_unoccluded"]["pass"]
     return res
 
 
@@ -192,6 +228,7 @@ def main(argv=None):
     print("well measured:", res["well_windows"]["measured"])
     print("records:", {k: v["seen_runs"] for k, v in res["record_never_in_frame"]["by_record"].items()})
     print("marble:", res["marble_in_frame"])
+    print("marble seen past the groove:", {k: v for k, v in res["marble_unoccluded"].items() if k != "note"})
     print("blur ratio:", res["blur_ratio_everywhere"])
     return 0 if res["pass"] else 1
 

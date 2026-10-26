@@ -91,7 +91,8 @@ def test_the_checker_passes_the_shot():
     fr = SD.shot(bake, FPS, 31.4)
     _, keys = SD.load_keys()
     res = K.check(fr, keys, K.marble_speed(bake, len(fr)))
-    assert res["pass"], {k: v for k, v in res.items() if isinstance(v, dict) and not v.get("pass", True)}
+    assert res["pass_specified"], {k: v for k, v in res.items() if isinstance(v, dict) and not v.get("pass", True)}
+    assert "hidden_runs" in res["marble_unoccluded"]          # the groove's walls: reported (reach 3 hides it)
     assert len(res["racks"]) == 5 and all(r["pass"] for r in res["racks"])
 
 
@@ -119,3 +120,13 @@ def test_the_physics_never_reads_the_jeton_or_the_sheets():
     scene = (RUN / "scene_v5c.py").read_text(encoding="utf-8")
     assert 'build("L0" if A["cam"] == "v5d" else "v5c")' in scene and "SD.shot(" in scene
     assert math.isclose(C.LAYOUTS["L0"]["jeton"]["z_top"], 0.0155)
+
+
+def test_the_marble_is_seen_from_above_and_hidden_by_the_groove_from_a_grazing_side():
+    import check_v5d as K
+    s = 7.0                                               # reach 3, the groove at its deepest stretch
+    x, y, h = C.point(s)
+    z = float(C.groove_z(np.array([s]), np.array([0.0]))[0]) + C.R
+    p = np.array([x, y, z])
+    assert K.marble_visible(p + np.array([0.0, -0.05, 0.40]), p) > 0.9          # from above
+    assert K.marble_visible(p + np.array([0.0, 0.40, 0.08]), p) < 0.5           # from the side at 11 degrees

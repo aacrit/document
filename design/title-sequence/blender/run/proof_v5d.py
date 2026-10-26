@@ -299,9 +299,11 @@ def render():
     spec, keys = SD.load_keys()
     chk = K.check(frames, keys, K.marble_speed(bake, n))
     (OUT / "v5d-check.json").write_text(json.dumps(chk, indent=1), encoding="utf-8")
-    log("check", passed=chk["pass"], racks=[(r["sheet"], r["blur_ratio"], r["pass"]) for r in chk["racks"]])
-    if not chk["pass"]:
+    log("check", passed=chk["pass"], specified=chk["pass_specified"],
+        hidden=chk["marble_unoccluded"]["hidden_runs"], racks=[(r["sheet"], r["blur_ratio"], r["pass"]) for r in chk["racks"]])
+    if not chk["pass_specified"]:
         raise SystemExit("the shot fails its checks: nothing rendered")
+    # the marble hidden by the groove's walls is reported, not a stop: the proof is how the founder judges it
     report = {"frames": n, "fps": FPS_S, "record": REC, "check": "v5d-check.json", "proof_sampling": PROOF,
               "denoise": False}
     preflight()
