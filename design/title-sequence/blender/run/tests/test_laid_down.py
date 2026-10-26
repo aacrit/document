@@ -103,6 +103,14 @@ def test_the_trailing_corner_is_held_then_settles_in_a_quarter_second():
     assert L.lift_at(a, a["stop_s"]) == 0.001 and L.lift_at(a, a["stop_s"] + 0.1) == 0.0
 
 
+def test_a_sheet_lies_down_onto_the_pile_as_its_corner_settles():
+    s = L.SHEETS[5]
+    assert L.lie_at(s, s["stop_s"] - 0.1) == 0.0 and L.lie_at(s, s["stop_s"]) == 0.0
+    assert 0 < L.lie_at(s, s["stop_s"] + 0.1) < 1
+    assert L.lie_at(s, s["stop_s"] + 0.25) == 1.0 and L.lie_at(s, 40.0) == 1.0
+    assert all(L.lie_at(L.SHEETS[1], t) == 0.0 for t in (7.0, 8.0, 30.0))      # the boards stay rigid
+
+
 def test_the_camera_is_fixed_until_the_record_enters():
     for f in (0, 22, 400, 751, 868):
         eye, roll = L.camera_at("C20-METAR-0851", f)

@@ -17,6 +17,11 @@ speed) while the sheet slides on the air it drags, then down to its resting lie 
 quadratic in time, so it lands with speed: the settle tap). The spec's literal "2 mm x v" would be zero at the stop and
 leave nothing to settle; the release speed (1.6 to 1.9 m/s) puts every paper sheet at the 3 mm cap. The Atlas boards do
 not lift: their trailing edge rides 1 mm up and drops in 0.1 s.
+
+The lie: a sheet slides as a rigid plate on the highest point its footprint covers, and over the same 0.25 s, as the
+air escapes, it lies down onto the pile point by point (as still_v5.paper lays its dealt papers: each point on what is
+under it, the paper bridging a few millimetres). A pile of rigid plates each resting on the highest point beneath it
+climbs to 10 mm in six sheets and floats every edge 5 to 10 mm (measured in the bake); paper does not.
 """
 
 from __future__ import annotations
@@ -118,6 +123,15 @@ def lift_at(s, t):
         return held
     k = (t - s["stop_s"]) / settle
     return 0.0 if k >= 1.0 - 1e-9 else held * (1.0 - k * k)
+
+
+def lie_at(s, t):
+    """How far a paper sheet has lain down onto the pile from its rigid sliding lie (0 sliding, 1 at rest): the air
+    under it escapes over the same 0.25 s as the corner's settle. The Atlas boards stay rigid (always 0)."""
+    if is_board(s) or t <= s["stop_s"]:
+        return 0.0
+    k = (t - s["stop_s"]) / SETTLE_S
+    return 1.0 if k >= 1.0 - 1e-9 else k * k
 
 
 def visible_at(s, t) -> bool:
