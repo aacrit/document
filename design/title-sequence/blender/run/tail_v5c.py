@@ -193,20 +193,37 @@ def main(argv=None):
     exr_dir.mkdir(exist_ok=True)
     RL.take_lock(f"The Run v5c tail {rec} ({len(P['redo'])} frames)")
     try:
-        for f0, f1 in P["runs"]:
-            if all((tail_dir / f"{f:05d}.png").exists() and (tail_dir / f"{f:05d}.png").stat().st_size > 0
-                   for f in range(f0, f1 + 1)):
-                continue
-            wall = blender(["--fps", FPS_S, "--frames", f"{f0}:{f1}", "--res", "2560x1440", "--samples",
-                            str(SAMPLING["samples"]), "--threshold", str(SAMPLING["threshold"]), "--min_samples",
-                            str(SAMPLING["min_samples"]), "--blur", "1", "--expo", str(expo), "--record", rec,
-                            "--out", str(tail_dir), "--exr", str(exr_dir)], f"{f0}-{f1}", tail_dir)
-            log("rendered", run=[f0, f1], wall_s=wall, s_per_frame=round(wall / (f1 - f0 + 1), 1))
+        for _pass in range(2):                 # a PNG that does not decode is deleted and rendered again
+            for f in P["redo"]:
+                p = tail_dir / f"{f:05d}.png"
+                if p.exists():
+                    try:
+                        Image.open(p).load()
+                    except Exception as e:
+                        log("unreadable frame removed", frame=f, error=str(e)[:80])
+                        p.unlink()
+            render_runs(P, tail_dir, exr_dir, expo, rec)
     finally:
         RL.drop_lock()
     missing = [f for f in P["redo"] if not (tail_dir / f"{f:05d}.png").exists()]
     if missing:
         raise SystemExit(f"missing tail frames {missing[:10]}")
+    return finish(P, rec, out, tail_dir)
+
+
+def render_runs(P, tail_dir, exr_dir, expo, rec):
+    for f0, f1 in P["runs"]:
+        if all((tail_dir / f"{f:05d}.png").exists() and (tail_dir / f"{f:05d}.png").stat().st_size > 0
+               for f in range(f0, f1 + 1)):
+            continue
+        wall = blender(["--fps", FPS_S, "--frames", f"{f0}:{f1}", "--res", "2560x1440", "--samples",
+                        str(SAMPLING["samples"]), "--threshold", str(SAMPLING["threshold"]), "--min_samples",
+                        str(SAMPLING["min_samples"]), "--blur", "1", "--expo", str(expo), "--record", rec,
+                        "--out", str(tail_dir), "--exr", str(exr_dir)], f"{f0}-{f1}", tail_dir)
+        log("rendered", run=[f0, f1], wall_s=wall, s_per_frame=round(wall / (f1 - f0 + 1), 1))
+
+
+def finish(P, rec, out, tail_dir):
     master = out / f"the-run-v5c-{rec}-2997.mov"
     preview = out / f"the-run-v5c-{rec}-2997-preview.mp4"
     encode(P["n"], set(P["redo"]), tail_dir, master, preview)
