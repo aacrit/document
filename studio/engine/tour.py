@@ -751,6 +751,21 @@ CUT_FRAMING_MIN_S = 1.5        # each framing is on screen about this long at le
 CUT_MAX_FRAMINGS = 3           # at most this many framings in one showing
 
 
+def cut_scale_step(stops: list[dict]) -> float | None:
+    """The smallest scale step across a same-subject internal cut (the WIDE and the CLOSE of one cut-in, by
+    their ``from``), as the stops stand (after any face cap); None when no cut joins two framings of one
+    subject (a survey's cuts change the subject, so they are never jump cuts)."""
+    def side(st):
+        f = str(st.get("from") or "")
+        return "wide" if f.startswith("CUT-IN: the wide") else "close" if f.startswith("CUT-IN: the close") else None
+    steps = []
+    for a, b in zip(stops, stops[1:]):
+        if b.get("cut") and {side(a), side(b)} == {"wide", "close"}:
+            za, zb = max(1e-9, float(a["z"])), max(1e-9, float(b["z"]))
+            steps.append(max(za, zb) / min(za, zb))
+    return min(steps) if steps else None
+
+
 def path_need_s(stops: list[dict], size, aspect: float) -> float:
     """The least time a path of stops needs: every leg at the speed guides (``leg_min_s``) plus every hold."""
     return (sum(leg_min_s(a, b, size, aspect) for a, b in zip(stops, stops[1:]))
@@ -864,10 +879,13 @@ def _wide_sweep(sweep: tuple[dict, dict], t0: float, t1: float, hz: float | None
 
 
 def survey_cut_stops(picks: list[dict], size, aspect: float, dur: float,
-                     zmax: float, hz: float | None = 24.0) -> tuple[list[dict] | None, str | None]:
+                     zmax: float, hz: float | None = 24.0,
+                     avoid: list[tuple] | None = None) -> tuple[list[dict] | None, str | None]:
     """A54 CUT-IN for a SURVEY: up to two of its regions (each a new subject, so never a jump cut) and then
     the WIDE, each framing an equal share of the shot, joined by hard cuts padded onto the frame grid; the
-    WIDE sweeps end to end where its fill cannot show the whole picture (A7, as in ``cut_in_stops``)."""
+    WIDE sweeps end to end where its fill cannot show the whole picture (A7, as in ``cut_in_stops``).
+    ``avoid`` (A49/A51 text zones, as ``cut_in_stops`` takes them): each region's framing is steered clear
+    of live text at its own depth (``end_pose``), and a held WIDE is the avoid-aware ``whole_pose``."""
     picked = picks[:CUT_MAX_FRAMINGS - 1]
     if len(picked) < 2:
         return None, "fewer than two regions to cut between"
@@ -883,6 +901,10 @@ def survey_cut_stops(picks: list[dict], size, aspect: float, dur: float,
     stops = []
     for k, r in enumerate(picked):
         st = roi_stop(r, size, aspect, zmax)
+        if avoid and roi_box(r) is not None:
+            pose = end_pose({"src": "subject", "box": roi_box(r), "kind": r.get("kind"), "facing": None}, size,
+                            aspect, st["z"], record=False, avoid=avoid, z_min=st["z"])
+            st.update(x=pose["x"], y=pose["y"], z=pose["z"])
         st.update(t=starts[k], hold=starts[k + 1] - starts[k], roi=r.get("name"), placed="engine",
                   **{"from": f"CUT-IN: {r.get('name') or 'roi'}"})
         if k:
@@ -893,8 +915,9 @@ def survey_cut_stops(picks: list[dict], size, aspect: float, dur: float,
         wide[0]["cut"] = True
         stops += wide
     else:
-        stops.append({"t": starts[n - 1], "z": 1.0, "x": 0.5, "y": 0.5, "cut": True, "placed": "engine",
-                      "breath": True, "from": "CUT-IN: the wide"})
+        wp = whole_pose(size, aspect, False, avoid=avoid) if avoid else {"z": 1.0, "x": 0.5, "y": 0.5}
+        stops.append({"t": starts[n - 1], "z": wp["z"], "x": wp["x"], "y": wp["y"], "cut": True,
+                      "placed": "engine", "breath": True, "from": "CUT-IN: the wide"})
     return stops, None
 
 
@@ -2382,7 +2405,13 @@ PUBLIC_ROLE_WORDS = ("firefighter", "firefighters", "fireman", "firemen", "offic
                      "policeman", "policemen", "policewoman", "official", "officials", "president", "mayor",
                      "senator", "governor", "soldier", "soldiers", "crew", "guardsman", "guardsmen", "trooper",
                      "troopers", "paramedic", "paramedics", "rescuer", "rescuers")
-PUBLIC_ROLE_FIELDS = ("caption", "title", "nara_title", "people", "_people_words", "seen")
+# where a public role may be read (coordinator ruling on review, 2026-10-26: never ``seen``, the rulebook's or a
+# human's description of the picture): the person's own label, or the subject of the archive's own caption
+PUBLIC_ROLE_LABEL_FIELDS = ("people", "_people_words")
+PUBLIC_ROLE_CAPTION_FIELDS = ("caption", "title", "nara_title")
+PUBLIC_ROLE_FIELDS = PUBLIC_ROLE_LABEL_FIELDS + PUBLIC_ROLE_CAPTION_FIELDS
+_SUBJECT_SKIP = frozenset(("a", "an", "the", "one", "two", "three", "this", "that", "these", "those", "unidentified",
+                           "unnamed", "new", "york", "city", "u.s.", "us", "american", "federal", "local"))
 
 
 def face_cap_of(persons: list[dict]) -> float:
@@ -2407,18 +2436,54 @@ def detail_limit_z(size, aspect: float, zcap: float) -> float:
     return max(CINE["face_zmax"], min(z, max(1.0, zcap)))
 
 
-def public_role(item: dict) -> str | None:
-    """The public-role word the item's own text gives (``PUBLIC_ROLE_FIELDS``,
-    whole words, any case), or None. Read from the ledger's words only,
-    never from the picture (founder guard, 2026-10-18)."""
-    have: set[str] = set()
-    for f in PUBLIC_ROLE_FIELDS:
+def caption_subject(text) -> list[str]:
+    """The grammatical subject of a caption's first clause, by a plain rule (no parser): the words up to and
+    including the first lower-case word that is not a determiner or a place modifier, with every capitalised
+    word before it (a title, a name). "A woman weeps beside a police car" gives ["woman"]; "President George
+    W. Bush speaks" gives ["president", "george", "w.", "bush", "speaks"]."""
+    first = re.split(r"[;:,()—]| - ", str(text or ""), maxsplit=1)[0]
+    out: list[str] = []
+    for tok in first.split():
+        w = norm_word(tok)
+        if not w:
+            continue
+        if w in _SUBJECT_SKIP and not out:
+            continue
+        out.append(w)
+        if tok[:1].islower() and w not in _SUBJECT_SKIP:
+            break
+    return out
+
+
+def public_role(item: dict, persons: list[dict] | None = None) -> str | None:
+    """The public role of the still's one located person, or None (A54 face cap, review ruling 2026-10-26):
+    the role word is the person's own label (the ledger's ``people`` words, or the located person's own entry
+    or name), or it is the grammatical subject of the archive's own caption or title (``caption_subject``) and
+    exactly one person is located (``persons`` None: not counted, the caller has). A role word anywhere else
+    ("a woman weeps beside a police car", "a boy is carried past firefighters") lifts nothing. Read from the
+    ledger's words only, never from the picture, and never from ``seen`` (founder guard, 2026-10-18)."""
+    if persons is not None and located_persons(persons) != 1:
+        return None
+    label: list[str] = []
+    for f in PUBLIC_ROLE_LABEL_FIELDS:
         v = item.get(f)
-        if isinstance(v, list):
-            v = " ".join(str(e.get("name") or "") if isinstance(e, dict) else str(e) for e in v)
         if isinstance(v, str):
-            have |= set(_norm_words(v))
-    return next((w for w in PUBLIC_ROLE_WORDS if w in have), None)
+            label += _norm_words(v)
+    for q in persons or []:
+        e = q.get("entry") or {}
+        for v in (q.get("name"), e.get("name"), e.get("label"), e.get("role"), e.get("text")):
+            if isinstance(v, str) and not GENERIC_NAME.match(v):
+                label += _norm_words(v)
+    role = next((w for w in PUBLIC_ROLE_WORDS if w in label), None)
+    if role is not None:
+        return role
+    for f in PUBLIC_ROLE_CAPTION_FIELDS:
+        v = item.get(f)
+        subj = caption_subject(v) if isinstance(v, str) else []
+        role = next((w for w in PUBLIC_ROLE_WORDS if w in subj), None)
+        if role is not None:
+            return role
+    return None
 
 
 def _is_minor(item: dict, persons: list[dict]) -> bool:
@@ -2464,7 +2529,7 @@ def lift_face_caps(item: dict, persons: list[dict], size, aspect: float, zcap: f
             if not binding_check(item, nm.split(), region, persons):
                 bound = nm
                 break
-        role = public_role(item)
+        role = public_role(item, persons)
         if bound is not None or role is not None:
             cap = detail_limit_z(size, aspect, zcap)
             out = [dict(q, cap=cap) for q in out]

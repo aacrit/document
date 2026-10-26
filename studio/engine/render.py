@@ -865,8 +865,9 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
                    if p["src"] == "people" and p["name"] is not None}
     roi_by_name.update({r.get("name"): r for r in roi})
     # A54 (founder ruling 2026-10-18): the face cap lifted to the DETAIL limit for one bound or public-role person
-    persons, face_detail = T.lift_face_caps(item, persons, img_size, aspect, zcap,
-                                            no_zoom=shot.get("no_zoom") is True)
+    # no_zoom (burning or collapse) is the shot's or the ledger item's own mark, read the same everywhere (A47)
+    no_zoom = shot.get("no_zoom") is True or item.get("no_zoom") is True
+    persons, face_detail = T.lift_face_caps(item, persons, img_size, aspect, zcap, no_zoom=no_zoom)
     zmax = max(1.0, zcap)
     if shot.get("face"):
         zmax = min(zmax, 1.3)                 # 7.2: a face is never pushed past z 1.3, creep included
@@ -874,7 +875,6 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
     camera = shot.get("camera")
     macro = None
     covering = False
-    no_zoom = shot.get("no_zoom") is True
     subject = None
 
     def subject_pass(*, whole: bool = False, focus=None, detail: bool = False, roi_=None):
@@ -903,7 +903,7 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
             slow = mstops is not None and T.path_need_s(mstops, img_size, aspect) > dur + 1e-6
             if not (slow or mv == "CUTIN"):
                 return None
-            st, why = T.survey_cut_stops(picks, img_size, aspect, dur, zmax, hz=fps or FPS)
+            st, why = T.survey_cut_stops(picks, img_size, aspect, dur, zmax, hz=fps or FPS, avoid=avoid)
             reason = ("asked for (move: CUTIN)" if mv == "CUTIN" else
                       "the survey's legs cannot keep the speed guides in the shot (the 7-second rule)")
         else:
@@ -936,10 +936,20 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
                 cut_at = arrive
             st, why = T.cut_in_stops(subj, img_size, aspect, dur, zl, record=record, order=order, facing=facing,
                                      cut_at=cut_at, avoid=avoid, hz=fps or FPS)
+        if st is not None:
+            # no jump cut after the face caps: judge the scale step on the framings as they will be drawn (the
+            # A43/A44 caps applied), and keep the move when a cap brings a same-subject close under CUT_SCALE_MIN
+            drawn = T.cap_faces([dict(x) for x in st], persons, img_size, aspect)
+            drawn, _ = T.enforce_face_cap(drawn, persons, dur, img_size, aspect, zmax, no_zoom=no_zoom,
+                                          hz=fps or FPS)
+            step = T.cut_scale_step(drawn)
+            if step is not None and step < T.CUT_SCALE_MIN - 1e-6:
+                st, why = None, (f"a jump cut after the face cap: the close is only {step:.2f}x the wide, under "
+                                 f"{T.CUT_SCALE_MIN:g}x")
         if st is None:
             shot["_cut_in_why"] = why
             return None
-        shot["_cut_in"] = {"reason": reason, "framings": len(st)}
+        shot["_cut_in"] = {"reason": reason, "framings": 1 + sum(1 for x in st if x.get("cut"))}
         return st, reason
 
     def draw_move(move: dict):
