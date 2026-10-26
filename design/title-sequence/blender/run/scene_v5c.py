@@ -637,6 +637,12 @@ def main():
                        "exposure": round(float(v.exposure), 6),
                        **({"skipped_existing": True} if (Path(A["out"]) / f"{f:05d}.png").exists() else {})})
         sc.frame_set(f0)
+        try:                                  # a retry after a crash keeps the read-back of the frames it rendered
+            old = {d["frame"]: d for d in json.loads(Path(A["vs"]).read_text(encoding="utf-8"))["frames"]}
+        except (OSError, ValueError, KeyError):
+            old = {}
+        vs = [old[d["frame"]] if d.get("skipped_existing") and d["frame"] in old
+              and not old[d["frame"]].get("skipped_existing") else d for d in vs]
         Path(A["vs"]).write_text(json.dumps({"blender": bpy.app.version_string, "frames": vs}), encoding="utf-8")
     print("V5C-BUILD " + json.dumps({"frames_total": len(frames), "range": [f0, f1, int(A["step"])],
                                      "build_s": round(time.time() - t0, 1), "renderer": RS.renderer_line(sc)}), flush=True)

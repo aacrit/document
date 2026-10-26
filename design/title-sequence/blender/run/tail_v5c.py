@@ -219,7 +219,8 @@ def main(argv=None):
                 p = tail_dir / f"{f:05d}.png"
                 if p.exists():
                     try:
-                        Image.open(p).load()
+                        with Image.open(p) as im:          # closed before the unlink (Windows keeps it locked)
+                            im.load()
                     except Exception as e:
                         log("unreadable frame removed", frame=f, error=str(e)[:80])
                         p.unlink()
