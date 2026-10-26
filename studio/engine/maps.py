@@ -492,7 +492,7 @@ def source_short(spec: dict) -> str:
     while len(out) > SOURCE_SHORT_MAX and len(ids) > 1:      # cut only at a source, never inside a name
         ids.pop()
         out = "; ".join(ids) + " and others"
-    return out if len(out) <= SOURCE_SHORT_MAX else ids[0]
+    return out if len(out) <= SOURCE_SHORT_MAX else ids[0][:SOURCE_SHORT_MAX]    # one source alone too long: cut it
 
 
 APPROX_NOTE = "Line approximate, from the award"
@@ -1981,6 +1981,11 @@ MAP_GENERATOR = re.compile(r"(?<![\w-])(?:studio[./\\])?engine[./\\]maps(?:\.py)
 # A drawn page's own record beside its PNG ({"<id>": {...}}): tools/doc_pages.py's doc-pages.json, metar-pages.json
 PAGE_RECORDS = "*-pages.json"
 RERENDER = "re-render the spec with `python -m studio.engine.maps <spec> --geodata <dir> --out <film>/drawn`"
+# a page or image declaration is refused when its generator or file name says it is a map
+SAYS_MAP = re.compile(r"(?i)(?<![a-z])maps?(?![a-z])")
+# what a ledger item may declare itself when no record beside its PNG says: a typeset page, or a drawn image that is no
+# map (a test pattern, a fixture still)
+DECLARED_KINDS = ("page", "image")
 MAP_LABEL_DETAIL = "from map data"     # M5: the plate names no dataset (BRAND-KIT 12b); the sources data names them
 
 
@@ -2009,8 +2014,8 @@ def drawn_kind(item: dict) -> tuple[str | None, dict | None]:
         return "map", rec
     if rec is not None:
         return ("count_card", rec) if rec.get("kind") == "count_card" else ("map", rec)
-    if item.get("drawn_kind") == "page":
-        return "page", None
+    if item.get("drawn_kind") in DECLARED_KINDS:
+        return item["drawn_kind"], None
     if item.get("_path"):
         for f in sorted(png.parent.glob(PAGE_RECORDS)):
             rows = _rows(f)
@@ -2061,28 +2066,56 @@ def drawn_map_problems(item: dict, record: dict | None, pixels: str | None, spec
     return out
 
 
-def drawn_check(item: dict, *, shot_kind: str = "drawn") -> list[str]:
+def record_spec(item: dict, rec: dict) -> Path | None:
+    """The spec a render record names: its `spec`, relative to the record's folder (the PNG's), else the ledger
+    item's `source_file`."""
+    sp = rec.get("spec") or item.get("source_file")
+    if not sp:
+        return None
+    sp = Path(str(sp))
+    return sp if sp.is_absolute() else Path(item["_path"]).parent / sp
+
+
+def drawn_check(item: dict, *, shot_kind: str = "drawn", mark: str | None = None, synthetic: bool = False) -> list[str]:
     """The film render's check of one still (``_path`` resolved by render.load_ledgers): a map's
-    drawn_map_problems; for a ``drawn`` shot, also a refusal when nothing says what the picture is (fail closed:
-    a map with no record and a hand-written generator would otherwise pass). An archive still is read only when
-    its files say it is a map."""
+    drawn_map_problems; a refusal when nothing says what a drawn picture is (fail closed: a map with no record and a
+    hand-written generator would otherwise pass), where drawn means a ``drawn`` shot, a DRAWN mark or a program-made
+    item (``synthetic``); and a refusal of a page or image declaration whose generator or file name says map."""
     kind, rec = drawn_kind(item)
     if kind == "map":
         pixels = spec_sha = None
         if rec is not None:
             with Image.open(item["_path"]) as im:
                 pixels = pixels_sha256(im)
-            spec_sha = spec_sha256(rec["spec"]) if rec.get("spec") else None
+            sp = record_spec(item, rec)
+            spec_sha = spec_sha256(sp) if sp else None
         return drawn_map_problems(item, rec, pixels, spec_sha)
-    if kind is None and shot_kind == "drawn":
+    if kind in DECLARED_KINDS or kind == "page":
+        said = [str(x) for x in (item.get("generator"), Path(str(item.get("_path") or item.get("file") or "")).name)
+                if x and SAYS_MAP.search(str(x))]
+        if said:
+            return [f"{item.get('id')!r} is declared a {kind}, but {said[0]!r} says it is a map: a map is drawn by "
+                    f"the engine with its maps-render.json record (A56); {RERENDER}"]
+        return []
+    if kind is None and (shot_kind == "drawn" or mark == "DRAWN" or synthetic):
         return [f"{item.get('id')!r}: nothing says what this drawn picture is: a map needs its maps-render.json record "
                 "beside the PNG, a page its own page record (*-pages.json keyed by its id) or `drawn_kind: \"page\"` "
-                "on its ledger item (A56: a map is checked, so an unrecognised drawn picture is refused)"]
+                "on its ledger item, an image that is no map `drawn_kind: \"image\"` (A56: a map is checked, so an "
+                "unrecognised drawn picture is refused)"]
     return []
 
 
 def is_map(item: dict | None) -> bool:
     return bool(item) and drawn_kind(item)[0] == "map"
+
+
+def _rel_spec(spec: Path | str, out: Path) -> str:
+    """The spec's path relative to the record's folder (so a film folder moves whole), else absolute."""
+    import os
+    try:
+        return Path(os.path.relpath(Path(spec).resolve(), out.resolve())).as_posix()
+    except ValueError:           # another drive
+        return str(Path(spec).resolve())
 
 
 def check_specs(folder: Path | str, data_root=None, geodata=None) -> list[str]:
@@ -2152,7 +2185,7 @@ def main(argv=None) -> int:
                        # by an engine that still printed the data credit (a record without this list is one)
                        "drawn_text": [{"kind": b["kind"], "text": b["text"]} for b in info["boxes"]],
                        # the spec this PNG was drawn from, so a spec edited since is caught at the film render
-                       "spec": str(Path(sp).resolve()), "spec_sha256": spec_sha256(sp)})
+                       "spec": _rel_spec(sp, out), "spec_sha256": spec_sha256(sp)})
         print(f"{spec['id']}: {dst} sha256 {report[-1]['sha256'][:16]}"
               + (f"  warnings: {'; '.join(info['warnings'])}" if info["warnings"] else ""))
     # rows merge by id: rendering one spec keeps every other map's record

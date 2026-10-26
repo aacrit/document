@@ -113,6 +113,8 @@ def test_a_long_derived_source_short_is_cut_to_the_plate():
     assert all(part in ids for part in short.removesuffix(" and others").split("; "))   # cut at a source only
     s["sources"].insert(1, {"id": "x" * 60, "licence": "CC0"})                           # never inside a name
     assert maps.ledger_fields(s)["source_short"] == "Natural Earth and others"
+    one = {"id": "M", "sources": [{"id": "N" * 90, "licence": "CC0"}]}                     # one source alone too long
+    assert maps.source_short(one) == "N" * maps.SOURCE_SHORT_MAX
 
 
 def test_the_frames_pixels_do_not_depend_on_the_credit():
@@ -151,7 +153,7 @@ def _item(png: Path, rec: dict, **over) -> dict:
 
 def _problems(png: Path, rec: dict, record: dict, **over) -> list[str]:
     return maps.drawn_map_problems(_item(png, rec, **over), record, maps.pixels_sha256(Image.open(png)),
-                                   maps.spec_sha256(rec["spec"]))
+                                   maps.spec_sha256(maps.record_spec(_item(png, rec), rec)))
 
 
 def test_the_cli_records_the_text_it_drew_its_spec_and_no_credit(tmp_path):
@@ -159,7 +161,8 @@ def test_the_cli_records_the_text_it_drew_its_spec_and_no_credit(tmp_path):
     assert rec["kind"] == "map"
     assert {"kind": "place", "text": "Alpha"} in [{"kind": d["kind"], "text": d["text"]} for d in rec["drawn_text"]]
     assert not [d for d in rec["drawn_text"] if d["kind"] in ("source", "note") or d["text"].startswith("Data")]
-    assert rec["spec_sha256"] == maps.spec_sha256(rec["spec"])
+    assert not Path(rec["spec"]).is_absolute()                 # relative to the record's folder: a film moves whole
+    assert rec["spec_sha256"] == maps.spec_sha256(maps.record_spec(_item(png, rec), rec))
     assert maps.drawn_check(_item(png, rec)) == []
 
 
@@ -206,7 +209,7 @@ def test_a_png_that_is_not_the_recorded_render_is_refused(tmp_path):
 
 def test_a_spec_edited_since_the_render_is_refused(tmp_path):
     png, rec = _render_cli(tmp_path, spec())
-    sp = Path(rec["spec"])
+    sp = maps.record_spec(_item(png, rec), rec)
     edited = json.loads(sp.read_text(encoding="utf-8"))
     edited["places"][0]["name"] = "Alpha East"
     sp.write_text(json.dumps(edited), encoding="utf-8")
@@ -420,3 +423,56 @@ def test_the_plan_labels_a_map_from_map_data(tmp_path):
     plan = R.build_plan(_film_with_map(tmp_path), W=640, H=360, burn_subtitles=False, journal=J.Journal(film="a56-lbl"))
     s5 = next(s for s in plan["shots"] if s["id"] == "S5")
     assert s5["label"].endswith("from map data") and s5["detail"] == "from map data"
+
+
+def test_a_records_spec_falls_back_to_the_ledgers_source_file(tmp_path):
+    png, rec = _render_cli(tmp_path, spec())
+    sp = maps.record_spec(_item(png, rec), rec)
+    no_spec = {k: v for k, v in rec.items() if k != "spec"}
+    assert maps.record_spec(_item(png, rec, source_file=str(sp)), no_spec) == sp
+    assert maps.record_spec(_item(png, rec), no_spec) is None
+
+
+@pytest.mark.parametrize("shot_kind,mark,synthetic,refused", [
+    ("drawn", None, False, True),
+    ("archive_still", "DRAWN", False, True),          # review round 2, r3: a DRAWN still is a drawn picture
+    ("archive_still", "ARCHIVE", True, True),         # a program-made item is drawn whatever its mark says
+    ("archive_still", "ARCHIVE", False, False),       # a photograph from an archive is not read
+])
+def test_an_unidentified_picture_is_refused_when_anything_says_it_is_drawn(tmp_path, shot_kind, mark, synthetic, refused):
+    item = {"id": "D-X", "_path": str(_png(tmp_path)), "generator": "void document studio map"}
+    probs = maps.drawn_check(item, shot_kind=shot_kind, mark=mark, synthetic=synthetic)
+    assert bool(probs) is refused
+
+
+@pytest.mark.parametrize("over", [{"generator": "void document studio map"}, {"generator": "studio maps by hand"},
+                                  {"file": "D-europe-map.png"}])
+@pytest.mark.parametrize("declared", ["page", "image"])
+def test_a_declared_page_or_image_that_says_map_is_refused(tmp_path, over, declared):
+    """Review round 2, r4: `drawn_kind: "page"` is no way round the map check."""
+    name = over.get("file", "D-X.png")
+    item = {"id": "D-X", "_path": str(_png(tmp_path, name)), "drawn_kind": declared,
+            "generator": over.get("generator", "tools/doc_pages.py")}
+    probs = maps.drawn_check(item, shot_kind="drawn", mark="DRAWN")
+    assert probs and "says it is a map" in probs[0]
+
+
+def test_a_declared_image_or_page_otherwise_passes(tmp_path):
+    for declared in ("page", "image"):
+        item = {"id": "D-X", "_path": str(_png(tmp_path)), "drawn_kind": declared, "generator": "make_media.py stills()"}
+        assert maps.drawn_check(item, shot_kind="drawn", mark="DRAWN", synthetic=True) == []
+
+
+def test_the_render_refuses_an_unrecorded_map_cited_as_a_drawn_archive_still(tmp_path):
+    """Review round 2, r3: no record, a hand-written generator, an archive_still marked DRAWN: refused."""
+    film = _film_with_map(tmp_path, shot_kind="archive_still", generator="void document studio map")
+    (film / "stills" / "maps-render.json").unlink()
+    evs, err = _map_lint(film, "a56-map-r3")
+    assert [(e["unit"], e["status"]) for e in evs] == [("S5", "fail")]
+    assert err and "nothing says what this drawn picture is" in err
+
+
+def test_the_fixture_films_own_stills_pass_as_declared_images(tmp_path):
+    film = _film_with_map(tmp_path)
+    evs, err = _map_lint(film, "a56-fixture-images")
+    assert [(e["unit"], e["status"]) for e in evs] == [("S5", "pass")]          # S3, S4 are images: not journaled

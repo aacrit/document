@@ -2876,7 +2876,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                 # draws it, with no data credit in the frame, and its ledger item carries the engine's off-screen
                 # credit; a drawn picture nothing identifies is refused (fail closed)
                 k_drawn, _ = MP.drawn_kind(item)
-                probs = MP.drawn_check(item, shot_kind=kind)
+                probs = MP.drawn_check(item, shot_kind=kind, mark=s.get("mark"), synthetic=is_synthetic(item))
                 if k_drawn == "map" or probs:
                     lint("drawn-map-current", not probs, unit=s["id"], grammar="A56, BRAND-KIT 12b",
                          evidence={"asset": s.get("asset"), "drawn_kind": k_drawn, "problems": probs})
