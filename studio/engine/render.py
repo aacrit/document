@@ -76,6 +76,7 @@ from studio.engine import aswas as AW
 from studio.engine import bracket as BR
 from studio.engine import cadence as CAD
 from studio.engine import clips as CL
+from studio.engine import description as DSC
 from studio.engine import disclosure as DS
 from studio.engine import levels as LV
 from studio.engine import maps as MP
@@ -271,8 +272,8 @@ CARD_TEXT_KINDS = {"chapter_card", "title_card", "silent_record"}
 CHAPTER_RE = re.compile(r"^(\d+)\s+(.+)$")
 # A56: the mark key card is retired from films; a screenplay that asks for one is pointed here
 MARK_KEY_RETIRED = ("the mark key card is retired from films (A56): the dot is the only provenance in the picture; the "
-                    "key lives on the site's About page (decision 2026-10-18) and in the player's Marks legend, off the "
-                    "picture; drop the card")
+                    "key lives in the player's Marks legend (site UI, off the picture) and the film's description "
+                    "block; drop the card")
 EM_DASH = "—"
 
 _HERE = Path(__file__).resolve().parent
@@ -707,14 +708,23 @@ def meta_text_lints(lint, play: dict, shots: list[dict], lower_thirds: list[dict
         if ck == "silent":
             add(s["id"], "card", " / ".join(str(x) for x in s.get("text") or []),
                 [{"pattern": "source-gap", "what": "a silent-record card narrates a gap in the record; the gap is stated "
-                                                   "in the sources data", "match": "silent_record"}])
+                                                   "in the sources data: the screenplay's gaps [{says, searched}]",
+                  "match": "silent_record"}])
             continue
-        if s.get("quote") is True:
+        text = [str(x) for x in s.get("text") or []]
+        # a period quote's words are the period's own and are not read; its source line (the last, under the words)
+        # is ours, and is read like any card line
+        start = len(text) - 1 if s.get("quote") is True else 0
+        if s.get("quote") is True and len(text) < 2:
             continue
-        for k, x in enumerate(s.get("text") or []):
-            hits = DS.meta_text_problems(x, "card")
+        for k in range(start, len(text)):
+            hits = DS.meta_text_problems(text[k], "card")
+            # the credits (the roll, or a card in the credits part) are where an attribution is due (CC BY, BY-SA):
+            # a licence or an archive named there is the attribution, not provenance; every other pattern is read
+            if ck == "credits" or s.get("_part_kind") == "credits":
+                hits = [h for h in hits if h["pattern"] != "provenance"]
             if hits:
-                add(f"{s['id']}.text[{k}]", "card", str(x), hits)
+                add(f"{s['id']}.text[{k}]", "card", text[k], hits)
     for lt in lower_thirds:
         for k, x in enumerate(lt["lines"]):
             hits = DS.meta_text_problems(x, "lower_third" if k == 0 else "overlay")
@@ -725,7 +735,13 @@ def meta_text_lints(lint, play: dict, shots: list[dict], lower_thirds: list[dict
         if hits:
             add(o["id"], "overlay", o["text"], hits)
     if burn_subtitles:
+        # an original recording's cues are its speakers' words verbatim (A26): the period's own, not read
+        archival = [ln["id"] for part in play.get("parts", []) for ln in part.get("lines", [])
+                    if isinstance(ln, dict) and ln.get("id") and archival_span(ln)]
         for c in play.get("subtitle_source", []):
+            ref = str(c.get("ref") or "")
+            if any(ref == a or ref.startswith(a + "-") for a in archival):
+                continue
             hits = DS.meta_text_problems(c.get("en") or "", "subtitle")
             if hits:
                 add(f"subtitle:{c.get('ref')}", "subtitle", str(c.get("en") or ""), hits)
@@ -771,7 +787,7 @@ def card_text_check(shot: dict, W: int, H: int, fonts: M.Fonts | None = None) ->
     if ck in ("black", "credits"):          # neither draws the shot's text (the credits draw the plan's blocks)
         out["missing"] = drawn_as([])
         return out
-    if ck == "mark_key":                    # A56: the mark key is retired from films (the About page explains the marks)
+    if ck == "mark_key":                    # A56: the mark key is retired from films (the player's Marks legend explains the marks)
         out.update(fits=False, why=MARK_KEY_RETIRED, missing=drawn_as([]))
         return out
     if ck in ("title", "chapter"):
@@ -3412,6 +3428,9 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     clip_integrity = CL.plan_lints(lint, journal, film, shots, lines, assets)
     # A25 (E9): every declared shortfall names a card that states it
     shortfalls = shortfall_lints(lint, play, shots, settings)
+    # A56: what the record lacks, and who the record names only by role, are stated in the sources data
+    gaps = gap_lints(lint, play, shots)
+    unnamed_speakers = descriptor_lints(lint, speakers)
     if lint_fail:
         raise Refused("lint failed: " + "; ".join(lint_fail))
 
@@ -3476,6 +3495,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         # A31: the mark key's classes, from the whole film (kept by --until), the series titles' own classes with them (A40)
         # A21, A25 and E2's sides: what the sources page states about the film's own rules
         "imagery_rule": rule, "settings": settings, "settings_stated": settings_stated, "shortfalls": shortfalls,
+        "gaps": gaps, "unnamed_speakers": unnamed_speakers,
         "score_standard": score_std, "score_standard_stated": score_stated,
         "balance": play.get("balance"), "sides": film_sides(play),
         "clip_integrity": clip_integrity,
@@ -3735,8 +3755,7 @@ def archival_lints(lint, film: Path, play: dict, shots: list[dict], lines: list[
         # name that reads as a descriptor) has no name to show: no lower third is required, and none may describe
         # them; the sources data names them as the record does
         sp = speakers.get(ln.get("speaker")) or {}
-        descriptor = sp.get("descriptor") is True or any(
-            h["pattern"] == "descriptor" for h in DS.meta_text_problems(name or "", "lower_third"))
+        descriptor = speaker_is_descriptor(sp)
         ok = not provenance and not undisclosed and (bool(good) or not first or bool(on_screen) or descriptor)
         fix = None
         if not ok:
@@ -3745,7 +3764,8 @@ def archival_lints(lint, film: Path, play: dict, shots: list[dict], lines: list[
                 (f"the clip's ledger item states its {' and '.join(undisclosed)}, which the sources data prints as the "
                  "original recording's source" if undisclosed else ""),
                 (f"the speaker's first line carries a lower third: line 1 '{name}', line 2 the role or time (or, for a "
-                 "speaker the record knows only by role, the cast states descriptor: true and no lower third is drawn)"
+                 "speaker the record knows only by role, the cast states descriptor: true with a descriptor_basis citing "
+                 "the record, and no lower third is drawn)"
                  if first and not good and not on_screen else "")) if x)
         lint("archival-lower-third", ok, unit=uid, grammar="6.3, 6.4, 9, A26, A56",
              evidence={"first_line_of_speaker": first, "speaker_name": name, "names_the_speaker": good,
@@ -3753,6 +3773,103 @@ def archival_lints(lint, film: Path, play: dict, shots: list[dict], lines: list[
                        "provenance_lines": provenance, "sources_data": dict(disclosure, credit="original recording"),
                        "named_on_screen_by_the_source": bool(on_screen), "fix": fix})
     return named_on_screen
+
+
+def name_reads_as_descriptor(name) -> bool:
+    """A56: the cast name is a description, not a name ("A voice on the NEADS
+    floor", "A pilot", "a controller at Boston Center", "A reporter, name not
+    given"): the versioned descriptor pattern (disclosure.META_TEXT)."""
+    return any(h["pattern"] == "descriptor" for h in DS.meta_text_problems(str(name or ""), "lower_third"))
+
+
+def descriptor_basis_ok(sp: dict) -> bool:
+    b = sp.get("descriptor_basis")
+    return isinstance(b, str) and len(b.strip()) >= 12
+
+
+def speaker_is_descriptor(sp: dict) -> bool:
+    """A56: a speaker the record knows only by a role or a description, so no
+    lower third is required: the cast name reads as a descriptor, or the cast
+    states ``descriptor: true`` with a ``descriptor_basis`` citing the record
+    that names them only so. ``descriptor: true`` alone on a name that reads
+    as a name hides nothing: it is refused (descriptor-basis) and ignored."""
+    if name_reads_as_descriptor(sp.get("name")):
+        return True
+    return sp.get("descriptor") is True and descriptor_basis_ok(sp)
+
+
+def descriptor_lints(lint, speakers: dict) -> list[dict]:
+    """descriptor-basis (A56, blocking): a cast speaker's ``descriptor: true``
+    stands only on a name that reads as a descriptor, or with a
+    ``descriptor_basis`` citing the record that names the speaker only by
+    role; it never hides a real name's lower third. Returns the speakers the
+    screen does not name, for the sources data (``unnamed_speakers``)."""
+    out = []
+    for sid, sp in speakers.items():
+        if not isinstance(sp, dict):
+            continue
+        reads = name_reads_as_descriptor(sp.get("name"))
+        if sp.get("descriptor") is True or "descriptor_basis" in sp:
+            ok = reads or descriptor_basis_ok(sp)
+            lint("descriptor-basis", ok, unit=sid, grammar="A56",
+                 evidence={"name": sp.get("name"), "name_reads_as_descriptor": reads,
+                           "descriptor_basis": sp.get("descriptor_basis"),
+                           "fix": None if ok else "descriptor: true needs a name the record gives only as a role (\"A "
+                                                  "pilot\", \"a controller at Boston Center\") or a descriptor_basis citing "
+                                                  "the record that names the speaker only so; a real name keeps its lower "
+                                                  "third"})
+        if speaker_is_descriptor(sp):
+            out.append({"speaker": sid, "name": sp.get("name"), "role": sp.get("role"),
+                        "basis": None if reads else sp.get("descriptor_basis")})
+    return out
+
+
+GAP_KEYS = {"says", "searched", "part", "note"}
+
+
+def gap_lints(lint, play: dict, shots: list[dict]) -> list[dict]:
+    """source-gap-stated (A56, blocking): what the record lacks is stated in
+    the sources data, never on a card: the screenplay's ``gaps``, each
+    {says, searched} (says in the house form "The record holds no ...";
+    searched: where the film looked). Wherever a silent-record card stood (a
+    ``silent_record`` shot, which meta-text refuses) a gap must say what it
+    said. Returns the gaps, for sources.json."""
+    declared = play.get("gaps")
+    declared = declared if declared is not None else []
+    if not isinstance(declared, list):
+        lint("source-gap-stated", False, unit="gaps", grammar="9, A56", evidence={"why": "gaps must be a list"})
+        declared = []
+    out = []
+    for k, g in enumerate(declared):
+        probs = []
+        if not isinstance(g, dict):
+            probs.append("a gap is {says, searched}")
+            g = {}
+        says, searched = g.get("says"), g.get("searched")
+        if not isinstance(says, str) or not SILENT_RE.match(says.strip()):
+            probs.append("says is one sentence in the house form: \"The record holds no ...\"")
+        if not isinstance(searched, str) or not searched.strip():
+            probs.append("searched names where the film looked")
+        if POL.has_placeholder(" ".join(x for x in (says, searched) if isinstance(x, str))):
+            probs.append("a gap holds no placeholder: it is printed as written")
+        unknown = sorted(set(g) - GAP_KEYS)
+        if unknown:
+            probs.append(f"unknown keys {unknown}: a gap is says and searched, optionally part and note")
+        lint("source-gap-stated", not probs, unit=f"gaps[{k}]", grammar="9, A56", evidence={"gap": g, "problems": probs})
+        if not probs:
+            out.append({"says": says.strip(), "searched": searched.strip(),
+                        **{x: g[x] for x in ("part", "note") if isinstance(g.get(x), str)}})
+    said = {_ws(g["says"]).lower() for g in out}
+    for s in shots:
+        if not s.get("silent_record"):
+            continue
+        first = str((s.get("text") or [""])[0])
+        ok = _ws(first).lower() in said
+        lint("source-gap-stated", ok, unit=s["id"], grammar="9, A56",
+             evidence={"card": s.get("text"), "fix": None if ok else
+                       "move the card's words into the screenplay's gaps as {says: <its first line>, searched: <its "
+                       "second>} and drop the card"})
+    return out
 
 
 def shortfall_lints(lint, play: dict, shots: list[dict], settings: dict) -> list[dict]:
@@ -7713,8 +7830,9 @@ def attribution_card(shots) -> int | None:
 
 
 def mark_key_lints(journal: Journal, plan: dict, *, draft: bool = False) -> list[str]:
-    """A56: the mark key card is retired from films; the About page (and the
-    player's opt-in Marks legend) explains the marks, off the picture. A
+    """A56: the mark key card is retired from films; the player's opt-in
+    Marks legend (and the film's description block) explains the marks, off
+    the picture. A
     screenplay that asks for one is refused by meta-text at plan time. Kept so
     callers (the plan checks) still run; nothing is required."""
     return []
@@ -8227,6 +8345,9 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             "ledger": it.get("_ledger"), "ledger_id": s.get("asset"),
             "title": it.get("title"), "archive": it.get("archive"), "item_url": it.get("item_url"), "date": it.get("date"),
             "creator": it.get("creator"), "credit": it.get("credit"), "licence": it.get("licence"), "basis": it.get("basis"),
+            # A56: what a drawn frame no longer draws (a map's notes, its data credit, why its licence) is stated here
+            "licence_note": it.get("licence_note"), "source_line": it.get("source_line"),
+            "notes": [str(n) for n in it.get("notes") or [] if str(n).strip()],
             "alterations": s.get("alterations") or [], "transition_in": s["transition_in"],
             "preset": (s.get("_cam") or {}).get("preset"), "fill_ok": (s.get("_cam") or {}).get("fill_ok"),
             "fill": (s.get("_cam") or {}).get("fill"),
@@ -8265,7 +8386,10 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
     narration = [{"id": ln["id"], "start_s": ln.get("start_s"), "text": ln.get("text")}
                  for ln in plan["lines"] if ln.get("kind") == "narration" and ln.get("text")]
     nv = plan.get("narrator_voice") or {}
-    narrator = {"credit": nv.get("credit"), "engine": nv.get("engine"), "voice": nv.get("voice")} if narration and nv.get("credit") else None
+    narrator = ({"credit": nv.get("credit"), "engine": nv.get("engine"), "voice": nv.get("voice"),
+                 **({"pitch_shift_st": nv["pitch_shift_st"]} if isinstance(nv.get("pitch_shift_st"), (int, float))
+                    and not isinstance(nv.get("pitch_shift_st"), bool) else {})}
+                if narration and nv.get("credit") else None)
     return {"v": 2, "title": plan["title"], "slug": plan["slug"], "run": journal.run,
             "engine": {"version": ENGINE_VERSION, "hash": ENGINE_HASH},
             "width": plan["W"], "height": plan["H"], "fps": fps_of(plan), "frames": total,
@@ -8276,6 +8400,12 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             "lower_thirds": [{"id": lt["id"], "start_s": lt["start"], "end_s": lt["end"], "lines": lt["lines"], "flag": lt["flag"]}
                              for lt in plan["lower_thirds"]],
             "readings": readings, "narration": narration, "narrator": narrator,
+            # A56: what the record lacks, and the speakers the screen does not name (the record names them only by
+            # role), stated here for the Sources page's "Notes on this film" and the description block
+            "gaps": plan.get("gaps") or [],
+            "unnamed_speakers": [dict(u, lines=[{"id": ln["id"], "start_s": ln.get("start_s")} for ln in plan["lines"]
+                                                if ln.get("speaker") == u["speaker"]])
+                                 for u in plan.get("unnamed_speakers") or []],
             # A21, A25, E2: the film's own imagery rule, policy settings, stated shortfalls and sides, for the sources page
             **film_policy_doc(plan),
             # A29 refined: a regional cue prints the critical moment it lands on
@@ -8313,6 +8443,8 @@ def readings_doc(plan: dict, *, durations: bool = True) -> list[dict]:
                              "gender": sp.get("gender"), "dur_s": dur,
                              "year": ln.get("year"), "source": ln.get("source"), "locator": ln.get("locator"),
                              "start_s": ln.get("start_s"), "text": ln.get("text"),
+                             # A56: the computer voice that reads it (engine:voice), stated here, never in the frame
+                             "reader": (plan.get("reader_voices") or {}).get(ln["id"]),
                              "credit": (f"Read by a computer voice. No recording of {sp.get('name', ln.get('speaker'))} was used."
                                         if ln.get("read_by") else "original recording")})
             if archival_span(ln):
@@ -8826,6 +8958,8 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         if not span:
             doc = sources_doc(plan, journal, extra)
             sources_path.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
+            if not check:                   # A56: the description block, from the same data (description.py)
+                journal.artifact("assembly", DSC.write_description(sources_path, DSC.REPO_FILMS), role="description")
         for i in in_span:
             journal.artifact("motion", segs[i], unit=ids[i], role="check-segment" if check else "segment")
         journal.artifact("assembly", master, role="check-master" if check else "master")
@@ -8895,6 +9029,7 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
     doc = sources_doc(plan, journal, extra)
     path.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
     journal.artifact("assembly", path, role="sources")
+    journal.artifact("assembly", DSC.write_description(path, DSC.REPO_FILMS), role="description")
     return {"sources": str(path), "frames": plan["frames"], "duration_s": plan["duration_s"], "master_sha256": extra["master_sha256"]}
 
 

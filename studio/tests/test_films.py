@@ -1188,7 +1188,21 @@ def test_a56_a_speaker_known_only_by_role_needs_no_lower_third(film):
     _no_lower_third(film)
     with pytest.raises(R.Refused, match=r"archival-lower-third \(A1\)"):
         _plan(film, "a56-unnamed")
+    # descriptor: true on a name that reads as a name hides nothing: refused, and the lower third is still required
     _edit(film, lambda p: next(s for s in p["cast"]["speakers"] if s["id"] == "sp-reel").update(descriptor=True))
+    with pytest.raises(R.Refused, match=r"descriptor-basis \(sp-reel\)"):
+        _plan(film, "a56-named-descriptor")
+    # the record names the speaker only by role: the name says so, and no lower third is required
+    _edit(film, lambda p: next(s for s in p["cast"]["speakers"] if s["id"] == "sp-reel").update(
+        name="A controller at the fixture tower"))
     plan, j = _plan(film, "a56-descriptor")
     ev = [e for e in lints(j, "archival-lower-third") if e["unit"] == "A1"][0]
     assert ev["status"] == "pass" and ev["evidence"]["speaker_is_a_descriptor"] is True
+    assert [u["speaker"] for u in plan["unnamed_speakers"]] == ["sp-reel"]
+    # or a name that is a post, not a person, with descriptor_basis citing the record that names them only so
+    _edit(film, lambda p: next(s for s in p["cast"]["speakers"] if s["id"] == "sp-reel").update(
+        name="Fixture reel tower", descriptor_basis="The fixture transcript, p. 1, names this speaker only by position."))
+    plan, j = _plan(film, "a56-descriptor-basis")
+    ev = [e for e in lints(j, "archival-lower-third") if e["unit"] == "A1"][0]
+    assert ev["status"] == "pass" and ev["evidence"]["speaker_is_a_descriptor"] is True
+    assert plan["unnamed_speakers"][0]["basis"].startswith("The fixture transcript")

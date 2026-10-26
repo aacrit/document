@@ -509,15 +509,15 @@ def method(spec: dict) -> dict:
     if claims["award_line"]:
         text.append("the award line drawn on today's border (Natural Earth) only where the cited schedule runs")
     if claims["approximate_note"]:
-        text.append("the frame notes the line is approximate")
+        text.append("the sources data notes the line is approximate")
     if claims["geonames_positions"]:
         text.append("named places positioned from GeoNames")
     if claims["boundaries_not_drawn_note"]:
-        text.append("the frame states what is not drawn and why")
+        text.append("the sources data notes what is not drawn and why")
     for d in claims["data_layer"]:
         text.append(f"each country's state in {d['year']} from {d['csv']} column {d['column']} (sha256 {d['sha256'][:12]}), "
                     "matched by ISO3: cases reported (over 0), zero reported, or no figure in the table; "
-                    "no year interpolated" + ("; territories drawn with a country's figure as the frame notes"
+                    "no year interpolated" + ("; territories drawn with a country's figure as the sources data notes"
                                               if d["territories"] else ""))
     if claims["data_layer"]:
         text.append("plate carree projection")
@@ -549,6 +549,8 @@ def ledger_fields(spec: dict) -> dict:
             "licence": "CC-BY-4.0" if (geo or by) else "CC0",
             "licence_note": note,
             "data_sources": spec["sources"], "source_line": source_line(spec), "method": method(spec),
+            # A56: the map's notes are not drawn; they are stated in the sources data (the ledger, then sources.json)
+            "notes": [str(n) for n in spec.get("notes", [])],
             **DRAWN_CONTENT}
 
 

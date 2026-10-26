@@ -372,7 +372,7 @@ Do: let the key teach the colours so the label can stay down; keep the overlay a
 
 ### 12b. The key retired; the dot is the only provenance (2026-10-18, founder; GRAMMAR A56)
 
-Appended; what follows wins over section 12's key card and over every on-screen disclosure in sections 4 and 11 to 12a. The key card ("What the marks mean", `card: mark_key`) is retired from films: the engine no longer draws it, and a screenplay that asks for one is refused (`meta-text`), pointing to the site's About page. The player's opt-in Marks legend stays (site UI, off the picture). Lower thirds are the name and the role, two lines; the third (source) line is gone. A map draws no data credit and no notes. Gap cards, descriptor lower thirds, "read by a computer voice" and "original recording" notes, and shortfall cards are not drawn: all of it is stated in the sources data.
+Appended; what follows wins over section 12's key card and over every on-screen disclosure in sections 4 and 11 to 12a. The key card ("What the marks mean", `card: mark_key`) is retired from films: the engine no longer draws it, and a screenplay that asks for one is refused (`meta-text`), pointing to the player's Marks legend. The player's opt-in Marks legend stays (site UI, off the picture), and the film's description block lists the marks. Lower thirds are the name and the role, two lines; the third (source) line is gone. A map draws no data credit and no notes. Gap cards, descriptor lower thirds, "read by a computer voice" and "original recording" notes, and shortfall cards are not drawn: all of it is stated in the sources data.
 
 | | Value |
 |---|---|
