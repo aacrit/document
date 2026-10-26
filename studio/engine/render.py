@@ -790,6 +790,9 @@ def card_text_check(shot: dict, W: int, H: int, fonts: M.Fonts | None = None) ->
     if ck == "mark_key":                    # A56: the mark key is retired from films (the player's Marks legend explains the marks)
         out.update(fits=False, why=MARK_KEY_RETIRED, missing=drawn_as([]))
         return out
+    if ck == "lockup":                      # A40: draws the series lockup, its fixed words, and nothing else
+        out["missing"] = drawn_as([M.LOCKUP_TEXT])
+        return out
     if ck in ("title", "chapter"):
         try:
             if ck == "title":
@@ -4207,6 +4210,8 @@ class Pictures:
             return blank
         if ck == "title":
             img = M.title_card_frame(blank, t, start=0.0, end=dur, title=text[0] if text else "", fonts=f)
+        elif ck == "lockup":                     # A40 lockup card: BRAND-KIT 15's series lockup, drawn whole
+            img = M.lockup_card_frame(blank, t, start=0.0, end=dur, fonts=f)
         elif ck == "chapter":
             m = CHAPTER_RE.match(text[0]) if text else None
             img = M.chapter_card_frame(blank, t, start=0.0, end=dur, number=int(m.group(1)) if m else 0,

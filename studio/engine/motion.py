@@ -1667,6 +1667,48 @@ def title_card_frame(img: Image.Image, t: float, *, start: float, end: float, ti
     return Image.alpha_composite(base, layer)
 
 
+LOCKUP = dict(size=5.6, space=0.45, baseline=0.33)   # BRAND-KIT 15: the series lockup, 5.6% of the height
+LOCKUP_TEXT = "void document · As It Was"
+
+
+def lockup_layout(L: Layout, fonts: Fonts) -> dict:
+    """BRAND-KIT 15's series lockup as drawn (GRAMMAR A40 lockup card): ``void`` in JetBrains Mono 500, ``document``
+    in Fraunces 300, a middle dot, ``As It Was`` in Fraunces 300 italic, at 5.6% of the height, after the logomark and
+    one ring diameter of clear space, the whole centred (design/title-sequence/blender/assemble.py's geometry)."""
+    px = L.px(LOCKUP["size"])
+    f_v, f_d, f_i = _font(fonts.data, px), _font(fonts.display, px), _font(fonts.display_italic, px)
+    sp = LOCKUP["space"] * px
+    ring_d = 2 * LOGOMARK_RING[1] / 24.0 * px
+    words = [("void", f_v), ("document", f_d), ("·", f_d), ("As It Was", f_i)]
+    widths = [f.getlength(s) for s, f in words]
+    total = px + ring_d + sum(widths) + 3 * sp
+    return {"px": px, "x0": (L.W - total) / 2, "baseline": L.H / 2 + LOCKUP["baseline"] * px, "ring_d": ring_d,
+            "space": sp, "words": words, "widths": widths, "text": LOCKUP_TEXT}
+
+
+def lockup_card_frame(img: Image.Image, t: float, *, start: float, end: float, fonts: Fonts) -> Image.Image:
+    """The series lockup card (GRAMMAR A40 lockup card, BRAND-KIT 15), cut in and cut out: the words are whole from
+    the first frame (no ARRIVE, no fade, no exit); the logomark's corners close on ``drift`` and its ember comes in
+    over the last tenth of that motion. No second wordmark."""
+    base = _black(img.size)
+    if t < start or t >= end:
+        return base
+    L = Layout(*base.size)
+    lay = lockup_layout(L, fonts)
+    px, x0, baseline = lay["px"], lay["x0"], lay["baseline"]
+    p = clamp01(DRIFT.progress(t - start))
+    box = round(px * 24 / 17)                    # the corners span 17 of the mark's 24 units: the type's height
+    mark = draw_logomark(box, spread=0.08 * (1 - p), ember_alpha=clamp01((p - 0.9) / 0.1))
+    base = base.convert("RGBA")
+    base.alpha_composite(mark, (round(x0 - (box - px) / 2), round(baseline - LOCKUP["baseline"] * px - box / 2)))
+    d = ImageDraw.Draw(base)
+    x = x0 + px + lay["ring_d"]
+    for (s, f), w in zip(lay["words"], lay["widths"]):
+        d.text((x, baseline), s, font=f, fill=_rgba(PALETTE["bone"], 1.0), anchor="ls")
+        x += w + lay["space"]
+    return base
+
+
 def must_read_text() -> dict[str, float]:
     """Every must-read text size the house draws, % of H, by element (the smallest a layout may step down to)."""
     return {"lower third flag": LT["flag"], "lower third name": LT["name"], "lower third role": LT["role"],
