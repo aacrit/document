@@ -180,6 +180,8 @@ function filmVars(film) {
     correct_description: esc(`Tell void document what ${film.title} gets wrong.`),
     synopsis_html: film.synopsis ? numHtml(film.synopsis) : "",
     shows: esc(film.shows ?? ""),
+    // What the film concerns and plays, said wherever the film is offered (home, film page, sources), before anything else.
+    content_note: film.content_note ? `${numHtml(film.content_note)} ` : "",
     tracks: tracks
       .map((c) => `              <track kind="${c.kind}" srclang="${c.lang}" label="${esc(trackLabel(c))}" src="/media/${film.slug}/captions-${c.lang}.vtt" />`)
       .join("\n"),
@@ -210,7 +212,6 @@ function homeVars(reg) {
   return {
     ...v,
     home_description: esc(`void document: history told with the public record. Now showing: ${film.title}, ${film.dates}${film.logline ? `: ${film.logline}` : ""}.`),
-    content_note: film.content_note ? `${esc(film.content_note)} ` : "",
     family_related: (film.related ?? [])
       .map((r) => `        <li><a href="${esc(r.href)}" rel="noopener"><span class="t">${esc(r.name)}</span><span class="m">${esc(r.line)}.</span></a></li>`)
       .join("\n"),
