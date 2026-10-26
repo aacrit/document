@@ -45,10 +45,19 @@ def a7(frame_png: Path, rec: str) -> dict:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tag", required=True)
+    ap.add_argument("--tag", default="final-v5c")
     ap.add_argument("--record", default="C20-METAR-0851")
     ap.add_argument("--res", default="854x480")
+    # founder ruling 2026-10-25: titles are mastered at 29.97 (30000/1001) for every film; 24p films conform it
+    ap.add_argument("--fps", default=json.loads((HERE.parent / "title.json").read_text(encoding="utf-8"))["master_fps"])
+    ap.add_argument("--profile", default="final_hq", help="a profile of title.json's render block")
+    ap.add_argument("--scene", default="v5c", choices=("v5c", "v41"), help="v5c: the carved channel (final_v5c.py)")
+    ap.add_argument("--deadline", default="07:30")
     a = ap.parse_args()
+    if a.scene == "v5c":
+        import final_v5c
+        final_v5c.main(["--fps", a.fps, "--profile", a.profile, "--record", a.record, "--deadline", a.deadline])
+        return
     rec, tag = a.record, a.tag
     F = B.FILMS[rec]
     last = B.PREFIX_FRAMES - 1 + F["tail"][0] + F["tail"][1] + F["tail"][2]
