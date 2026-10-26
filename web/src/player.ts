@@ -301,10 +301,11 @@ function renderNotes(d: FilmSources): void {
     const node = maybe(id);
     if (node) node.textContent = voice ?? "";
   }
-  const silent = silentRecord(d.shots);
+  const silent = silentRecord(d);
   if (silent) {
     const note = maybe("silent-note");
-    if (note) note.textContent = `${silent.says} The film says so on screen.`;
+    // A56: a film rendered before A56 said it on a card; since, the sources page says it
+    if (note) note.textContent = `${silent.says} ${silent.on_screen ? "The film says so on screen." : "The sources page says so."}`;
     const says = byId("end-silent");
     says.textContent = silent.says;
     says.hidden = false;

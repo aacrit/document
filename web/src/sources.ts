@@ -8,6 +8,7 @@ import {
   PARTITION_BALANCE,
   computeBalance,
   cardTitle,
+  filmNotes,
   chapterAt,
   chapters as chaptersOf,
   formatTime,
@@ -20,7 +21,6 @@ import {
   shotTreatment,
   shotWhat,
   sideLabel,
-  silentRecord,
   type Balance,
   type BalanceConfig,
   type Chapter,
@@ -28,6 +28,7 @@ import {
   type MarkClass,
   type Shot,
 } from "./film-data";
+import { notesNodes } from "./notes";
 import { byId, el, filmPath, loadSources, markPlate, numerals, slugOf } from "./site";
 import { countSourceOpens, sendEvent } from "./telemetry";
 
@@ -226,9 +227,10 @@ function renderBalance(d: FilmSources, b: Balance | null): void {
       numerals(`Floor ${pct(c.women_floor).replace(".0", "")}.${names ? ` ${names}.` : ""}${b.women.share < c.women_floor ? " Short of the floor." : ""}`),
     ),
   );
-  const silent = silentRecord(d.shots);
-  if (silent) {
-    box.append(el("div", { class: "short" }, el("p", {}, silent.says), silent.searched ? el("p", { class: "muted small" }, numerals(silent.searched)) : null));
+  // A56: what the record lacks is stated in the sources data, under Notes on this film
+  const gaps = filmNotes(d).gaps;
+  if (gaps.length) {
+    box.append(el("div", { class: "short" }, ...gaps.map((g) => el("p", {}, g.says)), el("p", { class: "muted small" }, el("a", { href: "#notes" }, "Gaps in the record"))));
   }
   const marks = secondsByMark(d.shots)
     .filter((m) => m.seconds > 0 || m.key === "generated")
@@ -267,6 +269,7 @@ loadSources(SLUG)
     renderReadings(d, list);
     renderImagery(d);
     renderBalance(d, computeBalance(d.readings, d.balance));
+    byId("notes-body").replaceChildren(...notesNodes(filmNotes(d)));
     setupFilters(d);
     let target: HTMLElement | null = null;
     try {

@@ -45,6 +45,10 @@ export interface Shot {
   in_s: number | null;
   out_s: number | null;
   text: string[] | null;
+  /** A56: what a drawn frame no longer draws: its notes, its data credit, and why its licence is what it is. */
+  notes: string[];
+  source_line: string | null;
+  licence_note: string | null;
 }
 
 export interface MarkSpan {
@@ -76,6 +80,13 @@ export interface Reading {
   role?: string | null;
   text: string;
   credit: string;
+  /** A56: the computer voice that reads it ("kokoro:am_onyx"), or null for an original recording. */
+  reader: string | null;
+  /** The reading's own source, as sources.json states it. */
+  source: string | null;
+  /** "ARCHIVE" for an original recording (A26), with the clip it plays. */
+  mark: string | null;
+  clip: string | null;
 }
 
 export interface Narration {
@@ -123,6 +134,19 @@ export interface FilmSources {
   balance: BalanceConfig | null;
   /** The film's stated imagery rule, in plain sentences, when sources.json carries one. */
   imagery: string[];
+  /** A56: the narrator's computer voice ({engine, voice}), when sources.json records it. */
+  narratorVoice: { engine: string | null; voice: string | null; pitch_shift_st: number | null } | null;
+  /** A56: what the record lacks, stated in the sources data (sources.json gaps). */
+  gaps: SourceGap[];
+  /** A56: the speakers the screen does not name, as the record names them only by role. */
+  unnamedSpeakers: { name: string; lines: { id: string; start_s: number | null }[] }[];
+  /** A56: each declared shortfall's statement, filled from the cut; an unfilled statement is never kept. */
+  statements: string[];
+}
+
+export interface SourceGap {
+  says: string;
+  searched: string;
 }
 
 // ---- Parsing -------------------------------------------------------------
@@ -185,6 +209,9 @@ function parseShot(x: unknown, i: number, fps: number): Shot {
     in_s: num(x.in_s),
     out_s: num(x.out_s),
     text: Array.isArray(x.text) ? x.text.filter((t): t is string => typeof t === "string") : null,
+    notes: Array.isArray(x.notes) ? x.notes.map(str).filter((t): t is string => t !== null) : [],
+    source_line: str(x.source_line),
+    licence_note: str(x.licence_note),
   };
 }
 
@@ -255,6 +282,10 @@ export function parseSources(json: unknown): FilmSources {
       role: str(r.role)?.toLowerCase() ?? null,
       text: str(r.text) ?? "",
       credit: str(r.credit) ?? "",
+      reader: str(r.reader),
+      source: str(r.source),
+      mark: str(r.mark),
+      clip: str(r.clip),
     };
   });
   readings.sort((a, b) => a.start_s - b.start_s);
@@ -286,7 +317,34 @@ export function parseSources(json: unknown): FilmSources {
     trailer: parseTrailer(json.trailer),
     balance: balanceOf(json),
     imagery: imagerySentences(json.imagery_rule),
+    narratorVoice:
+      narration.length && isObj(json.narrator) && (str(json.narrator.engine) || str(json.narrator.voice))
+        ? { engine: str(json.narrator.engine), voice: str(json.narrator.voice), pitch_shift_st: num(json.narrator.pitch_shift_st) }
+        : null,
+    gaps: (Array.isArray(json.gaps) ? json.gaps : [])
+      .filter(isObj)
+      .map((g) => ({ says: str(g.says) ?? "", searched: str(g.searched) ?? "" }))
+      .filter((g) => g.says),
+    unnamedSpeakers: (Array.isArray(json.unnamed_speakers) ? json.unnamed_speakers : [])
+      .filter(isObj)
+      .map((u) => ({
+        name: str(u.name) ?? "",
+        lines: (Array.isArray(u.lines) ? u.lines : []).filter(isObj).map((l) => ({ id: str(l.id) ?? "", start_s: num(l.start_s) })),
+      }))
+      .filter((u) => u.name),
+    statements: (Array.isArray(json.shortfalls) ? json.shortfalls : []).filter(isObj).map(statementText).filter((t): t is string => t !== null),
   };
+}
+
+const PLACEHOLDER = /\{[a-z_]+(?::\w+)?\}/;
+
+/** A shortfall's statement as printed: the filled sentence, else the statement when it holds no placeholder (its numbers would be false). */
+export function statementText(sf: Json): string | null {
+  for (const k of ["filled", "statement"]) {
+    const t = str(sf[k]);
+    if (t && !PLACEHOLDER.test(t)) return t.split(/\s+/).join(" ").trim();
+  }
+  return null;
 }
 
 /** The trailer record, only when it names its hash (publish.py records it only with --trailer). */
@@ -525,7 +583,9 @@ const LT_SUFFIX = /\s+·\s+(read by a computer voice|original recording)\s*$/;
 export function readingSource(r: Reading, lts: LowerThird[]): string | null {
   const lt = lts.find((x) => x.lines.length === 3 && x.lines[0] === r.name && x.start_s <= r.start_s + 1e-6 && r.start_s < x.end_s)
     ?? lts.find((x) => x.lines.length === 3 && x.lines[0] === r.name);
-  return lt ? lt.lines[2].replace(LT_SUFFIX, "").trim() : null;
+  if (lt) return lt.lines[2].replace(LT_SUFFIX, "").trim();
+  // A56: a lower third is name and role only; the source is the reading's own, in the sources data
+  return r.source;
 }
 
 /** The partisan flag shown above a reading's lower third ("Account of ..."), if any. */
@@ -548,13 +608,110 @@ export function transcript(data: Pick<FilmSources, "readings" | "narration">): T
   ].sort((a, b) => a.start_s - b.start_s);
 }
 
-/** The last record-is-silent card (GRAMMAR 9): what the record lacks, and what was searched. */
-export function silentRecord(shots: Shot[]): { says: string; searched: string } | null {
-  for (let i = shots.length - 1; i >= 0; i--) {
-    const t = shots[i].text;
-    if (shots[i].kind === "card" && t && /^The record holds no .+\.$/.test(t[0])) return { says: t[0], searched: t[1] ?? "" };
+/**
+ * What the record lacks, and what was searched (GRAMMAR 9, A56): the sources
+ * data's gaps. A film rendered before A56 (the live Partition film) said it on
+ * a record-is-silent card instead; its card is read, and `on_screen` says so.
+ */
+export function sourceGaps(data: Pick<FilmSources, "gaps" | "shots">): (SourceGap & { on_screen: boolean })[] {
+  if (data.gaps.length) return data.gaps.map((g) => ({ ...g, on_screen: false }));
+  const out: (SourceGap & { on_screen: boolean })[] = [];
+  for (const s of data.shots) {
+    const t = s.text;
+    if (s.kind === "card" && t && /^The record holds no .+\.$/.test(t[0])) out.push({ says: t[0], searched: t[1] ?? "", on_screen: true });
   }
-  return null;
+  return out;
+}
+
+/** The last gap in the record, or null. */
+export function silentRecord(data: Pick<FilmSources, "gaps" | "shots">): (SourceGap & { on_screen: boolean }) | null {
+  const all = sourceGaps(data);
+  return all.length ? all[all.length - 1] : null;
+}
+
+// ---- Notes on this film (A56): what the picture no longer says ----------------
+
+export interface FilmNotes {
+  voices: string[];
+  unnamed: string[];
+  gaps: SourceGap[];
+  statements: string[];
+  mapNotes: string[];
+  licences: string[];
+}
+
+/** "kokoro:am_onyx" -> "Kokoro 'am_onyx'" (studio/engine/description.py _voice). */
+export function voiceName(engine: string | null, voice: string | null): string {
+  const e = engine ? engine.charAt(0).toUpperCase() + engine.slice(1) : "";
+  if (!voice) return e;
+  return e ? `${e} '${voice}'` : `'${voice}'`;
+}
+
+const clockOf = (s: number | null): string => (s === null ? "" : formatTime(s));
+
+/**
+ * The disclosures the picture no longer shows (A56), from the same fields of
+ * sources.json the description block prints (studio/engine/description.py
+ * notes()): the voices, the speakers named only by role, the gaps, the
+ * shortfall statements, the map notes and the licences. Nothing is invented:
+ * an empty list means sources.json states none.
+ */
+export function filmNotes(
+  data: Pick<FilmSources, "readings" | "narratorVoice" | "unnamedSpeakers" | "gaps" | "shots" | "statements">,
+): FilmNotes {
+  const voices: string[] = [];
+  const nv = data.narratorVoice;
+  if (nv) {
+    const shift = nv.pitch_shift_st;
+    const who = voiceName(nv.engine, nv.voice);
+    const pitched = shift ? `, pitched ${shift > 0 ? "+" : ""}${shift} semitones` : "";
+    voices.push(`Narration: a computer voice, ${who}${pitched}.`);
+  }
+  const readers: string[] = [];
+  for (const r of data.readings) {
+    if (r.mark === "ARCHIVE" || !r.reader) continue;
+    const [eng, ...rest] = r.reader.split(":");
+    const line = `${r.name} (${rest.length ? voiceName(eng, rest.join(":")) : voiceName(null, eng)})`;
+    if (!readers.includes(line)) readers.push(line);
+  }
+  if (readers.length) voices.push(`Read by computer voices: ${readers.join("; ")}.`);
+  const originals: string[] = [];
+  for (const r of data.readings) {
+    if (r.mark !== "ARCHIVE") continue;
+    const line = [r.name, r.source ?? r.clip].filter((x) => x).join(", ");
+    if (line && !originals.includes(line)) originals.push(line);
+  }
+  if (originals.length) voices.push(`Original recordings: ${originals.join("; ")}.`);
+  const unnamed = data.unnamedSpeakers.map((u) => {
+    const at = u.lines.filter((l) => l.id).map((l) => `${l.id} (${clockOf(l.start_s)})`).join(", ");
+    return at ? `${u.name}: ${at}` : u.name;
+  });
+  const mapNotes: string[] = [];
+  const byLicence = new Map<string, number>();
+  for (const s of data.shots) {
+    const name = s.title ?? s.id;
+    for (const n of s.notes) {
+      const t = `${name}: ${n}`;
+      if (!mapNotes.includes(t)) mapNotes.push(t);
+    }
+    if (s.source_line) {
+      const t = `${name}: ${s.source_line}`;
+      if (!mapNotes.includes(t)) mapNotes.push(t);
+    }
+    if (s.mark.class === "CARD" || !s.licence) continue;
+    const t = s.licence_note ? `${s.licence} (${s.licence_note})` : s.licence;
+    byLicence.set(t, (byLicence.get(t) ?? 0) + 1);
+  }
+  // each licence the film's pictures carry, with how many shots carry it (every shot's own is listed above)
+  const licences = [...byLicence].map(([t, n]) => `${t}: ${n} ${n === 1 ? "shot" : "shots"}`);
+  return {
+    voices,
+    unnamed,
+    gaps: sourceGaps(data).map(({ says, searched }) => ({ says, searched })),
+    statements: [...data.statements],
+    mapNotes,
+    licences,
+  };
 }
 
 // ---- The balance: whose words, and how long ------------------------------------
