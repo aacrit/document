@@ -334,7 +334,7 @@ def test_a30_an_intent_from_the_closed_list_passes_and_is_printed(tmp_path):
     assert any("no lower third for L2" in o for o in out)           # a reading over black carries its lower third
     _edit_play(film, lambda p: p["parts"][1]["text"].append(
         {"id": "T9", "kind": "lower_third", "start_s": 20.3, "end_s": 25.3,
-         "lines": ["Fixture speaker", "Test stand-in, 1947", "Fixture source, studio test folder  ·  read by a computer voice"]}))
+         "lines": ["Fixture speaker", "Test stand-in, 1947"]}))
     plan, _ = _plan(film, "intent-lt")
     j = J.Journal(film="intent-ok")
     assert not [o for o in R.black_dip_lints(j, plan) if o.startswith("black")]
@@ -368,7 +368,7 @@ def test_a30_a_black_reason_passes_and_is_a_reviewer_item(tmp_path):
     assert any("no lower third for L2" in o for o in out)           # a reading over black still carries its lower third
     _edit_play(film, lambda p: p["parts"][1]["text"].append(
         {"id": "T9", "kind": "lower_third", "start_s": 20.3, "end_s": 25.3,
-         "lines": ["Fixture speaker", "Test stand-in, 1947", "Fixture source, studio test folder  ·  read by a computer voice"]}))
+         "lines": ["Fixture speaker", "Test stand-in, 1947"]}))
     plan, _ = _plan(film, "reason-lt")
     j = J.Journal(film="reason-ok")
     assert not [o for o in R.black_dip_lints(j, plan) if o.startswith("black")]

@@ -15,11 +15,13 @@ these were settings:
   ``ai_generated_share_max`` (0.0, the pilots' decision; never over 0.15,
   GRAMMAR 2.6) and ``fill_max_upscale`` (1.6, A34: how far a FILL may
   magnify its source, output pixels per source pixel; 1.0 to 3.0).
-- ``shortfalls``: ``[{what, floor, stated_on, measured?}]``. A share under its
-  floor passes as a journaled review item only when it is declared here and
-  the card named by ``stated_on`` prints it through ``{<what>_share}``, which
-  the engine fills from the film's own measurement; the card holds no other
-  number. ``measured`` is advisory.
+- ``shortfalls``: ``[{what, floor, statement?, measured?}]``. A share under its
+  floor passes as a journaled review item only when it is declared here; it is
+  stated in the sources data (A56), never on a card: ``statement`` (else the
+  house sentence ``SHORTFALL_STATEMENT``) prints the share only through
+  ``{<what>_share}``, which the engine fills from the film's own measurement,
+  and holds no other number. ``stated_on`` (a card) is retired: naming a card
+  refuses. ``measured`` is advisory.
 """
 
 from __future__ import annotations
@@ -300,6 +302,16 @@ SETTING_BOUNDS = {                        # what GRAMMAR allows a film to set
 }
 SHARE_SETTINGS = ("readings_floor", "voiceless_floor", "women_floor", "ai_generated_share_max")
 SHORTFALL_WHAT = {"readings": "readings_floor", "voiceless": "voiceless_floor", "women": "women_floor"}
+# A56: a shortfall is stated in the sources data ("Notes on this film"), never on a card; with no ``statement`` of
+# its own a shortfall takes the house sentence, filled from the film's own measurement at the mix
+SHORTFALL_STATEMENT = {
+    "readings": "The readings and recordings are {readings_share:pct} of the film's running time, under the "
+                "{readings_floor:pct} the grammar sets.",
+    "voiceless": "The film is without a voice for {voiceless_share:pct} of its running time, under the "
+                 "{voiceless_floor:pct} the grammar sets.",
+    "women": "Women's voices carry {women_share:pct} of the readings and recordings, with {women_unsigned_share:pct} "
+             "from voices of no stated gender, under the {women_floor:pct} the grammar sets.",
+}
 # A25 refined (CoS design reset): a shortfall card prints its numbers only through placeholders, filled from
 # the film's own measurement at the mix; the card may hold no other number of any kind.
 # A3 refined (unsigned voices): women's shortfall may also print the speakers the cut hears by stated gender and the
@@ -544,6 +556,18 @@ def shortfall_problems(sf: dict, settings: dict) -> list[str]:
     floor = settings[SHORTFALL_WHAT[what]]
     if _share(sf.get("floor")) is not None and abs(float(sf["floor"]) - floor) > 1e-6:
         out.append(f"floor {sf['floor']:g} is not the film's {SHORTFALL_WHAT[what]} ({floor:g})")
-    if not sf.get("stated_on"):
-        out.append("stated_on must name the card shot that states it")
+    st = sf.get("statement", SHORTFALL_STATEMENT.get(what))
+    if not isinstance(st, str) or not st.strip():
+        out.append("statement must be a sentence for the sources data")
+    else:
+        probs, _ = template_problems(st, {what}, needs_share=True)
+        out += [f"statement: {p}" for p in probs]
     return out
+
+
+def shortfall_statement(sf: dict) -> str | None:
+    """The sentence the sources data states a shortfall in (A56): the
+    screenplay's ``statement``, else the house sentence for its ``what``."""
+    if not isinstance(sf, dict):
+        return None
+    return sf.get("statement", SHORTFALL_STATEMENT.get(sf.get("what")))

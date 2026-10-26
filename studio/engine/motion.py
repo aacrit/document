@@ -1667,35 +1667,6 @@ def title_card_frame(img: Image.Image, t: float, *, start: float, end: float, ti
     return Image.alpha_composite(base, layer)
 
 
-# --------------------------------------------------------------------------
-# The mark key (A31, R2): "What the marks mean", each picture class's glyph
-# with its word, drawn from the class table (GLYPH_SHAPE, MARK_HUE,
-# CLASS_WORD), never from typed colours or words. After the title card and
-# again in the end sequence, before the attribution card.
-# --------------------------------------------------------------------------
-
-KEY = dict(
-    heading=4.0,           # % of H, Fraunces 300: the statement card's size (43 px at 1080p, 29 at 720p)
-    word=2.6,              # % of H, Inter 400 in --mark-text: the statement card's second line (28 / 19 px)
-    glyph=1.7,             # % of H, the glyph drawn large enough to read its shape (18 / 12 px)
-    gap=0.6,               # em of the word's size between the glyph and its word
-    pitch=5.2,             # % of H from one row's baseline to the next
-    head_gap=4.8,          # % of H from the heading's baseline to the first row's cap height
-    max_w=76.0,            # % of W: the statement card's measure
-    rise=0.6,              # % of H, the heading's rise on `settle` (a card's line takes its place)
-    row_rise=0.35,         # % of H, each row's rise on `whisper` (the label's own preset)
-    row_delay=0.25,        # s after the heading before the first row (as a chapter card's dates)
-    stagger=4 / 24,        # s between rows (a lower third's stagger)
-    exit=0.75,             # s, everything is let go together (the label's departure)
-    min_s=4.0,             # s on screen at least (5 s recommended), so every row can be read
-    note_gap=1.4,          # pitches from the last row's baseline to the no-AI line's
-)
-KEY_HEADING = "What the marks mean"
-# The classes in key order: amber, the two bones (the dot and the card's ring) side by side, then the two cold blues
-# side by side, so each pair that shares a hue is compared by shape.
-KEY_CLASSES = tuple(GLYPH_SHAPE)
-
-
 def must_read_text() -> dict[str, float]:
     """Every must-read text size the house draws, % of H, by element (the smallest a layout may step down to)."""
     return {"lower third flag": LT["flag"], "lower third name": LT["name"], "lower third role": LT["role"],
@@ -1705,7 +1676,7 @@ def must_read_text() -> dict[str, float]:
             "chapter dates": CHAPTER["dates"], "statement card": SILENT["size"] * SILENT["min_scale"],
             "statement card, searched": SILENT["searched"] * SILENT["min_scale"], "title": TITLE["size"],
             "title wordmark": TITLE["wordmark"], "credits": CREDITS["size"], "credits heading": CREDITS["heading"],
-            "overlay": OVERLAY["size"], "mark key heading": KEY["heading"], "mark key word": KEY["word"]}
+            "overlay": OVERLAY["size"]}
 
 
 def phone_legibility(width: int = 1920, height: int = 1080, extra: dict[str, float] | None = None) -> list[dict]:
@@ -1715,117 +1686,6 @@ def phone_legibility(width: int = 1920, height: int = 1080, extra: dict[str, flo
     sizes = dict(must_read_text(), **(extra or {}))
     return [{"element": k, "pct_h": round(v, 3), "px": round(v / 100.0 * height * scale, 2),
              "ok": v / 100.0 * height * scale >= PHONE["min_px"] - 1e-9} for k, v in sizes.items()]
-
-KEY_WORD = dict(CLASS_WORD, CARD="Our own titles and cards")   # a card's own words say what it is; the key says whose
-# CoS 2026-10-11: a key shows only the classes the film uses; a film with no AI-GENERATED picture says so in a line
-# derived from the plan, because a key that showed the class could imply the film has it.
-KEY_NO_AI = "No picture in this film is AI-generated."
-
-
-def key_classes(marks) -> tuple[str, ...]:
-    """The classes a film's shots use (``marks``: plan marks with ``cls`` or
-    shots with ``mark``), in KEY_CLASSES order: what its key shows. CARD is
-    among them whenever the film has a card (it always does: the key is one)."""
-    used = {m.get("cls", m.get("mark")) for m in marks}
-    return tuple(c for c in KEY_CLASSES if c in used)
-
-
-def mark_key_layout(L: Layout, fonts: Fonts, classes) -> dict:
-    """Where the key draws its heading, its rows and, when ``classes`` holds
-    no AI-GENERATED, the KEY_NO_AI line beneath them (E15: every glyph
-    present, each line inside KEY.max_w, or TextOverflow; nothing is cut).
-    ``classes`` are the film's picture classes (``key_classes``), drawn in
-    KEY_CLASSES order. The rows are a column centred on the frame, each glyph
-    centred on its word's x-height; the block is centred vertically. Returns
-    ``{"heading", "rows": [{"cls", "text", "glyph": (x, y, d), "x",
-    "baseline", "w"}], "note": {"text", "x", "baseline", "w"} or None, "top",
-    "bottom"}``."""
-    f_h = _font(fonts.display, L.px(KEY["heading"]))
-    px = L.px(KEY["word"])
-    f_w, f_n = _font(fonts.structure, px), _font(fonts.data, round(px * 0.94))
-    max_w = L.w(KEY["max_w"])
-    hw = check_text(KEY_HEADING, f_h, max_w=max_w, what="the mark key's heading")
-    d = max(LABEL["glyph_min_px"], L.px(KEY["glyph"]))
-    gap = KEY["gap"] * px
-    if classes is None:
-        raise TextOverflow("the mark key has no classes: they come from the plan (key_classes), never a default")
-    want = set(classes)
-    words = [(c, KEY_WORD[c]) for c in KEY_CLASSES if c in want]
-    ww = [check_text(w, f_w, f_n, max_w=max_w - d - gap, what=f"the mark key's word for {c}") for c, w in words]
-    note = None if "AI-GENERATED" in want else KEY_NO_AI
-    nw = check_text(note, f_w, f_n, max_w=max_w, what="the mark key's line") if note else 0.0
-    col_w = d + gap + max(ww, default=0.0)
-    pitch = L.h(KEY["pitch"])
-    head_gap = L.h(KEY["head_gap"])
-    first = 0.73 * px                              # the first row's cap height under the heading's gap
-    n_lines = len(words)
-    last_off = (n_lines - 1) * pitch if words else 0.0
-    if note:
-        last_off = last_off + KEY["note_gap"] * pitch if words else 0.0
-    height = f_h.size * 0.78 + head_gap + first + last_off + 0.25 * px
-    top = (L.H - height) / 2.0
-    h_base = top + f_h.size * 0.78
-    x0 = (L.W - col_w) / 2.0
-    rows = []
-    for k, (c, w) in enumerate(words):
-        base = h_base + head_gap + first + k * pitch
-        cy = base - 0.36 * px
-        rows.append({"cls": c, "text": w, "glyph": (int(round(x0)), int(round(cy - d / 2.0)), d),
-                     "x": x0 + d + gap, "baseline": base, "w": ww[k]})
-    note_rec = None
-    if note:
-        base = (rows[-1]["baseline"] + KEY["note_gap"] * pitch) if rows else h_base + head_gap + first
-        note_rec = {"text": note, "x": (L.W - nw) / 2.0, "baseline": base, "w": nw}
-    return {"heading": {"text": KEY_HEADING, "x": (L.W - hw) / 2.0, "baseline": h_base, "w": hw, "font": f_h},
-            "rows": rows, "note": note_rec, "font": f_w, "data_font": f_n, "top": top, "bottom": top + height}
-
-
-def mark_key_drawn_text(layout: dict) -> list[str]:
-    """What the key draws: the heading, each row's word, then the line when there is one."""
-    return [layout["heading"]["text"]] + [r["text"] for r in layout["rows"]] + (
-        [layout["note"]["text"]] if layout.get("note") else [])
-
-
-def mark_key_frame(img: Image.Image, t: float, *, start: float, end: float, fonts: Fonts,
-                   classes) -> Image.Image:
-    """The mark key over black (CARD) for the film's ``classes``. In: the
-    heading on `settle`, rising KEY.rise; from KEY.row_delay the rows one by
-    one, KEY.stagger apart, each glyph with its word on `whisper`, rising
-    KEY.row_rise; the no-AI line (when drawn) one step after the last row, at
-    0.8 opacity as a statement card's later lines. Out: all of it let go
-    together over KEY.exit (nothing moves). The glyphs are the class glyphs
-    themselves (``_glyph``), drawn at KEY.glyph of the height."""
-    base = _black(img.size)
-    if t < start or t >= end:
-        return base
-    L = Layout(*base.size)
-    lay = mark_key_layout(L, fonts, classes)
-    exit_k = let_go(t, end, KEY["exit"])
-    layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
-    hp = clamp01(SETTLE.progress(t - start))
-    sub = Image.new("RGBA", base.size, (0, 0, 0, 0))
-    h = lay["heading"]
-    ImageDraw.Draw(sub).text((h["x"], h["baseline"]), h["text"], font=h["font"],
-                             fill=_rgba(PALETTE["bone"], hp * exit_k), anchor="ls")
-    layer.alpha_composite(_shift(sub, (1.0 - hp) * L.h(KEY["rise"])))
-    items = list(lay["rows"]) + ([dict(lay["note"], cls=None)] if lay["note"] else [])
-    for k, r in enumerate(items):
-        t0 = start + KEY["row_delay"] + k * KEY["stagger"]
-        if t < t0:
-            continue
-        p = clamp01(WHISPER.progress(t - t0))
-        a = p * exit_k
-        sub = Image.new("RGBA", base.size, (0, 0, 0, 0))
-        if r["cls"] is not None:
-            gx, gy, d = r["glyph"]
-            sub.alpha_composite(_scale_alpha(_glyph(r["cls"], d), a), (gx, gy))
-        else:
-            a *= 0.8
-        _draw_mixed(ImageDraw.Draw(sub), (r["x"], r["baseline"]), r["text"], lay["font"], lay["data_font"],
-                    _rgba(PALETTE["mark_text"], a))
-        layer.alpha_composite(_shift(sub, (1.0 - p) * L.h(KEY["row_rise"])))
-    return Image.alpha_composite(base, layer)
-
 
 def credits_fonts(L: Layout, fonts: Fonts):
     return (_font(fonts.data, L.px(CREDITS["heading"])), _font(fonts.structure, L.px(CREDITS["size"])),

@@ -38,6 +38,9 @@ import {
   shotTreatment,
   shotWhat,
   silentRecord,
+  sourceGaps,
+  filmNotes,
+  statementText,
   stepChapter,
   transcript,
   trailerNote,
@@ -202,9 +205,28 @@ describe("words: sources, flags, the transcript, the record's silences", () => {
     expect(t.map((e) => e.start_s)).toEqual([...t.map((e) => e.start_s)].sort((a, b) => a - b));
   });
 
-  it("finds the last record-is-silent card", () => {
-    expect(silentRecord(film.shots)?.says).toBe("The record holds no first-person account under an open licence by a Bengali or Bangladeshi witness.");
-    expect(silentRecord(film.shots)?.searched).toMatch(/^Searched: FRUS/);
+  it("finds the last record-is-silent card of a film rendered before A56, and says it was on screen", () => {
+    expect(silentRecord(film)?.says).toBe("The record holds no first-person account under an open licence by a Bengali or Bangladeshi witness.");
+    expect(silentRecord(film)?.searched).toMatch(/^Searched: FRUS/);
+    expect(silentRecord(film)?.on_screen).toBe(true);
+  });
+
+  it("reads the gaps from the sources data (A56), not from card text, once the film states them", () => {
+    const j = raw();
+    j.gaps = [{ says: "The record holds no photograph of the tower.", searched: "Searched: NARA." }, { searched: "no says" }, "x"];
+    const d = parseSources(j);
+    expect(d.gaps).toEqual([{ says: "The record holds no photograph of the tower.", searched: "Searched: NARA." }]);
+    expect(sourceGaps(d)).toEqual([{ says: "The record holds no photograph of the tower.", searched: "Searched: NARA.", on_screen: false }]);
+    expect(silentRecord(d)?.on_screen).toBe(false);
+  });
+
+  it("names a reading's source from the reading itself when its lower third is name and role only (A56)", () => {
+    const j = raw();
+    for (const t of j.lower_thirds) t.lines = t.lines.slice(0, 2);
+    j.readings[0].source = "Hansard, 17 March 1947";
+    const d = parseSources(j);
+    const r = d.readings.find((x) => x.id === j.readings[0].id)!;
+    expect(readingSource(r, d.lowerThirds)).toBe("Hansard, 17 March 1947");
   });
 
   it("labels item links in plain words and says what was done", () => {
@@ -476,5 +498,57 @@ describe("a dip's black hold carries no mark", () => {
     expect(onDipBlack(film.shots, mid(100), 24)).toBe(false);
     // S02 enters by a dissolve: never black.
     expect(onDipBlack(film.shots, mid(96), 24)).toBe(false);
+  });
+});
+
+describe("notes on this film (A56)", () => {
+  const withNotes = () => {
+    const j = raw();
+    j.narration = [{ id: "N1", start_s: 1, text: "Words." }];
+    j.narrator = { credit: "Narrated by a computer voice", engine: "orpheus", voice: "tara", pitch_shift_st: 0.76 };
+    j.readings[0].reader = "kokoro:am_onyx";
+    j.readings[1].mark = "ARCHIVE";
+    j.readings[1].reader = null;
+    j.readings[1].source = "FAA tapes, Boston Center";
+    j.unnamed_speakers = [{ speaker: "sp-x", name: "A voice on the NEADS floor", lines: [{ id: "A3", start_s: 75 }] }];
+    j.gaps = [{ says: "The record holds no photograph of the tower.", searched: "Searched: NARA, LOC." }];
+    j.shortfalls = [
+      { what: "women", statement: "Women speak {women_share:pct} of the readings.", filled: "Women speak 4% of the readings." },
+      { what: "readings", statement: "Unfilled {readings_share:pct}." },
+      { what: "voiceless", statement: "A plain statement." },
+    ];
+    j.shots[1].notes = ["Line approximate, from the award's description."];
+    j.shots[1].source_line = "Data: Natural Earth; GeoNames";
+    j.shots[1].licence_note = "contains GeoNames data (CC BY 4.0)";
+    return j;
+  };
+
+  it("states each disclosure the picture no longer shows, from the sources data", () => {
+    const d = parseSources(withNotes());
+    const n = filmNotes(d);
+    const name0 = d.readings.find((r) => r.reader)!.name;
+    expect(n.voices[0]).toBe("Narration: a computer voice, Orpheus 'tara', pitched +0.76 semitones.");
+    expect(n.voices[1]).toBe(`Read by computer voices: ${name0} (Kokoro 'am_onyx').`);
+    expect(n.voices[2]).toMatch(/^Original recordings: .+, FAA tapes, Boston Center\.$/);
+    expect(n.unnamed).toEqual(["A voice on the NEADS floor: A3 (1:15)"]);
+    expect(n.gaps).toEqual([{ says: "The record holds no photograph of the tower.", searched: "Searched: NARA, LOC." }]);
+    expect(n.statements).toEqual(["Women speak 4% of the readings.", "A plain statement."]);   // an unfilled statement is never printed
+    const t = d.shots[1].title ?? d.shots[1].id;
+    expect(n.mapNotes).toEqual([`${t}: Line approximate, from the award's description.`, `${t}: Data: Natural Earth; GeoNames`]);
+    expect(n.licences.some((l) => l.includes("(contains GeoNames data (CC BY 4.0))"))).toBe(true);
+    expect(n.licences.every((l) => /: \d+ shots?$/.test(l))).toBe(true);
+  });
+
+  it("states nothing a file does not hold", () => {
+    const n = filmNotes(parseSources(raw()));
+    expect(n.voices).toEqual([]);
+    expect(n.unnamed).toEqual([]);
+    expect(n.statements).toEqual([]);
+    expect(n.mapNotes).toEqual([]);
+  });
+
+  it("prints a shortfall statement only when its numbers are filled", () => {
+    expect(statementText({ statement: "{women_share:pct} of it." })).toBeNull();
+    expect(statementText({ statement: "{women_share:pct}.", filled: "4%." })).toBe("4%.");
   });
 });

@@ -21,7 +21,7 @@
         <p class="eyebrow">Sources</p>
         <h1>{{title}}</h1>
         <p>Every shot with the mark it carries on screen, where it came from and its licence. Every reading with its speaker, their side, the year and the source. Every reading is word for word from its source, sometimes in part (marked <span class="num">...</span>). {{shows}}</p>
-        <p><a href="#bal">Whose words, and how long</a> · <a href="#readings" id="readings-link">All readings</a></p>
+        <p><a href="#bal">Whose words, and how long</a> · <a href="#readings" id="readings-link">All readings</a> · <a href="#notes">Notes on this film</a></p>
       </header>
       <div class="filters" role="group" aria-label="Show shots by mark" id="filters">
         <button type="button" aria-pressed="true" data-filter="all">All <span class="num" data-count="all"></span></button>
@@ -37,6 +37,11 @@
           <div id="entries"><p class="muted" id="loading">Loading the sources.</p></div>
           <h2 class="sec" id="readings">Readings</h2>
           <ol class="readings" id="reading-list"></ol>
+          <section class="notes" aria-labelledby="notes">
+            <h2 class="sec" id="notes">Notes on this film</h2>
+            <p class="muted">What the picture does not say: the voices, the speakers the record names only by role, the gaps in the record, the notes on the maps and the licences.</p>
+            <div id="notes-body"></div>
+          </section>
         </div>
         <aside class="side">
           <section class="balance" aria-labelledby="bal" id="balance">
