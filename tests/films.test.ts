@@ -2,7 +2,8 @@
 // contract it expands, each film's own balance, its caption tracks and its
 // imagery rule. Partition's pages must stay exactly what they were before
 // they were generated (tests/fixtures/partition-pages/: the hand-written
-// pages as main held them at 4fb7669).
+// pages as main held them at 4fb7669), save that the film and sources pages now
+// open their note with the film's content note, as the home page does).
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,8 +11,10 @@ import { describe, expect, it } from "vitest";
 import { parse as yamlParse } from "yaml";
 import { expandFilmChecks, loadContract, runContract } from "../scripts/contract.mjs";
 import {
+  esc,
   fill,
   listedFilms,
+  liveFilms,
   loadRegistry,
   marqueeFilm,
   numHtml,
@@ -152,6 +155,37 @@ describe("the generated pages", () => {
     expect(p["f/smallpox-eradication/correct/index.html"]).toContain("Correct something in <em>Nought</em>");
     // The marquee stays with the lowest order.
     expect(p["index.html"]).toContain('data-slug="partition-of-india"');
+  });
+
+  it("each live film's content note leads the note on its film page and its sources page, as on the home page", () => {
+    const p = sitePages(live, templates);
+    const films = liveFilms(live);
+    expect(films.length).toBeGreaterThan(1);
+    for (const f of films) {
+      expect(f.content_note, f.slug).toBeTruthy();
+      // Escaped, numerals in the data face (as the synopsis).
+      const note = numHtml(f.content_note);
+      expect(p[`f/${f.slug}/index.html`], f.slug).toContain(`<p class="note">${note} <span id="derived-notes" hidden>`);
+      expect(p[`f/${f.slug}/sources/index.html`], f.slug).toContain(`<p>${note} Every shot with the mark it carries on screen`);
+    }
+    // The home page says the marquee film's note once, as before.
+    const m = marqueeFilm(live);
+    expect(p["index.html"]).toContain(`<p class="note">${numHtml(m.content_note)} Every reading is word for word`);
+    expect(numHtml("It concerns 11 September 2001.")).toBe('It concerns <span class="num">11</span> September <span class="num">2001</span>.');
+    // A film with no content note says nothing in its place, and its note starts as it did.
+    const r = clone(live);
+    delete r.films[1].content_note;
+    const q = sitePages(r, templates);
+    expect(q[`f/${r.films[1].slug}/index.html`]).toContain('<p class="note"><span id="derived-notes" hidden>');
+    expect(q[`f/${r.films[1].slug}/sources/index.html`]).toContain("<p>Every shot with the mark it carries on screen");
+    // Escaped, as every registry value.
+    const evil = '"><img src=x onerror=alert(1)>';
+    r.films[1].content_note = evil;
+    const e = sitePages(r, templates)[`f/${r.films[1].slug}/index.html`];
+    expect(e).not.toContain("<img src=x");
+    expect(e).not.toContain('"><img');
+    expect(e).toContain('&quot;&gt;&lt;img src=x onerror=alert(<span class="num">1</span>)&gt; <span id="derived-notes"');
+    expect(esc("<")).toBe("&lt;");
   });
 
   it("escape registry text and set every numeral in the data face", () => {
