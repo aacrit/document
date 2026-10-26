@@ -130,6 +130,20 @@ def test_a_face_capped_close_is_never_a_jump_cut():
     assert cam["macro"] != "CUTIN" and "jump cut" in (s.get("_cut_in_why") or "")
 
 
+def test_a_detail_wholly_inside_a_private_person_s_face_is_capped_to_1_3():
+    # review ruling 2026-10-26: a z 6.25 window inside an unnamed private person's face box frames that person
+    item = {"title": "A man rests on the rubble", "people": [person(0.3, 0.2, 0.3, 0.4, kind="face")]}
+    persons, info = T.lift_face_caps(item, T.person_regions(item), BIG, A, 6.25)
+    assert info["lifted"] is None
+    iw, ih = BIG
+    x0, y0, x1, y1 = T.window(BIG, A, 6.25, 0.45, 0.4)
+    assert 0.3 <= x0 / iw and x1 / iw <= 0.6 and 0.2 <= y0 / ih and y1 / ih <= 0.6   # wholly inside the face
+    st = {"t": 0.0, "z": 6.25, "x": 0.45, "y": 0.4, "placed": "engine"}
+    assert T.cap_faces([st], persons, BIG, A)[0]["z"] == pytest.approx(M.CINE["face_zmax"])
+    tl = T.build([dict(st, z_authored=True)], 4.0, BIG, A, 6.25)          # a depth as written: the lint sees it
+    assert T.face_cap_check(tl, persons)
+
+
 def test_no_zoom_on_the_ledger_item_holds_the_face_cap_and_the_scale():
     cam, _ = cam_with(dict(FIREFIGHTER, no_zoom=True), BIG, "PORTRAIT", dur=10.0)
     assert cam["face_detail"]["lifted"] is None and "no_zoom" in cam["face_detail"]["why"]

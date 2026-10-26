@@ -252,12 +252,15 @@ def test_face_cap_samples_moves_a_pan_across_a_face_is_capped_or_refused():
     written = [dict(a, z_authored=True, placed="author"), dict(b, z_authored=True, placed="author")]
     stops, pulled = T.enforce_face_cap(written, persons, 6.0, LANDSCAPE43, A, 3.0)
     assert not pulled and T.face_cap_check(T.build(stops, 6.0, LANDSCAPE43, A, 3.0), persons)
-    # a face less than half in frame is not capped (framed_share 0.5, deliberate)
+    # review ruling 2026-10-26: any part of a face in the window frames that person (it was framed_share 0.5),
+    # so a face 40% in frame is capped; a face wholly outside the window is not
     win = T.window(LANDSCAPE43, A, 2.5, 0.3, 0.5)
     edge_x = (win[2] / LANDSCAPE43[0]) - 0.04                                  # 40% of the 0.1-wide face inside
     edge = {"t": 0.0, "z": 2.5, "x": 0.3, "y": 0.5}
     near = T.person_regions({"roi": [dict(FACE, x=edge_x, y=0.45, w=0.1, h=0.1)]})
-    assert not T.face_cap_check(T.build([edge], 1.0, LANDSCAPE43, A, 2.5), near)
+    assert T.face_cap_check(T.build([edge], 1.0, LANDSCAPE43, A, 2.5), near)
+    away = T.person_regions({"roi": [dict(FACE, x=(win[2] / LANDSCAPE43[0]) + 0.02, y=0.45, w=0.1, h=0.1)]})
+    assert not T.face_cap_check(T.build([edge], 1.0, LANDSCAPE43, A, 2.5), away)
 
 
 def test_the_tour_resolver_leads_a_person_and_holds_through_the_name():

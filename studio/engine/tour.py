@@ -2543,11 +2543,31 @@ def lift_face_caps(item: dict, persons: list[dict], size, aspect: float, zcap: f
 
 def framed_persons(p: dict, persons: list[dict], size, aspect: float) -> list[dict]:
     """The people a framing {z, x, y} frames: at least ``CINE['framed_share']``
-    of the box inside its window."""
+    of the box inside its window, or any part of the person's face or head
+    (``head_box``) in it, a window wholly inside the face included (review
+    ruling 2026-10-26: a tight detail on a face is a close-up of that person,
+    so the face cap holds it)."""
     iw, ih = float(size[0]), float(size[1])
     x0, y0, x1, y1 = window(size, aspect, p["z"], p["x"], p["y"])
     win = (x0 / iw, y0 / ih, x1 / iw, y1 / ih)
-    return [q for q in persons if _inside_share(q["box"], win) >= CINE["framed_share"] - EPS]
+    return [q for q in persons if _inside_share(q["box"], win) >= CINE["framed_share"] - EPS
+            or _intersects(head_box(q), win)]
+
+
+HEAD_SHARE = 0.3               # a figure box with no face of its own: its top this share is the head and shoulders
+
+
+def head_box(q: dict) -> tuple[float, float, float, float]:
+    """A located person's face or head, picture fractions: the box itself for a face, else the top
+    ``HEAD_SHARE`` of the figure."""
+    b = q["box"]
+    if "face" in (q.get("kind"), (q.get("entry") or {}).get("kind")):
+        return tuple(b)
+    return (b[0], b[1], b[2], b[1] + (b[3] - b[1]) * HEAD_SHARE)
+
+
+def _intersects(a, b) -> bool:
+    return min(a[2], b[2]) - max(a[0], b[0]) > EPS and min(a[3], b[3]) - max(a[1], b[1]) > EPS
 
 
 def cap_faces(stops: list[dict], persons: list[dict], size, aspect: float) -> list[dict]:
@@ -2576,8 +2596,9 @@ def face_cap_check(tl: dict, persons: list[dict], hz: float | None = None) -> li
     """``face-cap-live`` (A43, blocking): every framing of the path, the
     stops, the holds and creeps on them and the moves between them (sampled,
     ``samples``), that frames a face or a person stays at or under
-    ``CINE['face_zmax']``. A face less than half in frame (``framed_share``)
-    is not capped: the push is about what is beside it. Returns the framings
+    ``CINE['face_zmax']``. A person less than half in frame (``framed_share``)
+    is not capped unless the window takes in part of their face or head
+    (``framed_persons``, ``head_box``). Returns the framings
     that do not, each with the stops it lies between."""
     if not persons:
         return []
