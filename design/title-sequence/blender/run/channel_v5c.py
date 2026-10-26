@@ -451,7 +451,7 @@ def rect_of(name):
 # One wall-arm lamp off the far long side (plan section 5), its 0.26 m shade 1.40 m over the top, aimed across the table
 LAMP = {"pos": (1.55, 2.02, 1.40), "aim": (1.50, 0.45, 0.0), "shade_d": 0.26, "power_w": 150.0, "kelvin": 3400.0,
         "spread_deg": 120.0, "white_balance_k": 4300.0}
-ROOM = {"wall_y": WALL_Y, "ceiling_z": 3.0 - TABLE["height"], "side_x": (-1.6, 4.6), "near_y": -3.4,
+ROOM = {"wall_y": WALL_Y, "ceiling_z": 3.0 - TABLE["height"], "side_x": (-3.2, 4.8), "near_y": -3.4,
         "plaster_albedo": 0.42, "floor_albedo": 0.06}
 
 LENS_MM, SENSOR_W = 50.0, 36.0
@@ -459,7 +459,7 @@ SENSOR_H = SENSOR_W * 9 / 16
 FOLLOW = {"D": 0.45, "elev": 26.0, "az_from_heading": 155.0, "fstop": 4.0, "omega": 3.2, "lead_ahead": 0.09}
 CLOSE = {"D": 0.16, "elev": 16.0, "fstop": 2.8}
 OPEN = {"height": 1.60, "descend_s": 3.0, "fstop": 8.0}
-T_RELEASE = 0.5                             # title seconds: the latch opens half a second into the shot
+T_RELEASE = 0.0                             # title seconds: the shot opens as the marble is let go (no scripted latch)
 RUNTIME = {"open": 3.0, "arrive": 5.0, "target": 36.0, "min": 34.0, "max": 40.0}
 
 
