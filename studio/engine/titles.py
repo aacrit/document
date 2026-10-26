@@ -66,6 +66,27 @@ def is_title(shot: dict) -> bool:
     return shot.get("kind") == KIND
 
 
+def is_title_slot(shot: dict) -> bool:
+    """A40 placeholder (founder ruling 2026-10-18): a shot holding the title slot with ``title_slot: true``
+    until the series title ("The Run") is spliced in later, by ``render --shots``. It is an ordinary shot
+    otherwise (a still or a card, most often): no asset, nothing burned, no A7 pose, and none of the other
+    A40 checks (provenance, licence, format, marks, lockup, placement, transitions) run for it. Only
+    title-theme treats it specially, accepting the main_title cue over a contiguous run of these shots
+    exactly as over a title_sequence shot; every other lint still applies to it as the shot it is."""
+    return shot.get("title_slot") is True
+
+
+def _contiguous_runs(idx: list[int]) -> list[list[int]]:
+    """``idx``, a sorted list of shot indices, grouped into runs of consecutive indices."""
+    runs: list[list[int]] = []
+    for i in idx:
+        if runs and runs[-1][-1] == i - 1:
+            runs[-1].append(i)
+        else:
+            runs.append([i])
+    return runs
+
+
 # --------------------------------------------------------------------------
 # The master's declared mark timeline
 # --------------------------------------------------------------------------
@@ -470,27 +491,75 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
     out: dict = {}
     idx = [i for i, s in enumerate(shots) if is_title(s)]
     spans_s = [(shots[i]["f0"] / fps, shots[i]["f1"] / fps) for i in idx]
-    for c in cues:                             # the theme plays under the series titles and nowhere else
+    # A40 placeholder (founder ruling 2026-10-18): a contiguous run of title_slot shots holds the slot until
+    # the series title is spliced in; the per-shot checks below (transitions, provenance, format, A7 pose, and
+    # so on) stay scoped to a real title_sequence (``idx``) and never run for a placeholder. Only a still, a
+    # card or black may wear the slot: never a clip, a video or a real title master.
+    slot_idx = [i for i, s in enumerate(shots) if is_title_slot(s)]
+    allowed_kinds = R.IMAGE_KINDS + R.BLACK_KINDS
+    for i in slot_idx:
+        kind_ok = shots[i].get("kind") in allowed_kinds
+        lint("title-slot-kind", kind_ok, unit=shots[i]["id"], grammar="A40",
+             evidence={"kind": shots[i].get("kind"), "allowed": list(allowed_kinds),
+                       "fix": None if kind_ok else "title_slot is a still, a card or black, never a clip or a video"})
+    slot_runs = _contiguous_runs(slot_idx)
+    slot_spans_s = [(shots[run[0]]["f0"] / fps, shots[run[-1]]["f1"] / fps) for run in slot_runs]
+    for c in cues:                             # the theme plays under the series titles (or its placeholder slot), nowhere else
         if c.get("kind", "music") != "music" or c.get("role") != THEME_ROLE:
             continue
         a, b = float(c["start_s"]), float(c["end_s"])
-        if not any(t0 - 0.5 / fps <= a and b <= t1 + 0.5 / fps for t0, t1 in spans_s):
+        in_title = any(t0 - 0.5 / fps <= a and b <= t1 + 0.5 / fps for t0, t1 in spans_s)
+        # a slot run takes the theme exactly as a title_sequence shot does: starting on its first frame and
+        # ending by its last (the same bound as the per-shot title-theme check below, not mere containment)
+        in_slot = any(abs(a - t0) <= 0.5 / fps and b <= t1 + 0.5 / fps for t0, t1 in slot_spans_s)
+        if not in_title and not in_slot:
             lint("title-theme", False, unit=c.get("id"), grammar="A40",
                  evidence={"start_s": a, "end_s": b, "titles": [[round(x, 3) for x in sp] for sp in spans_s],
-                           "fix": "a main_title cue plays under a title_sequence shot only, from its first frame"})
-    if not idx:
-        return out
-    lint("title-sequence-once", len(idx) == 1, unit=shots[idx[0]]["id"], grammar="A40",
-         evidence={"title_shots": [shots[i]["id"] for i in idx], "fix": None if len(idx) == 1 else "the series titles play once"})
+                           "slots": [[round(x, 3) for x in sp] for sp in slot_spans_s],
+                           "fix": "a main_title cue plays under a title_sequence shot, or a contiguous run of "
+                                  "title_slot placeholder shots, only, from its first frame"})
     cold = [i for i, s in enumerate(shots) if s["_part_kind"] == PLACE_AFTER]
     chapters = [i for i, s in enumerate(shots) if s["_part_kind"] == CHAPTER]
+    want = (cold[-1] + 1) if cold else 0
+    # title-sequence-once: the series titles play once, whether as a real title_sequence or as a single
+    # title_slot run; a real title and a placeholder never coexist, and no more than one of either.
+    total_runs = len(idx) + len(slot_runs)
+    if idx or slot_runs:
+        lint("title-sequence-once", total_runs <= 1, unit=shots[idx[0]]["id"] if idx else shots[slot_runs[0][0]]["id"],
+             grammar="A40",
+             evidence={"title_shots": [shots[i]["id"] for i in idx],
+                       "slot_runs": [[shots[i]["id"] for i in run] for run in slot_runs],
+                       "fix": None if total_runs <= 1 else "the series titles play once: a title_sequence shot, "
+                                                           "or a single title_slot run, never both or more than one"})
+    for run, (t0, t1) in zip(slot_runs, slot_spans_s):
+        sid = shots[run[0]]["id"]
+        # Placement: a slot run counts only right after the cold open's last shot, before Part 1 (the same
+        # place a real title_sequence must sit)
+        place_ok = run[0] == want and (not chapters or run[-1] < chapters[0])
+        lint("title-sequence-place", place_ok, unit=sid, grammar="A40",
+             evidence={"index": run[0], "expected_index": want, "after": shots[cold[-1]]["id"] if cold else None,
+                       "first_chapter_shot": shots[chapters[0]]["id"] if chapters else None,
+                       "fix": None if place_ok else "place the series-title slot right after the cold open's last shot, before Part 1"})
+        # Nothing spoken, drawn or subtitled over it: a warning for a placeholder (never blocking, since a
+        # builder may still be fitting its own card text or a voice line to run under it)
+        over = [v["id"] for v in vl if _overlaps(v["start"], v["start"] + v["dur"], t0, t1)]
+        over += [ln["id"] for ln in lines if ln.get("kind") in R.VOICE_KINDS and ln["id"] not in over
+                 and t0 - 1e-9 <= float(ln.get("start_s", -1)) < t1]
+        over += [t["id"] for t in texts if t.get("kind") in ("lower_third", "overlay")
+                 and _overlaps(float(t["start_s"]), float(t["end_s"]), t0, t1)]
+        over += [str(c.get("ref")) for c in play.get("subtitle_source", []) if isinstance(c.get("start_s"), (int, float))
+                 and isinstance(c.get("end_s"), (int, float)) and _overlaps(float(c["start_s"]), float(c["end_s"]), t0, t1)]
+        lint("title-sequence-clear", not over, unit=sid, severity="warn", grammar="A40",
+             evidence={"over": over[:20], "fix": None if not over else "nothing is spoken, drawn or subtitled over "
+                                                                       "the series-title slot (a placeholder warning)"})
+    if not idx:
+        return out
     for i in idx:
         s = shots[i]
         item = s.get("_item") or {}
         sid = s["id"]
         t0, t1 = s["f0"] / fps, s["f1"] / fps
         # Placement: after the hook, before Part 1
-        want = (cold[-1] + 1) if cold else 0
         place_ok = i == want and (not chapters or i < chapters[0])
         lint("title-sequence-place", place_ok, unit=sid, grammar="A40",
              evidence={"index": i, "expected_index": want, "after": shots[cold[-1]]["id"] if cold else None,
