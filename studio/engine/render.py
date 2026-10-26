@@ -1052,6 +1052,13 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
         # A47: the cover ends on the subject too; "whole" (or True) sweeps the whole picture first (A7)
         stops = subject_pass(whole=cover is True or cover == "whole", focus=focus)
         covering = True
+        if macro == "CUTIN":
+            # the cover is one pass, not hard cuts: the record never claims a cut-in the picture does not show
+            ci = shot.pop("_cut_in", None) or {}
+            shot["_move_why"] = {"move": (shot.get("_move") or {}).get("move", "CUTIN"),
+                                 "reason": f"a covering pass replaced the cut-in ({ci.get('reason') or 'cut-in'}): "
+                                           "as cut, a person or a must_show region would go unseen"}
+            macro = "DEFAULT"
     # A43 face-cap-live: a stop that frames a face or a person never goes past z 1.3, creep included
     stops = T.cap_faces(stops, persons, img_size, aspect)
     # A43 (founder ruling 2): the engine's own output is never refused. A stop it placed on a person that may not

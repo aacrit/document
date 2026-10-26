@@ -456,7 +456,10 @@ def test_plan_auto_boxes_never_block_and_a_low_one_degrades_to_the_whole(film):
     _edit(film, lambda p: _shot(p, "S3").update(preset="HOLD"))
     plan, j = _plan(film, "cine5-auto")
     cam = next(s for s in plan["shots"] if s["id"] == "S3")["_cam"]
-    assert cam["covering"]                                                     # the whole picture is toured
+    # the whole picture is toured: A54's chooser gives the still the WHOLE move (the ignored box locates no one),
+    # which sweeps it end to end itself
+    assert cam["move"]["move"] == "WHOLE" and cam["subject"]["src"] == "whole"
+    assert T.covered([w for _, w in R.still_windows(cam, {"_dur": 4.0}, (1500, 1050), W, H)], (0, 0, 1, 1), (1500, 1050))
     evs = J.read(j.path)
     assert [e["status"] for e in lints(evs, "tour-people") if e["unit"] == "S3"] == ["pass"]
     assert any(e["kind"] == "decision" and e.get("unit") == "S3" and "machine box" in e.get("what", "") for e in evs)

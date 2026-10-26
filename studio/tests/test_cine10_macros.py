@@ -294,3 +294,13 @@ def test_a_typeset_page_with_no_regions_is_read_whole():
     s = shot_of(item, 12.0, kind="drawn", _move=dict(m, end="detail"))
     cam = R.still_camera(s, (1600, 2000), W, H, words=[], fps=24.0)
     assert cam["macro"] == "READ" and cam["tour"]["stops"][0]["y"] < cam["tour"]["stops"][-1]["y"]
+
+
+def test_a_covering_pass_that_replaces_a_cut_in_does_not_claim_it():
+    # the engine's covering re-draw (render.engine_cover) is one pass, not hard cuts: the record says so, and why
+    item = {"class": "place", "roi": [region("subject", 0.6, 0.3, 0.1, 0.1)]}
+    m = {"move": "CUTIN", "variant": None, "why": "test", "flips": [], "end": "detail"}
+    s = shot_of(item, 10.0, _move=m)
+    cam = R.still_camera(s, BIG, W, H, words=[], fps=24.0, cover="whole")
+    assert cam["covering"] and cam["macro"] != "CUTIN" and cam["cut_in"] is None and not cam["tour"]["cuts"]
+    assert "covering pass" in cam["move_why"]["reason"]
