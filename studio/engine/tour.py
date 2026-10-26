@@ -2400,18 +2400,13 @@ def located_persons(persons: list[dict]) -> int:
 # A54 (founder ruling 2026-10-18, the face cap): z 1.3 stays the cap for every face, except one person the
 # caption binds (A43) or one located adult the item's own text names in a public role (this list, versioned:
 # never inferred from the picture), who may go to the DETAIL limit (``detail_limit_z``) inside the softness cap
-PUBLIC_ROLE_WORDS_VERSION = 1
-PUBLIC_ROLE_WORDS = ("firefighter", "firefighters", "fireman", "firemen", "officer", "officers", "police",
-                     "policeman", "policemen", "policewoman", "official", "officials", "president", "mayor",
-                     "senator", "governor", "soldier", "soldiers", "crew", "guardsman", "guardsmen", "trooper",
-                     "troopers", "paramedic", "paramedics", "rescuer", "rescuers")
-# where a public role may be read (coordinator ruling on review, 2026-10-26: never ``seen``, the rulebook's or a
-# human's description of the picture): the person's own label, or the subject of the archive's own caption
-PUBLIC_ROLE_LABEL_FIELDS = ("people", "_people_words")
-PUBLIC_ROLE_CAPTION_FIELDS = ("caption", "title", "nara_title")
-PUBLIC_ROLE_FIELDS = PUBLIC_ROLE_LABEL_FIELDS + PUBLIC_ROLE_CAPTION_FIELDS
-_SUBJECT_SKIP = frozenset(("a", "an", "the", "one", "two", "three", "this", "that", "these", "those", "unidentified",
-                           "unnamed", "new", "york", "city", "u.s.", "us", "american", "federal", "local"))
+# v2 (review ruling 2026-10-26): singular roles only (a plural names a group, never the one located person), and
+# read only from that person's own ``people[]`` entry; captions, titles, ``seen`` and the item's people words
+# are never parsed for a role
+PUBLIC_ROLE_WORDS_VERSION = 2
+PUBLIC_ROLE_WORDS = ("firefighter", "fireman", "officer", "policeman", "policewoman", "official", "president",
+                     "mayor", "senator", "governor", "soldier", "guardsman", "trooper", "paramedic", "rescuer")
+PUBLIC_ROLE_ENTRY_FIELDS = ("role", "name", "label")
 
 
 def face_cap_of(persons: list[dict]) -> float:
@@ -2436,53 +2431,30 @@ def detail_limit_z(size, aspect: float, zcap: float) -> float:
     return max(CINE["face_zmax"], min(z, max(1.0, zcap)))
 
 
-def caption_subject(text) -> list[str]:
-    """The grammatical subject of a caption's first clause, by a plain rule (no parser): the words up to and
-    including the first lower-case word that is not a determiner or a place modifier, with every capitalised
-    word before it (a title, a name). "A woman weeps beside a police car" gives ["woman"]; "President George
-    W. Bush speaks" gives ["president", "george", "w.", "bush", "speaks"]."""
-    first = re.split(r"[;:,()—]| - ", str(text or ""), maxsplit=1)[0]
-    out: list[str] = []
-    for tok in first.split():
-        w = norm_word(tok)
-        if not w:
-            continue
-        if w in _SUBJECT_SKIP and not out:
-            continue
-        out.append(w)
-        if tok[:1].islower() and w not in _SUBJECT_SKIP:
-            break
-    return out
-
-
 def public_role(item: dict, persons: list[dict] | None = None) -> str | None:
     """The public role of the still's one located person, or None (A54 face cap, review ruling 2026-10-26):
-    the role word is the person's own label (the ledger's ``people`` words, or the located person's own entry
-    or name), or it is the grammatical subject of the archive's own caption or title (``caption_subject``) and
-    exactly one person is located (``persons`` None: not counted, the caller has). A role word anywhere else
-    ("a woman weeps beside a police car", "a boy is carried past firefighters") lifts nothing. Read from the
-    ledger's words only, never from the picture, and never from ``seen`` (founder guard, 2026-10-18)."""
-    if persons is not None and located_persons(persons) != 1:
+    only that person's OWN ``people[]`` entry counts: a ``role`` it states, or a singular role word
+    (``PUBLIC_ROLE_WORDS``) in its own ``name`` or ``label``. Captions, titles, ``seen`` and the item's people
+    words are never parsed for a role: "Firefighters carry an injured woman" or "a woman and two police
+    officers" names the role of someone else in the picture as often as of the one located. A machine
+    box (``source: auto``) and the rulebook's generic names (person-1) carry no role."""
+    if not persons or located_persons(persons) != 1:
         return None
-    label: list[str] = []
-    for f in PUBLIC_ROLE_LABEL_FIELDS:
-        v = item.get(f)
-        if isinstance(v, str):
-            label += _norm_words(v)
-    for q in persons or []:
+    for q in persons:
         e = q.get("entry") or {}
-        for v in (q.get("name"), e.get("name"), e.get("label"), e.get("role"), e.get("text")):
+        if q.get("src") != "people" or source_of(e) != "human":
+            continue
+        role = e.get("role")
+        if isinstance(role, str) and role.strip():
+            return role.strip()
+        words: list[str] = []
+        for f in ("name", "label"):
+            v = e.get(f)
             if isinstance(v, str) and not GENERIC_NAME.match(v):
-                label += _norm_words(v)
-    role = next((w for w in PUBLIC_ROLE_WORDS if w in label), None)
-    if role is not None:
-        return role
-    for f in PUBLIC_ROLE_CAPTION_FIELDS:
-        v = item.get(f)
-        subj = caption_subject(v) if isinstance(v, str) else []
-        role = next((w for w in PUBLIC_ROLE_WORDS if w in subj), None)
-        if role is not None:
-            return role
+                words += _norm_words(v)
+        hit = next((w for w in PUBLIC_ROLE_WORDS if w in words), None)
+        if hit is not None:
+            return hit
     return None
 
 
@@ -2534,9 +2506,9 @@ def lift_face_caps(item: dict, persons: list[dict], size, aspect: float, zcap: f
             cap = detail_limit_z(size, aspect, zcap)
             out = [dict(q, cap=cap) for q in out]
             info.update(cap=round(cap, 4), lifted=(f"bound to {bound!r} (A43)" if bound is not None else
-                                                    f"a public role in the item's own text: {role!r}"))
+                                                    f"a public role in the person's own entry: {role!r}"))
             return out, info
-        kept = "neither bound to a caption name nor named in a public role by the item's own text"
+        kept = "neither bound to a caption name nor named in a public role by the person's own entry"
     info["why"] = kept
     return out, info
 

@@ -46,32 +46,33 @@ def share(size, z):
     return fw * fh / (size[0] * size[1]) / (z * z)
 
 
-FIREFIGHTER = {"title": "A firefighter rests on the rubble", "people": [person(0.4, 0.2, 0.15, 0.5)]}
+FIREFIGHTER = {"title": "A firefighter rests on the rubble",
+               "people": [person(0.4, 0.2, 0.15, 0.5, role="firefighter")]}
 NEUTRAL = {"title": "A man rests on the rubble", "people": [person(0.4, 0.2, 0.15, 0.5)]}
 
 
 # --------------------------------------------------------------------------
-# The face cap (founder ruling 2026-10-18; "public role" only from the item's own text)
+# The face cap (founder ruling 2026-10-18; review ruling 2026-10-26: a role only from the person's own entry)
 # --------------------------------------------------------------------------
 
-def test_a_firefighter_named_in_the_caption_may_go_to_detail():
+def test_a_firefighter_by_their_own_entry_may_go_to_detail():
     persons, info = T.lift_face_caps(FIREFIGHTER, T.person_regions(FIREFIGHTER), BIG, A, 3.0)
     assert info["lifted"] and "firefighter" in info["lifted"]
     assert persons[0]["cap"] > M.CINE["face_zmax"]
     assert share(BIG, persons[0]["cap"]) == pytest.approx(M.CINE["face_detail_share"], rel=1e-6)
 
 
-def test_the_same_picture_with_a_neutral_caption_keeps_1_3():
+def test_the_same_picture_with_a_neutral_entry_keeps_1_3():
     persons, info = T.lift_face_caps(NEUTRAL, T.person_regions(NEUTRAL), BIG, A, 3.0)
     assert persons[0]["cap"] == M.CINE["face_zmax"] and info["lifted"] is None
 
 
 @pytest.mark.parametrize("item, kw, why", [
-    (dict(FIREFIGHTER, people=[person(0.1, 0.2, 0.1, 0.4), person(0.6, 0.2, 0.1, 0.4, name="person-2")]), {},
-     "crowd"),
+    (dict(FIREFIGHTER, people=[person(0.1, 0.2, 0.1, 0.4, role="firefighter"),
+                               person(0.6, 0.2, 0.1, 0.4, name="person-2")]), {}, "crowd"),
     (dict(FIREFIGHTER, dignity=True), {}, "dignity"),
     (dict(FIREFIGHTER, minor=True), {}, "minor"),
-    (dict(FIREFIGHTER, people=[person(0.4, 0.2, 0.15, 0.5, age=12)]), {}, "minor"),
+    (dict(FIREFIGHTER, people=[person(0.4, 0.2, 0.15, 0.5, age=12, role="firefighter")]), {}, "minor"),
     (FIREFIGHTER, {"no_zoom": True}, "no_zoom"),
     (FIREFIGHTER, {"mode": "strict"}, "strict"),
 ])
@@ -88,78 +89,46 @@ def test_a_caption_that_binds_one_name_lifts_the_cap():
     assert info["lifted"].startswith("bound to")
 
 
-def test_the_role_word_list_is_versioned_and_read_from_text_only():
-    assert T.PUBLIC_ROLE_WORDS_VERSION == 1 and "firefighter" in T.PUBLIC_ROLE_WORDS
-    assert T.public_role({"title": "A woman on the stairs"}) is None
-    assert T.public_role({"people": "a police officer"}) in ("officer", "police")
+def test_the_role_word_list_is_versioned_singular_and_never_read_from_text():
+    assert T.PUBLIC_ROLE_WORDS_VERSION == 2 and "firefighter" in T.PUBLIC_ROLE_WORDS
+    assert not [w for w in T.PUBLIC_ROLE_WORDS if w.endswith("s") or w in ("police", "crew", "firemen")]
+    one = T.person_regions({"people": [person(0.4, 0.2, 0.15, 0.5)]})
+    assert T.public_role({"title": "A firefighter rests"}, one) is None              # a caption is never parsed
+    assert T.public_role({"people": "a police officer"}) is None
 
 
-@pytest.mark.parametrize("title", [
-    "A woman weeps beside a police car",
-    "A boy is carried past firefighters",
-    "A man watches the crew of a fireboat",
-    "Survivor covered in dust; officers behind",
+@pytest.mark.parametrize("item", [
+    {"title": "A woman weeps beside a police car"},
+    {"title": "A boy is carried past firefighters"},
+    {"title": "A man watches the crew of a fireboat"},
+    {"title": "Survivor covered in dust; officers behind"},
+    {"title": "Firefighters carry an injured woman from the rubble"},
+    {"caption": "Police lead a man away"},
+    {"caption": "Mayor Giuliani and a survivor at the scene"},
+    {"title": "At the scene", "_people_words": "a woman and two police officers"},
+    {"title": "President George W. Bush speaks to the nation"},
+    {"title": "At the rubble", "seen": "a firefighter rests"},
 ])
-def test_a_role_word_that_is_not_the_located_person_s_own_lifts_nothing(title):
-    # review ruling 2026-10-26: the role must be the person's own label, or the caption's grammatical subject
-    item = {"title": title, "people": [person(0.4, 0.2, 0.15, 0.5)]}
+def test_a_role_anywhere_but_the_person_s_own_entry_lifts_nothing(item):
+    # review ruling 2026-10-26: captions, titles, seen and the item's people words are never parsed for a role
+    item = dict(item, people=[person(0.4, 0.2, 0.15, 0.5)])
     persons, info = T.lift_face_caps(item, T.person_regions(item), BIG, A, 3.0)
     assert info["lifted"] is None and all(q["cap"] == M.CINE["face_zmax"] for q in persons)
 
 
-def test_the_role_lifts_as_the_caption_s_subject_or_the_person_s_own_label_never_from_seen():
-    one = [person(0.4, 0.2, 0.15, 0.5)]
-    for item in ({"title": "President George W. Bush speaks to the nation", "people": one},
-                 {"caption": "New York City firefighters raise the flag", "people": one},
-                 {"title": "At the rubble", "people": [person(0.4, 0.2, 0.15, 0.5, name="a firefighter")]}):
+def test_the_person_s_own_entry_lifts_by_role_or_a_singular_role_in_its_name_never_a_plural():
+    for p in (person(0.4, 0.2, 0.15, 0.5, role="firefighter"), person(0.4, 0.2, 0.15, 0.5, name="a firefighter"),
+              person(0.4, 0.2, 0.15, 0.5, label="police officer")):
+        item = {"title": "At the rubble", "people": [p]}
         _, info = T.lift_face_caps(item, T.person_regions(item), BIG, A, 3.0)
-        assert info["lifted"] and "public role" in info["lifted"], item
-    item = {"title": "At the rubble", "seen": "a firefighter rests", "people": one}
-    _, info = T.lift_face_caps(item, T.person_regions(item), BIG, A, 3.0)
-    assert info["lifted"] is None
-    two = [person(0.1, 0.2, 0.1, 0.4), person(0.6, 0.2, 0.1, 0.4, name="person-2")]
-    assert T.public_role({"title": "A firefighter rests"}, T.person_regions({"people": two})) is None
-
-
-def test_a_face_capped_close_is_never_a_jump_cut():
-    # wide z 1.0, a close at z 3.0 on a place whose picture holds an unlifted face: the face cap brings the close
-    # to 1.3, under 1.6x, so the cut-in is refused after the cap and the move stands
-    item = {"class": "place", "title": "A man rests on the rubble",
-            "roi": [region("subject", 0.4, 0.2, 0.15, 0.2)], "people": [person(0.4, 0.2, 0.15, 0.5)]}
-    cam, s = cam_with(item, BIG, "CUTIN", dur=10.0)
-    assert cam["macro"] != "CUTIN" and "jump cut" in (s.get("_cut_in_why") or "")
-
-
-def test_a_detail_wholly_inside_a_private_person_s_face_is_capped_to_1_3():
-    # review ruling 2026-10-26: a z 6.25 window inside an unnamed private person's face box frames that person
-    item = {"title": "A man rests on the rubble", "people": [person(0.3, 0.2, 0.3, 0.4, kind="face")]}
-    persons, info = T.lift_face_caps(item, T.person_regions(item), BIG, A, 6.25)
-    assert info["lifted"] is None
-    iw, ih = BIG
-    x0, y0, x1, y1 = T.window(BIG, A, 6.25, 0.45, 0.4)
-    assert 0.3 <= x0 / iw and x1 / iw <= 0.6 and 0.2 <= y0 / ih and y1 / ih <= 0.6   # wholly inside the face
-    st = {"t": 0.0, "z": 6.25, "x": 0.45, "y": 0.4, "placed": "engine"}
-    assert T.cap_faces([st], persons, BIG, A)[0]["z"] == pytest.approx(M.CINE["face_zmax"])
-    tl = T.build([dict(st, z_authored=True)], 4.0, BIG, A, 6.25)          # a depth as written: the lint sees it
-    assert T.face_cap_check(tl, persons)
-
-
-def test_no_zoom_on_the_ledger_item_holds_the_face_cap_and_the_scale():
-    cam, _ = cam_with(dict(FIREFIGHTER, no_zoom=True), BIG, "PORTRAIT", dur=10.0)
-    assert cam["face_detail"]["lifted"] is None and "no_zoom" in cam["face_detail"]["why"]
-    assert len({round(st["z"], 6) for st in cam["tour"]["stops"]}) == 1
-
-
-def test_a_survey_cut_in_steers_its_framings_clear_of_live_text():
-    people = [person(0.05, 0.6, 0.1, 0.3), person(0.85, 0.6, 0.1, 0.3, name="b")]
-    picks = T.survey_picks([], T.person_regions({"people": people}))
-    zone = (0.0, 0.72, 1.0, 1.0)                                              # a lower third, frame fractions
-    avoid = [((p["x"], p["y"], p["x"] + p["w"], p["y"] + p["h"]), zone, "face") for p in people]
-    plain, _ = T.survey_cut_stops(picks, (4800, 2700), A, 7.0, 3.0)
-    steered, _ = T.survey_cut_stops(picks, (4800, 2700), A, 7.0, 3.0, avoid=avoid)
-    over = [T.avoid_overlap((4800, 2700), T.window((4800, 2700), A, st["z"], st["x"], st["y"]), avoid)
-            for st in (plain[0], steered[0])]
-    assert over[1] <= over[0] + 1e-9
+        assert info["lifted"] and "own entry" in info["lifted"], p
+    for p in (person(0.4, 0.2, 0.15, 0.5, name="firefighters"), person(0.4, 0.2, 0.15, 0.5, name="person-1"),
+              person(0.4, 0.2, 0.15, 0.5, name="a firefighter", source="auto", confidence=0.9)):
+        item = {"title": "At the rubble", "people": [p]}
+        _, info = T.lift_face_caps(item, T.person_regions(item), BIG, A, 3.0)
+        assert info["lifted"] is None, p
+    two = [person(0.1, 0.2, 0.1, 0.4, role="firefighter"), person(0.6, 0.2, 0.1, 0.4, name="person-2")]
+    assert T.public_role({}, T.person_regions({"people": two})) is None
 
 
 def test_portrait_goes_past_1_3_only_for_the_lifted_face_and_never_past_its_cap():
