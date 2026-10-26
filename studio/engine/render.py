@@ -7142,9 +7142,8 @@ def document_over_black_lints(journal: Journal, plan: dict) -> None:
         ok = r["black_s"] <= DOC_BLACK_ADVISORY_S + 1e-9
         journal.lint("document-over-black", ok, stage="scout", phase="preflight", unit=r["line"], severity="warn",
                      grammar="A30", evidence=dict(r, max_s=DOC_BLACK_ADVISORY_S, advisory=True,
-                                                  fix=None if ok else "show the document: its words typeset on quote cards "
-                                                  "(quote: true, source_date) paged with the reading, or a DRAWN page; "
-                                                  "black for a breath at most"))
+                                                  fix=None if ok else "replace with an image (founder P0, A55): the "
+                                                  "document as a DRAWN page, or a still"))
 
 
 def dip_list(plan: dict) -> list[dict]:
@@ -7192,9 +7191,8 @@ def black_dip_lints(journal: Journal, plan: dict, *, draft: bool = False) -> lis
                      evidence=dict(r, max_s=BLACK_VOICE_MAX_S, intents=sorted(BLACK_INTENTS), no_intent=missing,
                                    readings_without_lower_third=bare,
                                    fix=None if ok else (
-                                       "give the words a picture (typeset the document as a DRAWN page, or a still), or "
-                                       f"declare the shot's intent from {sorted(BLACK_INTENTS)}, or a black shot's own "
-                                       "black_reason" if missing else
+                                       "replace with an image (founder P0, A55): a still, or the document as a DRAWN "
+                                       "page" if missing else
                                        "a reading over black carries its lower third")))
         if ok and long_:
             for s in r["shots"]:
@@ -7272,13 +7270,14 @@ def _voice_spans(plan: dict) -> list[tuple[float, float, dict]]:
     for ln in plan["lines"]:
         if ln.get("kind") not in VOICE_KINDS:
             continue
+        a = float(ln["start_s"])
         if archival_span(ln):
             d = max(0.0, float(ln.get("out_s", 0)) - float(ln.get("in_s", 0)))
+            a -= CL.av_correction_s((plan.get("assets") or {}).get(ln.get("clip")))   # where the mix places it (A33 1b)
         elif voice_wav(film, ln).exists():
             d = wav_seconds(voice_wav(film, ln))
         else:
             continue
-        a = float(ln["start_s"])
         out.append((a, a + d, ln))
     return out
 

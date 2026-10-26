@@ -361,7 +361,7 @@ def check_spec(spec: dict) -> None:
             raise MapRefused(f"{spec['id']}{path}: colour literal in a spec")
         if "—" in s:
             raise MapRefused(f"{spec['id']}{path}: em dash in on-screen copy")
-    for where, t in [("title", spec.get("title", ""))] + [(f"notes[{i}]", n) for i, n in enumerate(spec.get("notes", []))]:
+    for where, t in [("title", (spec.get("title") or ""))] + [(f"notes[{i}]", n) for i, n in enumerate(spec.get("notes", []))]:
         if STUDIO_WORDING.search(str(t)):
             raise MapRefused(f"{spec['id']}.{where}: {t!r} names the studio's own files; a frame says what the open "
                              f"record holds, e.g. {NOT_IN_OPEN_SOURCES!r} (E15)")
@@ -414,7 +414,7 @@ def check_spec(spec: dict) -> None:
         if data.get("territories") and data.get("territories_note") not in spec.get("notes", []):
             raise MapRefused(f"{spec['id']}: a territory drawn with another country's figure needs its "
                              "territories_note among the frame's notes, saying which and why")
-        for yr in re.findall(r"\b(1[5-9]\d\d|20\d\d)\b", spec.get("title", "")):
+        for yr in re.findall(r"\b(1[5-9]\d\d|20\d\d)\b", (spec.get("title") or "")):
             if int(yr) != data["year"]:
                 raise MapRefused(f"{spec['id']}: the title names {yr}; the data layer draws {data['year']}")
         for fg in data.get("figures") or []:
@@ -429,7 +429,7 @@ def _lint_data_text(spec: dict, views: list) -> None:
     number words: the title may name the data year, a panel figure template its {n} and the data
     year; nothing else may carry a number, which would be uncited."""
     years = {str(v["data"]["year"]) for v in views if "data" in v}
-    title = spec.get("title", "")
+    title = (spec.get("title") or "")
     for y in years:
         title = re.sub(r"(?<!\d)" + y + r"(?!\d)", "", title)
     texts = [("title", title)]
