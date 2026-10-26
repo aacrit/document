@@ -765,7 +765,7 @@ def _screen_point(pose: dict, point, size, aspect: float) -> tuple[float, float]
 
 def cut_in_stops(subj: dict, size, aspect: float, dur: float, zlim: float, *, record: bool, order: str = "in",
                  facing: str | None = None, cut_at: float | None = None,
-                 avoid=None) -> tuple[list[dict] | None, str | None]:
+                 avoid=None, hz: float | None = 24.0) -> tuple[list[dict] | None, str | None]:
     """A54 CUT-IN on one subject: the WIDE (``whole_pose``) and the CLOSE
     (a DETAIL on the subject, ``zlim`` the softness and face caps), joined by
     a hard cut at ``cut_at`` (the narration's beat, else the middle), WIDE
@@ -786,49 +786,115 @@ def cut_in_stops(subj: dict, size, aspect: float, dur: float, zlim: float, *, re
     if close["z"] / wide["z"] < CUT_SCALE_MIN - EPS:
         return None, (f"a jump cut: the close is only {close['z'] / wide['z']:.2f}x the wide (the caps allow no "
                       f"more), under {CUT_SCALE_MIN:g}x")
-    tc = dur / 2.0 if cut_at is None else cut_at
-    tc = min(max(tc, CUT_FRAMING_MIN_S), dur - CUT_FRAMING_MIN_S)
-    first, second = (wide, close) if order == "in" else (close, wide)
+    tc = _cut_time(min(max(dur / 2.0 if cut_at is None else cut_at, CUT_FRAMING_MIN_S),
+                       dur - CUT_FRAMING_MIN_S), hz)
     b = subj["box"]
     point = ((b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0)
-    m, _err = match_start(point, _screen_point(first, point, size, aspect), size, aspect, zs=(second["z"],))
+    # the WIDE shows the whole picture: where its fill cannot (a 4:3 scan in 16:9), it sweeps end to end (A7:
+    # people and must_show are seen on the cut-in itself), ending on the subject's side before a cut in and
+    # starting on it after a cut out, so the cut matches as near as the fill allows
+    ax = long_axis(size, aspect)
+    sweep = whole_sweep(size, aspect, record, toward=point if order == "in" else (1.0 - point[0], 1.0 - point[1]))
+    if sweep:
+        # the sweep keeps the speed guides: the wide gets the time it needs, moved off the beat only when the
+        # narration does not set the cut; else the cut-in is refused and the move stands
+        span = _wide_span(sweep, size, aspect, hz)
+        lo, hi = CUT_FRAMING_MIN_S, dur - CUT_FRAMING_MIN_S
+        if order == "in" and tc < span - EPS and cut_at is None and span <= hi + EPS:
+            tc = _cut_time(span, hz) + 1.0 / hz if hz else span
+        elif order == "out" and dur - tc < span - EPS and dur - span >= lo - EPS:
+            tc = _cut_time(dur - span, hz)
+        if (tc if order == "in" else dur - tc) < span - 1e-3:
+            return None, (f"the wide's sweep needs {span:.1f} s at the speed guides; the "
+                          f"{'beat leaves' if cut_at is not None else 'shot leaves'} it "
+                          f"{(tc if order == 'in' else dur - tc):.1f} s")
     iw, ih = float(size[0]), float(size[1])
-    a0, b0, a1, b1 = window(size, aspect, m["z"], m["x"], m["y"])
-    matched = second is wide or _inside_share(b, (a0 / iw, b0 / ih, a1 / iw, b1 / ih)) >= 1.0 - 1e-6
-    if matched:
-        second = dict(second, x=m["x"], y=m["y"])
-    names = {id(wide): "the wide", id(close): "the close"}
-    s0 = dict(first, t=0.0, hold=round(tc, 3), placed="engine", **{"from": f"CUT-IN: {names.get(id(first), 'the close')}"})
-    s1 = dict(second, t=round(tc, 3), cut=True, placed="engine", breath=True, match_cut=matched,
-              **{"from": f"CUT-IN: {'the close' if order == 'in' else 'the wide'}"})
     if order == "in":
-        s1["keep"] = (tuple(b),)
+        wide_end = sweep[1] if sweep else wide
+        m, _err = match_start(point, _screen_point(wide_end, point, size, aspect), size, aspect, zs=(close["z"],))
+        a0, b0, a1, b1 = window(size, aspect, m["z"], m["x"], m["y"])
+        matched = _inside_share(b, (a0 / iw, b0 / ih, a1 / iw, b1 / ih)) >= 1.0 - 1e-6
+        if matched:
+            close = dict(close, x=m["x"], y=m["y"])
+        lead = (_wide_sweep(sweep, 0.0, tc, hz) if sweep else
+                [dict(wide, t=0.0, hold=tc, placed="engine", **{"from": "CUT-IN: the wide"})])
+        s1 = dict(close, t=tc, cut=True, placed="engine", breath=True, match_cut=matched, keep=(tuple(b),),
+                  **{"from": "CUT-IN: the close"})
+        return lead + [s1], None
+    m, _err = match_start(point, _screen_point(close, point, size, aspect), size, aspect, zs=(wide["z"],))
+    s0 = dict(close, t=0.0, hold=tc, placed="engine", keep=(tuple(b),), **{"from": "CUT-IN: the close"})
+    if sweep:
+        tail = _wide_sweep(sweep, tc, dur, hz)
+        tail[0].update(cut=True, match_cut=abs(float(m[ax]) - float(sweep[0][ax])) <= 0.02)
     else:
-        s0["keep"] = (tuple(b),)
-    return [s0, s1], None
+        tail = [dict(wide, x=m["x"], y=m["y"], t=tc, hold=0.0, cut=True, placed="engine", breath=True,
+                     match_cut=True, **{"from": "CUT-IN: the wide"})]
+    return [s0] + tail, None
+
+
+CUT_PAD_S = 1e-4               # a cut sits this far before a frame, so that frame is the new framing's first
+CUT_WIDE_SETTLE_S = 0.4        # a swept WIDE reaches its far end about this long before its framing ends
+
+
+def _frame(t: float, hz: float | None) -> float:
+    return math.floor(t * hz + 0.5) / hz if hz else t
+
+
+def _cut_time(t: float, hz: float | None) -> float:
+    """A cut padded onto the master's frame grid: just before the nearest frame, so the frame before it is
+    the last of the old framing and the frame at it the first of the new (``at`` gives a boundary to the
+    segment that ends there). The new framing's opening pose is on screen."""
+    return _frame(t, hz) - CUT_PAD_S if hz else t
+
+
+def _wide_span(sweep: tuple[dict, dict], size, aspect: float, hz: float | None) -> float:
+    """The least time a swept WIDE framing needs: the sweep at the speed guides, its settle, and a frame."""
+    return leg_min_s(sweep[0], sweep[1], size, aspect) + CUT_WIDE_SETTLE_S + (1.0 / hz if hz else 0.0)
+
+
+def _wide_sweep(sweep: tuple[dict, dict], t0: float, t1: float, hz: float | None) -> list[dict]:
+    """A54's swept WIDE over [t0, t1): from one end to the other, arriving on a frame at least one frame
+    before ``t1`` (``CUT_WIDE_SETTLE_S`` before it), then a drift to the cut or the end, so both ends of the
+    picture are on screen."""
+    one = 1.0 / hz if hz else 0.0
+    arrive = min(_frame(t1 - CUT_WIDE_SETTLE_S, hz), _frame(t1, hz) - one)
+    return [dict(sweep[0], t=t0, hold=0.0, placed="engine", **{"from": "CUT-IN: the wide"}),
+            dict(sweep[1], t=arrive, hold=max(0.0, t1 - arrive), placed="engine", breath=True,
+                 **{"from": "CUT-IN: the wide, swept end to end"})]
 
 
 def survey_cut_stops(picks: list[dict], size, aspect: float, dur: float,
-                     zmax: float) -> tuple[list[dict] | None, str | None]:
+                     zmax: float, hz: float | None = 24.0) -> tuple[list[dict] | None, str | None]:
     """A54 CUT-IN for a SURVEY: up to two of its regions (each a new subject, so never a jump cut) and then
-    the WIDE, each framing an equal share of the shot, joined by hard cuts."""
+    the WIDE, each framing an equal share of the shot, joined by hard cuts padded onto the frame grid; the
+    WIDE sweeps end to end where its fill cannot show the whole picture (A7, as in ``cut_in_stops``)."""
     picked = picks[:CUT_MAX_FRAMINGS - 1]
     if len(picked) < 2:
         return None, "fewer than two regions to cut between"
     n = len(picked) + 1
     if dur < n * CUT_FRAMING_MIN_S - EPS:
         return None, f"too short for {n} framings of {CUT_FRAMING_MIN_S:g} s"
-    step = dur / n
+    sweep = whole_sweep(size, aspect, record=False)
+    wspan = max(dur / n, _wide_span(sweep, size, aspect, hz)) if sweep else dur / n
+    rest = dur - wspan                        # the regions share what the WIDE (its sweep at the guides) leaves
+    if rest < (n - 1) * CUT_FRAMING_MIN_S - EPS:
+        return None, f"the wide's sweep needs {wspan:.1f} s; {n - 1} framings of {CUT_FRAMING_MIN_S:g} s do not fit"
+    starts = [0.0] + [_cut_time(k * rest / (n - 1), hz) for k in range(1, n)] + [dur]
     stops = []
     for k, r in enumerate(picked):
         st = roi_stop(r, size, aspect, zmax)
-        st.update(t=round(k * step, 3), hold=round(step, 3), roi=r.get("name"), placed="engine",
+        st.update(t=starts[k], hold=starts[k + 1] - starts[k], roi=r.get("name"), placed="engine",
                   **{"from": f"CUT-IN: {r.get('name') or 'roi'}"})
         if k:
             st["cut"] = True
         stops.append(st)
-    stops.append({"t": round((n - 1) * step, 3), "z": 1.0, "x": 0.5, "y": 0.5, "cut": True, "placed": "engine",
-                  "breath": True, "from": "CUT-IN: the wide"})
+    if sweep:
+        wide = _wide_sweep(sweep, starts[n - 1], dur, hz)
+        wide[0]["cut"] = True
+        stops += wide
+    else:
+        stops.append({"t": starts[n - 1], "z": 1.0, "x": 0.5, "y": 0.5, "cut": True, "placed": "engine",
+                      "breath": True, "from": "CUT-IN: the wide"})
     return stops, None
 
 

@@ -903,7 +903,7 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
             slow = mstops is not None and T.path_need_s(mstops, img_size, aspect) > dur + 1e-6
             if not (slow or mv == "CUTIN"):
                 return None
-            st, why = T.survey_cut_stops(picks, img_size, aspect, dur, zmax)
+            st, why = T.survey_cut_stops(picks, img_size, aspect, dur, zmax, hz=fps or FPS)
             reason = ("asked for (move: CUTIN)" if mv == "CUTIN" else
                       "the survey's legs cannot keep the speed guides in the shot (the 7-second rule)")
         else:
@@ -935,7 +935,7 @@ def still_camera(shot: dict, img_size: tuple[int, int], W: int, H: int, *, words
             if sp is not None and order == "in" and cut_at is None:
                 cut_at = arrive
             st, why = T.cut_in_stops(subj, img_size, aspect, dur, zl, record=record, order=order, facing=facing,
-                                     cut_at=cut_at, avoid=avoid)
+                                     cut_at=cut_at, avoid=avoid, hz=fps or FPS)
         if st is None:
             shot["_cut_in_why"] = why
             return None

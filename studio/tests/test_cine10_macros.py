@@ -249,19 +249,25 @@ def _words(cue, t):
 
 
 def test_a_name_spoken_abruptly_cuts_in_on_the_beat():
+    # a 16:9 scan: its fill shows the whole picture, so the wide needs no sweep and the beat sets the cut
     item = {"class": "place", "roi": [region("subject", 0.6, 0.3, 0.1, 0.1)]}
-    cam, s = cam_with(item, BIG, "EXPLAIN", dur=10.0, words=_words("tower", 1.8), subject_at="tower")
+    big = (4800, 2700)
+    cam, s = cam_with(item, big, "EXPLAIN", dur=10.0, words=_words("tower", 1.8), subject_at="tower")
     tl = cam["tour"]
     assert cam["macro"] == "CUTIN" and len(tl["cuts"]) == 1 and "abruptly" in cam["cut_in"]["reason"]
     tc = tl["cuts"][0]
     onset = next(w["t"] for w in _words("tower", 1.8) if w["w"] == "tower")
-    assert tc == pytest.approx(max(onset - M.CINE["anchor_lead_s"], T.CUT_FRAMING_MIN_S), abs=1e-3)
+    # on the beat, padded onto the frame grid (the cut lands just before a frame)
+    assert tc == pytest.approx(max(onset - M.CINE["anchor_lead_s"], T.CUT_FRAMING_MIN_S), abs=0.5 / 24 + 1e-3)
     za, zb = T.at(tl, tc)["z"], T.at(tl, tc + 1 / 24)["z"]
     assert zb / za >= T.CUT_SCALE_MIN - 1e-6                                 # no jump cut
     fs = frames(cam, 10.0)
     assert all(any(abs(a[k] - b[k]) > 1e-12 for k in "xyz") for a, b in zip(fs, fs[1:]))   # every framing drifts
-    wins = [(k / 24, T.window(BIG, A, f["z"], f["x"], f["y"])) for k, f in enumerate(fs)]
+    wins = [(k / 24, T.window(big, A, f["z"], f["x"], f["y"])) for k, f in enumerate(fs)]
     assert T.speed_report(wins, tl["cuts"])["ok"]                            # the cut is no motion
+    # on a 4:3 scan the same beat leaves the wide too little time to sweep at the guides: the move stands
+    cam, _ = cam_with(item, BIG, "EXPLAIN", dur=10.0, words=_words("tower", 1.8), subject_at="tower")
+    assert cam["macro"] != "CUTIN"
 
 
 def test_a_cut_in_that_would_be_a_jump_cut_keeps_the_move():
@@ -280,20 +286,49 @@ def test_a_survey_cut_in_has_at_most_three_framings_of_at_least_1_5_s():
     picks = T.survey_picks([], T.person_regions({"people": [person(0.05, 0.2, 0.1, 0.4), person(0.45, 0.2, 0.1, 0.4,
                            name="b"), person(0.85, 0.2, 0.1, 0.4, name="c")]}))
     st, _ = T.survey_cut_stops(picks, BIG, A, 6.0, 3.0)
-    assert len(st) <= T.CUT_MAX_FRAMINGS and all(b["t"] - a["t"] >= T.CUT_FRAMING_MIN_S - 1e-6
-                                                 for a, b in zip(st, st[1:]))
-    assert [bool(x.get("cut")) for x in st] == [False, True, True]
+    starts = [x["t"] for k, x in enumerate(st) if k == 0 or x.get("cut")]   # each framing starts at a cut
+    assert len(starts) <= T.CUT_MAX_FRAMINGS and all(b - a >= T.CUT_FRAMING_MIN_S - 1e-3
+                                                     for a, b in zip(starts, starts[1:] + [6.0]))
+    assert [bool(x.get("cut")) for x in st][:3] == [False, True, True] and not any(x.get("cut") for x in st[3:])
     tl = T.build(st, 6.0, BIG, A, 3.0)
     assert len(tl["cuts"]) == 2
 
 
-def test_a_typeset_page_with_no_regions_is_read_whole():
-    item = {"class": "document", "title": "observations, 8:51 a.m. (typeset page)"}
-    m = MV.base_choice(shot_of(item, kind="drawn"), item, (1600, 2000))
-    assert m["move"] == "READ" and m["target"] == MV.PAGE
-    s = shot_of(item, 12.0, kind="drawn", _move=dict(m, end="detail"))
-    cam = R.still_camera(s, (1600, 2000), W, H, words=[], fps=24.0)
-    assert cam["macro"] == "READ" and cam["tour"]["stops"][0]["y"] < cam["tour"]["stops"][-1]["y"]
+def _framing_windows(tl, size, dur, hz=24.0):
+    """The rendered windows of each framing, split where ``at`` changes framing (the internal cuts)."""
+    out, edges = [], list(tl["cuts"]) + [math.inf]
+    for k in range(int(dur * hz) + 1):
+        t = k / hz
+        i = next(j for j, e in enumerate(edges) if t <= e)
+        while len(out) <= i:
+            out.append([])
+        f = T.at(tl, t)
+        out[i].append(T.window(size, A, f["z"], f["x"], f["y"]))
+    return out
+
+
+def test_a_wide_cut_in_shows_every_located_person_and_the_must_show_text_whole():
+    # a 4:3 scan fills 16:9 showing 75% of its height: the WIDE sweeps end to end, arriving a frame before the
+    # cut, so a person at the top edge and must_show text at the bottom are each whole on some rendered frame
+    top, text = (0.05, 0.0, 0.2, 0.3), (0.6, 0.8, 1.0, 1.0)
+    subj = {"src": "subject", "box": (0.4, 0.4, 0.5, 0.5), "kind": "place", "facing": None}
+    for order in ("in", "out"):
+        st, _ = T.cut_in_stops(subj, BIG, A, 6.0, 3.0, record=False, order=order, hz=24.0)
+        tl = T.build(st, 6.0, BIG, A, 3.0)
+        fr = _framing_windows(tl, BIG, 6.0)
+        wide = fr[0] if order == "in" else fr[-1]
+        assert len(fr) == 2 and len(tl["cuts"]) == 1
+        assert any(T.covered([w], top, BIG) for w in wide) and any(T.covered([w], text, BIG) for w in wide)
+        assert T.covered(wide, (0, 0, 1, 1), BIG)
+        fs = [T.at(tl, k / 24) for k in range(6 * 24 + 1)]
+        wins = [(k / 24, T.window(BIG, A, f["z"], f["x"], f["y"])) for k, f in enumerate(fs)]
+        assert T.speed_report(wins, tl["cuts"])["ok"]                        # the sweep keeps the speed guides
+    people = [person(0.05, 0.0, 0.1, 0.3), person(0.45, 0.4, 0.1, 0.3, name="b"), person(0.85, 0.7, 0.1, 0.3, name="c")]
+    st, _ = T.survey_cut_stops(T.survey_picks([], T.person_regions({"people": people})), BIG, A, 7.0, 3.0, hz=24.0)
+    wide = _framing_windows(T.build(st, 7.0, BIG, A, 3.0), BIG, 7.0)[-1]
+    for p in people:
+        box = (p["x"], p["y"], p["x"] + p["w"], p["y"] + p["h"])
+        assert any(T.covered([w], box, BIG) for w in wide)                   # each person whole on one frame
 
 
 def test_a_covering_pass_that_replaces_a_cut_in_does_not_claim_it():
@@ -304,3 +339,12 @@ def test_a_covering_pass_that_replaces_a_cut_in_does_not_claim_it():
     cam = R.still_camera(s, BIG, W, H, words=[], fps=24.0, cover="whole")
     assert cam["covering"] and cam["macro"] != "CUTIN" and cam["cut_in"] is None and not cam["tour"]["cuts"]
     assert "covering pass" in cam["move_why"]["reason"]
+
+
+def test_a_typeset_page_with_no_regions_is_read_whole():
+    item = {"class": "document", "title": "observations, 8:51 a.m. (typeset page)"}
+    m = MV.base_choice(shot_of(item, kind="drawn"), item, (1600, 2000))
+    assert m["move"] == "READ" and m["target"] == MV.PAGE
+    s = shot_of(item, 12.0, kind="drawn", _move=dict(m, end="detail"))
+    cam = R.still_camera(s, (1600, 2000), W, H, words=[], fps=24.0)
+    assert cam["macro"] == "READ" and cam["tour"]["stops"][0]["y"] < cam["tour"]["stops"][-1]["y"]
