@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 
-META_TEXT_VERSION = 2           # bump on any pattern change; the fixtures in test_a56_disclosure.py pin each one
+META_TEXT_VERSION = 3           # bump on any pattern change; the fixtures in test_a56_disclosure.py pin each one
 
 _ART = r"(?:an?|the|one|another|some)"
 # (name, what it is, the roles it applies to, the pattern). Roles: card, lower_third, overlay, map, subtitle.
@@ -72,7 +72,11 @@ META_TEXT = (
 META_TEXT_NAMES = tuple(n for n, _, _, _ in META_TEXT)
 # v2: a map's labels are places. An institution named at the start of a label ("Library of Congress") is a place
 # drawn on the map, so on a map only the credit forms refuse ("Data: Natural Earth", "courtesy of", "via GeoNames").
+# v3 (brand audit 2026-10-26, H1): an open map dataset's name is never a place, so on a map it is a credit wherever it
+# stands ("Natural Earth; GeoNames", without "Data:" or a licence).
+_MAP_DATASETS = r"(?:Natural Earth|GeoNames|OpenStreetMap|OSM contributors)"
 _BY_ROLE = {("provenance", "map"): re.compile(
+    rf"\b{_MAP_DATASETS}\b|"
     r"^\s*(?:data|source|sources|archive|archives|collection|courtesy|credit|photo|photograph|footage)\s*:"
     r"|\bcourtesy of\b|\blicen[cs]ed? under\b|\bCC[ -]BY\b|\bCC0\b|\bpublic domain\b|©"
     rf"|\b(?:via|collection of|held (?:by|at|in)|by permission of|reproduced from|credit(?:ed)? to)\s+"

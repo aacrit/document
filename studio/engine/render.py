@@ -613,6 +613,8 @@ def mark_detail(shot: dict, item: dict | None) -> str:
     if cls == "AI-GENERATED":
         return "context"
     if cls == "DRAWN":
+        if MP.is_map(item):                # M5 (A56, BRAND-KIT 12b): a map's plate names no dataset
+            return MP.MAP_LABEL_DETAIL
         # the plate prints the ledger's short form (at most 40 characters, so it fits the frame);
         # the full data source goes to the credits and the Sources page
         src = (shot.get("data_source") or (item or {}).get("source_short") or (item or {}).get("data_source")
@@ -636,6 +638,8 @@ def mark_label(shot: dict, item: dict | None) -> str:
     if cls == "AI-GENERATED":
         return M.mark_label(cls, None, "context")
     if cls == "DRAWN":
+        if MP.is_map(item):                # M5 (A56, BRAND-KIT 12b): "Drawn · from map data"; the datasets are in
+            return M.mark_label(cls, None, MP.MAP_LABEL_DETAIL)   # the sources data, never on the plate
         src = (shot.get("data_source") or (item or {}).get("source_short") or (item or {}).get("data_source")
                or (item or {}).get("mark_detail_source") or "")
         return M.mark_label(cls, None, f"from {src}" if src else "")
@@ -2867,6 +2871,15 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             if not item.get("_path") or not Path(item["_path"]).exists():
                 lint("asset-file", False, unit=s["id"], evidence={"file": item.get("_path")})
                 continue
+            if kind in IMAGE_KINDS:
+                # A56 (brand audit 2026-10-26, H1): a map PNG, whatever kind cites it, is used only as this engine
+                # draws it, with no data credit in the frame, and its ledger item carries the engine's off-screen
+                # credit; a drawn picture nothing identifies is refused (fail closed)
+                k_drawn, _ = MP.drawn_kind(item)
+                probs = MP.drawn_check(item, shot_kind=kind, mark=s.get("mark"), synthetic=is_synthetic(item))
+                if k_drawn == "map" or probs:
+                    lint("drawn-map-current", not probs, unit=s["id"], grammar="A56, BRAND-KIT 12b",
+                         evidence={"asset": s.get("asset"), "drawn_kind": k_drawn, "problems": probs})
         allowed = set(KIND_CLASSES.get(kind, set()))
         if is_synthetic(item):
             allowed = {"DRAWN"}            # made by a program (a test pattern, a fixture image): never ARCHIVE
@@ -8352,6 +8365,7 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             "creator": it.get("creator"), "credit": it.get("credit"), "licence": it.get("licence"), "basis": it.get("basis"),
             # A56: what a drawn frame no longer draws (a map's notes, its data credit, why its licence) is stated here
             "licence_note": it.get("licence_note"), "source_line": it.get("source_line"),
+            **({"data_sources": it["data_sources"]} if it.get("data_sources") else {}),   # a map's sources, with urls
             "notes": [str(n) for n in it.get("notes") or [] if str(n).strip()],
             "alterations": s.get("alterations") or [], "transition_in": s["transition_in"],
             "preset": (s.get("_cam") or {}).get("preset"), "fill_ok": (s.get("_cam") or {}).get("fill_ok"),

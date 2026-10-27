@@ -11,7 +11,7 @@ from studio.engine import render as R
 from conftest import make_film
 
 
-# Each versioned pattern, a string it must refuse and a near miss it must pass (META_TEXT_VERSION 2)
+# Each versioned pattern, a string it must refuse and a near miss it must pass (META_TEXT_VERSION 3)
 REFUSE = [
     ("source-gap", "card", "The record holds no open-licence film of this fixture."),
     ("source-gap", "card", "No photograph of the crew survives."),
@@ -30,6 +30,11 @@ REFUSE = [
     ("original-recording", "overlay", "original recording"),
     ("provenance", "lower_third", "National Archives, FAA tapes"),
     ("provenance", "map", "Data: Natural Earth; GeoNames"),
+    ("provenance", "map", "Data: Natural Earth; GeoNames (CC BY 4.0)"),       # v3: Real World 6.14's line (H1)
+    ("provenance", "map", "Natural Earth; GeoNames"),                         # v3: a dataset name is never a place
+    ("provenance", "map", "GeoNames, CC BY 4.0"),
+    ("provenance", "map", "CC0"),
+    ("provenance", "map", "\u00a9 OpenStreetMap contributors"),
     ("provenance", "overlay", "Courtesy of the Library of Congress"),
     ("provenance", "card", "Archives: FAA and NORAD recordings"),              # v2: a card's source line is provenance
     ("provenance", "card", "National Archives, RG 237"),
@@ -53,6 +58,9 @@ PASS = [
     ("subtitle", "A pilot reported smoke in the cabin."),                      # words, not a speaker line
     ("map", "Library of Congress"),                                            # v2: a place on a map is map content
     ("map", "National Archives"),
+    ("map", "Brussels"),                                                      # v3 near misses: places and words
+    ("map", "Datia"),
+    ("map", "Earth Sciences Building"),
     ("overlay", "Walking past the Library of Congress"),                       # v2: named in passing, not credited
     ("card", "The archives of the Library of Congress hold the letters."),
 ]
@@ -70,7 +78,7 @@ def test_names_roles_and_quoted_documents_pass(role, text):
 
 
 def test_the_patterns_are_versioned_and_named():
-    assert DS.META_TEXT_VERSION == 2
+    assert DS.META_TEXT_VERSION == 3
     assert set(DS.META_TEXT_NAMES) == {"source-gap", "descriptor", "computer-voice", "original-recording", "provenance",
                                        "mark-key", "shortfall"}
     assert {p for p, _, _ in REFUSE} == set(DS.META_TEXT_NAMES)               # a fixture per pattern
