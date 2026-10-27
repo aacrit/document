@@ -45,7 +45,8 @@ def _lockup(W, H):
 
 
 CLICK_FRAME = 36                        # the master's Foley click: on the cut to the record (its frame 36 at 24)
-FOLEY_DBFS = -30.0                      # the stand-in Foley's bed, and the room its last ROOM_TAIL_S hold
+FOLEY_DBFS = -24.0                      # the stand-in Foley's bed (the v5c masters: -24 dBFS RMS, -21.4 LUFS), and the
+                                        # room its last ROOM_TAIL_S hold (theirs about -70 dBFS)
 ROOM_DBFS = -70.0
 ROOM_TAIL_S = 1.0 + TS.ROOM_S
 
@@ -64,7 +65,7 @@ def sound_wav(path, dur_s, *, fps=24.0, click_frame=CLICK_FRAME, sound="foley"):
         x[:room0] = bed[:room0] * np.float32(10 ** (FOLEY_DBFS / 20))
         x[room0:] = bed[room0:] * np.float32(10 ** (ROOM_DBFS / 20))
         c = int(round(click_frame / fps * 48000))
-        x[c: c + 48] = 0.7                          # a 1 ms click, both channels
+        x[c: c + 48] = 0.5                          # a 1 ms click, both channels: a peak about -6 dBFS (theirs -4 dBTP)
     sf.write(str(path), x, 48000, subtype="FLOAT")
     return path
 
@@ -228,7 +229,7 @@ def test_a40_a_burned_master_after_the_cold_open_passes_every_lint(tmp_path, mas
     assert passed(j, "title-audio") and passed(j, "title-audio-sync")
     assert (COLD_S, COLD_S + TITLE_S) not in plan["silences"] and not lints(j, "title-theme-pending")
     (ta,) = plan["title_audio"]
-    assert ta["shot"] == "TS1" and ta["gain_db"] == 0.0 and ta["silent"] is False and ta["tail"] is None
+    assert ta["shot"] == "TS1" and ta["gain_declared"] is False and ta["silent"] is False and ta["tail"] is None
     assert ta["end_s"] == pytest.approx(SHIFT) and ta["sync_max_offset_ms"] == 0.0     # 1:1, the lockup in the master
 
 

@@ -1,8 +1,8 @@
 """GRAMMAR A40 standalone audio (founder ruling 2026-10-26: the series titles carry their own sound, and a film's score
 starts after them; no main-title cue in films).
 
-A title_sequence shot plays its master's own track in the film mix, at unity unless the item declares
-``audio_gain_db``, frame-aligned with the picture: across a drop or repeat conform the sound plays at its own speed
+A title_sequence shot plays its master's own track in the film mix, at the house title level (TS.TITLE_LUFS, held
+down only so its true peak stays under the limiter after the programme gain) unless the item declares ``audio_gain_db``, frame-aligned with the picture: across a drop or repeat conform the sound plays at its own speed
 and pitch (no resample), so both keep the master's clock and the offset stays within a film frame. Under the lockup
 card that ends the series-title part the title's sound continues: its declared ``audio_tail`` (the full-length mix),
 or with none, the master's own room continued. title-audio refuses a master with no audio stream at plan time, and
@@ -43,6 +43,15 @@ def tmasters(tmp_path_factory, film):
            "ntsc_item": {"file": "ntsc.mkv", "fps": "30000/1001", "frames": NTSC_N, "marks": tl, "dip": dip,
                          "record_frames": [_at(40), _at(50)], "lockup_frame": _at(84)},
            "ntsc_click": tl[1]["frame"]}
+    make_master(d / "spike-src.mkv", rec)
+    import subprocess
+    z, _ = sf.read(str(d / "spike-src.sound.wav"), dtype="float32", always_2d=True)
+    z[:] = 3e-4 * np.random.default_rng(3).standard_normal(z.shape)       # a room at about -70 dBFS, not silent
+    z[48000: 48000 + 48] = 0.99
+    sf.write(str(d / "spike.sound.wav"), z, RATE, subtype="FLOAT")
+    subprocess.run([R.ffmpeg(), "-v", "error", "-y", "-i", str(d / "spike-src.mkv"), "-i", str(d / "spike.sound.wav"),
+                    "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "pcm_s16le", str(d / "spike.mkv")], check=True)
+    out["spike"] = d / "spike.mkv"
     ring = make_master(d / "ring.mkv", rec)
     x, _ = sf.read(str(d / "ring.sound.wav"), dtype="float32", always_2d=True)
     x[-int(TS.ROOM_S * RATE):] = 0.05                      # loud to the last sample: no room in it
@@ -69,6 +78,17 @@ def mixed(film):
     return plan, j, mix, placed, stems
 
 
+def mixed_or_refused(film):
+    plan, j = plan_of(film)
+    if isinstance(plan, Exception):
+        return plan, j
+    try:
+        R.build_mix(plan, film, j)
+    except R.Refused as e:
+        return e, j
+    return plan, j
+
+
 def seg(x, a, b):
     return x[int(round(a * RATE)): int(round(b * RATE))]
 
@@ -78,16 +98,27 @@ def master_track(path):
 
 
 # --------------------------------------------------------------------------
-# Mixing: the master's own track, at unity, frame-aligned
+# Mixing: the master's own track, at the house title level, frame-aligned
 # --------------------------------------------------------------------------
 
 
-def test_title_audio_the_master_track_is_mixed_at_unity(tmp_path, tmasters):
+def g_of(rec):
+    return np.float32(10 ** (rec["gain_db"] / 20))
+
+
+def test_title_audio_the_master_track_is_mixed_at_the_house_title_level(tmp_path, tmasters):
     plan, j, mix, placed, stems = mixed(tfilm(tmp_path, tmasters))
+    rec = placed["titles"][0]
     x = master_track(tmasters["burned"])
     got = seg(mix, COLD_S, COLD_S + TITLE_S - TS.END_FADE_S)
-    assert np.allclose(got, x[: len(got)], atol=1e-6)                    # sample for sample: unity, no shaping
-    assert placed["titles"][0]["shot"] == "TS1" and placed["titles"][0]["gain_db"] == 0.0
+    assert np.allclose(got, x[: len(got)] * g_of(rec), atol=1e-5)       # sample for sample: one gain, no shaping
+    assert rec["shot"] == "TS1" and rec["gain_declared"] is False
+    ev = lints(j, "title-audio-level")[0]["evidence"]
+    assert passed(j, "title-audio-level")
+    ceiling = R.TARGET_TP - R.LIMIT_MARGIN_DB - TS.TITLE_PEAK_MARGIN_DB
+    assert ev["predicted_tp_dbtp"] <= ceiling + 0.05                     # the limiter never acts on the title
+    # at the house level, unless its peaks hold it down (then by exactly as much as they need)
+    assert rec["level_lufs"] == pytest.approx(TS.TITLE_LUFS, abs=0.05) or ev["predicted_tp_dbtp"] == pytest.approx(ceiling, abs=0.1)
     assert any(e["what"].startswith("TS1: the series titles play their own sound") for e in J.read(j.path)
                if e.get("kind") == "decision")
     # the title is a source's own sound for the score's lints (music-holes): present, not a hole
@@ -103,6 +134,21 @@ def test_title_audio_a_declared_gain_moves_its_level(tmp_path, tmasters):
     assert placed["titles"][0]["gain_db"] == -6.0
     plan, j = plan_of(tfilm(tmp_path / "bad", tmasters, item={"audio_gain_db": "loud"}))
     assert isinstance(plan, R.Refused) and failed(j, "title-audio")
+
+
+def test_title_audio_a_declared_gain_that_would_push_the_limiter_is_refused(tmp_path, tmasters):
+    plan, j, *_ = mixed_or_refused(tfilm(tmp_path, tmasters, item={"audio_gain_db": 12.0}))
+    assert isinstance(plan, R.Refused) and failed(j, "title-audio-level")
+    assert next(e for e in lints(j, "title-audio-level") if e["status"] == "fail")["evidence"]["declared"] is True
+
+
+def test_title_audio_a_title_whose_peaks_would_hold_it_far_under_the_house_level_is_refused(tmp_path, tmasters):
+    """A master that is near silence with one full-scale click: to keep the click under the limiter its level would
+    sit more than TITLE_HOLD_MAX_DB under the house title loudness, so it is refused, not mixed inaudibly."""
+    plan, j, *_ = mixed_or_refused(tfilm(tmp_path, tmasters, master="spike"))
+    assert isinstance(plan, R.Refused) and failed(j, "title-audio-level")
+    ev = next(e for e in lints(j, "title-audio-level") if e["status"] == "fail")["evidence"]
+    assert ev["held_under_house_db"] > TS.TITLE_HOLD_MAX_DB and "remaster" in ev["fix"]
 
 
 def test_title_audio_conform_keeps_sync_and_pitch_at_24(tmp_path, tmasters):
@@ -170,12 +216,13 @@ def test_title_audio_a_declared_tail_plays_across_the_lockup_card(tmp_path, tmas
     assert rec["end_s"] == pytest.approx(SHIFT + CARD["dur_s"]) and rec["tail_s"] == pytest.approx(CARD["dur_s"], abs=0.01)
     card = seg(mix, SHIFT + 0.1, SHIFT + CARD["dur_s"] - 0.2)
     want = seg(TS.read_audio(R.ffmpeg(), str(tail)), TITLE_S + 0.1, TITLE_S + CARD["dur_s"] - 0.2)
-    assert np.allclose(card, want, atol=1e-6)                          # the tail's own samples, at unity
+    assert np.allclose(card, want * g_of(rec), atol=1e-5)              # the tail's own samples, at the title's gain
     spec = np.abs(np.fft.rfft(card))
     assert abs(np.argmax(spec) * RATE / len(card) - 1000.0) < 2.0     # its own pitch
     # under the title the master's own track, spliced to the tail at the cut (no gap, no doubling)
     x = master_track(tmasters["burned"])
-    assert np.allclose(seg(mix, COLD_S, SHIFT - 0.01), x[: len(seg(mix, COLD_S, SHIFT - 0.01))], atol=1e-6)
+    head = seg(mix, COLD_S, SHIFT - 0.01)
+    assert np.allclose(head, x[: len(head)] * g_of(rec), atol=1e-5)
     assert any(abs(a - COLD_S) < 1e-6 and abs(b - (SHIFT + CARD["dur_s"])) < 1e-6 for a, b in stems["own_sound"])
     # it ends at the cut into the film: nothing of it after the card
     assert rec["dur_s"] == pytest.approx(TITLE_S + CARD["dur_s"], abs=1e-3)
@@ -188,7 +235,7 @@ def test_title_audio_with_no_tail_the_masters_room_continues_under_the_card(tmp_
     assert rec["from"] == "room" and rec["room_s"] == pytest.approx(HOLD["dur_s"] + CARD["dur_s"], abs=0.01)
     span = seg(mix, SHIFT, SHIFT + HOLD["dur_s"] + CARD["dur_s"] - TS.END_FADE_S)
     room = master_track(tmasters["burned"])[-int(TS.ROOM_S * RATE):]
-    assert TS.rms_dbfs(span) == pytest.approx(TS.rms_dbfs(room), abs=1.0)   # the master's own room, continued
+    assert TS.rms_dbfs(span) == pytest.approx(TS.rms_dbfs(room) + rec["gain_db"], abs=1.0)   # the master's own room, continued
     win = [TS.rms_dbfs(span[i: i + 4800]) for i in range(0, len(span) - 4800, 4800)]
     assert min(win) > -90.0                                                  # never digital black under the card
 
@@ -311,7 +358,7 @@ def test_title_audio_a_film_with_no_titles_is_unchanged(tmp_path):
     assert not isinstance(plan, Exception), plan
     assert plan["title_audio"] == [] and not lints(j, "title-audio") and not lints(j, "title-audio-sync")
     buf = np.zeros(RATE, np.float32)
-    assert R.place_title_audio(buf, plan, j) == [] and not buf.any()
+    assert R.title_tracks(plan) == ([], []) and R.level_title_audio([], [], buf, buf, j) == [] and not buf.any()
     play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
     assert SC.title_own_sound(play) == []
     _, placed = R.build_mix(plan, film, j)

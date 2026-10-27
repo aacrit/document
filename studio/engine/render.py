@@ -6201,34 +6201,98 @@ def take_lints(journal: Journal, plan: dict, film: Path, *, draft: bool = False,
             "refusal": refusing[0] if refusing else None, "refused_lines": named}
 
 
-def place_title_audio(clips: np.ndarray, plan: dict, journal: Journal) -> list[dict]:
-    """A40 standalone audio (founder ruling 2026-10-26): each series title's own sound into the source-sound stem
-    (never ducked, cleaned or levelled, as a clip's own sound): the master's own track from the title's first frame
-    at unity (or its declared ``audio_gain_db``), continued under the lockup card that ends its part by its
-    ``audio_tail`` or by its own room (titles.title_track), and ending at the cut into the film. A title master at
+def title_tracks(plan: dict) -> tuple[list[dict], list[np.ndarray]]:
+    """A40 standalone audio (founder ruling 2026-10-26): each series title's own sound as the mix places it, before its
+    level: the master's own track from the title's first frame, continued under the lockup card that ends its part by
+    its ``audio_tail`` or by its own room (titles.title_track), and ending at the cut into the film. A title master at
     another rate than the film's has its picture conformed by frame drop or repeat with no speed change (A44), so its
     sound is played as recorded, at its own speed and pitch, with no resample: picture and sound keep one clock, and
-    title-audio-sync bounds the offset the conform's frame choice leaves. Returns what was placed."""
-    out = []
+    title-audio-sync bounds the offset the conform's frame choice leaves. Returns (records, their samples)."""
+    recs, ys = [], []
     for t in plan.get("title_audio") or []:
         x, _ = TS.master_audio(ffmpeg(), ffprobe(), t["file"])
         tail = TS.read_audio(ffmpeg(), t["tail"]) if t.get("tail") else None
         title_n = int(round((t["title_end_s"] - t["at_s"]) * AUDIO_RATE))
         end_n = int(round((t["end_s"] - t["at_s"]) * AUDIO_RATE))
         y, how = TS.title_track(x, title_n, end_n, tail=tail)
-        k = _place(clips, y, t["at_s"], float(t.get("gain_db") or 0.0))
-        rec = {"shot": t["shot"], "at_s": t["at_s"], "end_s": t["end_s"], "dur_s": round(k / AUDIO_RATE, 4),
-               "gain_db": float(t.get("gain_db") or 0.0), "silent": bool(t.get("silent")), "lockup_card": t.get("lockup_card"),
-               "tail": t.get("tail"), "rms_dbfs": round(TS.rms_dbfs(y), 2), **how}
-        out.append(rec)
-        journal.decision("assembly", f"{t['shot']}: the series titles play their own sound ({how['master_s']:.3f} s of the "
-                         f"master's track" + (f", {how['tail_s']:.3f} s of its audio_tail" if how["tail_s"] else "")
-                         + (f", {how['room_s']:.3f} s of its room continued" if how["room_s"] else "")
-                         + f") at {rec['gain_db']:+g} dB",
-                         "A40 standalone audio (founder 2026-10-26): the title carries its own sound, frame-aligned with "
-                         "its picture and played at its own speed and pitch, to the cut out of its lockup card; the "
-                         "film's score starts after it", unit=t["shot"], evidence=dict(rec, sync_max_offset_ms=t.get("sync_max_offset_ms")))
-    return out
+        recs.append({"shot": t["shot"], "at_s": t["at_s"], "end_s": t["end_s"], "dur_s": round(len(y) / AUDIO_RATE, 4),
+                     "gain_db": float(t.get("gain_db") or 0.0), "gain_declared": bool(t.get("gain_declared")),
+                     "silent": bool(t.get("silent")), "lockup_card": t.get("lockup_card"), "tail": t.get("tail"),
+                     "sync_max_offset_ms": t.get("sync_max_offset_ms"), **how})
+        ys.append(y)
+    return recs, ys
+
+
+def level_title_audio(recs: list[dict], ys: list[np.ndarray], rest: np.ndarray, clips: np.ndarray, journal: Journal,
+                      *, draft: bool = False) -> list[str]:
+    """A40 title level: each title's gain, then its sound added to the source-sound stem ``clips`` (never ducked,
+    cleaned or limited). Unless the item declares ``audio_gain_db``, the gain brings the title's integrated loudness to
+    the house TS.TITLE_LUFS, held down only as far as its true peak, after the film's programme gain (TARGET_LUFS less
+    the loudness of ``rest`` plus the titles), stays TS.TITLE_PEAK_MARGIN_DB under the master limiter's ceiling; the
+    programme gain moves with the title's level, so it is re-measured until it settles. A declared gain is kept and
+    checked the same way. title-audio-level refuses a title the limiter would still act on, or one the peak rule holds
+    more than TS.TITLE_HOLD_MAX_DB under the house level (its crest is too high to sit with the film: remaster it).
+    Blocking on a final render, a warning on a draft. Returns the reasons to refuse."""
+    ceiling = TARGET_TP - LIMIT_MARGIN_DB - TS.TITLE_PEAK_MARGIN_DB
+    live = [k for k, r in enumerate(recs) if not r["silent"] and len(ys[k])]
+    ms = {k: _measure(ys[k]) for k in live}
+    house = {k: TS.TITLE_LUFS - ms[k]["input_i"] for k in live if math.isfinite(ms[k]["input_i"])}
+    gain = {k: (recs[k]["gain_db"] if recs[k]["gain_declared"] else house.get(k, 0.0)) for k in live}
+    lift, passes = 0.0, []
+
+    def full():
+        y = rest.copy()
+        for k in live:
+            i = int(round(recs[k]["at_s"] * AUDIO_RATE))
+            seg = ys[k][: max(0, len(y) - i)] * np.float32(10 ** (gain[k] / 20))
+            y[i: i + len(seg)] += seg
+        return y
+
+    for _ in range(TS.TITLE_LEVEL_PASSES if live else 0):
+        m = _measure(full())
+        lift = round(TARGET_LUFS - m["input_i"], 2) if math.isfinite(m["input_i"]) else 0.0
+        before = dict(gain)
+        for k in live:
+            if not recs[k]["gain_declared"]:
+                gain[k] = min(house.get(k, 0.0), ceiling - lift - ms[k]["input_tp"])
+        passes.append({"input_i": m["input_i"], "lift_db": lift,
+                       "gains_db": {recs[k]["shot"]: round(gain[k], 2) for k in live}})
+        if all(abs(gain[k] - before[k]) < 0.05 for k in live):
+            break
+    bad = []
+    for k, r in enumerate(recs):
+        g = gain.get(k, r["gain_db"])
+        _place(clips, ys[k], r["at_s"], g)
+        r["gain_db"] = round(g, 2)
+        r["rms_dbfs"] = round(TS.rms_dbfs(ys[k]) + g, 2)
+        if k in live:
+            tp = ms[k]["input_tp"] + g + lift
+            held = house.get(k, g) - g
+            ok = tp <= ceiling + 0.05 and (r["gain_declared"] or held <= TS.TITLE_HOLD_MAX_DB + 1e-6)
+            r.update(level_lufs=round(ms[k]["input_i"] + g, 2), programme_lift_db=lift, predicted_tp_dbtp=round(tp, 2))
+            journal.lint("title-audio-level", ok, stage="assembly", unit=r["shot"], grammar="A40, 8.5, A15",
+                         phase="preflight", severity="warn" if draft else "block",
+                         evidence={"measured_lufs": ms[k]["input_i"], "measured_tp_dbtp": ms[k]["input_tp"],
+                                   "house_lufs": TS.TITLE_LUFS, "gain_db": round(g, 2), "declared": r["gain_declared"],
+                                   "held_under_house_db": round(held, 2), "hold_max_db": TS.TITLE_HOLD_MAX_DB,
+                                   "programme_lift_db": lift, "predicted_tp_dbtp": round(tp, 2), "max_tp_dbtp": ceiling,
+                                   "passes": passes,
+                                   "fix": None if ok else ("lower the declared audio_gain_db" if r["gain_declared"] else
+                                                           "the title's peaks are too far over its loudness to sit at "
+                                                           "the house level under the limiter: remaster its sound")})
+            if not ok:
+                bad.append(f"{r['shot']}: true peak {tp:.2f} dBTP after the programme gain (at most {ceiling:g}), "
+                           f"held {held:.2f} dB under the house level")
+        journal.decision("assembly", f"{r['shot']}: the series titles play their own sound ({r['master_s']:.3f} s of the "
+                         f"master's track" + (f", {r['tail_s']:.3f} s of its audio_tail" if r["tail_s"] else "")
+                         + (f", {r['room_s']:.3f} s of its room continued" if r["room_s"] else "")
+                         + f") at {g:+.2f} dB",
+                         "A40 standalone audio (founder 2026-10-26): the title carries its own sound, frame-aligned and at "
+                         "its own speed and pitch, to the cut out of its lockup card, at the house title level "
+                         f"({TS.TITLE_LUFS:g} LUFS) or its declared gain, its true peak kept "
+                         f"{TS.TITLE_PEAK_MARGIN_DB:g} dB under the limiter after the programme gain", unit=r["shot"],
+                         evidence=dict(r))
+    return [] if draft else bad
 
 
 def title_audio_rendered(journal: Journal, plan: dict, master: Path, *, span: dict | None = None,
@@ -6473,7 +6537,7 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
                              "A36: a clip's own sound never starts or stops on a hard cut of its noise floor", unit=s["id"],
                              evidence={"head": g["head"], "tail": g["tail"]})
             placed["clips"].append(s["id"])
-    placed["titles"] = place_title_audio(clips, plan, journal)
+    placed["titles"], t_ys = title_tracks(plan)
     if missing_voice and not draft:
         raise Refused(f"voice WAVs missing for {', '.join(missing_voice)} (render with --draft to place silence)")
     why = take_refusal(bad_takes, unclean, narrator_off, eq_off, draft)
@@ -6499,6 +6563,11 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
         stems["voice100"] = stems["voice_grid"][: m // k * k].reshape(-1, k).any(axis=1)
         # A29 refined: phone-check, on pass 1's voice (pass 2 only re-peaks the same lines) against the score as heard
         stems["phone"] = SC.phone_check(voice, music * duck + amb, spans)
+    t_off = level_title_audio(placed["titles"], t_ys, (voice + clips + music * duck + amb).astype(np.float32), clips,
+                              journal, draft=draft)
+    del t_ys
+    if t_off:
+        raise Refused(f"title-audio-level (A40): {'; '.join(t_off)}")
     mix = (voice + clips + music * duck + amb).astype(np.float32)
     lifted = voice_ceiling_pass(mix, parts, clips, music, amb, placed, journal, draft=draft, work=work, duck=duck)
     return (mix if lifted is None else lifted), placed
