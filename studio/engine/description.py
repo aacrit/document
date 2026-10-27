@@ -51,14 +51,28 @@ def clock(s) -> str:
 
 
 _CC = re.compile(r"(?i)\bCC[- ]?(BY(?:[- ]SA)?)[- ]?(\d\.\d)\b")
+_CC0 = re.compile(r"(?i)\bCC[- ]?0\b|\bCC[- ]?ZERO\b")
+_ATTRIBUTION = re.compile(r"(?i)\bCC[- ]?BY\b")      # every CC licence that asks for attribution (BY, BY-SA, ...)
+
+
+class AttributionOverflow(ValueError):
+    """The entries that carry an attribution obligation do not fit the description's cap on their own. They are
+    never dropped to fit: the film's sources (or the cap) have to change."""
 
 
 def licence_uri(lic) -> str | None:
-    """A Creative Commons licence's deed URI ("CC BY 4.0", "CC-BY-4.0" -> https://creativecommons.org/licenses/by/4.0/)."""
+    """A Creative Commons licence's deed URI ("CC BY 4.0", "CC-BY-4.0" -> https://creativecommons.org/licenses/by/4.0/;
+    CC0 -> https://creativecommons.org/publicdomain/zero/1.0/)."""
     m = _CC.search(_s(lic))
     if not m:
-        return None
+        return "https://creativecommons.org/publicdomain/zero/1.0/" if _CC0.search(_s(lic)) else None
     return f"https://creativecommons.org/licenses/{m.group(1).lower().replace(' ', '-').replace('--', '-')}/{m.group(2)}/"
+
+
+def obligated(s: dict) -> bool:
+    """A source the film must attribute wherever it is credited: a CC BY or BY-SA licence, or data it was drawn from.
+    CC0 and public domain ask for nothing (the description still names them while there is room)."""
+    return bool(_ATTRIBUTION.search(_s(s.get("licence")))) or bool(s.get("data_sources"))
 
 
 def is_map(s: dict) -> bool:
@@ -147,7 +161,7 @@ def notes(src: dict) -> dict:
             continue
         at = ", ".join(f"{ln.get('id')} ({clock(ln.get('start_s'))})" for ln in u.get("lines") or [] if isinstance(ln, dict))
         unnamed.append(_s(u.get("name")) + (f": {at}" if at else ""))
-    sources, seen = [], set()
+    entries, seen = [], set()
     for s in src.get("shots") or []:
         if not isinstance(s, dict) or not s.get("ledger_id") or (s.get("mark") or {}).get("class") == "CARD":
             continue
@@ -155,20 +169,28 @@ def notes(src: dict) -> dict:
             continue
         seen.add(s["ledger_id"])
         lic = _s(s.get("licence"))
-        bits = [shot_name(s), _s(s.get("archive")), lic, _s(s.get("item_url"))]
+        must = obligated(s)
+        credit = _s(s.get("credit"))
+        # CC BY asks for the title, the author, the source and the licence, the licence by its URI
+        # (a map's attribution is its data, printed by map_attribution below)
+        cc_by = bool(_ATTRIBUTION.search(lic))
+        author = ""
+        if cc_by and not is_map(s) and not credit and _s(s.get("creator")) not in ("", _s(s.get("archive"))):
+            author = f"By {_s(s.get('creator'))}"
+        uri = licence_uri(lic) if cc_by else None
+        bits = [shot_name(s), author, _s(s.get("archive")), " ".join(x for x in (lic, uri) if x), _s(s.get("item_url"))]
         line = ". ".join(b for b in bits if b)
-        if re.search(r"(?i)\bBY[- ]SA\b", lic) and _s(s.get("credit")):
-            line += f". Attribution: {_s(s.get('credit'))}"
+        if credit and (re.search(r"(?i)\bBY[- ]SA\b", lic) or (cc_by and not is_map(s))):
+            line += f". Attribution: {credit}"
         if _s(s.get("licence_note")):
             line += f" ({_s(s.get('licence_note'))})"
         if is_map(s) and map_attribution(s):
             line += ". " + map_attribution(s)
-        sources.append(line)
-    tapes = []
+        entries.append({"line": line, "obligated": must, "name": f"{s['ledger_id']} ({shot_name(s)})"})
     for r in readings:
         if r.get("mark") == "ARCHIVE" and r.get("clip") and r["clip"] not in seen:
             seen.add(r["clip"])
-            tapes.append(_s(r.get("source") or r["clip"]))
+            entries.append({"line": _s(r.get("source") or r["clip"]), "obligated": False, "name": _s(r["clip"])})
     map_notes = []
     for s in src.get("shots") or []:
         if not isinstance(s, dict):
@@ -177,7 +199,8 @@ def notes(src: dict) -> dict:
             t = f"{shot_name(s)}: {_s(n)}"
             if _s(n) and t not in map_notes:
                 map_notes.append(t)
-        line = _s(s.get("source_line"))
+        # the data credit, with each source's url and its licence's URI when the map names its data
+        line = (map_attribution(s) if s.get("data_sources") else "") or _s(s.get("source_line"))
         t = f"{shot_name(s)}: {line}"
         if line and t not in map_notes:
             map_notes.append(t)
@@ -185,12 +208,16 @@ def notes(src: dict) -> dict:
             for g in src.get("gaps") or [] if isinstance(g, dict) and _s(g.get("says"))]
     statements = [t for t in (statement_text(sf) for sf in src.get("shortfalls") or []) if t]
     return {"narrator": narrator, "readers": readers, "originals": originals, "unnamed": unnamed,
-            "sources": sources + tapes, "map_notes": map_notes, "gaps": gaps, "statements": statements}
+            "sources": [e["line"] for e in entries], "source_entries": entries, "map_notes": map_notes,
+            "gaps": gaps, "statements": statements}
 
 
 def description_text(src: dict, film: dict | None = None, *, site: str = SITE) -> str:
     """The plain-text description block for one film (no markup, at most
-    MAX_CHARS characters: the sources list is cut first, and says so)."""
+    MAX_CHARS characters: the sources list is cut first, and says so). Only
+    plain entries are cut; an entry with an attribution obligation (obligated())
+    is always printed whole, and AttributionOverflow is raised when those alone
+    do not fit."""
     film = film or {}
     n = notes(src)
     slug = _s(src.get("slug") or film.get("slug"))
@@ -217,17 +244,34 @@ def description_text(src: dict, film: dict | None = None, *, site: str = SITE) -
         after += [g["says"] + (f" {g['searched']}" if g["searched"] else "") for g in n["gaps"]] + n["statements"]
     after += ["", "Every shot, reading and licence: " + f"{site}/f/{slug}/sources/",
               "Correct something: " + f"{site}/f/{slug}/correct/"]
-    src_lines = ["", "Sources"] + n["sources"] if n["sources"] else []
+    entries = n["source_entries"]
+    src_lines = ["", "Sources"] + [e["line"] for e in entries] if entries else []
     text = "\n".join(out + src_lines + after)
-    if len(text) > MAX_CHARS and src_lines:          # the sources list is cut first, and says where the rest is
-        keep = src_lines[:2]
-        more = "The full list is on the sources page."
-        for line in src_lines[2:]:
-            if len("\n".join(out + keep + [line, more] + after)) > MAX_CHARS:
-                break
-            keep.append(line)
-        text = "\n".join(out + keep + [more] + after)
-    return text[:MAX_CHARS]
+    if len(text) <= MAX_CHARS:
+        return text
+    # Over the cap: the sources list is cut first, and says where the rest is. An entry that carries an attribution
+    # obligation (CC BY, BY-SA, drawn data) is never cut: only plain entries make room, in the film's order.
+    must = [e for e in entries if e["obligated"]]
+    more = "The full list is on the sources page."
+    floor = "\n".join(out + (["", "Sources"] + [e["line"] for e in must] + [more] if entries else []) + after)
+    if len(floor) > MAX_CHARS:
+        if must or any(_ATTRIBUTION.search(t) or "Data:" in t for t in n["map_notes"]):
+            raise AttributionOverflow(
+                f"the description is {len(floor)} characters with every plain source cut, over the cap of {MAX_CHARS}; "
+                f"these sources carry an attribution obligation and are never dropped: "
+                + "; ".join(e["name"] for e in must))
+        return floor[:MAX_CHARS]                   # nothing owed: the old cut (the sources list, then the tail)
+    room = MAX_CHARS - len(floor)
+    keep, cutting = [], False
+    for e in entries:
+        if e["obligated"]:
+            keep.append(e["line"])
+        elif not cutting and len(e["line"]) + 1 <= room:
+            keep.append(e["line"])
+            room -= len(e["line"]) + 1
+        else:
+            cutting = True                         # plain entries stop at the first that does not fit: a prefix
+    return "\n".join(out + ["", "Sources"] + keep + [more] + after)
 
 
 def film_entry(films_json: Path | None, slug: str) -> dict | None:

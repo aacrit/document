@@ -89,3 +89,103 @@ def test_the_cli_writes_description_txt_beside_sources_json(tmp_path):
     assert D.main([str(tmp_path / "sources.json"), "--films", str(reg)]) == 0
     out = (tmp_path / "description.txt").read_text(encoding="utf-8")
     assert out.startswith("Fixture film (11 September 2001)\n")
+
+
+# ---- attribution survives the cap (CC BY: title, author, source, licence; the licence by its URI) ---------------------
+
+GEONAMES_MAP = {
+    "id": "6.14", "ledger_id": "D-EUR", "mark": {"class": "DRAWN"}, "title": "Western Europe, with Brussels (drawn map)",
+    "archive": "void document studio", "creator": "void document studio", "licence": "CC-BY-4.0",
+    "licence_note": "contains GeoNames data (CC BY 4.0); Natural Earth public domain",
+    "source_line": "Data: Natural Earth; GeoNames (CC BY 4.0)",
+    "data_sources": [{"id": "Natural Earth", "licence": "public domain", "url": "https://www.naturalearthdata.com/"},
+                     {"id": "GeoNames (CC BY 4.0)", "licence": "CC BY 4.0", "url": "https://www.geonames.org/"}]}
+
+
+def _long_film(n=73, at=47, voices=40):
+    """Real World's shape: a long voices list, and n sources with the CC BY map late among them."""
+    shots = [{"id": f"S{i}", "ledger_id": f"ST-{i}", "mark": {"class": "ARCHIVE"},
+              "title": f"Public domain still {i} " + "x" * 60, "archive": "National Archives", "licence": "public domain",
+              "item_url": f"https://catalog.archives.gov/id/{i}"} for i in range(n)]
+    shots[at] = GEONAMES_MAP
+    readings = [{"id": f"A{i}", "name": f"Recorded speaker number {i}", "mark": "ARCHIVE", "clip": f"RLR-{i:03d}",
+                 "source": f"RLR-{i:03d}", "start_s": i} for i in range(voices)]
+    return dict(SRC, shots=shots, readings=readings, unnamed_speakers=[])
+
+
+def test_a_late_cc_by_map_keeps_its_full_attribution_under_the_cap():
+    src = _long_film()
+    assert len("\n".join(D.notes(src)["sources"])) > D.MAX_CHARS            # the fixture does overflow the cap
+    t = D.description_text(src, FILM)
+    assert len(t) <= D.MAX_CHARS
+    assert "The full list is on the sources page." in t
+    block = t[t.index("\nSources\n"):t.index("The full list is on the sources page.")]
+    line = next(ln for ln in block.splitlines() if ln.startswith("Western Europe, with Brussels"))
+    for must in ("CC-BY-4.0", "https://www.geonames.org/", "https://www.naturalearthdata.com/",
+                 "https://creativecommons.org/licenses/by/4.0/", "contains GeoNames data"):
+        assert must in line
+    assert "Public domain still 72" not in t                                   # plain entries are what is dropped
+    assert "Public domain still 0 " in t                                       # ... and still fill the room, in order
+    assert block.index("Public domain still 0 ") < block.index("Western Europe")
+    assert "D-EUR" not in t
+
+
+def test_every_cc_by_photograph_keeps_its_author_licence_uri_and_link():
+    src = _long_film()
+    src["shots"][60] = {"id": "S60", "ledger_id": "CB-1", "mark": {"class": "ARCHIVE"}, "title": "Both towers burning",
+                        "archive": "Wikimedia Commons", "creator": "newandrew (Flickr)", "licence": "CC BY 2.0",
+                        "item_url": "https://commons.wikimedia.org/wiki/File:From_brooklyn.jpg"}
+    src["shots"][65] = {"id": "S65", "ledger_id": "CB-2", "mark": {"class": "ARCHIVE"}, "title": "Hoboken",
+                        "archive": "Wikimedia Commons", "creator": "Luigi Novi", "licence": "CC BY-SA 3.0",
+                        "credit": "Luigi Novi / Wikimedia Commons", "item_url": "https://commons.wikimedia.org/wiki/File:H.jpg"}
+    t = D.description_text(src, FILM)
+    a = next(ln for ln in t.splitlines() if ln.startswith("Both towers burning"))
+    assert "By newandrew (Flickr)" in a and "https://creativecommons.org/licenses/by/2.0/" in a
+    assert "https://commons.wikimedia.org/wiki/File:From_brooklyn.jpg" in a
+    b = next(ln for ln in t.splitlines() if ln.startswith("Hoboken"))
+    assert "Attribution: Luigi Novi / Wikimedia Commons" in b and "https://creativecommons.org/licenses/by-sa/3.0/" in b
+    assert "By Luigi Novi" not in b                                             # the credit is the attribution, once
+
+
+def test_cc0_and_public_domain_carry_no_obligation():
+    assert not D.obligated({"licence": "CC0"}) and not D.obligated({"licence": "public domain"})
+    assert D.obligated({"licence": "CC BY 2.0"}) and D.obligated({"licence": "CC-BY-SA-4.0"})
+    assert D.obligated({"licence": "public domain", "data_sources": [{"id": "X", "url": "https://x.org/"}]})
+    assert D.licence_uri("CC-BY-SA-4.0") == "https://creativecommons.org/licenses/by-sa/4.0/"
+
+
+def test_the_map_note_carries_the_uris_too():
+    t = D.description_text(_long_film(), FILM)
+    notes = t[t.index("Notes on the maps"):]
+    line = next(ln for ln in notes.splitlines() if ln.startswith("Western Europe"))
+    assert "https://www.geonames.org/" in line and "https://creativecommons.org/licenses/by/4.0/" in line
+
+
+def test_obligated_entries_that_cannot_fit_are_a_hard_error_naming_them():
+    src = _long_film()
+    for i in range(0, 73, 2):                                                   # half the film CC BY, with long titles
+        src["shots"][i] = {"id": f"S{i}", "ledger_id": f"CB-{i}", "mark": {"class": "ARCHIVE"},
+                           "title": f"Licensed photograph {i} " + "y" * 90, "archive": "Wikimedia Commons",
+                           "creator": f"Photographer {i}", "licence": "CC BY 2.0", "item_url": f"https://c.org/{i}"}
+    try:
+        D.description_text(src, FILM)
+    except D.AttributionOverflow as e:
+        msg = str(e)
+    else:
+        raise AssertionError("an attribution was dropped silently")
+    assert "CB-0" in msg and "Licensed photograph 0" in msg and str(D.MAX_CHARS) in msg
+
+
+def test_the_cli_refuses_rather_than_write_a_short_attribution(tmp_path):
+    src = _long_film()
+    for i in range(0, 73, 2):
+        src["shots"][i] = {"id": f"S{i}", "ledger_id": f"CB-{i}", "mark": {"class": "ARCHIVE"}, "title": "y" * 120,
+                           "archive": "Wikimedia Commons", "licence": "CC BY 2.0", "item_url": f"https://c.org/{i}"}
+    (tmp_path / "sources.json").write_text(json.dumps(src), encoding="utf-8")
+    try:
+        D.main([str(tmp_path / "sources.json"), "--films", str(tmp_path / "none.json")])
+    except D.AttributionOverflow:
+        pass
+    else:
+        raise AssertionError("the CLI wrote a description that drops attributions")
+    assert not (tmp_path / "description.txt").exists()
