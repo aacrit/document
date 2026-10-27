@@ -249,34 +249,77 @@ def decompose(sid, world):
     return band, parts
 
 
+def planes(hull):
+    """A convex hull's face planes (unit normals out, offsets): inside iff n . p - d <= 0 for every face."""
+    n = np.asarray(hull.face_normals, float)
+    d = np.einsum("ij,ij->i", n, np.asarray(hull.vertices)[hull.faces[:, 0]])
+    return n, d
+
+
+def depth_inside(pl, P):
+    """max over faces of (n . p - d): negative inside the convex part (exactly minus the depth), positive outside."""
+    n, d = pl
+    out = np.full(len(P), -np.inf)
+    for k in range(0, len(n), 256):
+        out = np.maximum(out, (P @ n[k:k + 256].T - d[k:k + 256]).max(1))
+    return out
+
+
+def chunked_signed(mesh, P, chunk=4000):
+    """trimesh's signed distance (positive inside) in chunks, so a large point set never builds a huge array."""
+    import trimesh
+    return np.concatenate([trimesh.proximity.signed_distance(mesh, P[i:i + chunk])
+                           for i in range(0, len(P), chunk)]) if len(P) else np.zeros(0)
+
+
 def gaps(band_visual, parts, n=60000, seed=0):
-    """(air, missing) in metres on the contact band (0.5 mm to BAND_TOP): air, how far any part's outer surface lies
-    outside the visual solid; missing, how far any visual surface lies outside every part."""
+    """(air, missing, info) in metres on the contact band (0.5 mm to BAND_TOP): air, how far any part's outer surface
+    lies outside the visual solid (the ball would strike air); missing, how far any visual surface lies outside every
+    part (the ball would pass into the object). Per part: its worst air and where."""
     import trimesh
     rng = np.random.default_rng(seed)
-    pts = []
-    for p in parts:
-        k = max(200, int(n * p.area / sum(q.area for q in parts)))
+    pls = [planes(p) for p in parts]
+    area = sum(q.area for q in parts)
+    per_part = []
+    air_all = []
+    for j, p in enumerate(parts):
+        k = max(200, int(n * p.area / area))
         s, _ = trimesh.sample.sample_surface(p, k, seed=int(rng.integers(1 << 30)))
-        pts.append(s)
-    P = np.concatenate(pts)
-    P = P[(P[:, 2] > 0.0005) & (P[:, 2] < BAND_TOP)]
-    inside_other = np.zeros(len(P), bool)
-    for p in parts:                                   # a part face buried in another part is not a contact surface
-        d = trimesh.proximity.signed_distance(p, P)
-        inside_other |= d > 1e-5
-    outer = P[~inside_other]
-    sd = trimesh.proximity.signed_distance(band_visual, outer) if len(outer) else np.zeros(0)
-    air = float(max(0.0, -sd.min())) if len(sd) else 0.0
+        s = s[(s[:, 2] > 0.0005) & (s[:, 2] < BAND_TOP)]
+        if not len(s):
+            continue
+        buried = np.zeros(len(s), bool)
+        for i, pl in enumerate(pls):               # a face buried in another part is not a contact surface
+            if i != j:
+                buried |= depth_inside(pl, s) < -1e-5
+        s = s[~buried]
+        if not len(s):
+            continue
+        sd = chunked_signed(band_visual, s)
+        a = -sd
+        air_all.append(a)
+        w = int(np.argmax(a))
+        per_part.append({"part": j, "air_max_m": float(max(0.0, a[w])), "at": s[w].round(4).tolist()})
+    air_v = np.concatenate(air_all) if air_all else np.zeros(1)
     V, _ = trimesh.sample.sample_surface(band_visual, n, seed=1)
     V = V[(V[:, 2] > 0.0005) & (V[:, 2] < BAND_TOP)]
-    best = np.full(len(V), -np.inf)
-    for p in parts:
-        best = np.maximum(best, trimesh.proximity.signed_distance(p, V))
-    missing = float(max(0.0, -best.min())) if len(V) else 0.0
-    return air, missing, {"n_part_pts": int(len(outer)), "n_visual_pts": int(len(V)),
-                          "air_p99_m": float(np.percentile(-sd, 99)) if len(sd) else 0.0,
-                          "missing_p99_m": float(np.percentile(-best, 99)) if len(V) else 0.0}
+    inside_any = np.zeros(len(V), bool)
+    for pl in pls:
+        inside_any |= depth_inside(pl, V) <= 1e-6
+    out_pts = V[~inside_any]
+    miss = np.zeros(len(out_pts))
+    if len(out_pts):
+        best = np.full(len(out_pts), np.inf)
+        for p in parts:                             # exact distance to each (small) hull, only for points outside all
+            _, dist, _ = trimesh.proximity.closest_point(p, out_pts)
+            best = np.minimum(best, dist)
+        miss = best
+    missing = float(miss.max()) if len(miss) else 0.0
+    return float(max(0.0, air_v.max())), missing, {
+        "n_visual_pts": int(len(V)), "n_visual_outside_parts": int(len(out_pts)),
+        "air_p99_m": float(np.percentile(np.maximum(air_v, 0), 99)),
+        "missing_p99_m": float(np.percentile(miss, 99)) if len(miss) else 0.0,
+        "worst_parts": sorted(per_part, key=lambda r: -r["air_max_m"])[:6]}
 
 
 def gate_all():
@@ -301,10 +344,18 @@ def main():
     (OUT / "gate.json").write_text(json.dumps(g, indent=1, ensure_ascii=False), encoding="utf-8")
     for sid, r in g.items():
         print(f"gate {sid}: {r['gate']}" + (f" ({'; '.join(r['reasons'])})" if r["reasons"] else ""))
+    only = sys.argv[sys.argv.index("--only") + 1].split(",") if "--only" in sys.argv else None
+    if "--threshold" in sys.argv:
+        th = float(sys.argv[sys.argv.index("--threshold") + 1])
+        for sid in only or COLLIDE:
+            COLLIDE[sid]["threshold"] = th
     transforms, report = {}, {"gate": {k: v["gate"] for k, v in g.items()}, "museum": MUSEUM, "scans": {}}
+    if only and (OUT / "report.json").exists():               # one scan redone: keep the others' results
+        report["scans"] = json.loads((OUT / "report.json").read_text(encoding="utf-8")).get("scans", {})
+        transforms = json.loads((OUT / "transforms.json").read_text(encoding="utf-8"))
     with MV.heavy("v6 scans: CoACD decompositions (CPU)", enabled=use_lock):
         for sid in ("globe", "weights", "jeton", "FS-coin-dupondius-octavian", "FS-coin-sesterce-trajan"):
-            if g[sid]["gate"] != "pass":
+            if g[sid]["gate"] != "pass" or (only and sid not in only):
                 continue
             mesh = load_native(sid)
             M, k, how = world_transform(sid, mesh.vertices)
@@ -323,7 +374,8 @@ def main():
                                     **{f"v{i}": p.vertices.astype(np.float64) for i, p in enumerate(parts)},
                                     **{f"f{i}": p.faces.astype(np.int32) for i, p in enumerate(parts)})
                 # the band's outline per part height, for the plot and the placement (footprint at the ball's equator)
-                print(f"{sid}: {len(parts)} parts, air {air * 1000:.2f} mm, missing {missing * 1000:.2f} mm")
+                print(f"{sid}: {len(parts)} parts, air {air * 1000:.2f} mm, missing {missing * 1000:.2f} mm; "
+                      f"worst {info['worst_parts'][:3]}", flush=True)
             else:
                 # visual only: a convex hull for the close-pass check (the ball never touches them by design)
                 np.savez_compressed(OUT / f"{sid}-collider.npz", v0=world.convex_hull.vertices,

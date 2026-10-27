@@ -446,7 +446,9 @@ class Recorder:
 def run(w, d, t_end, rec=None, stop_at=None, t0_title=T.T_RELEASE):
     """Step until title time t_end, the ball's rest in the well, a stall, or stop_at(d) returns True. Title time =
     d.time + t0_title (the latch opens at f12)."""
-    rec = rec or Recorder(w)
+    if rec is None:
+        rec = Recorder(w)
+        rec.next_bake = d.time + t0_title
     m = w.m
     per_log = int(round(1 / (LOG_HZ * DT)))
     still, stall = None, None
