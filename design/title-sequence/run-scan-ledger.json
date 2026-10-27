@@ -549,6 +549,29 @@
    ],
    "gate": "pass",
    "notes": "material texture"
+  },
+  {
+   "id": "SI-morse-vail-key-nmah-1096762",
+   "title": "Morse-Vail telegraph key, 1844 (T-10)",
+   "institution": "Smithsonian Institution, National Museum of American History",
+   "inventory_id": "EM.181411; accession 31652; EDAN edanmdm:nmah_1096762",
+   "source_url": "https://sketchfab.com/3d-models/a5b108e3132d46b696c36310c2314ed8",
+   "licence": "CC0",
+   "capture_method": "unknown",
+   "capture_software": "not stated",
+   "capture_evidence": "none: the EDAN object record, its 3d_package (3d_package:ed99f44d-3c60-4111-b666-e2908e1b64ef: six mesh resources, units, file types, sizes) and the Voyager scene document (annotations, articles, tour) name no capture method; the Sketchfab record says only Smithsonian source data and the public-domain notice (read 2026-10-26)",
+   "capture_evidence_url": "https://api.si.edu/openaccess/api/v1.0/content/edanmdm:nmah_1096762",
+   "ai": null,
+   "ai_evidence": "not established: no capture note",
+   "sha256": null,
+   "files": [],
+   "processing": [],
+   "tags": [
+    "v6",
+    "the run with the instruments"
+   ],
+   "gate": "refuse",
+   "notes": "capture method unknown in the institution records: refused under the gate (an unknown method is a refusal); not downloaded. v6 places no key (spec section 3, item 6: otherwise absent)"
   }
  ]
 }
