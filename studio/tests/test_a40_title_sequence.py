@@ -44,11 +44,37 @@ def _lockup(W, H):
     return img
 
 
-def make_master(path, record_png, *, burned=True, glyph_on_hold=True, n=N, pose=None, rec_pic=None):
+CLICK_FRAME = 36                        # the master's Foley click: on the cut to the record (its frame 36 at 24)
+FOLEY_DBFS = -30.0                      # the stand-in Foley's bed, and the room its last ROOM_TAIL_S hold
+ROOM_DBFS = -70.0
+ROOM_TAIL_S = 1.0 + TS.ROOM_S
+
+
+def sound_wav(path, dur_s, *, fps=24.0, click_frame=CLICK_FRAME, sound="foley"):
+    """The master's own track, as the real ones carry it (Foley, then the room): stereo 48 kHz, ``dur_s`` long; a
+    noise bed at FOLEY_DBFS with one click on master frame ``click_frame`` (its time at ``fps``), then ROOM_TAIL_S
+    of room at ROOM_DBFS. ``sound="silent"``: digital zero throughout."""
+    import soundfile as sf
+    n = int(round(dur_s * 48000))
+    x = np.zeros((n, 2), np.float32)
+    if sound != "silent":
+        rng = np.random.default_rng(7)
+        bed = rng.standard_normal((n, 2)).astype(np.float32)
+        room0 = n - int(round(ROOM_TAIL_S * 48000))
+        x[:room0] = bed[:room0] * np.float32(10 ** (FOLEY_DBFS / 20))
+        x[room0:] = bed[room0:] * np.float32(10 ** (ROOM_DBFS / 20))
+        c = int(round(click_frame / fps * 48000))
+        x[c: c + 48] = 0.7                          # a 1 ms click, both channels
+    sf.write(str(path), x, 48000, subtype="FLOAT")
+    return path
+
+
+def make_master(path, record_png, *, burned=True, glyph_on_hold=True, n=N, pose=None, rec_pic=None, sound="foley"):
     """A short master in the real ones' shape: the machine (DRAWN), a cut to the record held whole (ARCHIVE), a dip
     and the lockup (CARD), the marks burned in as assemble.py burns them (or none). ``pose`` (window, from_frame): the
     record beat tours to that window of the scan filling the frame and rests there from from_frame (A7 under A41).
-    ``rec_pic``: the record beat's picture as given (a camera's view of the page) instead of the scan held whole."""
+    ``rec_pic``: the record beat's picture as given (a camera's view of the page) instead of the scan held whole.
+    ``sound``: its own track (sound_wav: "foley", or "silent"), or None for a master with no audio stream."""
     W, H = TS.SIZE
     fonts = M.Fonts()
     machine, lock = _machine(W, H), _lockup(W, H)
@@ -59,8 +85,11 @@ def make_master(path, record_png, *, burned=True, glyph_on_hold=True, n=N, pose=
     holds = TS.dip_hold_frames(item)
     shots = [{"start": m["frame"] / 24, "cls": m["cls"], "label": m.get("label", "")} for m in TL]
     t0 = DIP["centre_frame"] / 24 - DIP["s"] / 2
+    aud = [] if sound is None else ["-i", str(sound_wav(path.with_suffix(".sound.wav"), n / 24, sound=sound)),
+                                    "-map", "0:v:0", "-map", "1:a:0", "-c:a", "pcm_s16le"]
     p = subprocess.Popen([R.ffmpeg(), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", "24",
-                          "-i", "-", "-c:v", "ffv1", "-level", "3", "-g", "1", "-pix_fmt", "bgr0", str(path)], stdin=subprocess.PIPE)
+                          "-i", "-", *aud, "-c:v", "ffv1", "-level", "3", "-g", "1", "-pix_fmt", "bgr0", str(path)],
+                         stdin=subprocess.PIPE)
     for k in range(n):
         t = k / 24
         pic = machine if k < 36 else rec if k < 60 else lock
@@ -195,9 +224,12 @@ def test_a40_a_burned_master_after_the_cold_open_passes_every_lint(tmp_path, mas
     # the master's own dip shows the glyph on its black hold, as the real masters do: a warning and a reviewer item
     assert any(e["status"] == "fail" and e["severity"] == "warn" for e in lints(j, "title-dip-hold"))
     assert lints(j, "title-dip-hold-review")
-    # no theme yet: silence is allowed, declared intended, and the reviewer is told
-    assert (COLD_S, COLD_S + TITLE_S) in plan["silences"]
-    assert lints(j, "title-theme-pending")[0]["evidence"]["stand_in"] == "silence"
+    # A40 standalone audio: the title plays its own sound, so its span is no declared silence and nothing is pending
+    assert passed(j, "title-audio") and passed(j, "title-audio-sync")
+    assert (COLD_S, COLD_S + TITLE_S) not in plan["silences"] and not lints(j, "title-theme-pending")
+    (ta,) = plan["title_audio"]
+    assert ta["shot"] == "TS1" and ta["gain_db"] == 0.0 and ta["silent"] is False and ta["tail"] is None
+    assert ta["end_s"] == pytest.approx(SHIFT) and ta["sync_max_offset_ms"] == 0.0     # 1:1, the lockup in the master
 
 
 def test_a40_a_clean_dip_needs_no_warning(tmp_path, masters):
@@ -254,34 +286,29 @@ def test_a40_no_voice_or_lower_third_over_the_titles(tmp_path, masters):
     assert {"LX", "TX"} <= set(next(e for e in lints(j, "title-sequence-clear") if e["status"] == "fail")["evidence"]["over"])
 
 
-def test_a40_the_audio_slot_takes_the_theme_or_the_motif_and_nothing_else(tmp_path, masters):
-    def bed(play):
-        play["music"] = [{"id": "B1", "kind": "music", "start_s": 0.5, "end_s": COLD_S + 2.0, "wav": "score/b1.wav"}]
-    plan, j = plan_of(titled_film(tmp_path / "a", masters, edit=bed))
-    assert isinstance(plan, R.Refused) and failed(j, "title-audio-slot")
-
-    def motif(play):
-        play["music"] = [{"id": "M1", "kind": "music", "role": "house_motif", "start_s": COLD_S, "end_s": SHIFT, "wav": "m.wav"}]
-    plan, j = plan_of(titled_film(tmp_path / "b", masters, edit=motif))
-    assert not isinstance(plan, Exception), plan
-    assert passed(j, "title-audio-slot") and lints(j, "title-theme-pending")[0]["evidence"]["stand_in"] == ["M1"]
-    assert (COLD_S, SHIFT) not in plan["silences"]
-
-    def theme(play):
-        play["music"] = [{"id": "MT", "kind": "music", "role": "main_title", "start_s": COLD_S, "end_s": SHIFT, "wav": "mt.wav"}]
-    plan, j = plan_of(titled_film(tmp_path / "c", masters, edit=theme))
-    assert not isinstance(plan, Exception), plan
-    assert passed(j, "title-theme") and not lints(j, "title-theme-pending")
-
-    def theme_late(play):
-        play["music"] = [{"id": "MT", "kind": "music", "role": "main_title", "start_s": COLD_S + 1, "end_s": SHIFT, "wav": "mt.wav"}]
-    plan, j = plan_of(titled_film(tmp_path / "d", masters, edit=theme_late))
+def test_a40_no_film_cue_sounds_under_the_titles_not_even_the_theme_or_the_motif(tmp_path, masters):
+    """A40 standalone audio (founder 2026-10-26): the title carries its own sound and the film's score starts after
+    it; no main-title cue in films. So nothing a film places sounds under the title: a bed, the house motif, the theme,
+    an ambience; a cue that ends at the title's first frame or starts at its last passes."""
+    cases = {"bed": {"id": "B1", "kind": "music", "start_s": 0.5, "end_s": COLD_S + 2.0, "wav": "score/b1.wav"},
+             "motif": {"id": "M1", "kind": "music", "role": "house_motif", "start_s": COLD_S, "end_s": SHIFT, "wav": "m.wav"},
+             "room": {"id": "A1", "kind": "ambience", "start_s": COLD_S + 1, "end_s": SHIFT, "wav": "a.wav"}}
+    for name, cue in cases.items():
+        plan, j = plan_of(titled_film(tmp_path / name, masters, edit=lambda play, c=cue: play.update(music=[c])))
+        assert isinstance(plan, R.Refused) and failed(j, "title-audio-slot"), name
+        assert not lints(j, "title-theme-pending")
+    theme = {"id": "MT", "kind": "music", "role": "main_title", "start_s": COLD_S, "end_s": SHIFT, "wav": "mt.wav"}
+    plan, j = plan_of(titled_film(tmp_path / "theme", masters, edit=lambda play: play.update(music=[theme])))
+    assert isinstance(plan, R.Refused) and failed(j, "title-audio-slot") and failed(j, "title-theme")
+    assert "no main-title cue in a film" in next(e for e in lints(j, "title-theme") if e["status"] == "fail")["evidence"]["fix"]
+    plan, j = plan_of(titled_film(tmp_path / "elsewhere", masters,
+                                  edit=lambda play: play.update(music=[dict(theme, start_s=SHIFT + 5, end_s=SHIFT + 8)])))
     assert isinstance(plan, R.Refused) and failed(j, "title-theme")
-
-    def theme_elsewhere(play):
-        play["music"] = [{"id": "MT", "kind": "music", "role": "main_title", "start_s": SHIFT + 5, "end_s": SHIFT + 8, "wav": "mt.wav"}]
-    plan, j = plan_of(titled_film(tmp_path / "e", masters, edit=theme_elsewhere))
-    assert isinstance(plan, R.Refused) and failed(j, "title-theme")
+    edges = [{"id": "B0", "kind": "music", "start_s": 0.0, "end_s": COLD_S, "wav": "b0.wav"},
+             {"id": "B2", "kind": "music", "start_s": SHIFT, "end_s": SHIFT + 3, "wav": "b2.wav"}]
+    plan, j = plan_of(titled_film(tmp_path / "edges", masters, edit=lambda play: play.update(music=edges)))
+    assert not isinstance(plan, Exception), plan
+    assert passed(j, "title-audio-slot")
 
 
 def test_a40_the_main_title_role_is_featured_and_recurs_by_design():

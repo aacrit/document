@@ -3508,6 +3508,8 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                    "label": s["label"], "year": mark_year(s)}           # end: A42's repeats stay inside the shot
                   for s in shots],
         "card_spans": card_spans, "wm_start": (imagery[0]["f0"] / fps) if imagery else None,
+        # A40 standalone audio: each title's own sound as the mix places it (titles.audio_plan)
+        "title_audio": [t["audio"] for t in titles.values() if t.get("audio")],
         # A31: the mark key's classes, from the whole film (kept by --until), the series titles' own classes with them (A40)
         # A21, A25 and E2's sides: what the sources page states about the film's own rules
         "imagery_rule": rule, "settings": settings, "settings_stated": settings_stated, "shortfalls": shortfalls,
@@ -6199,6 +6201,69 @@ def take_lints(journal: Journal, plan: dict, film: Path, *, draft: bool = False,
             "refusal": refusing[0] if refusing else None, "refused_lines": named}
 
 
+def place_title_audio(clips: np.ndarray, plan: dict, journal: Journal) -> list[dict]:
+    """A40 standalone audio (founder ruling 2026-10-26): each series title's own sound into the source-sound stem
+    (never ducked, cleaned or levelled, as a clip's own sound): the master's own track from the title's first frame
+    at unity (or its declared ``audio_gain_db``), continued under the lockup card that ends its part by its
+    ``audio_tail`` or by its own room (titles.title_track), and ending at the cut into the film. A title master at
+    another rate than the film's has its picture conformed by frame drop or repeat with no speed change (A44), so its
+    sound is played as recorded, at its own speed and pitch, with no resample: picture and sound keep one clock, and
+    title-audio-sync bounds the offset the conform's frame choice leaves. Returns what was placed."""
+    out = []
+    for t in plan.get("title_audio") or []:
+        x, _ = TS.master_audio(ffmpeg(), ffprobe(), t["file"])
+        tail = TS.read_audio(ffmpeg(), t["tail"]) if t.get("tail") else None
+        title_n = int(round((t["title_end_s"] - t["at_s"]) * AUDIO_RATE))
+        end_n = int(round((t["end_s"] - t["at_s"]) * AUDIO_RATE))
+        y, how = TS.title_track(x, title_n, end_n, tail=tail)
+        k = _place(clips, y, t["at_s"], float(t.get("gain_db") or 0.0))
+        rec = {"shot": t["shot"], "at_s": t["at_s"], "end_s": t["end_s"], "dur_s": round(k / AUDIO_RATE, 4),
+               "gain_db": float(t.get("gain_db") or 0.0), "silent": bool(t.get("silent")), "lockup_card": t.get("lockup_card"),
+               "tail": t.get("tail"), "rms_dbfs": round(TS.rms_dbfs(y), 2), **how}
+        out.append(rec)
+        journal.decision("assembly", f"{t['shot']}: the series titles play their own sound ({how['master_s']:.3f} s of the "
+                         f"master's track" + (f", {how['tail_s']:.3f} s of its audio_tail" if how["tail_s"] else "")
+                         + (f", {how['room_s']:.3f} s of its room continued" if how["room_s"] else "")
+                         + f") at {rec['gain_db']:+g} dB",
+                         "A40 standalone audio (founder 2026-10-26): the title carries its own sound, frame-aligned with "
+                         "its picture and played at its own speed and pitch, to the cut out of its lockup card; the "
+                         "film's score starts after it", unit=t["shot"], evidence=dict(rec, sync_max_offset_ms=t.get("sync_max_offset_ms")))
+    return out
+
+
+def title_audio_rendered(journal: Journal, plan: dict, master: Path, *, span: dict | None = None,
+                         draft: bool = False) -> list[str]:
+    """title-audio after the render (A40 standalone audio): each series title's span measured in the master's own
+    sound. The title shot's RMS is at least TS.AUDIO_FLOOR_DBFS (about -70 dBFS) unless its master's own track is
+    silent, and its lockup card's span (the tail or the room continued) is at least TS.TAIL_FLOOR_DBFS: never the
+    digital black (-91 dBFS) the released films measured there. A check span (--shots) measures the part of a title
+    inside it. Blocking on a final render, a warning on a draft. Returns the reasons to refuse."""
+    off = span["t0_s"] if span else 0.0
+    dur = span["duration_s"] if span else plan["duration_s"]
+    bad = []
+    for t in plan.get("title_audio") or []:
+        parts = [("title", t["at_s"], t["title_end_s"], TS.AUDIO_FLOOR_DBFS)]
+        if t["end_s"] > t["title_end_s"] + 1e-6:
+            parts.append(("lockup", t["title_end_s"], t["end_s"], TS.TAIL_FLOOR_DBFS))
+        for what, a, b, floor in parts:
+            a, b = max(0.0, a - off), min(dur, b - off)
+            if b - a < 0.5:                     # not in this span, or too little of it to measure
+                continue
+            x = TS.read_audio(ffmpeg(), str(master), start_s=a, dur_s=b - a)
+            got = TS.rms_dbfs(x)
+            ok = bool(t.get("silent")) or got >= floor
+            journal.lint("title-audio", ok, stage="assembly", unit=t["shot"], grammar="A40", phase="post-render",
+                         severity="warn" if draft else "block",
+                         evidence={"part": what, "from_s": round(a, 3), "to_s": round(b, 3), "rms_dbfs": round(got, 2),
+                                   "floor_dbfs": floor, "master_silent": bool(t.get("silent")),
+                                   "master_rms_dbfs": t.get("master_rms_dbfs"), "lockup_card": t.get("lockup_card"),
+                                   "fix": None if ok else "the series titles play in silence: the master's own sound "
+                                                          "was not mixed (A40 standalone audio)"})
+            if not ok:
+                bad.append(f"{t['shot']} {what} {a:.2f} to {b:.2f} s measures {got:.1f} dBFS (at least {floor:g})")
+    return [] if draft else bad
+
+
 def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
               work: Path | None = None, stems: dict | None = None) -> tuple[np.ndarray, dict]:
     """The programme mix, in two passes (A15 refined, E14). Pass 1 levels,
@@ -6408,6 +6473,7 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
                              "A36: a clip's own sound never starts or stops on a hard cut of its noise floor", unit=s["id"],
                              evidence={"head": g["head"], "tail": g["tail"]})
             placed["clips"].append(s["id"])
+    placed["titles"] = place_title_audio(clips, plan, journal)
     if missing_voice and not draft:
         raise Refused(f"voice WAVs missing for {', '.join(missing_voice)} (render with --draft to place silence)")
     why = take_refusal(bad_takes, unclean, narrator_off, eq_off, draft)
@@ -6425,7 +6491,9 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
         stems.update(voice_grid=np.abs(voice[: m * g]).reshape(m, g).max(axis=1) > DUCK_VOICE_THRESHOLD,
                      duck_grid=duck[: m * g].reshape(m, g).mean(axis=1), spans=spans,
                      own_sound=[(s["f0"] / fps_of(plan), s["f1"] / fps_of(plan)) for s in plan["shots"] if s["id"] in placed["clips"]]
-                     + [(ln["at_s"], ln["at_s"] + ln["dur_s"]) for ln in placed["lines"] if ln["kind"] == "archival"])
+                     + [(ln["at_s"], ln["at_s"] + ln["dur_s"]) for ln in placed["lines"] if ln["kind"] == "archival"]
+                     # A40 standalone audio: the title's own sound is present sound, to the cut out of its lockup card
+                     + [(t["at_s"], t["end_s"]) for t in placed["titles"] if not t["silent"]])
         k = int(round(SC.HOP_S / SC.DUCK_GRID_S))
         stems["duck100"] = stems["duck_grid"][: m // k * k].reshape(-1, k).mean(axis=1)
         stems["voice100"] = stems["voice_grid"][: m // k * k].reshape(-1, k).any(axis=1)
@@ -8995,6 +9063,10 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
             sync_refusals = CL.rendered_sync_lints(journal, seen, master, draft=draft or bool(check))
         if sync_refusals:
             raise Refused(f"archival sync (post-render): {'; '.join(sync_refusals)} (GRAMMAR A33)")
+        # A40 standalone audio: the series titles are heard in the master, never digital black
+        title_refusals = title_audio_rendered(journal, plan, master, span=span, draft=draft)
+        if title_refusals:
+            raise Refused(f"title-audio (post-render, A40): {'; '.join(title_refusals)}")
         # One write: a check render writes its own partial sources file and never the full one (T1d);
         # a full render also records the master's sha256, which ties sources.json to its film (T7).
         # A span (--shots) writes no sources file at all: its timeline is the film's, cut, and it is never published.

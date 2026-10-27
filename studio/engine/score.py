@@ -2076,6 +2076,20 @@ def declared_silences(play: dict) -> list[tuple[float, float]]:
     return sorted(out)
 
 
+def title_own_sound(play: dict) -> list[tuple[float, float]]:
+    """A40 standalone audio, offline: each series title's own sound, from its first frame to the end of the part that
+    holds it (its lockup card ends that part), as start_s and dur_s place them. The engine plays it there (the master's
+    track, then its audio_tail or its room), so it is a source's own sound for music-holes; whether the master carries
+    sound at all is the engine's title-audio lint, which needs its probe."""
+    out = []
+    for part in play["parts"]:
+        sh = [s for s in part.get("shots", []) if s.get("dur_s") is not None]
+        for k, s in enumerate(sh):
+            if s.get("kind") == "title_sequence":
+                out.append((float(s["start_s"]), max(float(x["start_s"]) + float(x["dur_s"]) for x in sh[k:])))
+    return out
+
+
 def offline(film: Path, *, wav_dir: Path | None = None, voices: bool = True, registry: list[dict] | None = None) -> dict:
     """The A29 checks on a film's score as its screenplay places it, read
     from the cue WAVs (``wav_dir`` replaces each cue's WAV with
@@ -2151,6 +2165,7 @@ def offline(film: Path, *, wav_dir: Path | None = None, voices: bool = True, reg
     # (that needs its probe), so a hole under one is reported here and not by the engine.
     own = [(float(ln["start_s"]), float(ln["start_s"]) + float(ln["out_s"]) - float(ln["in_s"]))
            for part in play["parts"] for ln in part.get("lines", []) if ln.get("archival_audio") and ln.get("clip")]
+    own += title_own_sound(play)          # A40 standalone audio: the series titles' own sound
     phone = None
     n = int(math.ceil(end * RATE)) + 1
     if voices:
