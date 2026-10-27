@@ -58,28 +58,51 @@ def preflight():
     return free
 
 
-def take_lock(job):
+def parse_lock(text):
+    """HEAVY.lock in either form the house writes: JSON, or key=value lines (purpose, pid, started)."""
+    try:
+        d = json.loads(text)
+        if isinstance(d, dict):
+            return d
+    except ValueError:
+        pass
+    out = {}
+    for ln in text.splitlines():
+        if "=" in ln:
+            k, v = ln.split("=", 1)
+            out[k.strip()] = v.strip()
+    return out
+
+
+def read_lock():
+    try:
+        return parse_lock(LOCK.read_text(encoding="utf-8"))
+    except OSError:
+        return {}
+
+
+def take_lock(job, log=print):
+    """Wait while a live process holds HEAVY.lock (a lock whose pid is dead is cleared; one with no readable pid is
+    waited on, never broken), then write this job's purpose and pid into it."""
     while LOCK.exists():
-        try:
-            held = json.loads(LOCK.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            held = {}
-        if held.get("pid") and not pid_alive(held["pid"]):
-            print(f"HEAVY.lock held by dead pid {held.get('pid')}: cleared", flush=True)
+        held = read_lock()
+        pid = held.get("pid")
+        if pid and str(pid).isdigit() and not pid_alive(int(pid)):
+            log(f"HEAVY.lock held by dead pid {pid}: cleared")
             LOCK.unlink(missing_ok=True)
             break
-        print(f"HEAVY.lock held by {held}; waiting", flush=True)
+        log(f"HEAVY.lock held by {held}; waiting")
         time.sleep(30)
     LOCK.parent.mkdir(parents=True, exist_ok=True)
-    LOCK.write_text(json.dumps({"group": "title: Laid Down stills (t/laid-down)", "job": job, "pid": os.getpid(),
-                                "started": time.strftime("%Y-%m-%dT%H:%M:%S")}), encoding="utf-8")
+    LOCK.write_text(json.dumps({"group": "title: Laid Down (t/laid-down)", "job": job, "purpose": job,
+                                "pid": os.getpid(), "started": time.strftime("%Y-%m-%dT%H:%M:%S")}), encoding="utf-8")
 
 
 def drop_lock():
     try:
-        if LOCK.exists() and json.loads(LOCK.read_text(encoding="utf-8")).get("pid") == os.getpid():
+        if LOCK.exists() and str(read_lock().get("pid")) == str(os.getpid()):
             LOCK.unlink()
-    except (OSError, ValueError):
+    except OSError:
         pass
 
 

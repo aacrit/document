@@ -225,6 +225,34 @@ def test_static_frames_are_rendered_once_and_repeated():
     assert len(unique) < 0.6 * L.FRAMES
 
 
+def test_the_final_renders_the_shared_shot_once_and_each_record_only_where_it_differs():
+    plan = L.final_plan()
+    b0, b1 = L.BEATS["black"]["frames"]
+    for rec, film in plan["films"].items():
+        src = film["source"]
+        assert len(src) == L.FRAMES
+        assert all(src[f] == ["black", None] for f in range(b0, b1 + 1))        # the master opens from its own black
+        for f in range(b1 + 1, L.FRAMES):
+            kind, g = src[f]
+            if kind == "shared":                     # the RW render of a frame whose every pose is this one's
+                assert g in plan["shared"] and L.frame_state(f, rec) == L.frame_state(g, L.RW)
+            else:
+                assert kind == "tail" and g in film["tail"] and L.frame_state(f, rec) == L.frame_state(g, rec)
+        # the record is in its own tail wherever it can be seen
+        assert all(src[f][0] == ("shared" if rec == L.RW else "tail") for f in range(828, L.FRAMES))
+    assert plan["films"][L.RW]["tail"] == []
+    assert 150 < len(plan["shared"]) < 400 and all(len(f["tail"]) < 200 for f in plan["films"].values())
+
+
+def test_the_record_fills_the_frame_from_the_pose_and_covers_half_of_it_before():
+    for rec in L.RECORDS:
+        assert L.record_frame_cover(rec, 1031) > 0.99
+        assert L.record_frame_cover(rec, 500) == 0.0
+        f50 = L.record_from(rec)
+        assert L.DESCENT[0] < f50 <= L.RECORDS[rec]["record_pose"]["from_frame"]
+        assert L.record_frame_cover(rec, f50) >= 0.5 > L.record_frame_cover(rec, f50 - 1)
+
+
 def test_the_theme_duck_is_gentle_and_only_around_the_chart_slide():
     import numpy as np
     import foley_laid_down as F

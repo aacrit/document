@@ -263,12 +263,15 @@ def frame_state(frame, record):
     for df in (-0.25, 0.0, 0.25):
         t = t_of(frame + df)
         for s in SHEETS + [r]:
+            if not visible_at(s, t_of(frame)):          # hidden (before its release): its pose touches no pixel
+                out.append((False,))
+                continue
             c = centre_at(s, t)
-            out.append((visible_at(s, t_of(frame)), round(c[0], 7), round(c[1], 7), round(psi_at(s, t), 6),
+            out.append((True, round(c[0], 7), round(c[1], 7), round(psi_at(s, t), 6),
                         round(lift_at(s, t), 7), round(lie_at(s, t), 6)))
         eye, roll = camera_at(record, frame + df)
         out.append(tuple(round(v, 7) for v in eye) + (round(roll, 6),))
-    out.append(round(hold_mix(frame), 6))
+    out.append(round(hold_mix(frame), 6) if visible_at(r, t_of(frame)) else 0.0)
     return tuple(out)
 
 
@@ -283,6 +286,68 @@ def render_plan(record):
         src.append(cur)
         prev = st
     return {"render": sorted(set(src)), "source_of": src}
+
+
+RW = "C20-METAR-0851"                        # the shared shot is rendered as Real World's (spec: shared prefix 0-827)
+
+
+def final_plan():
+    """The final's renders (spec section 9): the master opens on its own black (frames 0-11, drawn, not rendered); the
+    shared shot is RW's render_plan; another record re-renders only the frames whose state differs from RW's (its
+    record in play, the descent onto its own pose), each run of identical frames once. Per record, every master
+    frame's source: ["black", None], ["shared", the RW render], or ["tail", that record's render]."""
+    b0, b1 = BEATS["black"]["frames"]
+    rw = render_plan(RW)["source_of"]
+    films, shared = {}, set()
+    for rec in RECORDS:
+        own = render_plan(rec)["source_of"]
+        src, tail = [], set()
+        for f in range(FRAMES):
+            if b0 <= f <= b1:
+                src.append(["black", None])
+            elif rec == RW or frame_state(f, rec) == frame_state(f, RW):
+                src.append(["shared", rw[f]])
+                shared.add(rw[f])
+            else:
+                src.append(["tail", own[f]])
+                tail.add(own[f])
+        films[rec] = {"source": src, "tail": sorted(tail)}
+    return {"shared": sorted(shared), "films": films}
+
+
+def record_frame_cover(record, frame, record_z=0.0, nx=192, ny=108):
+    """The share of the picture the record covers at a frame (the record at its pose then, the camera's eye and roll),
+    as the master's ``record_frames`` counts it."""
+    r = RECORDS[record]
+    t = t_of(frame)
+    if not visible_at(r, t):
+        return 0.0
+    eye, roll = camera_at(record, frame, record_z)
+    h = eye[2] - record_z
+    fw, fh = SENSOR_MM / LENS_MM * h / 2, SENSOR_MM / LENS_MM * h * 9 / 16 / 2
+    q = math.radians(roll)
+    cx, cy = centre_at(r, t)
+    p = math.radians(psi_at(r, t))
+    W, H = r["size_m"]
+    n = 0
+    for j in range(ny):
+        b = -fh + (j + 0.5) / ny * 2 * fh
+        for i in range(nx):
+            a = -fw + (i + 0.5) / nx * 2 * fw
+            x = eye[0] - P[0] + a * math.cos(q) - b * math.sin(q)
+            y = eye[1] - P[1] + a * math.sin(q) + b * math.cos(q)
+            u = (x - cx) * math.cos(p) + (y - cy) * math.sin(p)
+            v = -(x - cx) * math.sin(p) + (y - cy) * math.cos(p)
+            n += abs(u) <= W / 2 and abs(v) <= H / 2
+    return n / (nx * ny)
+
+
+def record_from(record, record_z=0.0):
+    """The first frame the record covers half the picture (the master's record_frames start)."""
+    for f in range(DESCENT[0], FRAMES):
+        if record_frame_cover(record, f, record_z) >= 0.5:
+            return f
+    return None
 
 
 def hold_mix(frame):

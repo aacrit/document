@@ -56,7 +56,8 @@ def _args():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     a = {"frame": "708", "res": "1920x1080", "samples": "1024", "min_samples": "512", "threshold": "0.005",
          "exposure": "0.0", "out": "", "meter": "0", "meter_res": "480x270", "meter_samples": "64", "view": "Standard",
-         "record": "C20-METAR-0851", "blur": "1", "blend": "", "frames": "", "outdir": ""}
+         "record": "C20-METAR-0851", "blur": "1", "blend": "", "frames": "", "outdir": "", "light_ev": "0.0",
+         "depth": "16", "vs": ""}
     for i, k in enumerate(argv):
         if k.startswith("--") and i + 1 < len(argv):
             a[k[2:]] = argv[i + 1]
@@ -112,7 +113,7 @@ def the_lamp():
     d = bpy.data.lights.new("the wall-arm lamp", "AREA")
     d.shape = "DISK"
     d.size = LAMP["shade_d_m"] * 0.86
-    d.energy = LAMP["power_w"]
+    d.energy = LAMP["power_w"] * 2.0 ** float(A["light_ev"])     # --light_ev: the shot's exposure, in the lamp
     d.spread = math.radians(LAMP["spread_deg"])
     d.use_nodes = True
     nt = d.node_tree
@@ -432,7 +433,7 @@ def settings(sc, res, samples, min_samples, threshold, fmt="PNG"):
     cy.use_denoising = False
     cy.use_preview_denoising = False
     cy.sample_clamp_direct = 0.0
-    cy.sample_clamp_indirect = 5.0
+    cy.sample_clamp_indirect = 5.0 * 2.0 ** float(A["light_ev"])  # the clamp scales with the light (scene-linear)
     cy.max_bounces, cy.diffuse_bounces, cy.glossy_bounces, cy.transmission_bounces = 10, 4, 4, 8
     cy.transparent_max_bounces = 16                  # Piri Reis's keyed edge
     cy.caustics_reflective = cy.caustics_refractive = False
@@ -447,7 +448,7 @@ def settings(sc, res, samples, min_samples, threshold, fmt="PNG"):
     if fmt == "EXR":
         s.file_format, s.color_mode, s.color_depth, s.exr_codec = "OPEN_EXR", "RGB", "32", "NONE"
     else:
-        s.file_format, s.color_mode, s.color_depth = "PNG", "RGB", "16"
+        s.file_format, s.color_mode, s.color_depth = "PNG", "RGB", A["depth"]
     prefs = bpy.context.preferences.addons["cycles"].preferences
     for kind in ("OPTIX", "CUDA"):
         try:
@@ -515,7 +516,7 @@ def main():
     if A["frames"]:
         # the animatic: these frames, one process, each to <outdir>/<frame>.png (render_plan's unique frames)
         sc.render.use_persistent_data = True
-        done = []
+        done, readback = [], []
         for f in (int(v) for v in A["frames"].split(",")):
             p = Path(A["outdir"]) / f"{f:05d}.png"
             if p.exists():
@@ -525,8 +526,18 @@ def main():
             t1 = time.time()
             bpy.ops.render.render(write_still=True)
             done.append([f, round(time.time() - t1, 2)])
+            v = sc.view_settings                 # the view as Blender evaluated it at this frame (A40 read-back)
+            readback.append({"frame": f, "view_transform": v.view_transform, "look": v.look,
+                             "exposure": round(float(v.exposure), 6), "gamma": round(float(v.gamma), 6),
+                             "lamp_w": round(float(bpy.data.lights["the wall-arm lamp"].energy), 6)})
             print(f"LD-FRAME {f} {done[-1][1]}", flush=True)
         info["frames_rendered"] = done
+        if A["vs"]:
+            Path(A["vs"]).write_text(json.dumps({"blender": bpy.app.version_string, "frames": readback,
+                                                 "display_device": sc.display_settings.display_device,
+                                                 "gamma": round(float(sc.view_settings.gamma), 6),
+                                                 "use_curve_mapping": bool(sc.view_settings.use_curve_mapping),
+                                                 "light_ev": float(A["light_ev"])}), encoding="utf-8")
         A["out"] = A["outdir"]
     else:
         sc.render.filepath = A["out"]
