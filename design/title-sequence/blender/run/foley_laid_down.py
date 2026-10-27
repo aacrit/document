@@ -42,7 +42,9 @@ import laid_down as L  # noqa: E402
 
 SR = FO.SR
 V_REF = 1.6                                  # m/s: a mid entry speed (entries 1.5-2.3)
-PEAK_DBFS = -10.0                            # the wet Foley's peak: headroom for the theme on top
+WET_GAIN_DB = -32.55                         # the wet bus's fixed gain (the first balance's -10 dBFS peak normalisation)
+PEAK_DBFS = None                             # retired: the wet Foley is no longer peak-normalised
+MID_BAND = (400.0, 2500.0)                   # where the Foley is judged against the music (measure_laid_down)
 LP_BANDS = (1200.0, 3200.0, 9000.0)          # the slide's brightness, slow to fast
 HP_HZ = 120.0
 PITCH_SPAN = 0.03                            # the read rate stays within 3 percent of the recording's own
@@ -62,6 +64,35 @@ PAIRS = {
 FLICK = {"src": "FS834340", "gain_db": 15.0, "hp": 1500.0}
 TAP = {"src": "FS834340", "gain_db": 0.0, "lp": 3000.0}
 BOARD_TAP = {"src": "FS552615", "gain_db": 2.0, "lp": 2000.0}
+# The balance against the theme (coordinator, 2026-10-26: the Foley is the title's physical truth and must be heard):
+# in 400-2500 Hz every slide's median at least +3 dB over the music and every settle tap at least 0 dB at its peak, the
+# record as it was. Slides keep their speed-to-level shape and are lifted whole (lift_db); the chart's slide, under the
+# theme's peak, takes its presence in the band (mid_db) and a gentle theme duck (THEME_DUCK) rather than more level.
+PAIRS["S3"]["lift_db"] = 8.0
+PAIRS["S5"]["lift_db"] = 3.0
+PAIRS["S6"].update({"lift_db": 5.0, "mid_db": 16.0})
+TAP_LIFT_DB = {"S2": 3.0, "S3": 8.0, "S4": 12.0, "S5": 12.0, "S6": 18.0}   # per sheet: the settle tap's lift
+# the theme's duck, only around the chart's slide (its notes untouched): <= 4 dB on the house sine in-out, at full depth
+# from the slide being heard to just after its settle tap; attack and release well inside A37's 2 dB per 100 ms
+THEME_DUCK = {"around": "S6", "depth_db": 4.0, "attack_s": 0.4, "release_s": 0.6, "after_tap_s": 0.15}
+
+
+def theme_duck(n, events, sr=SR, duck=THEME_DUCK):
+    """The theme's gain (linear, n samples): unity, except a sine in-out duck to -depth_db around one sheet's slide."""
+    e = next(x for x in events if x["sheet"] == duck["around"])
+    a1 = e["heard_s"]
+    a0 = a1 - duck["attack_s"]
+    r0 = e["settle_tap_s"] + duck["after_tap_s"]
+    r1 = r0 + duck["release_s"]
+    t = np.arange(n) / sr
+    db = np.zeros(n)
+    m = (t >= a0) & (t < a1)
+    db[m] = -duck["depth_db"] * (0.5 - 0.5 * np.cos(np.pi * (t[m] - a0) / (a1 - a0)))
+    db[(t >= a1) & (t < r0)] = -duck["depth_db"]
+    m = (t >= r0) & (t < r1)
+    db[m] = -duck["depth_db"] * (0.5 + 0.5 * np.cos(np.pi * (t[m] - r0) / (r1 - r0)))
+    return 10 ** (db / 20), {"from_s": round(a0, 3), "full_s": [round(a1, 3), round(r0, 3)], "to_s": round(r1, 3),
+                             **{k: v for k, v in duck.items()}}
 
 
 def hp(x, hz):
@@ -131,7 +162,12 @@ def slide(s, pid, n, rng):
     w = u - k
     stack = np.stack(bands)
     bright = stack[k, np.arange(len(u))] * (1 - w) + stack[k + 1, np.arange(len(u))] * w
-    gain = np.clip(v / V_REF, 0, 1.4) * 10 ** (P["gain_db"] / 20)
+    if P.get("mid_db"):
+        # presence: the recording's own 400-2500 Hz raised (a closer microphone), where the slide must clear the music
+        b = sosfiltfilt(butter(2, MID_BAND, "bandpass", fs=SR, output="sos"), bright)
+        bright = bright + (10 ** (P["mid_db"] / 20) - 1) * b
+    # the speed-to-level shape is the slide's own (v / v_ref); lift_db raises the whole of it
+    gain = np.clip(v / V_REF, 0, 1.4) * 10 ** ((P["gain_db"] + P.get("lift_db", 0.0)) / 20)
     out = np.zeros(n)
     out[i0:i1] = bright * gain
     return out, {"pair": P["pair"], "src": P["src"], "heard_s": round(t0, 3), "seen_s": s["enter_s"],
@@ -174,18 +210,21 @@ def build(record="C20-METAR-0851", lockup_s=6.0, room_tone=True):
             place(bus, one_shot(flicks, 0.75, rng), te, g)      # one firm layer; its level is the speed's
             ev["edges"].append({"t": round(te, 3), "speed_m_s": round(v, 3)})
         tt = L.settle_tap_s(s)
+        lift = TAP_LIFT_DB.get(pid, 0.0)
         if L.is_board(s):
-            place(bus, lp(one_shot(board, 0.3, rng), BOARD_TAP["lp"]), tt, BOARD_TAP["gain_db"])
+            place(bus, lp(one_shot(board, 0.3, rng), BOARD_TAP["lp"]), tt, BOARD_TAP["gain_db"] + lift)
         else:
-            place(bus, lp(one_shot(taps, 0.2, rng), TAP["lp"]), tt, TAP["gain_db"])
+            place(bus, lp(one_shot(taps, 0.2, rng), TAP["lp"]), tt, TAP["gain_db"] + lift)
         ev["settle_tap_s"] = round(tt, 3)
         events.append(ev)
     bus[n_shot:] = 0.0                              # nothing under the lockup
     h, ir = CL.load_ir()
     wet = fftconvolve(bus, h)[:n]
     wet[n_shot:] = 0.0                              # the IR's tail is cut at the cut, as the picture is
-    peak = np.abs(wet).max() + 1e-12
-    wet *= 10 ** (PEAK_DBFS / 20) / peak
+    # a fixed gain (not a peak normalisation, under which lifting the loudest slide would turn every other sheet down);
+    # WET_GAIN_DB is the gain the first balance's -10 dBFS peak normalisation gave, kept so a lift is a lift
+    raw_peak_db = 20 * math.log10(np.abs(wet).max() + 1e-12)
+    wet *= 10 ** (WET_GAIN_DB / 20)
     room = CL.room_bed(n, "laid-down") if room_tone else np.zeros(n)
     mix = wet + room
     # what is heard when: the wet slide's onset per sheet against its entry (20 ms frames, 6 dB over the room)

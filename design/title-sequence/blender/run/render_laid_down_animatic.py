@@ -93,7 +93,19 @@ def theme_for(record):
     return w, got
 
 
-def mix(record, foley_wav, out_wav):
+TRUE_PEAK_MAX_DBTP = -1.5
+
+
+def true_peak_dbtp(x):
+    from scipy.signal import resample_poly
+    return 20 * math.log10(float(np.max(np.abs(resample_poly(x, 4, 1)))) + 1e-20)
+
+
+def mix(record, foley_wav, out_wav, events):
+    """The Foley (its room tone in it) plus the theme at unity, the theme ducked only around the chart's slide
+    (foley_laid_down.THEME_DUCK; its notes untouched). The ducked theme is also written beside the mix (24-bit-in-32,
+    as delivered) for measure_laid_down. Refused, not trimmed, if the mix's true peak passes TRUE_PEAK_MAX_DBTP."""
+    import foley_laid_down as FL
     sr, f = wavfile.read(foley_wav)
     f = f[:, 0].astype(np.float64) / 32768
     w, sha = theme_for(record)
@@ -104,16 +116,22 @@ def mix(record, foley_wav, out_wav):
         assert sr2 == sr
         t = t.astype(np.float64) / (2 ** 31 if t.dtype == np.int32 else 32768)
         t = t if t.ndim == 1 else t.mean(1)
+        g, duck = FL.theme_duck(len(t), events, sr)
+        t = t * g
+        dd = OUT / "theme-ducked"
+        dd.mkdir(parents=True, exist_ok=True)
+        wavfile.write(dd / w.name, sr, np.clip(np.round(t * 2 ** 31), -2 ** 31, 2 ** 31 - 1).astype(np.int32))
         n = max(len(f), len(t))
         x = np.zeros(n)
         x[:len(f)] += f
         x[:len(t)] += t
-        rep["theme"] = {"file": str(w), "sha256": sha, "dur_s": round(len(t) / sr, 3), "gain": "unity"}
-    peak = np.abs(x).max()
-    rep["mix_peak_dbfs"] = round(20 * math.log10(peak + 1e-20), 2)
-    if peak > 10 ** (-1 / 20):
-        x *= 10 ** (-1 / 20) / peak
-        rep["mix_trim_db"] = round(20 * math.log10(10 ** (-1 / 20) / peak), 2)
+        rep["theme"] = {"file": str(w), "sha256": sha, "dur_s": round(len(t) / sr, 3), "gain": "unity",
+                        "duck": duck, "ducked_copy": str(dd / w.name)}
+    rep["mix_peak_dbfs"] = round(20 * math.log10(np.abs(x).max() + 1e-20), 2)
+    rep["mix_true_peak_dbtp"] = round(true_peak_dbtp(x), 2)
+    rep["foley_true_peak_dbtp"] = round(true_peak_dbtp(f), 2)
+    if rep["mix_true_peak_dbtp"] > TRUE_PEAK_MAX_DBTP:
+        raise SystemExit(f"mix true peak {rep['mix_true_peak_dbtp']} dBTP over {TRUE_PEAK_MAX_DBTP}")
     wavfile.write(out_wav, sr, (np.clip(np.stack([x, x], 1), -1, 1) * 32767).astype(np.int16))
     return rep
 
@@ -252,7 +270,7 @@ def main():
     mixd, frep = FL.build(record, LOCKUP_S)
     FL.write_stereo(foley_wav, mixd)
     foley_wav.with_suffix(".foley-report.json").write_text(json.dumps(frep, indent=1), encoding="utf-8")
-    rec["mix"] = mix(record, foley_wav, OUT / f"mix-{record}.wav")
+    rec["mix"] = mix(record, foley_wav, OUT / f"mix-{record}.wav", frep["events"])
     rec["master"] = encode(plan["source_of"], lock_dir, OUT / f"mix-{record}.wav", OUT / "laid-down-480p.mp4")
     rec["frame_sheet"] = frame_sheet(plan["source_of"], lock_dir, record, OUT / "laid-down-480p-sheet.png")
     rec["checks"] = checks(plan, record, engine)

@@ -225,6 +225,23 @@ def test_static_frames_are_rendered_once_and_repeated():
     assert len(unique) < 0.6 * L.FRAMES
 
 
+def test_the_theme_duck_is_gentle_and_only_around_the_chart_slide():
+    import numpy as np
+    import foley_laid_down as F
+    s6 = L.BY_ID["S6"]
+    ev = [{"sheet": "S6", "heard_s": L.push_start_s(s6), "settle_tap_s": L.settle_tap_s(s6)}]
+    n = int(40.434 * F.SR)
+    g, info = F.theme_duck(n, ev)
+    db = 20 * np.log10(g)
+    assert db.min() >= -4.0 - 1e-9 and F.THEME_DUCK["attack_s"] >= 0.15 and F.THEME_DUCK["release_s"] >= 0.4
+    grid = db[::F.SR // 100]                                         # A37's 10 ms grid, 2 dB per 100 ms at most
+    assert np.max(np.abs(grid[10:] - grid[:-10])) <= 2.0
+    t = np.arange(n) / F.SR
+    assert np.all(g[t < info["from_s"]] == 1.0) and np.all(g[t >= info["to_s"]] == 1.0)
+    assert info["full_s"][0] <= L.push_start_s(s6) and info["full_s"][1] >= L.settle_tap_s(s6)
+    assert info["from_s"] > L.settle_tap_s(L.BY_ID["S5"]) and info["to_s"] < L.push_start_s(L.RECORDS["C20-METAR-0851"])
+
+
 def test_the_stillness_has_no_slide_in_it_until_the_record_is_heard():
     t0, t1 = L.t_of(L.BEATS["stillness"]["frames"][0]), L.t_of(L.BEATS["stillness"]["frames"][1] + 1)
     for s in L.SHEETS:
