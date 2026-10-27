@@ -5962,6 +5962,8 @@ SOUND_LINTS: dict[str, dict] = {
     "archival-sound-edge": {"class": "needs full mix", "why": "A36, the reels' own sound as placed, every edge "
                                                                 "against the stem around it"},
     "digital-silence": {"class": "needs full mix", "why": "the placed mix"},
+    "title-audio-level": {"class": "needs full mix", "why": "A40 title level: the title's gain is held by its true peak "
+                                                           "after the programme gain, which only the mix measures"},
     "voiceless-floor": {"class": "needs full mix", "why": "6.1, the voice shares as placed"},
     "readings-floor": {"class": "needs full mix", "why": "6.1, the voice shares as placed"},
     "women-floor": {"class": "needs full mix", "why": "6.5, the voice shares as placed"},

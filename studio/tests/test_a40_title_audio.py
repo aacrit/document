@@ -189,8 +189,9 @@ def test_title_audio_sync_offset_is_bounded_by_the_conform():
 # --------------------------------------------------------------------------
 
 
-def _tail(tmp_path, master, extra_s, *, hz=1000.0, dbfs=-40.0, differ=False, short=False):
-    """A full-length mix: the master's own track, then ``extra_s`` of a tone (the theme, standing in)."""
+def _tail(tmp_path, master, extra_s, *, hz=1000.0, dbfs=-27.0, differ=False, short=False):
+    """A full-length mix: the master's own track, then ``extra_s`` of a tone (the theme, standing in, at about the
+    Foley's own level)."""
     x, rate = sf.read(str(master.with_suffix(".sound.wav")), dtype="float32", always_2d=True)
     n = int(round(extra_s * rate))
     t = np.arange(n) / rate

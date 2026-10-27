@@ -65,7 +65,8 @@ def sound_wav(path, dur_s, *, fps=24.0, click_frame=CLICK_FRAME, sound="foley"):
         x[:room0] = bed[:room0] * np.float32(10 ** (FOLEY_DBFS / 20))
         x[room0:] = bed[room0:] * np.float32(10 ** (ROOM_DBFS / 20))
         c = int(round(click_frame / fps * 48000))
-        x[c: c + 48] = 0.5                          # a 1 ms click, both channels: a peak about -6 dBFS (theirs -4 dBTP)
+        x[c: c + 48] = 0.25                         # a 1 ms click, both channels, about 12 dB over the bed's loudness
+                                                    # (the v5c masters' oak hits: -4 dBTP over -21.4 LUFS)
     sf.write(str(path), x, 48000, subtype="FLOAT")
     return path
 
