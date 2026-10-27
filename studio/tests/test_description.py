@@ -154,29 +154,80 @@ def test_cc0_and_public_domain_carry_no_obligation():
     assert D.licence_uri("CC-BY-SA-4.0") == "https://creativecommons.org/licenses/by-sa/4.0/"
 
 
-def test_the_map_note_carries_the_uris_too():
-    t = D.description_text(_long_film(), FILM)
+def _crowded(src=None):
+    """Half the film CC BY photographs with long titles: the attributed entries alone overflow the cap."""
+    src = src or _long_film()
+    for i in range(0, 73, 2):
+        if i == 47:
+            continue                                                            # the map stays where it is
+        src["shots"][i] = {"id": f"S{i}", "ledger_id": f"CB-{i}", "mark": {"class": "ARCHIVE"},
+                           "title": f"Licensed photograph {i} " + "y" * 90, "archive": "Wikimedia Commons",
+                           "creator": f"Photographer {i}", "licence": "CC BY 2.0", "item_url": f"https://c.org/{i}"}
+    return src
+
+
+def test_the_map_note_is_printed_only_when_the_maps_own_entry_is_not():
+    t = D.description_text(_long_film(), FILM)                                  # the map's full entry is printed
+    assert t.count("https://www.geonames.org/") == 1
+    assert "Notes on the maps\nWestern Europe" not in t
+    t = D.description_text(_crowded(), FILM)                                    # the map's entry does not fit
+    assert not any(ln.startswith("Western Europe, with Brussels (drawn map). ") for ln in t.splitlines())
     notes = t[t.index("Notes on the maps"):]
     line = next(ln for ln in notes.splitlines() if ln.startswith("Western Europe"))
     assert "https://www.geonames.org/" in line and "https://creativecommons.org/licenses/by/4.0/" in line
 
 
-def test_obligated_entries_that_cannot_fit_are_a_hard_error_naming_them():
-    src = _long_film()
-    for i in range(0, 73, 2):                                                   # half the film CC BY, with long titles
-        src["shots"][i] = {"id": f"S{i}", "ledger_id": f"CB-{i}", "mark": {"class": "ARCHIVE"},
-                           "title": f"Licensed photograph {i} " + "y" * 90, "archive": "Wikimedia Commons",
-                           "creator": f"Photographer {i}", "licence": "CC BY 2.0", "item_url": f"https://c.org/{i}"}
+def test_attributions_that_cannot_all_fit_point_to_the_sources_page_within_the_cap():
+    t = D.description_text(_crowded(), FILM)
+    assert len(t) <= D.MAX_CHARS
+    link = "Full sources, credits and licences for every shot: https://document.voidvision.org/f/fixture/sources/"
+    assert link in t.splitlines()                                               # whole, on its own line
+    assert "The full list is on the sources page." not in t
+    kept = [ln for ln in t.splitlines() if ln.startswith("Licensed photograph ")]
+    assert kept and kept[0].startswith("Licensed photograph 0 ")                # whole entries, in film order
+    assert all("https://creativecommons.org/licenses/by/2.0/" in ln and "By Photographer" in ln for ln in kept)
+    assert "Public domain still" not in t                                       # plain entries go first
+    sources = t[t.index("\nSources\n"):t.index(link)]
+    assert sources.rstrip().splitlines()[-1] == kept[-1]
+
+
+def test_the_sources_page_link_uses_the_slug_from_films_json():
+    src = dict(_crowded(), slug="fixture-render")
+    t = D.description_text(src, dict(FILM, slug="the-listed-film"))
+    assert "every shot: https://document.voidvision.org/f/the-listed-film/sources/" in t
+
+
+def test_with_no_slug_in_films_json_an_overflow_is_a_hard_error_naming_them():
     try:
-        D.description_text(src, FILM)
+        D.description_text(_crowded(), None)
     except D.AttributionOverflow as e:
         msg = str(e)
     else:
-        raise AssertionError("an attribution was dropped silently")
-    assert "CB-0" in msg and "Licensed photograph 0" in msg and str(D.MAX_CHARS) in msg
+        raise AssertionError("an attribution was dropped with no sources page to point to")
+    assert "CB-0" in msg and "Licensed photograph 0" in msg and str(D.MAX_CHARS) in msg and "films.json" in msg
 
 
-def test_the_cli_refuses_rather_than_write_a_short_attribution(tmp_path):
+def test_when_even_the_sources_page_line_cannot_fit_it_is_a_hard_error():
+    src = dict(_crowded(), gaps=[{"says": "z" * 6000}])
+    try:
+        D.description_text(src, FILM)
+    except D.AttributionOverflow as e:
+        assert "sources-page line" in str(e)
+    else:
+        raise AssertionError("the sources-page line was cut")
+
+
+def test_the_studios_own_cc_by_works_owe_no_attribution():
+    title = {"ledger_id": "TS-v5c", "licence": "CC BY 4.0", "creator": "void document studio",
+             "credit": "void document studio", "archive": "void document studio"}
+    assert not D.obligated(title)
+    assert not D.obligated(dict(title, creator=None, archive=None))             # by its credit alone
+    assert D.obligated(dict(title, data_sources=[{"id": "GeoNames", "url": "https://www.geonames.org/"}]))
+    assert D.obligated({"licence": "CC BY 4.0", "creator": "Jane Roe", "archive": "Wikimedia Commons"})
+    assert D.obligated({"licence": "CC BY 4.0", "creator": "Someone citing void document", "archive": "Commons"})
+
+
+def test_the_cli_refuses_rather_than_write_a_short_attribution_for_an_unlisted_film(tmp_path):
     src = _long_film()
     for i in range(0, 73, 2):
         src["shots"][i] = {"id": f"S{i}", "ledger_id": f"CB-{i}", "mark": {"class": "ARCHIVE"}, "title": "y" * 120,
