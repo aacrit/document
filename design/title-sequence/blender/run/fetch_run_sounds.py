@@ -33,6 +33,17 @@ WANT = [
     # v4 (design section 7): a small bearing's spin-down for the two reels, in place of the pitched coin stand-in
     ("509902", None, "a spinning reel: the register reel's and the Lumiere reel's whir and settle (v4)"),
     ("376517", None, "a spinning bearing: the second take for the reels' whir (v4)"),
+    # Laid Down (spec rev 3, section 6): paper sliding on wood and on paper, a board on wood, the edge flick, the tap
+    ("388393", None, "Laid Down: a hard folder slid on a table, the Atlas boards on oak"),
+    ("388392", None, "Laid Down: a paper folder slid, the second take for the boards"),
+    ("648387", None, "Laid Down: paper slid on paper, the leaf on vellum and the chart on washi"),
+    ("451411", None, "Laid Down: a sheet slid around on a desk, parchment on vellum"),
+    ("464302", None, "Laid Down: a paper slide, washi on parchment"),
+    ("730078", None, "Laid Down: a paper slide, the record on the chart"),
+    ("46631", None, "Laid Down: paper slid on a table, a further take"),
+    ("834340", None, "Laid Down: paper tapped and handled, the edge flick and the settle tap"),
+    ("444709", None, "Laid Down: a sheet dropped, the settle tap"),
+    ("552615", None, "Laid Down: a small hard object laid down on a wood table, the boards' settle"),
 ]
 
 

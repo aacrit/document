@@ -189,6 +189,50 @@ def first_frame_in_frame(s):
     return None
 
 
+# ------------------------------------------------------------------------------------------------ the Foley's events
+# Spec section 6: each slide starts off frame and is heard 0.1-0.3 s before it is seen; then the edge flick as the
+# leading edge rides onto the sheet below, and one soft settle tap as the lifted corner comes down.
+
+LEAD_S = 0.2                             # the unseen push begins this long before the leading edge enters the frame
+
+
+def push_start_s(s):
+    """When the sheet starts to move (heard): the push that brings it to its release speed, never seen."""
+    return s["enter_s"] - LEAD_S
+
+
+def audio_speed(s, t):
+    """The sheet's speed as the Foley hears it: rising linearly under the unseen push to its release speed, then the
+    slide's own linear fall to zero (speed_at)."""
+    t0, tr = push_start_s(s), release_s(s)
+    if t < t0:
+        return 0.0
+    if t < tr:
+        return s["v_release_m_s"] * (t - t0) / (tr - t0)
+    return speed_at(s, t)
+
+
+def edge_crossing_s(s, dt=1 / 240):
+    """The first instant the sliding sheet's footprint meets a sheet already at rest (the edge flick); None if it only
+    ever slides on oak."""
+    under = [e for e in SHEETS if e["stop_s"] < release_s(s)]
+    if not under:
+        return None
+    rest = [footprint(e, e["stop_s"]) for e in under]
+    t = release_s(s)
+    while t < s["stop_s"]:
+        fp = footprint(s, t)
+        if any(_sat(fp, r) for r in rest):
+            return t
+        t += dt
+    return None
+
+
+def settle_tap_s(s):
+    """The settle: the lifted corner lands 0.25 s after the stop; the Atlas boards' trailing edge drops in 0.1 s."""
+    return s["stop_s"] + (BOARD_SETTLE_S if is_board(s) else SETTLE_S)
+
+
 def hold_mix(frame):
     fh = RECORDS[next(iter(RECORDS))]["flat_hold"]
     a, b = fh["ramp_from_frame"], fh["one_from_frame"]

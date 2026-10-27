@@ -147,3 +147,50 @@ def test_the_cover_measure_agrees_with_the_spec_generator():
         got = L.topmost_cover(s["stop_frame"])
         for k, v in s["cover_at_stop"].items():
             assert abs(got.get(k, 0.0) - v) < 0.003, (s["id"], k, got.get(k), v)
+
+
+# ------------------------------------------------------------------------------------------------ the Foley's events
+
+
+def test_every_sheet_is_heard_before_it_is_seen():
+    for s in L.SHEETS + list(L.RECORDS.values()):
+        lead = s["enter_s"] - L.push_start_s(s)
+        assert 0.1 <= lead <= 0.3, (s["id"], lead)
+        # the push is never seen: the sheet starts moving off frame and leaves the hand at its release speed
+        assert L.audio_speed(s, L.push_start_s(s) - 0.01) == 0.0
+        assert L.audio_speed(s, L.release_s(s)) == L.speed_at(s, L.release_s(s))
+
+
+def test_the_push_speeds_the_sheet_up_and_the_slide_slows_it_to_zero():
+    s = L.BY_ID["S4"]
+    t0, tr = L.push_start_s(s), L.release_s(s)
+    vs = [L.audio_speed(s, t0 + (tr - t0) * k / 10) for k in range(11)]
+    assert all(b >= a for a, b in zip(vs, vs[1:])) and abs(vs[-1] - s["v_release_m_s"]) < 1e-9
+    assert L.audio_speed(s, s["stop_s"]) == 0.0 and L.audio_speed(s, s["stop_s"] + 1) == 0.0
+
+
+def test_one_edge_flick_where_the_leading_edge_first_rides_onto_the_pile():
+    assert L.edge_crossing_s(L.BY_ID["S2"]) is None                  # the Atlas slides on bare oak
+    for s in L.SHEETS[1:] + list(L.RECORDS.values()):
+        t = L.edge_crossing_s(s)
+        assert t is not None and L.release_s(s) <= t < s["stop_s"], s["id"]
+        under = [e for e in L.SHEETS if e["stop_s"] < L.release_s(s)]
+
+        def on(tt):
+            return any(L._sat(L.footprint(s, tt), L.footprint(e, e["stop_s"])) for e in under)
+        assert on(t) and (t == L.release_s(s) or not on(t - 1 / 240))
+
+
+def test_the_settle_tap_is_a_quarter_second_after_each_stop_and_the_boards_drop_sooner():
+    for s in L.SHEETS[1:] + list(L.RECORDS.values()):
+        assert abs(L.settle_tap_s(s) - (s["stop_s"] + 0.25)) < 1e-9
+    a = L.BY_ID["S2"]
+    assert abs(L.settle_tap_s(a) - (a["stop_s"] + 0.1)) < 1e-9
+
+
+def test_the_stillness_has_no_slide_in_it_until_the_record_is_heard():
+    t0, t1 = L.t_of(L.BEATS["stillness"]["frames"][0]), L.t_of(L.BEATS["stillness"]["frames"][1] + 1)
+    for s in L.SHEETS:
+        assert all(L.audio_speed(s, t0 + (t1 - t0) * k / 50) == 0.0 for k in range(51))
+    for r in L.RECORDS.values():                      # the record is heard only in the stillness's last 0.3 s
+        assert L.push_start_s(r) >= t1 - 0.3
