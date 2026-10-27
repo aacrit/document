@@ -1,7 +1,7 @@
 """Laid Down: the series title in Blender (Cycles, no denoiser), from laid_down (the beats) and the bake.
 
     blender -b --factory-startup --python design/title-sequence/blender/run/scene_laid_down.py -- \
-        --frame 751 --res 1920x1080 --samples 1024 --min_samples 512 --threshold 0.005 --exposure 0.0 \
+        --frame 708 --res 1920x1080 --samples 1024 --min_samples 512 --threshold 0.005 --exposure 0.0 \
         --out <png> [--meter 1] [--view Standard] [--record C20-METAR-0851] [--blur 1] [--blend <path>]
 
 The scene (spec rev 2, sections 0-5): the v5c table grown to 4.0 x 2.0 m (eight oak boards of the C-02 scan) with a
@@ -15,9 +15,10 @@ pose writes the scan's own values). One camera: 50 mm, f/8, 180 degree shutter, 
 pile, fixed until the record enters, then the one descent. View transform Standard (the spec); --view AgX is its
 stated fallback.
 
---meter 1: before the still, a 480x270 pass at exposure 0 to a scene-linear EXR; the exposure is set so the frame's
-paper white (its 95th percentile of luminance) sits at 0.85 of display white, and printed. Run it on frame 751, where
-the chart (S6) fills the frame; every other frame takes that exposure (the exposure is fixed for the shot).
+--meter 1: before the still, a 480x270 pass at exposure 0 to a scene-linear EXR; the exposure is set so the brightest
+paper (the 99.5th percentile of max(R, G, B): the chart nearest the lamp) sits at 0.85 of display white, and printed
+(spec rev 3, section 5). Run it on frame 708, the pile complete; every other frame takes that exposure (fixed for the
+shot).
 """
 
 from __future__ import annotations
@@ -48,11 +49,12 @@ ROOM = {"wall_y": TABLE["size"][1] + 0.40, "near_y": -3.0, "side_x": (-1.6, 5.6)
         "plaster_albedo": 0.42, "floor_albedo": 0.06}          # desk_v5.ROOM's study (4.3 m ceiling) around the v5c table
 LAMP = {**L.BEATS["lamp"]}
 PAPER_WHITE_DISPLAY = 0.85
+METER_PCT = 99.5
 
 
 def _args():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    a = {"frame": "751", "res": "1920x1080", "samples": "1024", "min_samples": "512", "threshold": "0.005",
+    a = {"frame": "708", "res": "1920x1080", "samples": "1024", "min_samples": "512", "threshold": "0.005",
          "exposure": "0.0", "out": "", "meter": "0", "meter_res": "480x270", "meter_samples": "64", "view": "Standard",
          "record": "C20-METAR-0851", "blur": "1", "blend": ""}
     for i, k in enumerate(argv):
@@ -384,7 +386,9 @@ def build(exposure_ev):
         rows = bake["poses"][sid]
         key_sheet(obs, rows, ref, active_frames(rows))
     if flat is not None:
-        for f in sorted({0, 1006, 1007, 1019, L.FRAMES - 1} | set(range(1007, 1020))):
+        fh = L.RECORDS[A["record"]]["flat_hold"]
+        a, b = fh["ramp_from_frame"], fh["one_from_frame"]
+        for f in sorted({0, a - 1, L.FRAMES - 1} | set(range(a, b + 1))):
             flat.outputs[0].default_value = L.hold_mix(f)
             flat.outputs[0].keyframe_insert("default_value", frame=f)
     return sc
@@ -468,11 +472,12 @@ def meter(sc):
     w, h = img.size
     px = np.array(img.pixels[:], np.float32).reshape(h, w, 4)
     bpy.data.images.remove(img)
-    Y = 0.2126 * px[..., 0] + 0.7152 * px[..., 1] + 0.0722 * px[..., 2]
-    white = float(np.percentile(Y, 95))
+    # rev 3: the brightest channel, not luminance (under the 3400 K lamp red leads; rev 2's luminance meter clipped red)
+    M = px[..., :3].max(-1)
+    white = float(np.percentile(M, METER_PCT))
     ev = math.log2(srgb_to_linear(PAPER_WHITE_DISPLAY) / white)
-    return {"paper_white_linear": white, "p50": float(np.percentile(Y, 50)), "p99": float(np.percentile(Y, 99)),
-            "ev": ev, "s": None}
+    return {"paper_white_max_channel_linear": white, "percentile": METER_PCT, "p50": float(np.percentile(M, 50)),
+            "max": float(M.max()), "ev": ev, "s": None}
 
 
 def main():

@@ -1,9 +1,9 @@
 {
  "title": "void document · As It Was: Laid Down",
- "version": "spec v2 2026-10-26",
+ "version": "spec v3 2026-10-26",
  "fps": "30000/1001",
- "frames": 1080,
- "duration_s": 36.036,
+ "frames": 1032,
+ "duration_s": 34.434,
  "lockup": {
   "kind": "card",
   "dur_s": 6.0,
@@ -30,7 +30,7 @@
   "fixed": {
    "frames": [
     0,
-    868
+    827
    ],
    "eye_m": [
     2.0,
@@ -45,16 +45,16 @@
   },
   "descent": {
    "frames": [
-    869,
-    1019
+    828,
+    978
    ],
    "profile": "smoothstep (shot_v5c._smooth)",
    "to": "record pose per film (pose_eye_height_m over the record centre, rolled to land_psi_deg)"
   },
   "pose_hold": {
    "frames": [
-    1019,
-    1079
+    978,
+    1031
    ]
   }
  },
@@ -79,7 +79,7 @@
  },
  "exposure": {
   "fixed": true,
-  "set_on": "S6 chart paper white at about 0.85",
+  "metered_on": "the brightest channel: max(R,G,B) of the chart paper nearest the lamp at 0.85 of white (not luminance); about 0.15-0.2 stop under rev 2, which clipped 1.5% in red at f772",
   "flat_hold_emission": "2^-EV (builder)"
  },
  "black": {
@@ -87,7 +87,7 @@
    0,
    11
   ],
-  "sound": "room tone; S1 slide audible from frame 6"
+  "sound": "room tone; the Atlas slide audible from frame 8"
  },
  "checks": {
   "min_visible_fraction_per_earlier_sheet": 0.08,
@@ -96,54 +96,6 @@
   "rendered_once": "hold frames (after the 0.25 s settle) and the pose hold are static: render one frame, repeat it"
  },
  "sheets": [
-  {
-   "id": "S1",
-   "ledger": "T-02a",
-   "tex": [
-    "originals/T-02a.jpg whole (the fragments on the museum mount board, as photographed; no keying, no linen)"
-   ],
-   "date": -1150,
-   "size_m": [
-    1.45,
-    0.262
-   ],
-   "thickness_m": 0.003,
-   "enter_from": "bottom",
-   "land_centre_m": [
-    0.024,
-    0.327
-   ],
-   "land_psi_deg": 3.5,
-   "turn_delta_deg": 1.5,
-   "mu_eff": 0.16,
-   "decel_m_s2": 1.57,
-   "release_centre_m": [
-    0.024,
-    -0.566
-   ],
-   "release_on_table": true,
-   "release_off_frame": true,
-   "slide_total_m": 0.893,
-   "v_release_m_s": 1.674,
-   "t_release_to_stop_s": 1.067,
-   "v_entry_m_s": 1.646,
-   "t_visible_s": 1.049,
-   "enter_s": 0.4,
-   "stop_s": 1.449,
-   "enter_frame": 12,
-   "stop_frame": 43,
-   "release_s": 0.382,
-   "release_frame": 11,
-   "hold_s": 5.6,
-   "width_fraction_of_frame": 1.007,
-   "cover_at_stop": {
-    "oak": 0.7439,
-    "S1": 0.2561
-   },
-   "earlier_sheets_min_visible_ok": true,
-   "trailing_corner_lift_mm_max": 0.0,
-   "scale_note": "1.45 m long assumed for part 1 (whole papyrus about 2.8 m, Museo Egizio); builder confirms; if over 1.6 m, drop S1 and open on the Atlas"
-  },
   {
    "id": "S2",
    "ledger": "T-03",
@@ -177,17 +129,16 @@
    "t_release_to_stop_s": 1.036,
    "v_entry_m_s": 1.598,
    "t_visible_s": 1.018,
-   "enter_s": 7.049,
-   "stop_s": 8.066,
-   "enter_frame": 211,
-   "stop_frame": 242,
-   "release_s": 7.03,
-   "release_frame": 211,
-   "hold_s": 4.6,
+   "enter_s": 0.9,
+   "stop_s": 1.918,
+   "enter_frame": 27,
+   "stop_frame": 57,
+   "release_s": 0.881,
+   "release_frame": 26,
+   "hold_s": 6.0,
    "width_fraction_of_frame": 0.694,
    "cover_at_stop": {
-    "oak": 0.3366,
-    "S1": 0.2172,
+    "oak": 0.5539,
     "S2": 0.4461
    },
    "earlier_sheets_min_visible_ok": true,
@@ -225,17 +176,16 @@
    "t_release_to_stop_s": 0.768,
    "v_entry_m_s": 2.22,
    "t_visible_s": 0.754,
-   "enter_s": 12.666,
-   "stop_s": 13.421,
-   "enter_frame": 380,
-   "stop_frame": 402,
-   "release_s": 12.653,
-   "release_frame": 379,
-   "hold_s": 3.7,
+   "enter_s": 7.918,
+   "stop_s": 8.672,
+   "enter_frame": 237,
+   "stop_frame": 260,
+   "release_s": 7.904,
+   "release_frame": 237,
+   "hold_s": 4.8,
    "width_fraction_of_frame": 0.208,
    "cover_at_stop": {
-    "oak": 0.3366,
-    "S1": 0.177,
+    "oak": 0.5136,
     "S2": 0.385,
     "S3": 0.1014
    },
@@ -274,17 +224,16 @@
    "t_release_to_stop_s": 1.174,
    "v_entry_m_s": 2.047,
    "t_visible_s": 1.159,
-   "enter_s": 17.121,
-   "stop_s": 18.28,
-   "enter_frame": 513,
-   "stop_frame": 548,
-   "release_s": 17.106,
-   "release_frame": 513,
-   "hold_s": 2.9,
+   "enter_s": 13.472,
+   "stop_s": 14.631,
+   "enter_frame": 404,
+   "stop_frame": 439,
+   "release_s": 13.457,
+   "release_frame": 403,
+   "hold_s": 3.8,
    "width_fraction_of_frame": 0.451,
    "cover_at_stop": {
-    "oak": 0.3051,
-    "S1": 0.0858,
+    "oak": 0.3909,
     "S2": 0.175,
     "S3": 0.0724,
     "S4": 0.3617
@@ -324,17 +273,16 @@
    "t_release_to_stop_s": 1.121,
    "v_entry_m_s": 1.513,
    "t_visible_s": 1.101,
-   "enter_s": 21.18,
-   "stop_s": 22.282,
-   "enter_frame": 635,
-   "stop_frame": 668,
-   "release_s": 21.16,
-   "release_frame": 634,
-   "hold_s": 2.2,
+   "enter_s": 18.431,
+   "stop_s": 19.533,
+   "enter_frame": 552,
+   "stop_frame": 585,
+   "release_s": 18.412,
+   "release_frame": 552,
+   "hold_s": 2.8,
    "width_fraction_of_frame": 0.694,
    "cover_at_stop": {
-    "oak": 0.0743,
-    "S1": 0.0858,
+    "oak": 0.1601,
     "S2": 0.148,
     "S3": 0.0724,
     "S4": 0.2815,
@@ -375,17 +323,16 @@
    "t_release_to_stop_s": 1.305,
    "v_entry_m_s": 1.897,
    "t_visible_s": 1.289,
-   "enter_s": 24.482,
-   "stop_s": 25.771,
-   "enter_frame": 734,
-   "stop_frame": 772,
-   "release_s": 24.466,
-   "release_frame": 733,
+   "enter_s": 22.333,
+   "stop_s": 23.622,
+   "enter_frame": 669,
+   "stop_frame": 708,
+   "release_s": 22.317,
+   "release_frame": 669,
    "hold_s": null,
    "width_fraction_of_frame": 0.694,
    "cover_at_stop": {
-    "oak": 0.044,
-    "S1": 0.0858,
+    "oak": 0.1298,
     "S2": 0.0866,
     "S3": 0.0701,
     "S4": 0.1109,
@@ -397,22 +344,21 @@
   }
  ],
  "stillness": {
-  "from_s": 25.771,
-  "to_s": 29.0,
+  "from_s": 23.622,
+  "to_s": 27.62,
   "frames": [
-   772,
-   868
+   708,
+   827
   ],
-  "dur_s": 3.229,
+  "dur_s": 3.998,
   "rule": "at least 1.4 x the last hold; nothing moves; room tone and the theme only"
  },
  "entry_intervals_s": [
-  6.65,
-  5.62,
-  4.45,
-  4.06,
-  3.3,
-  4.52
+  7.02,
+  5.55,
+  4.96,
+  3.9,
+  5.29
  ],
  "records": {
   "C20-METAR-0851": {
@@ -444,10 +390,10 @@
    "v_release_m_s": 1.324,
    "v_entry_m_s": 1.261,
    "t_visible_s": 0.459,
-   "enter_s": 29.0,
-   "stop_s": 29.459,
-   "enter_frame": 869,
-   "stop_frame": 883,
+   "enter_s": 27.62,
+   "stop_s": 28.079,
+   "enter_frame": 828,
+   "stop_frame": 842,
    "record_window": [
     0.0,
     0.0,
@@ -463,15 +409,14 @@
      1.0,
      1.0
     ],
-    "from_frame": 1019
+    "from_frame": 978
    },
    "flat_hold": {
-    "ramp_from_frame": 1007,
-    "one_from_frame": 1019
+    "ramp_from_frame": 966,
+    "one_from_frame": 978
    },
    "cover_at_stop": {
-    "oak": 0.044,
-    "S1": 0.0858,
+    "oak": 0.1298,
     "S2": 0.0866,
     "S3": 0.0701,
     "S4": 0.1109,
@@ -481,7 +426,7 @@
    },
    "marks": [
     {
-     "frame": 1019,
+     "frame": 978,
      "cls": "DRAWN",
      "label": "Drawn · 2001"
     }
@@ -516,10 +461,10 @@
    "v_release_m_s": 1.65,
    "v_entry_m_s": 1.599,
    "t_visible_s": 0.582,
-   "enter_s": 29.0,
-   "stop_s": 29.582,
-   "enter_frame": 869,
-   "stop_frame": 887,
+   "enter_s": 27.62,
+   "stop_s": 28.202,
+   "enter_frame": 828,
+   "stop_frame": 845,
    "record_window": [
     0.0,
     0.0,
@@ -535,15 +480,14 @@
      1.0,
      0.363488
     ],
-    "from_frame": 1019
+    "from_frame": 978
    },
    "flat_hold": {
-    "ramp_from_frame": 1007,
-    "one_from_frame": 1019
+    "ramp_from_frame": 966,
+    "one_from_frame": 978
    },
    "cover_at_stop": {
-    "oak": 0.044,
-    "S1": 0.0858,
+    "oak": 0.1298,
     "S2": 0.0866,
     "S3": 0.0701,
     "S4": 0.1109,
@@ -553,7 +497,7 @@
    },
    "marks": [
     {
-     "frame": 1019,
+     "frame": 978,
      "cls": "ARCHIVE",
      "label": "Archive · 1947"
     }
@@ -588,10 +532,10 @@
    "v_release_m_s": 1.456,
    "v_entry_m_s": 1.398,
    "t_visible_s": 0.509,
-   "enter_s": 29.0,
-   "stop_s": 29.509,
-   "enter_frame": 869,
-   "stop_frame": 884,
+   "enter_s": 27.62,
+   "stop_s": 28.129,
+   "enter_frame": 828,
+   "stop_frame": 843,
    "record_window": [
     0.0,
     0.0,
@@ -607,15 +551,14 @@
      1.0,
      0.958852
     ],
-    "from_frame": 1019
+    "from_frame": 978
    },
    "flat_hold": {
-    "ramp_from_frame": 1007,
-    "one_from_frame": 1019
+    "ramp_from_frame": 966,
+    "one_from_frame": 978
    },
    "cover_at_stop": {
-    "oak": 0.044,
-    "S1": 0.0858,
+    "oak": 0.1298,
     "S2": 0.0866,
     "S3": 0.0701,
     "S4": 0.1109,
@@ -625,7 +568,7 @@
    },
    "marks": [
     {
-     "frame": 1019,
+     "frame": 978,
      "cls": "ARCHIVE",
      "label": "Archive · 1976"
     }
@@ -634,11 +577,11 @@
  },
  "shared_prefix_frames": [
   0,
-  868
+  827
  ],
  "tail_frames": [
-  869,
-  1079
+  828,
+  1031
  ],
  "marks": [
   {
@@ -646,7 +589,7 @@
    "cls": "DRAWN",
    "label": "Drawn · from period records"
   },
-  "then the record's own class at 1019 per film",
+  "then the record's own class at 978 per film",
   "CARD on the lockup"
  ],
  "foley": {
@@ -661,16 +604,15 @@
  "score": {
   "theme": "the-run-theme-v5d (G Dorian), re-spotted",
   "landing_notes_on_stop_frames": [
-   43,
-   242,
-   402,
-   548,
-   668,
-   772
+   57,
+   260,
+   439,
+   585,
+   708
   ],
   "stretto": "S4-S6",
   "stillness": "bare restatement or silence",
-  "final_fifth_frame": 1019,
+  "final_fifth_frame": 978,
   "no_attack_within_ms_of_foley": 80
  }
 }

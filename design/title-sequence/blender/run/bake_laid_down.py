@@ -61,7 +61,7 @@ PLATES = [
     {"name": "chart", "sheet": "S6", "tex": "T-20_chart", "size": (1.0, 1.0 * 5529 / 8192), "at": (0.0, 0.0),
      "kind": "paper", "t": 0.00012, "cockle": (0.0012, 0.15, 70.0)},
 ]
-PLATES = [p for p in PLATES if p["sheet"] not in L.DROPPED]          # S1 out under the rev 2 fallback (laid_down.DROPPED)
+PLATES = [p for p in PLATES if p["sheet"] in L.BY_ID]               # rev 3: the papyrus is out (laid_down.py)
 for _k, _r in L.RECORDS.items():
     PLATES.append({"name": f"record {_k}", "sheet": f"R {_k}", "tex": _r["tex"].rsplit(".", 1)[0],
                    "size": tuple(_r["size_m"]), "at": (0.0, 0.0), "kind": "paper", "t": 0.00012,
@@ -361,7 +361,7 @@ def main():
         _settle(world, [p for p in PLATES if p["sheet"] == sid], rel, r, rows, store, report, sid, lay=False)
         poses[sid] = rows
     np.savez_compressed(OUT / "plates.npz", **store)
-    report["frame_cover"] = {str(f): L.topmost_cover(f) for f in (22, 37, 237, 391, 529, 651, 751)}
+    report["frame_cover"] = {str(f): L.topmost_cover(f) for f in sorted({54} | {s['stop_frame'] for s in L.SHEETS})}
     (OUT / "poses.json").write_text(json.dumps({"fps": "30000/1001", "pile_centre": list(L.P), "plates": [
         dict(p) | {"margin_rgb_linear": margin_colour(p)} | ({"uv": mount_uv(p)} if p["kind"] == "mount" else {})
         for p in PLATES],

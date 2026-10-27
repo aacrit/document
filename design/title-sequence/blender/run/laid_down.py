@@ -43,18 +43,12 @@ CAM = BEATS["camera"]
 LENS_MM, SENSOR_MM = CAM["lens_mm"], CAM["sensor_mm"]
 EYE_Z = CAM["fixed"]["eye_m"][2]
 FRAME_M = (SENSOR_MM / LENS_MM * EYE_Z, SENSOR_MM / LENS_MM * EYE_Z * 9 / 16)
-ALL_SHEETS = BEATS["sheets"]
-# S1, the Turin papyrus, is dropped under the spec's own fallback (rev 2, section 1 scale note: "if part 1 is over 1.6 m
-# at true scale ... drop S1 and open on the Atlas with five sheets, keeping every other frame"). The scan T-02a is not
-# part 1: T-02b is its verso (their fragment outlines match mirrored, IoU 0.84 against 0.38 unmirrored), so T-02a is the
-# whole recto. The Museo Egizio record (Cat. 1879, collezioni.museoegizio.it) gives the papyrus as 2820 x 410 mm;
-# scaled on its fragments' height (2552 px = 0.41 m) the scan is 2.38 m long, on its length 2.82 m. Either is over 1.6.
-PAPYRUS_TRUE_LENGTH_M = (2.38, 2.82)
-DROPPED = {"S1": "T-02a is the whole recto, 2.38 to 2.82 m at true scale (Museo Egizio Cat. 1879: 2820 x 410 mm); "
-                 "over the spec's 1.6 m, so S1 is dropped and the title opens on the Atlas (rev 2 fallback)"} \
-    if min(PAPYRUS_TRUE_LENGTH_M) > 1.6 else {}
-SHEETS = [s for s in ALL_SHEETS if s["id"] not in DROPPED]
-BY_ID = {s["id"]: s for s in ALL_SHEETS}
+# Rev 3: five sheets, S2 to S6 (ids kept from rev 2). The papyrus (S1) is out: the scan T-02a is not "part 1" but the
+# whole recto (T-02b is its verso: their fragment outlines match mirrored, IoU 0.84 against 0.38 unmirrored), and the
+# Museo Egizio record (Cat. 1879) gives the papyrus as 2820 x 410 mm, 2.38-2.82 m at true scale, over the 1.6 m limit.
+SHEETS = BEATS["sheets"]
+ALL_SHEETS = SHEETS
+BY_ID = {s["id"]: s for s in SHEETS}
 FLOORS = BEATS["checks"]
 RECORDS = BEATS["records"]
 for _k, _r in RECORDS.items():
@@ -212,7 +206,7 @@ def _smooth(t):
 
 def camera_at(record, frame):
     """The eye (table coordinates) and the frame's roll (degrees): fixed at 2.00 m (rev 2) over P until the record enters,
-    then the one descent onto the record's resting pose (its window filling the frame), held from 1019."""
+    then the one descent onto the record's resting pose (its window filling the frame), held from the pose frame."""
     r = RECORDS[record]
     fixed = (P[0], P[1], EYE_Z)
     f0, f1 = DESCENT
