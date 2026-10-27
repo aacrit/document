@@ -182,6 +182,9 @@ def test_the_licence_ids_the_house_reads():
     assert D.licence_uri("CC BY 3.0 US") == "https://creativecommons.org/licenses/by/3.0/us/"       # a ported licence
     assert D.licence_uri("CC BY-SA 2.5 ES") == "https://creativecommons.org/licenses/by-sa/2.5/es/"
     assert D.licence_uri("CC BY 4.0 US") is None                                 # 4.0 was never ported
+    assert D.licence_uri("CC BY 3.0 IGO") == "https://creativecommons.org/licenses/by/3.0/igo/"
+    assert D.licence_uri("CC BY-SA 3.0 IGO") == "https://creativecommons.org/licenses/by-sa/3.0/igo/"
+    assert D.licence_uri("CC BY 4.0 IGO") is None and D.licence_uri("CC BY 2.0 IGO") is None   # IGO only at 3.0
     assert D.licence_uri("CC BY 9.9") is None and D.licence_uri("CC BY-XX 4.0") is None
     assert D.licence_uri("CC BY 2.0 by newandrew") == "https://creativecommons.org/licenses/by/2.0/"
     assert D.licence_uri("CC0") == "https://creativecommons.org/publicdomain/zero/1.0/"
@@ -202,6 +205,14 @@ def test_the_tier_of_each_credit():
     assert D.tier(_photo(1, "public domain")) == "plain"
     pre = dict(GEONAMES_MAP, data_sources=[{"id": "OSM", "licence": "CC BY-SA 2.0", "url": "https://osm.org/"}])
     assert D.tier(pre) == "full"                                                # a map's data under 2.0
+    osm = dict(GEONAMES_MAP, data_sources=[{"id": "OpenStreetMap", "licence": "ODbL 1.0", "url": "https://osm.org/"}])
+    assert D.tier(osm) == "full"                                                # a licence not CC: credited in full
+    unstated = dict(GEONAMES_MAP, data_sources=[{"id": "Survey", "url": "https://x.org/"}])
+    assert D.tier(unstated) == "full"                                           # no licence stated: in full
+    pd = dict(GEONAMES_MAP, licence="public domain", licence_note=None, source_line="Data: Natural Earth",
+              data_sources=[{"id": "Natural Earth", "licence": "public domain", "url": "https://www.naturalearthdata.com/"},
+                            {"id": "Census", "licence": "CC0", "url": "https://x.org/"}])
+    assert D.tier(pd) == "uri"                                                  # public domain and CC0 data owe nothing
 
 
 def test_the_map_note_is_printed_only_when_the_maps_own_entry_is_not():
@@ -309,6 +320,10 @@ def test_the_reviewers_probes_are_not_the_studios_own():
     # 2. only the archive is ours: the creator is someone else (or not stated)
     assert D.obligated(dict(title, creator="Jane Roe", credit=None))
     assert D.obligated(dict(title, creator=None, credit="void document studio"))
+    # 1b. a creator that starts with ours and names someone else (round 2 of the review)
+    assert D.obligated(dict(title, creator="void document studio; Jane Doe", credit=None))
+    assert D.obligated(dict(title, creator="void document studio after a photo by Jane Doe", credit=None))
+    assert not D.obligated(dict(title, creator="void document", credit="void document studio."))
     # 3. a map of ours whose data is CC BY, stated only in its source line or licence note
     drawn = dict(title, mark={"class": "DRAWN", "detail": "from map data"}, licence="public domain")
     assert D.obligated(dict(drawn, source_line="Data: GeoNames (CC BY 4.0)"))

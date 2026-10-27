@@ -58,7 +58,7 @@ CC_TABLE = json.loads((Path(__file__).resolve().parents[2] / "web" / "src" / "cc
                       .read_text(encoding="utf-8"))
 _SPELLED = re.compile(r"(?i)\bCreative\s+Commons\s+Attribution((?:[- ]?(?:Share[- ]?Alike|Non[- ]?Commercial|"
                       r"No[- ]?Deriv(?:s|atives)))*)(?:\s+Licen[cs]e)?\s+(\d\.\d)")
-_CC_ID = re.compile(r"(?i)\bCC[- ]?(BY(?:[- ](?:NC|ND|SA)){0,2})[- ]?(\d\.\d)(?:[- ]([A-Za-z]{2})\b)?")
+_CC_ID = re.compile(r"(?i)\bCC[- ]?(BY(?:[- ](?:NC|ND|SA)){0,2})[- ]?(\d\.\d)(?:[- ](IGO|[A-Za-z]{2})\b)?")
 _CC0 = re.compile(r"(?i)\bCC[- ]?0\b|\bCC[- ]?ZERO\b|\bCreative\s+Commons\s+Zero\b")
 _ATTRIBUTION = re.compile(r"(?i)\bCC[- ]?BY\b")      # every CC licence that asks for attribution (BY, BY-SA, ...)
 
@@ -90,7 +90,7 @@ def cc_licences(text) -> list[dict]:
         kind, ver = re.sub(r"[ ]", "-", m.group(1).lower()), m.group(2)
         jur = m.group(3) if m.group(3) and m.group(3).isupper() else None
         ok = (kind in CC_TABLE["kinds"] and ver in CC_TABLE["versions"]
-              and (not jur or ver in CC_TABLE["ported_versions"]))
+              and (not jur or ver in CC_TABLE["igo_versions" if jur == "IGO" else "ported_versions"]))
         deed = (f"https://creativecommons.org/licenses/{kind}/{ver}/" + (f"{jur.lower()}/" if jur else "")) if ok else None
         out.append({"kind": kind, "version": ver, "jurisdiction": jur, "deed": deed})
     return out
@@ -109,16 +109,15 @@ def names_cc_by(text) -> bool:
     return bool(_ATTRIBUTION.search(normalise_licence(text)))
 
 
-_STUDIO = re.compile(r"(?i)^void document\b")
 _STUDIO_ONLY = re.compile(r"(?i)^void document(?: studio)?\.?$")
 
 
 def studio_owned(s: dict) -> bool:
-    """A work the studio itself licenses (the series title masters, our cards): its creator is void document and no
-    one else is named, the credit empty or itself only void document. We owe ourselves no attribution; a credit
+    """A work the studio itself licenses (the series title masters, our cards): its creator is only void document
+    (no one else named beside or after it), the credit empty or itself only void document. We owe ourselves no attribution; a credit
     that names a source ("void document studio, drawn from ...") is someone else's work too."""
     credit = _s(s.get("credit"))
-    return bool(_STUDIO.search(_s(s.get("creator")))) and (not credit or bool(_STUDIO_ONLY.match(credit)))
+    return bool(_STUDIO_ONLY.match(_s(s.get("creator")))) and (not credit or bool(_STUDIO_ONLY.match(credit)))
 
 
 def is_map(s: dict) -> bool:
@@ -138,14 +137,21 @@ def obligated(s: dict) -> bool:
     return names_cc_by(s.get("licence")) and not studio_owned(s)
 
 
+_PUBLIC = re.compile(r"(?i)\bpublic[- ]domain\b")
+
+
 def attribution_versions(s: dict) -> set[str]:
-    """The versions of every attribution licence a shot's credit involves ("?" for one CC never published, or a CC
-    BY named with no version)."""
+    """The versions of every attribution licence a shot's credit involves ("?" for one CC never published, a CC BY
+    named with no version, or a map's data under a licence other than public domain, CC0 or CC: ODbL, none stated)."""
     texts = [s.get("licence"), s.get("licence_note"), s.get("source_line")]
     for d in s.get("data_sources") or []:
         if isinstance(d, dict):
             texts += [d.get("licence"), d.get("id")]
     out: set[str] = set()
+    for d in s.get("data_sources") or []:
+        lic = _s(d.get("licence")) if isinstance(d, dict) else ""
+        if not (_PUBLIC.search(lic) or _CC0.search(lic) or cc_licences(lic)):
+            out.add("?")
     for t in texts:
         found = cc_licences(t)
         out |= {f["version"] if f["deed"] else "?" for f in found}

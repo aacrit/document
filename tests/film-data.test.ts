@@ -581,6 +581,9 @@ describe("attribution links (CC BY asks for the licence by its URI, and the data
     expect(licenceDeed("CC BY 3.0 US")).toBe("https://creativecommons.org/licenses/by/3.0/us/");
     expect(licenceDeed("CC BY-SA 2.5 ES")).toBe("https://creativecommons.org/licenses/by-sa/2.5/es/");
     expect(licenceDeed("CC BY 4.0 US")).toBeNull(); // 4.0 was never ported
+    expect(licenceDeed("CC BY 3.0 IGO")).toBe("https://creativecommons.org/licenses/by/3.0/igo/");
+    expect(licenceDeed("CC BY-SA 3.0 IGO")).toBe("https://creativecommons.org/licenses/by-sa/3.0/igo/");
+    expect(licenceDeed("CC BY 4.0 IGO")).toBeNull(); // IGO only at 3.0
     expect(licenceDeed("CC BY-XX 4.0")).toBeNull();
     expect(licenceDeed("CC BY-SA 3.0 Unported")).toBe("https://creativecommons.org/licenses/by-sa/3.0/");
     expect(licenceDeed("Creative Commons Attribution-ShareAlike 3.0 Unported")).toBe("https://creativecommons.org/licenses/by-sa/3.0/");

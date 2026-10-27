@@ -246,7 +246,8 @@ export function parseDataSources(x: unknown): DataSource[] {
 const CC_KINDS = new Set<string>(CC.kinds);
 const CC_VERSIONS = new Set<string>(CC.versions);
 const CC_PORTED = new Set<string>(CC.ported_versions);
-const CC_ID = /\bCC[- ]?(BY(?:[- ](?:NC|ND|SA)){0,2})[- ]?(\d\.\d)(?:[- ]([A-Za-z]{2})\b)?/gi;
+const CC_IGO = new Set<string>(CC.igo_versions);
+const CC_ID = /\bCC[- ]?(BY(?:[- ](?:NC|ND|SA)){0,2})[- ]?(\d\.\d)(?:[- ](IGO|[A-Za-z]{2})\b)?/gi;
 const CC_SPELLED =
   /\bCreative\s+Commons\s+Attribution((?:[- ]?(?:Share[- ]?Alike|Non[- ]?Commercial|No[- ]?Deriv(?:s|atives)))*)(?:\s+Licen[cs]e)?\s+(\d\.\d)/gi;
 const CC_ZERO = /\bCC[- ]?0(?:[- ]1\.0)?\b|\bCreative\s+Commons\s+Zero\b/gi;
@@ -254,7 +255,7 @@ const ZERO_DEED = "https://creativecommons.org/publicdomain/zero/1.0/";
 
 function ccDeed(kind: string, version: string, jurisdiction: string | null): string | null {
   if (!CC_KINDS.has(kind) || !CC_VERSIONS.has(version)) return null;
-  if (jurisdiction && !CC_PORTED.has(version)) return null; // 4.0 was never ported
+  if (jurisdiction && !(jurisdiction === "IGO" ? CC_IGO : CC_PORTED).has(version)) return null; // 4.0 was never ported
   return `https://creativecommons.org/licenses/${kind}/${version}/${jurisdiction ? `${jurisdiction.toLowerCase()}/` : ""}`;
 }
 

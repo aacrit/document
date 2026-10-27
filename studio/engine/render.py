@@ -8351,6 +8351,16 @@ def title_sources_fields(s: dict) -> dict:
         "provenance": [dict({k: x.get(k) for k in keep}, credit=TS.plain(x.get("credit"))) for x in TS.provenance_items(prov)]}}
 
 
+def retire_description(path: Path) -> Path | None:
+    """An earlier render's description.txt, renamed description.stale.txt so it never sits beside a new sources.json
+    as if it described it. Returns the new path, or None when there was none."""
+    if not path.exists():
+        return None
+    stale = path.with_name("description.stale.txt")
+    path.replace(stale)
+    return stale
+
+
 def description_overflow(plan: dict, journal: Journal) -> str | None:
     """Why this plan's description block cannot be written (its pre-4.0 credits do not fit the cap), or None. Read
     from the sources data the render will write, so a final render is refused before its frames, not after."""
@@ -8998,8 +9008,9 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
                 try:
                     journal.artifact("assembly", DSC.write_description(sources_path, DSC.REPO_FILMS), role="description")
                 except DSC.AttributionOverflow as e:      # only a draft gets here: the pre-flight refuses a final render
+                    stale = retire_description(sources_path.with_name("description.txt"))
                     journal.lint("description-fits", False, stage="assembly", severity="warn", grammar="A56",
-                                 evidence={"why": str(e)})
+                                 evidence={"why": str(e), "stale": str(stale) if stale else None})
         for i in in_span:
             journal.artifact("motion", segs[i], unit=ids[i], role="check-segment" if check else "segment")
         journal.artifact("assembly", master, role="check-master" if check else "master")

@@ -15,10 +15,11 @@ export function authorOf(shot: Pick<Shot, "creator" | "archive" | "credit">): st
   return who;
 }
 
-/** The credit: a link when it is an https url, plain text when it is any other url, else text with its licences linked. */
+/** The credit: a link when it is an https url, plain text when it is any other url (scheme://), else text with its
+ * licences linked to their deeds. */
 export function creditNode(credit: string | null): Node | null {
   if (!credit) return null;
-  if (/^[a-z][a-z0-9+.-]*:/i.test(credit.trim())) {
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(credit.trim())) { // a url; "Photo: Jane Doe, CC BY 4.0" is prose
     const url = safeUrl(credit.trim());
     return url ? el("a", { class: "source", href: url, rel: "noopener noreferrer" }, credit.trim()) : numerals(credit);
   }

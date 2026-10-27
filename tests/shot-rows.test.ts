@@ -56,6 +56,15 @@ describe("a shot's provenance rows", () => {
     expect(http.all().some((n) => n.tag === "a")).toBe(false);
     const js = (await rows(shotWith({ credit: "javascript:alert(1)" }))).get("Credit")!;
     expect(js.all().some((n) => n.tag === "a")).toBe(false);
+    expect(js.textContent).toBe("javascript:alert(1)");
+  });
+
+  it("reads a credit with a colon in its prose as prose, its licence linked to the deed", async () => {
+    const r = await rows(shotWith({ credit: "Photo: Jane Doe, CC BY 4.0" }));
+    const credit = r.get("Credit")!;
+    expect(credit.textContent).toBe("Photo: Jane Doe, CC BY 4.0");
+    const links = credit.all().filter((n) => n.tag === "a");
+    expect(links.map((a) => [a.textContent, a.attrs.href])).toEqual([["CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/"]]);
   });
 
   it("sets a hostile creator, credit, archive and licence as text", async () => {

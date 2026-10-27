@@ -100,6 +100,15 @@ def test_the_pre_flight_reads_the_description_from_the_plans_own_sources_data(mo
     assert R.description_overflow({}, Journal(film="pre")) is None
 
 
+def test_a_draft_that_cannot_write_its_description_retires_the_old_one(tmp_path):
+    old = tmp_path / "description.txt"
+    old.write_text("an earlier render's description\n", encoding="utf-8")
+    stale = R.retire_description(old)
+    assert stale == tmp_path / "description.stale.txt" and not old.exists()
+    assert stale.read_text(encoding="utf-8") == "an earlier render's description\n"
+    assert R.retire_description(old) is None                    # nothing to retire
+
+
 def test_cli_sources_only(film, rendered, tmp_path):
     out = _copy_render(rendered, tmp_path / "cli")
     assert R.main([str(film), "--out", str(out), "--sources-only"]) == 0
