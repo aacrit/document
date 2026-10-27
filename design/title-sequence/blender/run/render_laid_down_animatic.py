@@ -118,24 +118,41 @@ def mix(record, foley_wav, out_wav):
     return rep
 
 
-def encode(src, lock_dir, audio, out):
-    lst = OUT / "concat.txt"
-    lines = []
-    for f in range(L.FRAMES):
-        lines += [f"file '{(OUT / 'frames' / f'{src[f]:05d}.png').as_posix()}'", "duration 1001/30000"]
+def frame_list(src, lock_dir):
+    """The master's frames in order: the opening black (spec: frames 0-11, the master opens from its own black, A40;
+    the picture arrives at frame 12 with the Atlas already sliding), then each of the shot's frames as its rendered
+    source (holds repeat it), then the lockup's 180."""
     n_lock = int(round(LOCKUP_S * L.FPS))
-    for k in range(n_lock):
-        lines += [f"file '{(lock_dir / f'{k:05d}.png').as_posix()}'", "duration 1001/30000"]
-    lines.append(f"file '{(lock_dir / f'{n_lock - 1:05d}.png').as_posix()}'")
-    lst.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    total = L.FRAMES + n_lock
+    black = OUT / "black-480.png"
+    if not black.exists():
+        Image.new("RGB", RES, (0, 0, 0)).save(black)
+    b0, b1 = L.BEATS["black"]["frames"]
+    return [black if b0 <= f <= b1 else OUT / "frames" / f"{src[f]:05d}.png" for f in range(L.FRAMES)] + \
+        [lock_dir / f"{k:05d}.png" for k in range(n_lock)]
+
+
+def encode(src, lock_dir, audio, out):
+    """Every frame piped to ffmpeg as raw RGB at exactly 30000/1001 (the concat demuxer's durations cannot be exact
+    fractions), with the mix, H.264 + AAC, under MAX_MB."""
+    frames = frame_list(src, lock_dir)
     for crf in (18, 20, 22, 24, 26):
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-i", str(audio),
-                        "-map", "0:v", "-map", "1:a", "-fps_mode", "cfr", "-r", "30000/1001", "-frames:v", str(total),
-                        "-c:v", "libx264", "-preset", "slow", "-crf", str(crf), "-pix_fmt", "yuv420p",
-                        "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(out)], check=True)
+        p = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s",
+                              f"{RES[0]}x{RES[1]}", "-framerate", "30000/1001", "-i", "-", "-i", str(audio),
+                              "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "slow", "-crf", str(crf),
+                              # the picture sets the length (1212 frames, 40.440 s); the mix (40.434 s) is padded
+                              "-pix_fmt", "yuv420p", "-af", "apad", "-c:a", "aac", "-b:a", "192k", "-shortest",
+                              "-movflags",
+                              "+faststart", str(out)], stdin=subprocess.PIPE)
+        cache = {}
+        for fp in frames:
+            if fp not in cache:
+                cache = {fp: np.asarray(Image.open(fp).convert("RGB"), np.uint8).tobytes()}
+            p.stdin.write(cache[fp])
+        p.stdin.close()
+        if p.wait() != 0:
+            raise SystemExit("ffmpeg failed")
         if out.stat().st_size <= MAX_MB * 1024 * 1024:
-            return {"crf": crf, "bytes": out.stat().st_size, "frames": total}
+            return {"crf": crf, "bytes": out.stat().st_size, "frames": len(frames)}
     raise SystemExit(f"{out} stays over {MAX_MB} MB")
 
 
@@ -155,7 +172,8 @@ def frame_sheet(src, lock_dir, record, out):
         font = ImageFont.load_default(size=14)
     except TypeError:
         font = ImageFont.load_default()
-    items = [(lab, OUT / "frames" / f"{src[f]:05d}.png", f) for lab, f in picks]
+    fl = frame_list(src, lock_dir)
+    items = [(lab, fl[f], f) for lab, f in picks + [("picture arrives", L.BEATS["black"]["frames"][1] + 1)]]
     items.append(("lockup", lock_dir / f"{int(LOCKUP_S * L.FPS * 0.9):05d}.png", L.FRAMES + int(LOCKUP_S * L.FPS * 0.9)))
     for i, (lab, p, f) in enumerate(items):
         x, y = (i % cols) * tw, (i // cols) * (th + 22)
