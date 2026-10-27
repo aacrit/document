@@ -53,8 +53,9 @@ def clock(s) -> str:
     return f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
 
 
-# The Creative Commons licences the house links to a deed, shared with the site (web/src/film-data.ts reads it too).
-CC_TABLE = json.loads((Path(__file__).resolve().parents[1] / "cc-licences.json").read_text(encoding="utf-8"))
+# The Creative Commons licences the house links to a deed: the site's own table (web/src/film-data.ts imports it).
+CC_TABLE = json.loads((Path(__file__).resolve().parents[2] / "web" / "src" / "cc-licences.json")
+                      .read_text(encoding="utf-8"))
 _SPELLED = re.compile(r"(?i)\bCreative\s+Commons\s+Attribution((?:[- ]?(?:Share[- ]?Alike|Non[- ]?Commercial|"
                       r"No[- ]?Deriv(?:s|atives)))*)(?:\s+Licen[cs]e)?\s+(\d\.\d)")
 _CC_ID = re.compile(r"(?i)\bCC[- ]?(BY(?:[- ](?:NC|ND|SA)){0,2})[- ]?(\d\.\d)(?:[- ]([A-Za-z]{2})\b)?")

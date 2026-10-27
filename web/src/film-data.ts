@@ -4,7 +4,7 @@
 // about a film is derived here, never typed, so the pages cannot drift from
 // the film. Pure functions only: no DOM, no fetch (tests/film-data.test.ts).
 
-import CC from "../../studio/cc-licences.json";
+import CC from "./cc-licences.json";
 
 export const MARK_CLASSES = ["ARCHIVE", "RECONSTRUCTED", "AI-GENERATED", "DRAWN", "CARD"] as const;
 export type MarkClass = (typeof MARK_CLASSES)[number];

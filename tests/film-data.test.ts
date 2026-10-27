@@ -574,7 +574,7 @@ describe("attribution links (CC BY asks for the licence by its URI, and the data
   });
 
   it("reads NC and ND, ported licences before 4.0, and the spelled-out names, from the table the engine reads", () => {
-    const table = JSON.parse(readFileSync(path.join(root, "studio/cc-licences.json"), "utf8"));
+    const table = JSON.parse(readFileSync(path.join(root, "web/src/cc-licences.json"), "utf8"));
     expect(table.versions).toEqual(["1.0", "2.0", "2.5", "3.0", "4.0"]);
     expect(licenceDeed("CC BY-NC-SA 2.0")).toBe("https://creativecommons.org/licenses/by-nc-sa/2.0/");
     expect(licenceDeed("CC BY-ND 4.0")).toBe("https://creativecommons.org/licenses/by-nd/4.0/");
