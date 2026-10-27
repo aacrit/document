@@ -29,7 +29,7 @@ import {
 } from "./film-data";
 import { enterFullscreen, exitFullscreen, fullscreenPath, playFromTap, playsFullscreen, restoreInline, type FsOrientation, type FullscreenPath } from "./fullscreen";
 import { cssTimeMs } from "./fullscreen";
-import { byId, el, filmPath, loadSources, mediaUrl, numerals, slugOf } from "./site";
+import { byId, el, filmPath, loadSources, mediaUrl, numerals, slugOf, withDeeds } from "./site";
 import { countCompletionOnce, reportCoreSuccess } from "./telemetry";
 
 /** An element the film page has below the player, absent in the home page's theatre. */
@@ -113,7 +113,7 @@ function drawCredit(): void {
   byId("credit-title").textContent = shot.title;
   const where = byId("credit-where");
   const bits = [shot.archive, shot.date].filter(Boolean).join(", ");
-  where.replaceChildren(numerals(`${bits}${bits ? ". " : ""}${shot.licence ? `Licence: ${shot.licence}.` : ""}`));
+  where.replaceChildren(numerals(`${bits}${bits ? ". " : ""}`), ...(shot.licence ? ["Licence: ", withDeeds(shot.licence), "."] : []));
   byId<HTMLAnchorElement>("credit-source").href = `${FILM}sources/#${shot.id}`;
   byId<HTMLAnchorElement>("credit-correct").href = `${FILM}correct/?t=${sec}&s=${encodeURIComponent(shot.id)}`;
   credit.hidden = false;

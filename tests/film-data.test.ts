@@ -40,6 +40,9 @@ import {
   silentRecord,
   sourceGaps,
   filmNotes,
+  licenceDeed,
+  licenceSpans,
+  parseDataSources,
   statementText,
   stepChapter,
   transcript,
@@ -550,5 +553,56 @@ describe("notes on this film (A56)", () => {
   it("prints a shortfall statement only when its numbers are filled", () => {
     expect(statementText({ statement: "{women_share:pct} of it." })).toBeNull();
     expect(statementText({ statement: "{women_share:pct}.", filled: "4%." })).toBe("4%.");
+  });
+});
+
+describe("attribution links (CC BY asks for the licence by its URI, and the data source by name and link)", () => {
+  it("maps each Creative Commons id to its deed, and nothing else to one", () => {
+    expect(licenceDeed("CC-BY-4.0")).toBe("https://creativecommons.org/licenses/by/4.0/");
+    expect(licenceDeed("CC BY 4.0")).toBe("https://creativecommons.org/licenses/by/4.0/");
+    expect(licenceDeed("CC-BY-SA-4.0")).toBe("https://creativecommons.org/licenses/by-sa/4.0/");
+    expect(licenceDeed("CC BY-SA 3.0")).toBe("https://creativecommons.org/licenses/by-sa/3.0/");
+    expect(licenceDeed("CC-BY-3.0")).toBe("https://creativecommons.org/licenses/by/3.0/");
+    expect(licenceDeed("CC BY 2.0")).toBe("https://creativecommons.org/licenses/by/2.0/");
+    expect(licenceDeed("CC0")).toBe("https://creativecommons.org/publicdomain/zero/1.0/");
+    for (const x of ["public domain", "Public domain", "CC BY 9.9", "", null, "javascript:alert(1)", 'CC BY 4.0"><img src=x onerror=alert(1)>']) {
+      expect(licenceDeed(x)).toBeNull();
+    }
+    const spans = licenceSpans("CC-BY-4.0 (contains GeoNames data (CC BY 4.0); Natural Earth public domain): 1 shot");
+    expect(spans.map((m) => m.deed)).toEqual(["https://creativecommons.org/licenses/by/4.0/", "https://creativecommons.org/licenses/by/4.0/"]);
+    expect(spans[0]).toMatchObject({ start: 0, end: 9 });
+  });
+
+  it("parses a map's data_sources: the name without its parenthetical, an https url or none", () => {
+    const evil = '"><img src=x onerror=alert(1)>';
+    const ds = parseDataSources([
+      { id: "Natural Earth", licence: "public domain", url: "https://www.naturalearthdata.com/" },
+      { id: "GeoNames (CC BY 4.0)", licence: "CC BY 4.0", url: "https://www.geonames.org/" },
+      { id: "Plain http", url: "http://example.org/" },
+      { id: "Script", url: "javascript:alert(1)" },
+      { id: evil, url: `https://example.org/${evil}` },
+      { id: "" },
+      "not an object",
+    ]);
+    expect(ds[0]).toEqual({ name: "Natural Earth", url: "https://www.naturalearthdata.com/", licence: "public domain" });
+    expect(ds[1]).toEqual({ name: "GeoNames", url: "https://www.geonames.org/", licence: "CC BY 4.0" });
+    expect(ds[2].url).toBeNull();                                  // a non-https url is refused: the name prints unlinked
+    expect(ds[3].url).toBeNull();
+    expect(ds[4].name).toBe(evil.replace("(1)", ""));               // as the engine names it; set as text, never markup
+    expect(ds[4].url).toBe("https://example.org/%22%3E%3Cimg%20src=x%20onerror=alert(1)%3E");
+    expect(ds).toHaveLength(5);
+    expect(parseDataSources(undefined)).toEqual([]);
+  });
+
+  it("carries the data sources to each shot and to the notes, where they replace the plain data line", () => {
+    const j = raw();
+    j.shots[1].source_line = "Data: Natural Earth; GeoNames (CC BY 4.0)";
+    j.shots[1].data_sources = [{ id: "GeoNames (CC BY 4.0)", licence: "CC BY 4.0", url: "https://www.geonames.org/" }];
+    const d = parseSources(j);
+    expect(d.shots[1].data_sources).toEqual([{ name: "GeoNames", url: "https://www.geonames.org/", licence: "CC BY 4.0" }]);
+    expect(d.shots[0].data_sources).toEqual([]);
+    const n = filmNotes(d);
+    expect(n.mapData).toEqual([{ map: d.shots[1].title ?? d.shots[1].id, sources: d.shots[1].data_sources }]);
+    expect(n.mapNotes.some((t) => t.includes("Data: Natural Earth; GeoNames"))).toBe(false);
   });
 });

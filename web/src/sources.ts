@@ -29,7 +29,7 @@ import {
   type Shot,
 } from "./film-data";
 import { notesNodes } from "./notes";
-import { byId, el, filmPath, loadSources, markPlate, numerals, slugOf } from "./site";
+import { byId, dataSourcesNode, el, filmPath, loadSources, markPlate, numerals, slugOf, withDeeds } from "./site";
 import { countSourceOpens, sendEvent } from "./telemetry";
 
 const root = byId("sources-page");
@@ -80,7 +80,8 @@ function shotEntry(shot: Shot): HTMLLIElement {
         ["What", numerals(what)],
         ["Archive", shot.archive],
         ["Item", item],
-        ["Licence", shot.licence],
+        ["Licence", shot.licence ? withDeeds(shot.licence) : null],
+        ["Data", shot.data_sources.length ? dataSourcesNode(shot.data_sources) : null],
         ["Credit", shot.credit && !/^https?:/.test(shot.credit) ? numerals(shot.credit) : null],
         ["Treatment", shotTreatment(shot)],
       ];

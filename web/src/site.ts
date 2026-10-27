@@ -1,7 +1,7 @@
 // Shared by every public page: the film's media URLs, loading its
 // sources.json, and a small element builder (text only, never innerHTML,
 // so nothing in a sources file can inject markup).
-import { parseSources, type FilmSources, type MarkSpan, markHook, markWords } from "./film-data";
+import { licenceSpans, parseSources, safeUrl, type DataSource, type FilmSources, type MarkSpan, markHook, markWords } from "./film-data";
 
 export const mediaUrl = (slug: string, file: string): string => `/media/${slug}/${file}`;
 export const filmPath = (slug: string): string => `/f/${slug}/`;
@@ -54,6 +54,34 @@ export function numerals(text: string): Node {
     if (!part) continue;
     frag.append(/^\d/.test(part) ? el("span", { class: "num" }, part) : part);
   }
+  return frag;
+}
+
+/**
+ * Text with every Creative Commons licence id in it ("CC-BY-4.0", "CC BY-SA 3.0", "CC0") linked to its deed. The
+ * deed is built from the id (film-data.ts licenceSpans), so a link only ever goes to https://creativecommons.org/.
+ */
+export function withDeeds(text: string): Node {
+  const frag = document.createDocumentFragment();
+  let at = 0;
+  for (const m of licenceSpans(text)) {
+    if (m.start > at) frag.append(numerals(text.slice(at, m.start)));
+    frag.append(el("a", { href: m.deed, rel: "license noopener noreferrer" }, numerals(text.slice(m.start, m.end))));
+    at = m.end;
+  }
+  if (at < text.length) frag.append(numerals(text.slice(at)));
+  return frag;
+}
+
+/** A map's data: each source's name linked to its url (https only, checked again here), then its licence. */
+export function dataSourcesNode(sources: DataSource[]): Node {
+  const frag = document.createDocumentFragment();
+  sources.forEach((d, i) => {
+    if (i) frag.append("; ");
+    const url = safeUrl(d.url);
+    frag.append(url ? el("a", { class: "source", href: url, rel: "noopener noreferrer" }, d.name) : d.name);
+    if (d.licence) frag.append(", ", withDeeds(d.licence));
+  });
   return frag;
 }
 

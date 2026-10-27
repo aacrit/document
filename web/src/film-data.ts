@@ -49,6 +49,15 @@ export interface Shot {
   notes: string[];
   source_line: string | null;
   licence_note: string | null;
+  /** A drawn map's data, each source by name, with its https link and its licence (CC BY asks for both). */
+  data_sources: DataSource[];
+}
+
+export interface DataSource {
+  name: string;
+  /** https only; anything else is dropped and the name prints unlinked. */
+  url: string | null;
+  licence: string | null;
 }
 
 export interface MarkSpan {
@@ -212,7 +221,49 @@ function parseShot(x: unknown, i: number, fps: number): Shot {
     notes: Array.isArray(x.notes) ? x.notes.map(str).filter((t): t is string => t !== null) : [],
     source_line: str(x.source_line),
     licence_note: str(x.licence_note),
+    data_sources: parseDataSources(x.data_sources),
   };
+}
+
+/** A map's data_sources: the name without its parenthetical ("GeoNames (CC BY 4.0)" -> "GeoNames", as
+ * studio/engine/description.py map_attribution prints it), an https url or none, and the licence. */
+export function parseDataSources(x: unknown): DataSource[] {
+  if (!Array.isArray(x)) return [];
+  const out: DataSource[] = [];
+  for (const d of x) {
+    if (!isObj(d)) continue;
+    const id = str(d.id);
+    if (!id) continue;
+    const name = id.replace(/\s*\([^)]*\)/g, "").trim() || id.trim();
+    out.push({ name, url: safeUrl(d.url), licence: str(d.licence) });
+  }
+  return out;
+}
+
+const CC_VERSIONS = new Set(["1.0", "2.0", "2.5", "3.0", "4.0"]);
+const CC_ID = /\bCC[- ]?(BY(?:[- ](?:SA|ND|NC(?:[- ](?:SA|ND))?))?)[- ]?(\d\.\d)\b|\bCC[- ]?0(?:[- ]1\.0)?\b/gi;
+
+/** The Creative Commons deed a licence id names ("CC-BY-4.0", "CC BY-SA 3.0", "CC0"), or null. Built here from the id,
+ * never taken from a file, so it is always https://creativecommons.org/. */
+export function licenceDeed(id: string | null): string | null {
+  if (!id) return null;
+  const m = licenceSpans(id.trim())[0];
+  return m && m.start === 0 && m.end === id.trim().length ? m.deed : null;
+}
+
+/** Every Creative Commons licence id inside a text, with where it sits and its deed; for linking ids in prose. */
+export function licenceSpans(text: string): { start: number; end: number; deed: string }[] {
+  const out: { start: number; end: number; deed: string }[] = [];
+  for (const m of text.matchAll(CC_ID)) {
+    const start = m.index ?? 0;
+    let deed: string;
+    if (m[1]) {
+      if (!CC_VERSIONS.has(m[2])) continue;
+      deed = `https://creativecommons.org/licenses/${m[1].toLowerCase().replace(/ /g, "-")}/${m[2]}/`;
+    } else deed = "https://creativecommons.org/publicdomain/zero/1.0/";
+    out.push({ start, end: start + m[0].length, deed });
+  }
+  return out;
 }
 
 /** The black floor applied to a still (A46), or null: an opt-out or no floor shows nothing was changed. */
@@ -637,6 +688,8 @@ export interface FilmNotes {
   gaps: SourceGap[];
   statements: string[];
   mapNotes: string[];
+  /** Each drawn map's data sources, linked where the file gives an https url. */
+  mapData: { map: string; sources: DataSource[] }[];
   licences: string[];
 }
 
@@ -687,14 +740,16 @@ export function filmNotes(
     return at ? `${u.name}: ${at}` : u.name;
   });
   const mapNotes: string[] = [];
+  const mapData: FilmNotes["mapData"] = [];
   const byLicence = new Map<string, number>();
   for (const s of data.shots) {
     const name = s.title ?? s.id;
+    if (s.data_sources.length && !mapData.some((m) => m.map === name)) mapData.push({ map: name, sources: s.data_sources });
     for (const n of s.notes) {
       const t = `${name}: ${n}`;
       if (!mapNotes.includes(t)) mapNotes.push(t);
     }
-    if (s.source_line) {
+    if (s.source_line && !s.data_sources.length) {     // a map that names its data is credited in mapData, linked
       const t = `${name}: ${s.source_line}`;
       if (!mapNotes.includes(t)) mapNotes.push(t);
     }
@@ -710,6 +765,7 @@ export function filmNotes(
     gaps: sourceGaps(data).map(({ says, searched }) => ({ says, searched })),
     statements: [...data.statements],
     mapNotes,
+    mapData,
     licences,
   };
 }
