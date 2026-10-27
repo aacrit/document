@@ -4,6 +4,8 @@
 // about a film is derived here, never typed, so the pages cannot drift from
 // the film. Pure functions only: no DOM, no fetch (tests/film-data.test.ts).
 
+import CC from "../../studio/cc-licences.json";
+
 export const MARK_CLASSES = ["ARCHIVE", "RECONSTRUCTED", "AI-GENERATED", "DRAWN", "CARD"] as const;
 export type MarkClass = (typeof MARK_CLASSES)[number];
 
@@ -240,30 +242,55 @@ export function parseDataSources(x: unknown): DataSource[] {
   return out;
 }
 
-const CC_VERSIONS = new Set(["1.0", "2.0", "2.5", "3.0", "4.0"]);
-const CC_ID = /\bCC[- ]?(BY(?:[- ](?:SA|ND|NC(?:[- ](?:SA|ND))?))?)[- ]?(\d\.\d)\b|\bCC[- ]?0(?:[- ]1\.0)?\b/gi;
+// The Creative Commons licences linked to a deed: the same table studio/engine/description.py reads.
+const CC_KINDS = new Set<string>(CC.kinds);
+const CC_VERSIONS = new Set<string>(CC.versions);
+const CC_PORTED = new Set<string>(CC.ported_versions);
+const CC_ID = /\bCC[- ]?(BY(?:[- ](?:NC|ND|SA)){0,2})[- ]?(\d\.\d)(?:[- ]([A-Za-z]{2})\b)?/gi;
+const CC_SPELLED =
+  /\bCreative\s+Commons\s+Attribution((?:[- ]?(?:Share[- ]?Alike|Non[- ]?Commercial|No[- ]?Deriv(?:s|atives)))*)(?:\s+Licen[cs]e)?\s+(\d\.\d)/gi;
+const CC_ZERO = /\bCC[- ]?0(?:[- ]1\.0)?\b|\bCreative\s+Commons\s+Zero\b/gi;
+const ZERO_DEED = "https://creativecommons.org/publicdomain/zero/1.0/";
 
-/** The Creative Commons deed a licence id names ("CC-BY-4.0", "CC BY-SA 3.0", "CC0"), or null. Built here from the id,
- * never taken from a file, so it is always https://creativecommons.org/. */
-export function licenceDeed(id: string | null): string | null {
-  if (!id) return null;
-  const m = licenceSpans(id.trim())[0];
-  return m && m.start === 0 && m.end === id.trim().length ? m.deed : null;
+function ccDeed(kind: string, version: string, jurisdiction: string | null): string | null {
+  if (!CC_KINDS.has(kind) || !CC_VERSIONS.has(version)) return null;
+  if (jurisdiction && !CC_PORTED.has(version)) return null; // 4.0 was never ported
+  return `https://creativecommons.org/licenses/${kind}/${version}/${jurisdiction ? `${jurisdiction.toLowerCase()}/` : ""}`;
 }
 
-/** Every Creative Commons licence id inside a text, with where it sits and its deed; for linking ids in prose. */
+/** The Creative Commons deed a licence id names ("CC-BY-4.0", "CC BY-SA 3.0", "CC BY 3.0 US", "CC0", or the
+ * spelled-out "Creative Commons Attribution-ShareAlike 3.0"), or null. Built here from the id, never taken from a
+ * file, so it is always https://creativecommons.org/. */
+export function licenceDeed(id: string | null): string | null {
+  if (!id) return null;
+  const t = id.trim();
+  const m = licenceSpans(t)[0];
+  if (!m || m.start !== 0) return null;
+  // the id itself, or the id followed only by a qualifier CC prints after it ("Unported", "Generic", "International")
+  return m.end === t.length || /^\s+(Unported|Generic|International)$/i.test(t.slice(m.end)) ? m.deed : null;
+}
+
+/** Every Creative Commons licence named inside a text, with where it sits and its deed; for linking ids in prose.
+ * An id CC never published (an unknown kind or version, a 4.0 "port") is not linked. */
 export function licenceSpans(text: string): { start: number; end: number; deed: string }[] {
   const out: { start: number; end: number; deed: string }[] = [];
   for (const m of text.matchAll(CC_ID)) {
     const start = m.index ?? 0;
-    let deed: string;
-    if (m[1]) {
-      if (!CC_VERSIONS.has(m[2])) continue;
-      deed = `https://creativecommons.org/licenses/${m[1].toLowerCase().replace(/ /g, "-")}/${m[2]}/`;
-    } else deed = "https://creativecommons.org/publicdomain/zero/1.0/";
-    out.push({ start, end: start + m[0].length, deed });
+    const jur = m[3] && m[3] === m[3].toUpperCase() ? m[3] : null; // "CC BY 2.0 by newandrew": no port
+    const end = start + m[0].length - (m[3] && !jur ? m[3].length + 1 : 0);
+    const deed = ccDeed(m[1].toLowerCase().replace(/ /g, "-"), m[2], jur);
+    if (deed) out.push({ start, end, deed });
   }
-  return out;
+  for (const m of text.matchAll(CC_SPELLED)) {
+    const codes = (m[1].match(/Share[- ]?Alike|Non[- ]?Commercial|No[- ]?Deriv(?:s|atives)/gi) ?? []).map((w) =>
+      /^share/i.test(w) ? "sa" : /^non/i.test(w) ? "nc" : "nd",
+    );
+    const deed = ccDeed(["by", ...codes].join("-"), m[2], null);
+    if (deed) out.push({ start: m.index ?? 0, end: (m.index ?? 0) + m[0].length, deed });
+  }
+  for (const m of text.matchAll(CC_ZERO)) out.push({ start: m.index ?? 0, end: (m.index ?? 0) + m[0].length, deed: ZERO_DEED });
+  out.sort((x, y) => x.start - y.start);
+  return out.filter((x, i) => i === 0 || x.start >= out[i - 1].end);
 }
 
 /** The black floor applied to a still (A46), or null: an opt-out or no floor shows nothing was changed. */

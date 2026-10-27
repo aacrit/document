@@ -573,6 +573,26 @@ describe("attribution links (CC BY asks for the licence by its URI, and the data
     expect(spans[0]).toMatchObject({ start: 0, end: 9 });
   });
 
+  it("reads NC and ND, ported licences before 4.0, and the spelled-out names, from the table the engine reads", () => {
+    const table = JSON.parse(readFileSync(path.join(root, "studio/cc-licences.json"), "utf8"));
+    expect(table.versions).toEqual(["1.0", "2.0", "2.5", "3.0", "4.0"]);
+    expect(licenceDeed("CC BY-NC-SA 2.0")).toBe("https://creativecommons.org/licenses/by-nc-sa/2.0/");
+    expect(licenceDeed("CC BY-ND 4.0")).toBe("https://creativecommons.org/licenses/by-nd/4.0/");
+    expect(licenceDeed("CC BY 3.0 US")).toBe("https://creativecommons.org/licenses/by/3.0/us/");
+    expect(licenceDeed("CC BY-SA 2.5 ES")).toBe("https://creativecommons.org/licenses/by-sa/2.5/es/");
+    expect(licenceDeed("CC BY 4.0 US")).toBeNull(); // 4.0 was never ported
+    expect(licenceDeed("CC BY-XX 4.0")).toBeNull();
+    expect(licenceDeed("CC BY-SA 3.0 Unported")).toBe("https://creativecommons.org/licenses/by-sa/3.0/");
+    expect(licenceDeed("Creative Commons Attribution-ShareAlike 3.0 Unported")).toBe("https://creativecommons.org/licenses/by-sa/3.0/");
+    expect(licenceDeed("Creative Commons Attribution 4.0 International")).toBe("https://creativecommons.org/licenses/by/4.0/");
+    expect(licenceDeed("Creative Commons Attribution-NonCommercial-NoDerivs 2.0 Generic")).toBe("https://creativecommons.org/licenses/by-nc-nd/2.0/");
+    const by = licenceSpans("CC BY 2.0 by newandrew");
+    expect(by).toEqual([{ start: 0, end: 9, deed: "https://creativecommons.org/licenses/by/2.0/" }]); // "by" is no port
+    const spelled = licenceSpans("Photograph, Creative Commons Attribution 3.0, via Commons");
+    expect(spelled).toHaveLength(1);
+    expect(spelled[0].deed).toBe("https://creativecommons.org/licenses/by/3.0/");
+  });
+
   it("parses a map's data_sources: the name without its parenthetical, an https url or none", () => {
     const evil = '"><img src=x onerror=alert(1)>';
     const ds = parseDataSources([
