@@ -8351,6 +8351,17 @@ def title_sources_fields(s: dict) -> dict:
         "provenance": [dict({k: x.get(k) for k in keep}, credit=TS.plain(x.get("credit"))) for x in TS.provenance_items(prov)]}}
 
 
+def description_overflow(plan: dict, journal: Journal) -> str | None:
+    """Why this plan's description block cannot be written (its pre-4.0 credits do not fit the cap), or None. Read
+    from the sources data the render will write, so a final render is refused before its frames, not after."""
+    try:
+        doc = sources_doc(plan, journal, {})
+        DSC.description_text(doc, DSC.film_entry(DSC.REPO_FILMS, doc.get("slug") or ""))
+    except DSC.AttributionOverflow as e:
+        return str(e)
+    return None
+
+
 def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
     shots = []
     for s in plan["shots"]:
@@ -8734,6 +8745,12 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         fill_refusals = card_fill_lints(journal, plan)
         if fill_refusals:
             raise Refused(f"filled cards (pre-flight): {'; '.join(fill_refusals)} (E15: a card's text is drawn whole or refused)")
+        if not check:              # A56: the description block, from this plan, before any frame (never at the end)
+            desc_why = description_overflow(plan, journal)
+            journal.lint("description-fits", desc_why is None, stage="assembly", phase="preflight", grammar="A56",
+                         severity="warn" if advisory else "block", evidence={"why": desc_why})
+            if desc_why and not advisory:
+                raise Refused(f"description (pre-flight): {desc_why} (GRAMMAR A56)")
         for i in pending:
             key_shot(i)
         todo.sort()
@@ -8978,7 +8995,11 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
             doc = sources_doc(plan, journal, extra)
             sources_path.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
             if not check:                   # A56: the description block, from the same data (description.py)
-                journal.artifact("assembly", DSC.write_description(sources_path, DSC.REPO_FILMS), role="description")
+                try:
+                    journal.artifact("assembly", DSC.write_description(sources_path, DSC.REPO_FILMS), role="description")
+                except DSC.AttributionOverflow as e:      # only a draft gets here: the pre-flight refuses a final render
+                    journal.lint("description-fits", False, stage="assembly", severity="warn", grammar="A56",
+                                 evidence={"why": str(e)})
         for i in in_span:
             journal.artifact("motion", segs[i], unit=ids[i], role="check-segment" if check else "segment")
         journal.artifact("assembly", master, role="check-master" if check else "master")
@@ -9046,6 +9067,12 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
             raise Refused(f"a shortfall card's numbers come from the render's own measurement and {why}: render the film")
         fill_cards(plan, values, journal)
     doc = sources_doc(plan, journal, extra)
+    # release step [a]: the description must be publishable with this film (A56), checked before either file is written
+    why = DSC.release_problem(doc, DSC.film_entry(DSC.REPO_FILMS, doc.get("slug") or ""))
+    journal.lint("description-release", why is None, stage="assembly", phase="sources-only", grammar="A56",
+                 evidence={"why": why})
+    if why:
+        raise Refused(f"description: {why} (GRAMMAR A56)")
     path.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
     journal.artifact("assembly", path, role="sources")
     journal.artifact("assembly", DSC.write_description(path, DSC.REPO_FILMS), role="description")
