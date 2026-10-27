@@ -16,7 +16,9 @@ The trailing corner (spec section 4, read as the air film it describes): lifted 
 speed) while the sheet slides on the air it drags, then down to its resting lie over 0.25 s after the stop, falling (a
 quadratic in time, so it lands with speed: the settle tap). The spec's literal "2 mm x v" would be zero at the stop and
 leave nothing to settle; the release speed (1.6 to 1.9 m/s) puts every paper sheet at the 3 mm cap. The Atlas boards do
-not lift: their trailing edge rides 1 mm up and drops in 0.1 s.
+not lift: their trailing edge rides 1 mm up and comes down over the same 0.25 s as the air under them escapes
+(a rigid board trapping air settles no faster than paper; the spec's acceptance list puts every settle tap 0.25 s
+after its stop, and the theme's landing harp sits 70 ms from a 0.1 s drop).
 
 The lie: a sheet slides as a rigid plate on the highest point its footprint covers, and over the same 0.25 s, as the
 air escapes, it lies down onto the pile point by point (as still_v5.paper lays its dealt papers: each point on what is
@@ -57,7 +59,7 @@ for _k, _r in RECORDS.items():
 LIFT_MAX = 0.004                         # rev 2: min(4 mm, 2 mm per m/s of the release speed)
 LIFT_PER_V = 0.002                       # m per m/s
 SETTLE_S = 0.25
-BOARD_LIFT, BOARD_SETTLE_S = 0.001, 0.1
+BOARD_LIFT, BOARD_SETTLE_S = 0.001, 0.25
 DESCENT = tuple(CAM["descent"]["frames"])
 
 
@@ -212,25 +214,75 @@ def audio_speed(s, t):
     return speed_at(s, t)
 
 
-def edge_crossing_s(s, dt=1 / 240):
-    """The first instant the sliding sheet's footprint meets a sheet already at rest (the edge flick); None if it only
-    ever slides on oak."""
-    under = [e for e in SHEETS if e["stop_s"] < release_s(s)]
-    if not under:
-        return None
-    rest = [footprint(e, e["stop_s"]) for e in under]
-    t = release_s(s)
-    while t < s["stop_s"]:
-        fp = footprint(s, t)
-        if any(_sat(fp, r) for r in rest):
-            return t
-        t += dt
-    return None
+def edge_crossings(s, dt=1 / 240):
+    """Each sheet at rest the sliding sheet's footprint (turning as it slides) comes to lie over: (id, kind, t). kind
+    "edge flick": its leading edge rides onto that sheet at t (one flick); "over at release": it already lies over it
+    when it leaves the unseen hand (no flick). Sorted by time; [] for a sheet that only slides on oak."""
+    out = []
+    t0 = release_s(s)
+    for e in SHEETS:
+        if e["stop_s"] >= t0:
+            continue
+        rest = footprint(e, e["stop_s"])
+        t = t0
+        while t < s["stop_s"]:
+            if _sat(footprint(s, t), rest):
+                out.append((e["id"], "over at release" if t == t0 else "edge flick", t))
+                break
+            t += dt
+    return sorted(out, key=lambda c: c[2])
+
+
+def edge_flicks_s(s):
+    return [t for _, kind, t in edge_crossings(s) if kind == "edge flick"]
+
+
+def solved_foley_events():
+    """The Foley's solved event times, in the music director's foley-events-computed.json shape (release, enter, stop,
+    tap, crossings) plus the time each slide is first heard: the authority the score is guarded against."""
+    out = {}
+    for s in SHEETS + list(RECORDS.values()):
+        k = s["id"] if s["id"] != "R" else s["record"]
+        out[k] = {"heard_s": round(push_start_s(s), 3), "release_s": round(release_s(s), 3), "enter_s": s["enter_s"],
+                  "stop_s": s["stop_s"], "tap_s": round(settle_tap_s(s), 3),
+                  "crossings": [[u, kind, round(t, 3)] for u, kind, t in edge_crossings(s)]}
+    return out
 
 
 def settle_tap_s(s):
-    """The settle: the lifted corner lands 0.25 s after the stop; the Atlas boards' trailing edge drops in 0.1 s."""
+    """The settle: the lifted corner (the Atlas boards' trailing edge) lands 0.25 s after the stop."""
     return s["stop_s"] + (BOARD_SETTLE_S if is_board(s) else SETTLE_S)
+
+
+def frame_state(frame, record):
+    """Everything a rendered frame depends on, at the shutter's open, middle and close (180 degrees: frame -+ 0.25):
+    each sheet's and the record's visibility, centre, turn, lift and lie, the camera, the flat-hold. Two frames with
+    the same state render the same pixels (the scene is deterministic: a fixed seed, no animated noise)."""
+    out = []
+    r = RECORDS[record]
+    for df in (-0.25, 0.0, 0.25):
+        t = t_of(frame + df)
+        for s in SHEETS + [r]:
+            c = centre_at(s, t)
+            out.append((visible_at(s, t_of(frame)), round(c[0], 7), round(c[1], 7), round(psi_at(s, t), 6),
+                        round(lift_at(s, t), 7), round(lie_at(s, t), 6)))
+        eye, roll = camera_at(record, frame + df)
+        out.append(tuple(round(v, 7) for v in eye) + (round(roll, 6),))
+    out.append(round(hold_mix(frame), 6))
+    return tuple(out)
+
+
+def render_plan(record):
+    """Spec section 9, rendered once: each run of identical frames renders its first and repeats it.
+    Returns {"render": the frames to render, "source_of": for every frame, the rendered frame it shows}."""
+    src, prev, cur = [], None, None
+    for f in range(FRAMES):
+        st = frame_state(f, record)
+        if st != prev:
+            cur = f
+        src.append(cur)
+        prev = st
+    return {"render": sorted(set(src)), "source_of": src}
 
 
 def hold_mix(frame):
@@ -248,9 +300,12 @@ def _smooth(t):
     return t * t * t * (t * (6 * t - 15) + 10)         # shot_v5c._smooth, as the spec names it
 
 
-def camera_at(record, frame):
+def camera_at(record, frame, record_z=0.0):
     """The eye (table coordinates) and the frame's roll (degrees): fixed at 2.00 m (rev 2) over P until the record enters,
-    then the one descent onto the record's resting pose (its window filling the frame), held from the pose frame."""
+    then the one descent onto the record's resting pose (its window filling the frame), held from the pose frame.
+    record_z: the height of the record's face where it lies on the pile (the bake's face_low_mm, its lowest point); the
+    pose eye is window / 0.72 over it, so the window fills the frame with every point of the face at or above that
+    height overflowing it slightly (a draped face is not flat: over its median a lower edge would show a rim)."""
     r = RECORDS[record]
     fixed = (P[0], P[1], EYE_Z)
     f0, f1 = DESCENT
@@ -264,7 +319,8 @@ def camera_at(record, frame):
     p = math.radians(r["land_psi_deg"])
     cx = r["land_centre_m"][0] + wu * math.cos(p) - wv * math.sin(p)
     cy = r["land_centre_m"][1] + wu * math.sin(p) + wv * math.cos(p)
-    to = (P[0] + cx, P[1] + cy, r["pose_eye_height_m"])
+    # window width / 0.72 exactly (the beats round it to the millimetre, which would open a hairline rim)
+    to = (P[0] + cx, P[1] + cy, record_z + r["window_width_m"] * LENS_MM / SENSOR_MM)
     eye = tuple(a + (b - a) * k for a, b in zip(fixed, to))
     return eye, r["land_psi_deg"] * k
 

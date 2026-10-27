@@ -103,8 +103,9 @@ def test_the_trailing_corner_is_held_then_settles_in_a_quarter_second():
     assert L.lift_at(s, s["stop_s"] + 0.25) == 0.0
     assert L.lift_at(s, s["stop_s"] + 2.0) == 0.0
     assert max(L.lift_at(x, x["stop_s"]) for x in L.SHEETS) <= 0.004
-    a = L.BY_ID["S2"]                                   # the Atlas boards: a 1 mm trailing edge, down in 0.1 s
-    assert L.lift_at(a, a["stop_s"]) == 0.001 and L.lift_at(a, a["stop_s"] + 0.1) == 0.0
+    a = L.BY_ID["S2"]                                   # the Atlas boards: a 1 mm trailing edge, down in 0.25 s
+    assert L.lift_at(a, a["stop_s"]) == 0.001 and L.lift_at(a, a["stop_s"] + 0.1) > 0.0
+    assert L.lift_at(a, a["stop_s"] + 0.25) == 0.0
 
 
 def test_a_sheet_lies_down_onto_the_pile_as_its_corner_settles():
@@ -122,6 +123,13 @@ def test_the_camera_is_fixed_until_the_record_enters():
     eye, roll = L.camera_at("C20-METAR-0851", 978)
     assert abs(eye[2] - 0.278) < 1e-3 and abs(roll - 1.5) < 1e-9
     assert L.camera_at("C20-METAR-0851", 1031) == L.camera_at("C20-METAR-0851", 978)
+
+
+def test_the_pose_height_is_over_the_record_where_it_lies_on_the_pile():
+    eye, _ = L.camera_at("C20-METAR-0851", 978, record_z=0.0068)
+    assert abs(eye[2] - (0.0068 + 0.2 / 0.72)) < 1e-9          # the window's width / 0.72, exactly
+    assert abs(L.camera_at("C20-METAR-0851", 978)[0][2] - L.RECORDS["C20-METAR-0851"]["pose_eye_height_m"]) < 5e-4
+    assert L.camera_at("C20-METAR-0851", 100, record_z=0.0068)[0][2] == 2.00     # the fixed camera is not moved
 
 
 def test_the_flat_hold_ramps_over_the_twelve_frames_before_the_pose():
@@ -169,23 +177,52 @@ def test_the_push_speeds_the_sheet_up_and_the_slide_slows_it_to_zero():
     assert L.audio_speed(s, s["stop_s"]) == 0.0 and L.audio_speed(s, s["stop_s"] + 1) == 0.0
 
 
-def test_one_edge_flick_where_the_leading_edge_first_rides_onto_the_pile():
-    assert L.edge_crossing_s(L.BY_ID["S2"]) is None                  # the Atlas slides on bare oak
+def test_an_edge_flick_at_each_edge_the_leading_edge_rides_onto():
+    assert L.edge_crossings(L.BY_ID["S2"]) == []                      # the Atlas slides on bare oak
     for s in L.SHEETS[1:] + list(L.RECORDS.values()):
-        t = L.edge_crossing_s(s)
-        assert t is not None and L.release_s(s) <= t < s["stop_s"], s["id"]
+        cr = L.edge_crossings(s)
         under = [e for e in L.SHEETS if e["stop_s"] < L.release_s(s)]
+        assert {u for u, _, _ in cr} <= {e["id"] for e in under}
+        for uid, kind, t in cr:
+            e = L.BY_ID[uid]
 
-        def on(tt):
-            return any(L._sat(L.footprint(s, tt), L.footprint(e, e["stop_s"])) for e in under)
-        assert on(t) and (t == L.release_s(s) or not on(t - 1 / 240))
+            def on(tt):
+                return L._sat(L.footprint(s, tt), L.footprint(e, e["stop_s"]))
+            assert on(t) and L.release_s(s) <= t < s["stop_s"], (s["id"], uid)
+            if kind == "over at release":                 # already over it when it leaves the hand: no flick
+                assert t == L.release_s(s)
+            else:
+                assert kind == "edge flick" and not on(t - 1 / 240)
+    # the Ino crosses two edges as it slides: Piri Reis's, then the Atlas's
+    assert [k for _, k, _ in L.edge_crossings(L.BY_ID["S5"])].count("edge flick") == 2
 
 
-def test_the_settle_tap_is_a_quarter_second_after_each_stop_and_the_boards_drop_sooner():
-    for s in L.SHEETS[1:] + list(L.RECORDS.values()):
+def test_the_settle_tap_is_a_quarter_second_after_each_stop():
+    for s in L.SHEETS + list(L.RECORDS.values()):
         assert abs(L.settle_tap_s(s) - (s["stop_s"] + 0.25)) < 1e-9
-    a = L.BY_ID["S2"]
-    assert abs(L.settle_tap_s(a) - (a["stop_s"] + 0.1)) < 1e-9
+
+
+def test_static_frames_are_rendered_once_and_repeated():
+    plan = L.render_plan("C20-METAR-0851")
+    src = plan["source_of"]
+    assert len(src) == L.FRAMES and src[0] == 0
+    unique = sorted(set(src))
+    assert unique == plan["render"]
+    # a repeated frame is identical to the one rendered: same poses at the shutter's open, middle and close
+    for f, g in enumerate(src):
+        assert L.frame_state(f, "C20-METAR-0851") == L.frame_state(g, "C20-METAR-0851")
+    # holds collapse: the stillness (nothing moves) is one render, and so is the pose hold
+    still = range(L.BEATS["stillness"]["frames"][0] + 9, L.RECORDS["C20-METAR-0851"]["enter_frame"] - 8)
+    assert len({src[f] for f in still}) == 1
+    hold = range(L.RECORDS["C20-METAR-0851"]["flat_hold"]["one_from_frame"] + 1, L.FRAMES)
+    assert len({src[f] for f in hold}) == 1
+    # every slide frame, settle and descent frame is its own render
+    for s in L.SHEETS:
+        for f in range(s["enter_frame"], s["stop_frame"]):
+            assert src[f] == f
+    for f in range(L.DESCENT[0] + 1, L.DESCENT[1]):
+        assert src[f] == f
+    assert len(unique) < 0.6 * L.FRAMES
 
 
 def test_the_stillness_has_no_slide_in_it_until_the_record_is_heard():

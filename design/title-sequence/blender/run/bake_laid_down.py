@@ -332,7 +332,12 @@ def _settle(world, plates, rel, s, rows, store, report, sid, lay=True):
     if lay:
         for pl, top in lays:
             world.lay(pl, top, rel[pl["name"]][2], *s["land_centre_m"], s["land_psi_deg"])
-    report["rest"][sid] = {"z_rigid_mm": round(z_rest * 1e3, 3), "pile_top_mm": round(float(world.top.max()) * 1e3, 3)}
+    report["rest"][sid] = {"z_rigid_mm": round(z_rest * 1e3, 3), "pile_top_mm": round(float(world.top.max()) * 1e3, 3),
+                           # the face's height at rest (median over the sheet): the pose camera stands over it
+                           "face_mm": round(float(np.median(np.concatenate([t[rel[p["name"]][2]].ravel()
+                                                                           for p, t in lays]))) * 1e3, 3),
+                           "face_low_mm": round(float(np.min(np.concatenate([t[rel[p["name"]][2]].ravel()
+                                                                            for p, t in lays]))) * 1e3, 3)}
     report["edge_gaps"][sid] = _gap_stats(np.concatenate(gaps))
 
 

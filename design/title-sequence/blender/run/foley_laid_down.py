@@ -11,9 +11,9 @@ synthesis), and all placed from laid_down's own clock (nothing simulated here):
   speed (20 log10(v / v_ref)) and its brightness falling with it (a crossfade between three low-passed reads). The
   speed is laid_down.audio_speed: up under the unseen push from 0.2 s before the sheet is seen, then Coulomb's linear
   fall to zero, so every sheet is heard before it is seen and its sound ends exactly at its stop;
-* the edge: one flick (a short tap slice, high-passed) at laid_down.edge_crossing_s, where the leading edge first rides
+* the edge: one flick (a short tap slice, high-passed) at each laid_down.edge_flicks_s, where the leading edge rides
   onto the pile, its level by the speed there; the Atlas, sliding on bare oak, has none;
-* the settle: one soft tap at laid_down.settle_tap_s (0.25 s after the stop; the Atlas boards' 1 mm drop lands in 0.1 s,
+* the settle: one soft tap at laid_down.settle_tap_s (0.25 s after the stop; for the Atlas boards' 1 mm drop,
   a hard object laid on wood).
 
 Material pairs (rev 3 has six; the spec's "seven" counted the papyrus): the Atlas boards on oak, the leaf on vellum,
@@ -166,12 +166,13 @@ def build(record="C20-METAR-0851", lockup_s=6.0, room_tone=True):
         sl, info = slide(s, pid, n_shot, rng)
         bus[:n_shot] += sl
         ev = {"sheet": s["id"] if pid != "R" else f"R {record}", **info}
-        te = L.edge_crossing_s(s)
-        if te is not None:
+        ev["crossings"] = [[u, k, round(t, 3)] for u, k, t in L.edge_crossings(s)]
+        ev["edges"] = []
+        for te in L.edge_flicks_s(s):                          # one flick at each edge the leading edge rides onto
             v = L.audio_speed(s, te)
             g = FLICK["gain_db"] + float(np.clip(20 * np.log10(v / V_REF + 1e-9), -12, 3))
             place(bus, one_shot(flicks, 0.75, rng), te, g)      # one firm layer; its level is the speed's
-            ev["edge_s"], ev["edge_speed_m_s"] = round(te, 3), round(v, 3)
+            ev["edges"].append({"t": round(te, 3), "speed_m_s": round(v, 3)})
         tt = L.settle_tap_s(s)
         if L.is_board(s):
             place(bus, lp(one_shot(board, 0.3, rng), BOARD_TAP["lp"]), tt, BOARD_TAP["gain_db"])
@@ -218,7 +219,7 @@ def main():
     write_stereo(a.out, mix)
     Path(a.out).with_suffix(".foley-report.json").write_text(json.dumps(rep, indent=1), encoding="utf-8")
     print(json.dumps({k: rep[k] for k in ("shot_s", "stillness_wet_peak_dbfs")}),
-          *[f"\n{e['sheet']}: heard {e['heard_s']} seen {e['seen_s']} lead {e['lead_s']} edge {e.get('edge_s')} "
+          *[f"\n{e['sheet']}: heard {e['heard_s']} seen {e['seen_s']} lead {e['lead_s']} edges {[x['t'] for x in e['edges']]} "
             f"stop {e['stop_s']} tap {e['settle_tap_s']}" for e in rep["events"]])
 
 

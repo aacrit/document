@@ -56,7 +56,7 @@ def _args():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     a = {"frame": "708", "res": "1920x1080", "samples": "1024", "min_samples": "512", "threshold": "0.005",
          "exposure": "0.0", "out": "", "meter": "0", "meter_res": "480x270", "meter_samples": "64", "view": "Standard",
-         "record": "C20-METAR-0851", "blur": "1", "blend": ""}
+         "record": "C20-METAR-0851", "blur": "1", "blend": "", "frames": "", "outdir": ""}
     for i, k in enumerate(argv):
         if k.startswith("--") and i + 1 < len(argv):
             a[k[2:]] = argv[i + 1]
@@ -258,8 +258,10 @@ def plate_mesh(name, pl, top, bot, mask, lift, lie, top_mat, side_mat):
     (onto the pile at rest)."""
     W, H = pl["size"]
     nv, nu = top.shape
-    u = -W / 2 + (np.arange(nu) + 0.5) * W / nu + pl["at"][0]
-    v = H / 2 - (np.arange(nv) + 0.5) * H / nv + pl["at"][1]
+    # the vertices span the sheet's real size edge to edge and its scan maps whole onto it (texel centres would leave
+    # it a texel short and the scan shrunk: 2 mm on a 0.20 m record, a visible rim at the record's pose)
+    u = np.linspace(-W / 2, W / 2, nu) + pl["at"][0]
+    v = np.linspace(H / 2, -H / 2, nv) + pl["at"][1]
     X, Y = np.meshgrid(u, v)
     idx = np.arange(nv * nu).reshape(nv, nu)
     keep = mask[:-1, :-1] & mask[1:, :-1] & mask[:-1, 1:] & mask[1:, 1:]
@@ -297,8 +299,8 @@ def plate_mesh(name, pl, top, bot, mask, lift, lie, top_mat, side_mat):
     me.polygons.foreach_set("loop_start", (np.arange(len(faces)) * 4).astype(np.int32))
     me.polygons.foreach_set("material_index", mats)
     me.update(calc_edges=True)
-    uvv = np.concatenate([np.stack([(np.arange(nu)[None, :].repeat(nv, 0) + 0.5) / nu,
-                                    1 - (np.arange(nv)[:, None].repeat(nu, 1) + 0.5) / nv], -1).reshape(-1, 2)] * 2)[used]
+    uvv = np.concatenate([np.stack([np.linspace(0, 1, nu)[None, :].repeat(nv, 0),
+                                    np.linspace(1, 0, nv)[:, None].repeat(nu, 1)], -1).reshape(-1, 2)] * 2)[used]
     uvl = me.uv_layers.new()
     uvl.data.foreach_set("uv", uvv[faces.ravel()].astype(np.float32).ravel())
     me.polygons.foreach_set("use_smooth", np.ones(len(faces), bool))
@@ -401,11 +403,13 @@ def camera(sc):
     cam.data.dof.aperture_fstop = L.CAM["fstop"]
     rep = json.loads((BAKE / "report.json").read_text(encoding="utf-8"))
     pile_top = max(v.get("pile_top_mm", 0.0) for v in rep["rest"].values()) / 1e3   # focus on the pile's surface
+    face = rep["rest"][f"R {A['record']}"]["face_low_mm"] / 1e3                     # the record's face, lowest point
     for f in sorted({0, L.DESCENT[0]} | set(range(L.DESCENT[0], L.DESCENT[1] + 1)) | {L.FRAMES - 1}):
-        eye, roll = L.camera_at(A["record"], f)
+        eye, roll = L.camera_at(A["record"], f, record_z=face)
         cam.location = eye
         cam.rotation_euler = (0.0, 0.0, math.radians(roll))
-        cam.data.dof.focus_distance = eye[2] - pile_top
+        k = min(max((f - L.DESCENT[0]) / (L.DESCENT[1] - L.DESCENT[0]), 0.0), 1.0)
+        cam.data.dof.focus_distance = eye[2] - (pile_top + (face - pile_top) * k)    # pulled to the record's face
         cam.keyframe_insert("location", frame=f)
         cam.keyframe_insert("rotation_euler", frame=f)
         cam.data.dof.keyframe_insert("focus_distance", frame=f)
@@ -507,9 +511,26 @@ def main():
     sc.view_settings.exposure = ev
     if A["blend"]:
         bpy.ops.wm.save_as_mainfile(filepath=A["blend"], compress=False)
-    sc.render.filepath = A["out"]
     tr = time.time()
-    bpy.ops.render.render(write_still=True)
+    if A["frames"]:
+        # the animatic: these frames, one process, each to <outdir>/<frame>.png (render_plan's unique frames)
+        sc.render.use_persistent_data = True
+        done = []
+        for f in (int(v) for v in A["frames"].split(",")):
+            p = Path(A["outdir"]) / f"{f:05d}.png"
+            if p.exists():
+                continue
+            sc.frame_set(f)
+            sc.render.filepath = str(p)
+            t1 = time.time()
+            bpy.ops.render.render(write_still=True)
+            done.append([f, round(time.time() - t1, 2)])
+            print(f"LD-FRAME {f} {done[-1][1]}", flush=True)
+        info["frames_rendered"] = done
+        A["out"] = A["outdir"]
+    else:
+        sc.render.filepath = A["out"]
+        bpy.ops.render.render(write_still=True)
     assert not sc.cycles.use_denoising and not sc.cycles.use_preview_denoising, "no denoiser (founder ruling)"
     info.update({"out": A["out"], "res": A["res"], "samples": sc.cycles.samples, "min_samples": sc.cycles.adaptive_min_samples,
                  "threshold": sc.cycles.adaptive_threshold, "exposure": sc.view_settings.exposure,
