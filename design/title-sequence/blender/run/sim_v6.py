@@ -72,6 +72,21 @@ RAIL = (0.0015, 0.004)                                # far rail half width, hal
 GALLEY_B = 0.85                                       # impact parameter of the glance on sort 1 (spec 3.3)
 SORT1_S = 0.985                                       # sort 1's uphill face, along the path (on the leaf, past board 2)
 
+def sort_offsets():
+    """Each sort's centre along the row from the galley's mouth (sort 1's uphill face at 0)."""
+    out, s = [], SORT[0]
+    for i in range(N_SORTS):
+        out.append(s)
+        if i < N_SORTS - 1:
+            s += 2 * SORT[0] + GAPS[i]
+    return out
+
+
+def galley_length():
+    """The floor plate: from the mouth to past the last sort's fall (it lies over 2 x half height, plus 1 cm)."""
+    return sort_offsets()[-1] + SORT[0] + 2 * SORT[2] + 0.01
+
+
 # ------------------------------------------------------------------------------------------------ the latch
 
 LATCH = {"cup_deg": 3.0, "cup_len": 0.012, "ramp_deg": 25.0, "drop": 0.0040, "ease": 0.008, "width": 0.050}
@@ -188,15 +203,20 @@ def model_xml(hf, roll, felt_mu):
                      f'{roll["oak"]:.4e}" condim="6" solref="{SOLREF}" rgba="0.5 0.35 0.2 1"/>')
     s_ball = BALL_S0 if T.LATCH else 0.0
     z_ball = board(s_ball) + (float(np.interp(BALL_S0, ss, zz)) if T.LATCH else 0.0) + T.R + 2e-5
-    # the galley: floor plate, far rail (parked; set by place_galley)
+    # the galley: floor plate and far rail, one mocap body sized here from the row (posed by place_galley). In the body's
+    # frame x runs along the row from the mouth, y across it toward the far side, z up from the plate's underside.
     bz = f"0.3 {SPIN['paper']:.1e} 1e-5"
-    geoms.append(f'<geom name="galley floor" type="box" size="0.11 {SORT[1] + 0.001:.5f} {FLOOR_T / 2}" '
-                 f'pos="{PARK[0]} {PARK[1]} {FLOOR_T / 2}" friction="{bz}" condim="4" solref="0.004 1" rgba="0.7 0.55 0.25 1"/>')
-    geoms.append(f'<geom name="galley rail" type="box" size="0.11 {RAIL[0]} {RAIL[1]}" pos="{PARK[0]} {PARK[1] + 0.01} '
-                 f'{FLOOR_T + RAIL[1]}" friction="{bz}" condim="4" solref="0.004 1" rgba="0.7 0.55 0.25 1"/>')
-    bodies = []
+    GL = galley_length()
+    bodies = [f'<body name="galley" mocap="true" pos="{PARK[0] - 3} {PARK[1]} 0">'
+              f'<geom name="galley floor" type="box" size="{GL / 2:.5f} {SORT[1] + 0.0015:.5f} {FLOOR_T / 2}" '
+              f'pos="{GL / 2:.5f} 0.0015 {FLOOR_T / 2}" friction="{bz}" condim="4" solref="0.004 1" '
+              f'rgba="0.7 0.55 0.25 1"/>'
+              f'<geom name="galley rail" type="box" size="{GL / 2:.5f} {RAIL[0]} {RAIL[1]}" '
+              f'pos="{GL / 2:.5f} {SORT[1] + 0.003 - RAIL[0]:.5f} {FLOOR_T + RAIL[1]}" friction="{bz}" '
+              f'condim="4" solref="0.004 1" rgba="0.7 0.55 0.25 1"/></body>']
     for i in range(N_SORTS):
-        bodies.append(f'<body name="sort{i + 1}" pos="{PARK[0] - 0.2 + 0.016 * i} {PARK[1]} {FLOOR_T + SORT[2] + 1e-5}">'
+        # parked apart from everything (they fall freely in the void until the galley is placed; no contacts)
+        bodies.append(f'<body name="sort{i + 1}" pos="{PARK[0] - 6} {PARK[1] + 0.1 * i} {FLOOR_T + SORT[2] + 1e-5}">'
                       f'<freejoint/><geom name="sort{i + 1}" type="box" size="{SORT[0]} {SORT[1]} {SORT[2]}" '
                       f'mass="{SORT_MASS}" friction="0.3 0.002 0.0001" condim="4" solref="0.004 1" '
                       f'rgba="0.55 0.55 0.58 1"/></body>')
@@ -204,13 +224,16 @@ def model_xml(hf, roll, felt_mu):
     obj = {"weights": (E_BRASS, "0.3"), "globe": (E_WOOD, "0.5"), "FS-coin-dupondius-octavian": (E_BRASS, "0.3"),
            "FS-coin-sesterce-trajan": (E_BRASS, "0.3"), "jeton": (E_BRASS, "0.3")}
     short = {"FS-coin-dupondius-octavian": "coin dupondius", "FS-coin-sesterce-trajan": "coin sestertius"}
+    # each scan is its own mocap body (static, posed through the data): parts of the world body are culled by the
+    # world's compile-time BVH, so a world geom moved after compiling is never collided (found 2026-10-28)
     for sid, (e, mu) in obj.items():
         nm = short.get(sid, sid)
+        parts = []
         for k, (v, f) in enumerate(load_parts(sid)):
             assets.append(_mesh_xml(f"m {nm} {k}", v, f))
-            geoms.append(f'<geom name="{nm} {k}" type="mesh" mesh="m {nm} {k}" pos="{PARK[0]} {PARK[1]} 0" '
-                         f'friction="{mu} {SPIN["paper"]:.1e} 1e-5" condim="6" solref="0.002 {zeta_for(e):.4f}" '
-                         f'rgba="0.6 0.45 0.2 1"/>')
+            parts.append(f'<geom name="{nm} {k}" type="mesh" mesh="m {nm} {k}" friction="{mu} {SPIN["paper"]:.1e} '
+                         f'1e-5" condim="6" solref="0.002 {zeta_for(e):.4f}" rgba="0.6 0.45 0.2 1"/>')
+        bodies.append(f'<body name="obj {nm}" mocap="true" pos="{PARK[0]} {PARK[1]} 0">' + "".join(parts) + "</body>")
     # the well: felt, the record on it, the oak walls past and beside it (v5c's)
     wx, wy = T.WELL["x"], T.WELL["y"]
     ft = T.FELT_TOP
@@ -283,15 +306,31 @@ class World:
         self.gid = {n: i for i, n in enumerate(self.gname)}
         self.ball = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "ball")
         self.sorts = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, f"sort{i + 1}") for i in range(N_SORTS)]
-        # compiled offsets of every parked mesh part (MuJoCo moves a mesh to its inertial frame at compile)
-        self.parts = {}
+        # every mesh part's pose in its object's (mocap) body: MuJoCo moves a mesh to its inertial frame at compile
+        self.parts, self.mocap = {}, {}
         for i, n in enumerate(self.gname):
             if m.geom_type[i] == mujoco.mjtGeom.mjGEOM_MESH:
                 pref = n.rsplit(" ", 1)[0]
-                self.parts.setdefault(pref, []).append((i, m.geom_pos[i].copy() - np.array([*PARK, 0.0]),
-                                                        m.geom_quat[i].copy()))
+                self.parts.setdefault(pref, []).append((i, m.geom_pos[i].copy(), m.geom_quat[i].copy()))
+        for pref in self.parts:
+            b = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, f"obj {pref}")
+            self.mocap[pref] = int(m.body_mocapid[b])
+        self.mocap["galley"] = int(m.body_mocapid[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "galley")])
         self.placed = {}
         self.ground = T.stack_grid()
+
+    def apply(self, d):
+        """Pose every object's mocap body in this data as placed (parked off the table otherwise). Called on every
+        fresh and every restored state, so a snapshot never carries an old placement."""
+        for pref, mid in self.mocap.items():
+            P = self.placed.get(pref)
+            if P is None:
+                d.mocap_pos[mid] = [PARK[0] - (3 if pref == "galley" else 0), PARK[1], 0.0]
+                d.mocap_quat[mid] = [1, 0, 0, 0]
+            else:
+                d.mocap_pos[mid] = [P["x"], P["y"], P["z"]]
+                a = math.radians(P["yaw_deg"])
+                d.mocap_quat[mid] = [math.cos(a / 2), 0, 0, math.sin(a / 2)]
 
     def z_ground(self, x, y):
         xs, ys, wz, tops, cur = self.ground
@@ -309,18 +348,9 @@ class World:
                 for p in low[:: max(1, len(low) // 40)]:
                     zs.append(self.z_ground(p[0], p[1]))
             z = max(zs)
-        c, s = math.cos(yaw), math.sin(yaw)
-        Rz = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1.0]])
-        qy = np.array([math.cos(yaw / 2), 0, 0, math.sin(yaw / 2)])
-        for i, off, q in self.parts[pref]:
-            m.geom_pos[i] = Rz @ off + np.array([x, y, z])
-            qq = np.zeros(4)
-            mujoco.mju_mulQuat(qq, qy, q)
-            m.geom_quat[i] = qq
         self.placed[pref] = {"x": x, "y": y, "yaw_deg": math.degrees(yaw), "z": z}
 
     def park(self, pref):
-        self.place(pref, PARK[0], PARK[1], 0.0, z=0.0)
         self.placed.pop(pref, None)
 
     def _part_vertices(self, i, off, q, x, y, yaw, z):
@@ -358,27 +388,16 @@ class World:
         m = self.m
         hdg = math.radians(T.HEADING_DEG)
         u, nv = T.U, T.N
-        centres, s = [], s1 + SORT[0]
-        for i in range(N_SORTS):
-            centres.append(s)
-            if i < N_SORTS - 1:
-                s += 2 * SORT[0] + GAPS[i]
-        s_end = centres[-1] + SORT[0] + 2 * SORT[2] + 0.01
-        L = s_end - s1
-        cs = (s1 + s_end) / 2
-        p = np.array(T.START) + cs * u + n_row * nv
+        centres = [s1 + o for o in sort_offsets()]
+        s_end = s1 + galley_length()
+        # the plate rests on the highest paper under it (rigid brass); its mocap body sits at the mouth, on the row's
+        # axis, on the paper, turned to the heading
         zf = max(self.z_ground(*(np.array(T.START) + ss * u + nn * nv)) for ss in np.linspace(s1, s_end, 9)
                  for nn in (n_row - SORT[1], n_row + SORT[1] + 0.003))
-        fl = self.gid["galley floor"]
-        m.geom_size[fl] = [L / 2, SORT[1] + 0.0015, FLOOR_T / 2]
-        # the floor's near edge flush with the sorts' near faces: shift its centre 1.5 mm to the far side
-        m.geom_pos[fl] = [*(p + 0.00075 * nv), zf + FLOOR_T / 2]
+        o = np.array(T.START) + s1 * u + n_row * nv
+        self.placed["galley"] = {"x": float(o[0]), "y": float(o[1]), "z": zf, "yaw_deg": T.HEADING_DEG}
+        self.apply(d)
         qz = np.array([math.cos(hdg / 2), 0, 0, math.sin(hdg / 2)])
-        m.geom_quat[fl] = qz
-        rl = self.gid["galley rail"]
-        m.geom_size[rl] = [L / 2, RAIL[0], RAIL[1]]
-        m.geom_pos[rl] = [*(p + (SORT[1] + 0.0015 + RAIL[0]) * nv), zf + FLOOR_T + RAIL[1]]
-        m.geom_quat[rl] = qz
         for i, bid in enumerate(self.sorts):
             adr = m.jnt_qposadr[m.body_jntadr[bid]]
             c = np.array(T.START) + centres[i] * u + n_row * nv
@@ -386,8 +405,9 @@ class World:
             d.qpos[adr + 3:adr + 7] = qz
             dadr = m.jnt_dofadr[m.body_jntadr[bid]]
             d.qvel[dadr:dadr + 6] = 0.0
-        self.placed["galley"] = {"s1": s1, "n_row": n_row, "z_floor": zf, "s_end": s_end,
-                                 "sort_s": [float(c) for c in centres], "gaps_m": GAPS.tolist(), "b": GALLEY_B}
+        self.placed["galley"].update({"s1": s1, "n_row": n_row, "z_floor": zf, "s_end": s_end,
+                                      "sort_s": [float(c) for c in centres], "gaps_m": GAPS.tolist()})
+        mujoco.mj_forward(m, d)
 
 
 # ------------------------------------------------------------------------------------------------ running
@@ -403,6 +423,7 @@ def new_data(w):
         v = T.V0 * T.U
         d.qvel[adr:adr + 3] = [v[0], v[1], 0.0]
         d.qvel[adr + 3:adr + 6] = [-v[1] / T.R, v[0] / T.R, 0.0]
+    w.apply(d)
     mujoco.mj_forward(w.m, d)
     return d
 
@@ -511,6 +532,7 @@ def restore(w, st):
     spec = mujoco.mjtState.mjSTATE_INTEGRATION
     d = mujoco.MjData(w.m)
     mujoco.mj_setState(w.m, d, st, spec)
+    w.apply(d)                                  # the snapshot's mocap poses are the old placement: re-pose
     mujoco.mj_forward(w.m, d)
     return d
 

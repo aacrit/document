@@ -190,6 +190,21 @@ def main():
         print(json.dumps(kv, default=float), flush=True)
         (OUT / "placement-log.json").write_text(json.dumps(log, indent=1, default=float), encoding="utf-8")
 
+    # --resume reuses the searches' answers from an earlier run of this same model (keyed by its settings); every
+    # stage still re-rolls them, and the bake is always a fresh run from f0
+    key = {"fall": T.FALL_DEG, "v0": T.V0, "latch": T.LATCH, "roll": V.murr(), "sort1_s": V.SORT1_S,
+           "sheets": [(s["name"], s.get("s"), s.get("n"), s.get("rect")) for s in T.SHEETS]}
+    cpath = OUT / "placement-cache.json"
+    cache = {}
+    if "--resume" in sys.argv and cpath.exists():
+        c = json.loads(cpath.read_text(encoding="utf-8"))
+        if c.get("key") == json.loads(json.dumps(key)):
+            cache = c
+
+    def save_cache(**kv):
+        cache.update(kv)
+        cpath.write_text(json.dumps(dict(cache, key=key), indent=1), encoding="utf-8")
+
     w = V.World(felt_mu=float(np.mean(T.FELT_MU_R)))
     for pref in ("weights", "globe", "coin dupondius", "coin sestertius", "jeton"):
         w.park(pref)
@@ -201,21 +216,28 @@ def main():
         rec = V.run(w, d, 40.0, stop_at=lambda d_: V.ball_s(w, d_) >= V.SORT1_S - 0.10)
         A = V.track_array(rec)
         note(stage="to galley", status=rec.status, t=d.time + T.T_RELEASE, s=V.ball_s(w, d), wall_s=time.time() - t0,
-             v=float(np.linalg.norm(d.qvel[:3])), v_ramp_exit=float(np.max(np.linalg.norm(A[:, 4:6], axis=1))))
+             v=float(np.linalg.norm(A[-1, 4:6])), v_max=float(np.max(np.linalg.norm(A[:, 4:6], axis=1))))
         if rec.status != "stop":
             raise SystemExit(f"the ball did not reach the galley: {rec.status}")
         stA = V.snapshot(w, d)
         p, v, sp = stage_line(w, stA, V.SORT1_S)
         nb = float(T.across(*p))
-
-        def galley_turn(b):
-            dd = V.restore(w, stA)
-            w.place_galley(dd, V.SORT1_S, nb + b * (T.R + V.SORT[1]))
-            r_ = V.run(w, dd, 40.0, stop_at=lambda d_: V.ball_s(w, d_) >= V.SORT1_S + 0.30)
-            g = V.glance(r_, 3)
-            return g["turn_deg"] if g else 0.0
-        b_g, turn_g, hist = V.search(galley_turn, 0.70, 0.97, -6.5, 0.6, n=8)
-        note(stage="galley", b=b_g, turn=turn_g, hist=hist, n_ball=nb, v_at=sp)
+        if "--galley-b" in sys.argv:                 # the earlier search's answer (placement-log), re-rolled below
+            cache["galley"] = {"b": float(sys.argv[sys.argv.index("--galley-b") + 1])}
+            save_cache(galley=cache["galley"])
+        if "galley" in cache:                        # a resumed run: the search's own answer, re-rolled below
+            b_g = cache["galley"]["b"]
+            note(stage="galley", b=b_g, resumed=True)
+        else:
+            def galley_turn(b):
+                dd = V.restore(w, stA)
+                w.place_galley(dd, V.SORT1_S, nb + b * (T.R + V.SORT[1]))
+                r_ = V.run(w, dd, 40.0, stop_at=lambda d_: V.ball_s(w, d_) >= V.SORT1_S + 0.30)
+                g = V.glance(r_, 3)
+                return g["turn_deg"] if g else 0.0
+            b_g, turn_g, hist = V.search(galley_turn, 0.70, 0.97, -6.5, 0.6, n=8)
+            note(stage="galley", b=b_g, turn=turn_g, hist=hist, n_ball=nb, v_at=sp)
+            save_cache(galley={"b": b_g})
     galley = {"s1": V.SORT1_S, "n_row": nb + b_g * (T.R + V.SORT[1]), "b": b_g}
 
     with MV.heavy("v6 bake 2/5: the weights glance (MuJoCo)", enabled=use_lock):
@@ -231,9 +253,13 @@ def main():
             r_ = V.run(w, V.restore(w, stB), 40.0, stop_at=lambda d_: V.ball_s(w, d_) >= S_WEIGHTS + 0.15)
             g = V.glance(r_, 4)
             return g["turn_deg"] if g else 0.0
-        b_w, turn_w, hist = V.search(weights_turn, 0.99, 0.55, 25.0, 1.5, n=10)
+        if "weights" in cache:
+            b_w, turn_w, hist = cache["weights"]["b"], None, []
+        else:
+            b_w, turn_w, hist = V.search(weights_turn, 0.99, 0.55, 25.0, 1.5, n=10)
+            save_cache(weights={"b": b_w})
         wi = place_weights(w, p, v, b_w)
-        note(stage="weights", b=b_w, turn=turn_w, hist=hist, v_at=sp, **wi, placed=w.placed["weights"])
+        note(stage="weights", turn=turn_w, hist=hist, v_at=sp, **wi, placed=w.placed["weights"])
 
     with MV.heavy("v6 bake 3/5: the globe glance and the stop (MuJoCo)", enabled=use_lock):
         d = V.restore(w, stB)
@@ -268,7 +294,7 @@ def main():
             return (V.track_array(r_)[-1, 2] - T.REST_TARGET[1]) * 1000
         b_gl, off, hist = V.search(off_of, max(0.5, best["b"] - 0.08), min(0.97, best["b"] + 0.08), 0.0, 1.0, n=10)
         gi = place_globe(w, p, v, b_gl)
-        note(stage="globe", b=b_gl, off_mm=off, hist=hist, s_g=best["s_g"], **gi, placed=w.placed["globe"])
+        note(stage="globe", off_mm=off, hist=hist, s_g=best["s_g"], **gi, placed=w.placed["globe"])
         dD = data_at(w, stC, lambda d_: d_.xpos[w.ball][0] >= T.LIP_X - 0.02)
         stD = V.snapshot(w, dD)
         felt = w.gid["felt"]
