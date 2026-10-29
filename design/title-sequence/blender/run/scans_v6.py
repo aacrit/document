@@ -275,6 +275,46 @@ def depth_inside(pl, P):
     return out
 
 
+BALL_R = 0.015
+BALL_Z = (0.0140, 0.0150, 0.0165)    # the ball's centre over the object's base: on the plates it stands on, 0-1.5 mm
+
+
+def touch_radius(P, zc, n_dir=360, r=BALL_R):
+    """For each of n_dir horizontal directions u, how far from the footprint centre the ball's centre (at height zc)
+    stops as it comes in along u: max over surface points p within reach of p.u + sqrt(r^2 - d^2), d the distance
+    from p to the ball centre's line. Batched by direction."""
+    th = np.linspace(-np.pi, np.pi, n_dir, endpoint=False)
+    out = np.full(n_dir, -np.inf)
+    dz = P[:, 2] - zc
+    near = np.abs(dz) < r
+    Q, dz = P[near], dz[near]
+    for i, a in enumerate(th):
+        u = np.array([math.cos(a), math.sin(a)])
+        along = Q[:, :2] @ u
+        perp = Q[:, 0] * -u[1] + Q[:, 1] * u[0]
+        d2 = perp * perp + dz * dz
+        ok = (d2 < r * r) & (along > 0)
+        if ok.any():
+            out[i] = float(np.max(along[ok] + np.sqrt(r * r - d2[ok])))
+    return th, out
+
+
+def swept_gap(vis_pts, part_pts):
+    """The decomposition as the ball meets it: the largest difference, over directions and the ball's possible centre
+    heights, between where the ball stops against the parts and against the visual surface (+: the parts stop it
+    early, air; -: they let it in, missing)."""
+    worst = {"air_m": 0.0, "missing_m": 0.0, "by_height": {}}
+    for zc in BALL_Z:
+        th, rv = touch_radius(vis_pts, zc)
+        _, rp = touch_radius(part_pts, zc)
+        ok = np.isfinite(rv) & np.isfinite(rp)
+        d = rp[ok] - rv[ok]
+        a_, m_ = (float(max(0.0, d.max())), float(max(0.0, -d.min()))) if len(d) else (0.0, 0.0)
+        worst["by_height"][f"{zc * 1000:.1f} mm"] = {"air_m": a_, "missing_m": m_}
+        worst["air_m"], worst["missing_m"] = max(worst["air_m"], a_), max(worst["missing_m"], m_)
+    return worst
+
+
 VIS_SPACING = 0.00025      # the visual band's sample spacing (0.25 mm) for the gap check
 VIS_MAX = 400_000          # and its cap (about 10 MB of points)
 
@@ -365,6 +405,7 @@ def gaps(band_visual, parts, n=60000, seed=0):
     return float(max(0.0, air_v.max())), missing, {
         "method": f"sampled: visual band {len(vis[0])} oriented points at {VIS_SPACING * 1000:.2f} mm (KD-tree), parts "
                   "by their face planes; no ray tests",
+        "swept": swept_gap(vis[0][(vis[0][:, 2] > 0.0005) & (vis[0][:, 2] < BAND_TOP)], P),     # one band for both
         "sectors": sec, "protrusion_deg": float(np.degrees(np.arctan2(far[1], far[0]))),
         "protrusion_r_m": float(np.hypot(far[0], far[1])),
         "n_visual_pts": int(len(V)), "n_visual_outside_parts": int(len(out_pts)),

@@ -96,6 +96,22 @@ def test_orientations_are_proper_rotations():
         assert np.allclose(R @ R.T, np.eye(3), atol=1e-9) and math.isclose(np.linalg.det(R), 1.0)
 
 
+def test_the_ball_stops_at_a_cylinder_one_radius_out_and_does_not_feel_a_narrow_groove():
+    rng = np.random.default_rng(3)
+    a = 0.03
+    th = rng.uniform(-np.pi, np.pi, 200_000)
+    z = rng.uniform(0.0, 0.03, 200_000)
+    cyl = np.stack([a * np.cos(th), a * np.sin(th), z], 1)
+    _, r = SV.touch_radius(cyl, 0.015)
+    assert np.allclose(r, a + SV.BALL_R, atol=2e-4)
+    # a groove 1.2 mm deep and 3 mm tall cut round the cylinder: the ball cannot reach into it
+    groove = cyl.copy()
+    g = (z > 0.0135) & (z < 0.0165)
+    groove[g, :2] *= (a - 0.0012) / a
+    gap = SV.swept_gap(groove, cyl)
+    assert gap["air_m"] < 1e-4 and gap["missing_m"] < 1e-4
+
+
 def test_flat_R_puts_the_thin_axis_up():
     rng = np.random.default_rng(2)
     P = rng.normal(size=(4000, 3)) * [12.0, 13.0, 1.0]

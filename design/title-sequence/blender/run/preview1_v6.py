@@ -130,9 +130,12 @@ def checks(track, bake, contacts):
                       "margin": float(sp[pre][k] / vs - 1) if vs else None})
     marg_ok = all(w_["margin"] is None or w_["margin"] >= T.ACCEPT["margin"] for w_ in worst)
     v_min = float(sp[j])
-    res["speed"] = {"v_min": v_min, "at_s": float(s[j]), "at_t": float(t[j]),
-                    "v_min_margin_over_0.10": v_min / T.ACCEPT["v_min"] - 1, "rises_on_track": worst,
-                    "pass": bool(v_min >= T.ACCEPT["v_min"] * (1 + T.ACCEPT["margin"]) and marg_ok)}
+    # section 9: "at least 0.10 m/s with a 15% margin over the stall speed at the next step": the floor is 0.10; the
+    # margin is over each rise's stall speed sqrt(10/7 g h), at the speed the ball meets it
+    res["speed"] = {"v_min": v_min, "at_s": float(s[j]), "at_t": float(t[j]), "rises_on_track": worst,
+                    "least_margin_over_stall": min((w_["margin"] for w_ in worst if w_["margin"] is not None),
+                                                   default=None),
+                    "pass": bool(v_min >= T.ACCEPT["v_min"] and marg_ok)}
     # contacts: only the seven designed contacts, the ticks in date order
     ev = ball_events(contacts)
     stray = [e for e in ev if e["class"] is None]
@@ -195,8 +198,15 @@ def checks(track, bake, contacts):
         dec[k].update({"ball_side_obj_deg": a_obj, "ball_side_air_mm": worst_a * 1000,
                        "ball_side_missing_mm": worst_m * 1000,
                        "ball_side_ok": max(worst_a, worst_m) <= T.ACCEPT["gap_m"]})
-    res["decompositions"] = dict(dec, pass_=all(v.get("ball_side_ok", v["ok"]) for v in dec.values()),
-                                 whole_ok=all(v["ok"] for v in dec.values()))
+    for k in dec:
+        sw = sc[k].get("swept") or {}
+        dec[k].update({"swept_air_mm": sw.get("air_m", float("nan")) * 1000,
+                       "swept_missing_mm": sw.get("missing_m", float("nan")) * 1000,
+                       "swept_ok": bool(sw) and max(sw["air_m"], sw["missing_m"]) <= T.ACCEPT["gap_m"]})
+    # the spec's check is the surfaces' own gap on the band (strict); the swept figure is where the ball itself stops,
+    # reported beside it, never in its place
+    res["decompositions"] = dict(dec, pass_=all(v["ok"] for v in dec.values()),
+                                 swept_ok=all(v["swept_ok"] for v in dec.values()))
     mu = json.loads((V6 / "murr" / "murr.json").read_text(encoding="utf-8"))
     res["mu_r"] = {"kind": mu["kind"], "basis": mu["basis"],
                    "surfaces": {k: {"target": v["target_mu_r"], "measured": v["measured_mu_r"]}
@@ -318,9 +328,8 @@ def report(res, path):
              f"{fmt(R['turns']['weights'] and R['turns']['weights']['turn_deg'], 1)} deg, globe "
              f"{fmt(R['turns']['globe'] and R['turns']['globe']['turn_deg'], 1)} deg |",
              f"| Decompositions within 1 mm on the contact band | {pf(R['decompositions']['pass_'])} | " +
-             "; ".join(f"{k}: {v['parts']} parts, whole band air {v['air_mm']:.2f} / missing {v['missing_mm']:.2f} mm, "
-                       f"on the side the ball meets air {fmt(v.get('ball_side_air_mm'), 2)} / missing "
-                       f"{fmt(v.get('ball_side_missing_mm'), 2)} mm"
+             "; ".join(f"{k}: {v['parts']} parts, surfaces air {v['air_mm']:.2f} / missing {v['missing_mm']:.2f} mm; "
+                       f"where the ball stops (swept) air {v['swept_air_mm']:.2f} / missing {v['swept_missing_mm']:.2f} mm"
                        for k, v in R["decompositions"].items() if isinstance(v, dict)) + " |",
              f"| mu_r measured at 30 mm per paper, the fall tuned to it | {pf(R['mu_r']['pass'])} | {R['mu_r']['kind']}; "
              f"fall {R['mu_r']['fall_deg']} deg; felt {R['mu_r']['felt_mu_r']:.4f} |", "",
