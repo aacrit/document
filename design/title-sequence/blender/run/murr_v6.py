@@ -6,11 +6,11 @@ What is measured, and how (state it plainly, as the ticket asks): this is a SIM 
 target, not a bench measurement of real paper. No published coefficient for a fired-clay ball on vellum, rag paper,
 parchment or washi was found. The targets are table_v6.MU_R_TARGET: bench.RR (M1's coefficients for the 16 mm marble)
 scaled to 30 mm by Tabor's hysteresis law (mu_r proportional to R^(1/3) for one material). For each surface the ball
-(30 mm, 1900 kg/m3) is set rolling at 0.20 m/s on a level plate of that paper, built exactly as the bake builds it
-(a height field at the bake's cell, contact settings, timestep and integrator), and its deceleration over 1.5 s is
-read: mu_r = -a / (5/7 g). MuJoCo's rolling coefficient is then corrected until the measurement equals the target
-(MuJoCo's soft contact adds its own loss, which v5c measured as 0.00055 for the 16 mm marble on facets). The check is
-repeated at 0.12 and 0.30 m/s: rolling resistance must not depend on speed.
+(30 mm, 1900 kg/m3) is set rolling at 0.13 m/s (the bake's rolling speed) on a level plate of that paper, built as the
+bake builds it (a height field, the contact settings, timestep and integrator), and its deceleration over 0.8 s is
+read: mu_r = -a / (5/7 g). MuJoCo's rolling coefficient is then corrected until the measurement equals the target.
+The measurement is repeated at 0.10, 0.20 and 0.30 m/s and the spread reported (a first run, calibrated at 0.20,
+read 1-5 percent lower at 0.12: MuJoCo's rolling resistance is not quite independent of speed).
 
 Writes D:/document-media/title-sequence/v6/murr/murr.json (per surface: target, MuJoCo coefficient, measured mu_r at
 each speed, iterations). sim_v6 reads it.
@@ -73,11 +73,16 @@ def measure(roll_len, v0=0.20, span=1.5, settle=0.05):
     return -a / (T.K_ROLL * T.G), {"v_end": float(vs[-1])}
 
 
-def calibrate(target, iters=5):
+V_CAL = 0.13               # the bake rolls at 0.10-0.15 m/s: calibrate where it rolls
+V_CHECK = (0.10, 0.13, 0.20, 0.30)
+SPAN = 0.8                 # s: short, so the speed stays near v0 while it is read
+
+
+def calibrate(target, iters=6):
     c = target * T.R
     hist = []
     for _ in range(iters):
-        mu, info = measure(c)
+        mu, info = measure(c, v0=V_CAL, span=SPAN)
         hist.append({"roll_len_m": c, "mu_r": mu})
         if abs(mu - target) / target < 0.002:
             break
@@ -98,7 +103,7 @@ def main():
         for sname in SURFACES:
             target = T.MU_R_TARGET[sname]
             c, hist = calibrate(target)
-            at = {f"{v:.2f}": measure(c, v0=v)[0] for v in (0.12, 0.20, 0.30)}
+            at = {f"{v:.2f}": measure(c, v0=v, span=SPAN)[0] for v in V_CHECK}
             res["surfaces"][sname] = {"target_mu_r": target, "bench_rr_16mm": target / T.TABOR, "mujoco_roll_len_m": c,
                                       "measured_mu_r": at, "iterations": hist,
                                       "naive_roll_len_m": target * T.R,

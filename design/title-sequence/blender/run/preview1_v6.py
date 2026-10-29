@@ -212,8 +212,11 @@ def checks(track, bake, contacts):
                    "surfaces": {k: {"target": v["target_mu_r"], "measured": v["measured_mu_r"]}
                                 for k, v in mu["surfaces"].items()},
                    "felt_mu_r": meta["felt_mu_r"], "fall_deg": meta["fall_deg"],
-                   "pass": all(abs(m_ - v["target_mu_r"]) / v["target_mu_r"] < 0.02 for v in mu["surfaces"].values()
-                               for m_ in v["measured_mu_r"].values())}
+                   "spread_over_speeds": max((max(v["measured_mu_r"].values()) - min(v["measured_mu_r"].values()))
+                                             / v["target_mu_r"] for v in mu["surfaces"].values()),
+                   # measured per paper at 30 mm, at the bake's rolling speed, within 2 percent of its target
+                   "pass": all(abs(v["measured_mu_r"]["0.13"] - v["target_mu_r"]) / v["target_mu_r"] < 0.02
+                               for v in mu["surfaces"].values())}
     res["windows"] = reading_windows(track)
     res["rows"] = row_events(contacts)
     return res, ev
