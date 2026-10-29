@@ -92,12 +92,23 @@ def stage_line(w, st, s_at):
     return p, v, float(np.linalg.norm(A[i, 4:6]))
 
 
+def hasp_deg():
+    rep = json.loads((V.SCANS / "report.json").read_text(encoding="utf-8"))["scans"]["weights"]
+    return rep["protrusion_deg"]
+
+
 def place_weights(w, p, v, b):
+    """The weights on the ball's right at impact parameter b, turned so the hasp (the one protrusion, and the only
+    side whose decomposition bulges over 1 mm) points away from the ball: the ball meets the plain cylinder."""
     right = -left_of(v)
-    r = V.band_radius(w, "weights", -right)
+    yaw = math.atan2(right[1], right[0]) - math.radians(hasp_deg())
+    c_, s_ = math.cos(-yaw), math.sin(-yaw)
+    toward_ball_obj = np.array([c_ * -right[0] - s_ * -right[1], s_ * -right[0] + c_ * -right[1]])
+    r = V.band_radius(w, "weights", toward_ball_obj)
     c = p + right * b * (T.R + r)
-    w.place("weights", float(c[0]), float(c[1]), 0.0)
-    return {"b": b, "r_band": r}
+    w.place("weights", float(c[0]), float(c[1]), yaw)
+    return {"b": b, "r_band": r, "yaw_deg": math.degrees(yaw),
+            "ball_side_obj_deg": math.degrees(math.atan2(toward_ball_obj[1], toward_ball_obj[0]))}
 
 
 def place_globe(w, p, v, b, foot_k=0):

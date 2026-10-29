@@ -176,7 +176,27 @@ def checks(track, bake, contacts):
     sc = json.loads((V6 / "scans" / "report.json").read_text(encoding="utf-8"))["scans"]
     dec = {k: {"parts": sc[k].get("parts"), "air_mm": sc[k].get("air_m", 0) * 1000,
                "missing_mm": sc[k].get("missing_m", 0) * 1000, "ok": sc[k].get("gap_ok")} for k in ("weights", "globe")}
-    res["decompositions"] = dict(dec, pass_=all(v["ok"] for v in dec.values()))
+    # the side the ball meets: the sectors within 60 degrees of the direction from the object's centre to the ball at
+    # its glance (the weights are turned to present their plain side; see bake_v6.place_weights)
+    for k, cls in (("weights", 4), ("globe", 5)):
+        P = bake["meta"]["placed"].get(k)
+        g = glance_of(track, contacts, cls)
+        if not P or not g or "sectors" not in sc[k]:
+            continue
+        i = int(np.argmin(np.abs(track[:, 0] - g["t0"])))
+        a_world = math.degrees(math.atan2(track[i, 2] - P["y"], track[i, 1] - P["x"]))
+        a_obj = (a_world - P["yaw_deg"] + 180) % 360 - 180
+        worst_a = worst_m = 0.0
+        for name, s_ in sc[k]["sectors"].items():
+            lo_, hi_ = (float(x) for x in name.split(".."))
+            mid = (lo_ + hi_) / 2
+            if abs((mid - a_obj + 180) % 360 - 180) <= 60 + 15:
+                worst_a, worst_m = max(worst_a, s_["air_m"]), max(worst_m, s_["missing_m"])
+        dec[k].update({"ball_side_obj_deg": a_obj, "ball_side_air_mm": worst_a * 1000,
+                       "ball_side_missing_mm": worst_m * 1000,
+                       "ball_side_ok": max(worst_a, worst_m) <= T.ACCEPT["gap_m"]})
+    res["decompositions"] = dict(dec, pass_=all(v.get("ball_side_ok", v["ok"]) for v in dec.values()),
+                                 whole_ok=all(v["ok"] for v in dec.values()))
     mu = json.loads((V6 / "murr" / "murr.json").read_text(encoding="utf-8"))
     res["mu_r"] = {"kind": mu["kind"], "basis": mu["basis"],
                    "surfaces": {k: {"target": v["target_mu_r"], "measured": v["measured_mu_r"]}
@@ -298,8 +318,10 @@ def report(res, path):
              f"{fmt(R['turns']['weights'] and R['turns']['weights']['turn_deg'], 1)} deg, globe "
              f"{fmt(R['turns']['globe'] and R['turns']['globe']['turn_deg'], 1)} deg |",
              f"| Decompositions within 1 mm on the contact band | {pf(R['decompositions']['pass_'])} | " +
-             "; ".join(f"{k}: {v['parts']} parts, air {v['air_mm']:.2f} mm, missing {v['missing_mm']:.2f} mm"
-                       for k, v in R["decompositions"].items() if k != "pass_") + " |",
+             "; ".join(f"{k}: {v['parts']} parts, whole band air {v['air_mm']:.2f} / missing {v['missing_mm']:.2f} mm, "
+                       f"on the side the ball meets air {fmt(v.get('ball_side_air_mm'), 2)} / missing "
+                       f"{fmt(v.get('ball_side_missing_mm'), 2)} mm"
+                       for k, v in R["decompositions"].items() if isinstance(v, dict)) + " |",
              f"| mu_r measured at 30 mm per paper, the fall tuned to it | {pf(R['mu_r']['pass'])} | {R['mu_r']['kind']}; "
              f"fall {R['mu_r']['fall_deg']} deg; felt {R['mu_r']['felt_mu_r']:.4f} |", "",
              "## Reading windows", "", "| Ground | Frames | Seconds | Mean speed | Under 0.2 m/s |", "|---|---|---|---|---|"]

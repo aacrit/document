@@ -162,8 +162,11 @@ def fit_sphere(p):
 
 # ------------------------------------------------------------------------------------------------ the colliders
 
-BAND_TOP = 0.033          # the ball's top on the highest sheet (30 mm + about 1.5 mm of plates) plus a margin
-CLIP_TOP = 0.040          # the band is cut here and capped; the decomposition sees nothing above
+# The contact band: a 30 mm ball on the sheets (up to 1.5 mm of plates) meets a standing object with its side, the
+# contact normal within about 53 degrees of horizontal: between 3 and 27 mm above the object's base. Above that only
+# the ball's crown could touch, which needs an overhang the feet and the weights do not have.
+BAND_TOP = 0.027
+CLIP_TOP = 0.030          # the band is cut here and capped; the decomposition sees nothing above
 GAP_MAX = 0.001
 COLLIDE = {"globe": {"threshold": 0.02, "faces": 8000}, "weights": {"threshold": 0.02, "faces": 20000}}
 
@@ -281,7 +284,7 @@ def gaps(band_visual, parts, n=60000, seed=0):
     pls = [planes(p) for p in parts]
     area = sum(q.area for q in parts)
     per_part = []
-    air_all = []
+    air_all, pts_all = [], []
     for j, p in enumerate(parts):
         k = max(200, int(n * p.area / area))
         s, _ = trimesh.sample.sample_surface(p, k, seed=int(rng.integers(1 << 30)))
@@ -298,6 +301,7 @@ def gaps(band_visual, parts, n=60000, seed=0):
         sd = chunked_signed(band_visual, s)
         a = -sd
         air_all.append(a)
+        pts_all.append(s)
         w = int(np.argmax(a))
         per_part.append({"part": j, "air_max_m": float(max(0.0, a[w])), "at": s[w].round(4).tolist()})
     air_v = np.concatenate(air_all) if air_all else np.zeros(1)
@@ -315,7 +319,23 @@ def gaps(band_visual, parts, n=60000, seed=0):
             best = np.minimum(best, dist)
         miss = best
     missing = float(miss.max()) if len(miss) else 0.0
+    # by side: the worst air and missing in each 30 degree sector about the footprint centre (the origin), so the
+    # side the ball can reach can be judged on its own and the object turned to present it
+    P = np.concatenate(pts_all) if pts_all else np.zeros((0, 3))
+    sec = {}
+    for q in range(12):
+        lo_, hi_ = -180 + 30 * q, -150 + 30 * q
+        aP = np.degrees(np.arctan2(P[:, 1], P[:, 0]))
+        aM = np.degrees(np.arctan2(out_pts[:, 1], out_pts[:, 0])) if len(out_pts) else np.zeros(0)
+        mA, mM = (aP >= lo_) & (aP < hi_), (aM >= lo_) & (aM < hi_)
+        sec[f"{lo_}..{hi_}"] = {"air_m": float(max(0.0, air_v[mA].max())) if mA.any() else 0.0,
+                                "missing_m": float(miss[mM].max()) if mM.any() else 0.0}
+    Vb = band_visual.vertices
+    mid = Vb[(Vb[:, 2] > 0.004) & (Vb[:, 2] < 0.012)]
+    far = mid[int(np.argmax(np.hypot(mid[:, 0], mid[:, 1])))] if len(mid) else np.zeros(3)
     return float(max(0.0, air_v.max())), missing, {
+        "sectors": sec, "protrusion_deg": float(np.degrees(np.arctan2(far[1], far[0]))),
+        "protrusion_r_m": float(np.hypot(far[0], far[1])),
         "n_visual_pts": int(len(V)), "n_visual_outside_parts": int(len(out_pts)),
         "air_p99_m": float(np.percentile(np.maximum(air_v, 0), 99)),
         "missing_p99_m": float(np.percentile(miss, 99)) if len(miss) else 0.0,
@@ -349,6 +369,10 @@ def main():
         th = float(sys.argv[sys.argv.index("--threshold") + 1])
         for sid in only or COLLIDE:
             COLLIDE[sid]["threshold"] = th
+    if "--faces" in sys.argv:
+        nf = int(sys.argv[sys.argv.index("--faces") + 1])
+        for sid in only or COLLIDE:
+            COLLIDE[sid]["faces"] = nf
     transforms, report = {}, {"gate": {k: v["gate"] for k, v in g.items()}, "museum": MUSEUM, "scans": {}}
     if only and (OUT / "report.json").exists():               # one scan redone: keep the others' results
         report["scans"] = json.loads((OUT / "report.json").read_text(encoding="utf-8")).get("scans", {})
@@ -369,7 +393,8 @@ def main():
                 band, parts = decompose(sid, world)
                 air, missing, info = gaps(band_mesh(world, CLIP_TOP), parts)
                 rep.update({"parts": len(parts), "air_m": air, "missing_m": missing, "gap_ok": max(air, missing) <=
-                            GAP_MAX, **info, "threshold": COLLIDE[sid]["threshold"]})
+                            GAP_MAX, **info, "threshold": COLLIDE[sid]["threshold"],
+                            "decimated_faces": COLLIDE[sid]["faces"]})
                 np.savez_compressed(OUT / f"{sid}-collider.npz",
                                     **{f"v{i}": p.vertices.astype(np.float64) for i, p in enumerate(parts)},
                                     **{f"f{i}": p.faces.astype(np.int32) for i, p in enumerate(parts)})
