@@ -153,9 +153,13 @@ def checks(track, bake, contacts):
     for e in ev:
         if e["class"] == 2:
             reonsets[e["pair"]] = reonsets.get(e["pair"], 0) + 1
-    res["contacts"] = {"classes_seen": classes, "stray": stray[:30], "n_stray": len(stray), "ticks": ticks,
-                       "tick_order_ok": tick_names == TICK_ORDER, "sheet_onsets": reonsets,
-                       "pass": bool(not stray and tick_names == TICK_ORDER and {1, 2, 3, 4, 5, 7} <= set(classes))}
+    # contact 1 (the latch) only if the latch stands; its re-proof failed, so the spec's fallback opens on the ball
+    # already rolling and the designed set is 2-5 and 7 (6 is the close passes: no contact by design)
+    need = ({1} if T.LATCH else set()) | {2, 3, 4, 5, 7}
+    res["contacts"] = {"classes_seen": classes, "required": sorted(need), "stray": stray[:30], "n_stray": len(stray),
+                       "ticks": ticks, "tick_order_ok": tick_names == TICK_ORDER, "sheet_onsets": reonsets,
+                       "pass": bool(not stray and tick_names == TICK_ORDER and need <= set(classes)
+                                    and (T.LATCH or 1 not in classes))}
     # the galley: twelve sorts fall, the ball keeps 90 percent past the row
     tilts = sorts_fallen(bake)
     g3 = glance_of(track, contacts, 3, after=0.15)

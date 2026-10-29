@@ -41,7 +41,12 @@ G = 9.81
 FPS = 30000 / 1001
 FRAMES = 1080
 DURATION = FRAMES / FPS
-T_RELEASE = 12 / FPS                       # the latch opens at f12 (spec section 3.1)
+# The latch's re-proof failed at 30 mm / 27 g (latch_v6: the ball pushes the 42 g disc with 0.19 N against the 0.144 N
+# that holds a real one, safety factor 0.81), so the spec's fallback stands (sections 3.1 and 11.8): the shot opens on
+# the ball already rolling, released before the picture. The roll is timed from f0.
+LATCH = False
+T_RELEASE = 0.0
+V0 = 0.06                                  # m/s along the path at f0 (the fall tune: the longest roll it allows)
 
 R = 0.015                                  # the clay ball, 30 mm
 RHO_CLAY = 1900.0
@@ -81,7 +86,11 @@ def across(x, y):
 
 # ------------------------------------------------------------------------------------------------ the fall
 
-FALL_DEG = 0.45                            # tuned to the measured mu_r (sim_v6 --tune); see FALL_TUNED
+# Tuned to the measured mu_r (murr_v6, 30 mm, at 0.13 m/s) with tune_fall(): the fall and the start speed that give
+# the longest roll keeping 0.10 m/s before the sag. The spec's 0.45 rolls the path in under 9 s. No uniform fall
+# reaches the spec's 20-24 s: the papers' mu_r spread from 0.0061 (parchment) to 0.0086 (washi), so a fall slow
+# enough for one runs away or stalls on another; the 1D ceiling is about 16.5 s.
+FALL_DEG = 0.3725                          # tune_fall on murr_v6's measured mu_r (fall-tune.json): 16.4 s, v_min 0.104
 SAGS = [{"name": "latch sag", "deg": 1.0, "len": 0.15, "where": "board 1, the first 0.15 m after the latch"},
         {"name": "chart sag", "deg": 1.5, "len": 0.30, "where": "the chart's last 0.30 m before the lip"}]
 SAG_EASE = 0.02                            # each sag eases in and out over 2 cm (no kink)
@@ -334,6 +343,43 @@ def roll_1d(fall_deg, mu_fn, v0, s_end, slope=None, s0=0.0, dt=0.001, t_max=120.
         ss.append(s)
         vs.append(v)
     return {"t": np.array(ts), "s": np.array(ss), "v": np.array(vs), "stopped": stopped, "t_end": t}
+
+
+def path_model(mu, n=5000):
+    """(mu_r(s), extra slope(s)) along the nominal path, from the top sheet under it and the warp."""
+    ss = np.linspace(0.0, S_LIP, n)
+    x, y = point(ss)
+    sh = top_sheet(x, y)
+    surf = {s_["name"]: s_["surface"] for s_ in SHEETS}
+    mus = np.array([mu[surf[k]] if k in surf else mu["vellum"] for k in sh])
+    sl = np.arctan(-np.gradient(warp(x, y), ss))
+
+    def mu_fn(s):
+        return float(mus[min(int(s / S_LIP * (n - 1)), n - 1)])
+
+    def slope(s):
+        return float(np.interp(s, ss, sl))
+    return mu_fn, slope
+
+
+def tune_fall(mu, losses=((1.0, 0.97), (1.5, 0.95), (2.05, 0.95)), falls=np.arange(0.34, 0.40, 0.0025),
+              v0s=np.arange(0.04, 0.16, 0.01)):
+    """The fall and start speed that give the longest roll to the lip keeping at least ACCEPT['v_min'] before the
+    sag (glance losses as given). Returns (best, table)."""
+    mu_fn, slope = path_model(mu)
+    best, rows = None, []
+    for fall in falls:
+        for v0 in v0s:
+            o = roll_1d(float(fall), mu_fn, float(v0), S_LIP, slope=slope, losses=list(losses))
+            if o["stopped"]:
+                continue
+            pre = (o["s"] < S_LIP - SAGS[1]["len"]) & (o["s"] > 0.05)
+            vmin = float(o["v"][pre].min())
+            row = {"fall_deg": round(float(fall), 4), "v0": round(float(v0), 3), "roll_s": o["t_end"], "v_min": vmin}
+            rows.append(row)
+            if vmin >= ACCEPT["v_min"] and (best is None or o["t_end"] > best["roll_s"]):
+                best = row
+    return best, rows
 
 
 # ------------------------------------------------------------------------------------------------ the contacts

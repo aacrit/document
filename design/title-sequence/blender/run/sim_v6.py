@@ -169,6 +169,8 @@ def model_xml(hf, roll, felt_mu):
         return float(T.sample(cur, xs_, ys_, x_, y_)[0])
     i0 = int(np.searchsorted(ss, 0.0))
     ks = np.unique(np.concatenate([np.linspace(0, i0, 4), np.linspace(i0, len(ss) - 1, 15)]).astype(int))
+    if not T.LATCH:                                   # the fallback: no block, the ball already rolling at f0
+        ks = ks[:0]
     for q, (a, b) in enumerate(zip(ks[:-1], ks[1:])):
         sa, sb = ss[a], ss[b]
         za, zb = board(sa) + zz[a], board(sb) + zz[b]
@@ -184,7 +186,8 @@ def model_xml(hf, roll, felt_mu):
                      f'{LATCH["width"] / 2} {th / 2}" pos="{px:.6f} {py:.6f} {(za + zb) / 2 - th / 2 * nz:.6f}" '
                      f'quat="{qw:.8f} {qv[0]:.8f} {qv[1]:.8f} {qv[2]:.8f}" friction="0.5 {SPIN["oak"]:.1e} '
                      f'{roll["oak"]:.4e}" condim="6" solref="{SOLREF}" rgba="0.5 0.35 0.2 1"/>')
-    z_ball = board(BALL_S0) + float(np.interp(BALL_S0, ss, zz)) + T.R + 2e-5
+    s_ball = BALL_S0 if T.LATCH else 0.0
+    z_ball = board(s_ball) + (float(np.interp(BALL_S0, ss, zz)) if T.LATCH else 0.0) + T.R + 2e-5
     # the galley: floor plate, far rail (parked; set by place_galley)
     bz = f"0.3 {SPIN['paper']:.1e} 1e-5"
     geoms.append(f'<geom name="galley floor" type="box" size="0.11 {SORT[1] + 0.001:.5f} {FLOOR_T / 2}" '
@@ -224,7 +227,7 @@ def model_xml(hf, roll, felt_mu):
                                ("front", (wx[1] - wx[0]) / 2, 0.002, (wx[0] + wx[1]) / 2, wy[0] - 0.002)):
         geoms.append(f'<geom name="well wall {nm}" type="box" size="{sx:.5f} {sy:.5f} 0.015" pos="{cx:.5f} {cy:.5f} '
                      f'{ft + 0.012:.5f}" condim="3" rgba="0 0 0 0"/>')
-    x0, y0 = (float(a[0]) for a in T.point(np.array([BALL_S0])))
+    x0, y0 = (float(a[0]) for a in T.point(np.array([s_ball])))
     z0 = z_ball
     g = T.gravity_vec()
     W, H = T.TABLE["size"]
@@ -391,7 +394,15 @@ class World:
 
 
 def new_data(w):
+    """The state at f0. Without the latch (its re-proof failed: the spec's fallback) the ball is already rolling,
+    T.V0 along the path, without slip (omega = z x v / R; the free joint's angular velocity is in the body frame, which
+    is the world's at f0)."""
     d = mujoco.MjData(w.m)
+    if not T.LATCH:
+        adr = w.m.jnt_dofadr[w.m.body_jntadr[w.ball]]
+        v = T.V0 * T.U
+        d.qvel[adr:adr + 3] = [v[0], v[1], 0.0]
+        d.qvel[adr + 3:adr + 6] = [-v[1] / T.R, v[0] / T.R, 0.0]
     mujoco.mj_forward(w.m, d)
     return d
 
