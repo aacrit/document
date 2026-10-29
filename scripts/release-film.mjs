@@ -47,6 +47,24 @@ export const UPLOAD_ORDER = ["film.mp4", "poster.jpg", "trailer.mp4", "captions-
 export const MISSING_KEY = /does not exist|NoSuchKey|not found/i;
 const TYPES = { mp4: "video/mp4", jpg: "image/jpeg", vtt: "text/vtt", json: "application/json" };
 
+/**
+ * The review status films.json gives the film's English captions: "reviewed", "in_review" or "planned"; null when
+ * the film lists no English track; undefined when films.json does not list the film.
+ */
+export function captionReview(reg, slug) {
+  const film = (reg?.films ?? []).find((f) => f && f.slug === slug);
+  if (!film) return undefined;
+  return (film.languages?.captions ?? []).find((c) => c && c.lang === "en")?.review ?? null;
+}
+
+/**
+ * Whether the release puts captions-en.vtt up. Not while they are only planned, or while no English track is
+ * listed: nobody has read them and no page offers them, so nothing unread is published. In review, they go up so
+ * the reviewer can check them against the served film; a page offers them only once reviewed. A film films.json
+ * does not list (undefined) uploads none either: nothing says anyone has read them.
+ */
+export const uploadsCaptions = (review) => review === "reviewed" || review === "in_review";
+
 // The web encode: 1280x720 at the master's own frame rate (24, or 30000/1001 for a
 // film that masters at video's rate: GRAMMAR A44; never re-timed here), a 2 s GOP,
 // H.264 high, AAC 128k, faststart. CRF 22
@@ -192,7 +210,7 @@ export function posterSource(ledgers, posterId) {
 }
 
 /** Every step of the release, in order, as plain data: { id, label, exe, args, cwd } or { id, label, check }. */
-export function planRelease(o, { python = studioPython(), ffmpeg = process.env.DOCUMENT_FFMPEG || "ffmpeg", wrangler = null, ledgers, poster, durations = {}, rates = {} } = {}) {
+export function planRelease(o, { python = studioPython(), ffmpeg = process.env.DOCUMENT_FFMPEG || "ffmpeg", wrangler = null, ledgers, poster, durations = {}, rates = {}, captionsReview } = {}) {
   const master = path.resolve(o.master);
   const renderDir = path.dirname(master);
   const filmDir = path.resolve(o.filmDir ?? path.join(os.homedir(), "document-work", "episode-v2"));
@@ -215,7 +233,7 @@ export function planRelease(o, { python = studioPython(), ffmpeg = process.env.D
     args: ["-m", "studio.engine.publish", renderDir, "--film", at("film.mp4"), "--poster", at("poster.jpg"),
       "--poster-id", o.posterId, "--stills-ledger", ledgerPath, "--out", out, "--screenplay", path.join(filmDir, "screenplay.json"), ...(o.trailer ? ["--trailer", at("trailer.mp4")] : [])] });
   steps.push({ id: "d", label: "the captions (captions-en.vtt, written by publish from the render's screenplay)", check: "captions", file: at("captions-en.vtt") });
-  const files = UPLOAD_ORDER.filter((f) => f !== "trailer.mp4" || o.trailer);
+  const files = UPLOAD_ORDER.filter((f) => (f !== "trailer.mp4" || o.trailer) && (f !== "captions-en.vtt" || uploadsCaptions(captionsReview)));
   steps.push({ id: "e", label: "every file under the put limit", check: "sizes", files: files.map(at) });
   // Every hash is checked against sources.json before the first put, so nothing goes up that the record does not describe.
   steps.push({ id: "e", label: "every file hashes to what sources.json records", check: "hashes", files: files.map(at), sources: at("sources.json"), slug });
@@ -315,7 +333,8 @@ function main() {
     for (const p of badRates) console.error(`release-film: ${p}`);
     process.exit(2);
   }
-  const plan = planRelease(o, { ledgers, poster, durations, rates: badRates.length ? {} : rates });
+  const captionsReview = captionReview(JSON.parse(readFileSync(path.join(repoRoot, "films.json"), "utf8")), o.slug ?? ledgers?.slug ?? "partition-of-india");
+  const plan = planRelease(o, { ledgers, poster, durations, rates: badRates.length ? {} : rates, captionsReview });
 
   if (!o.dryRun) {
     const problems = [];
@@ -336,6 +355,10 @@ function main() {
 
   console.log(`release-film: ${o.dryRun ? "DRY RUN, nothing is run" : "releasing"} ${plan.slug} from ${plan.renderDir}`);
   console.log(`release-film: packet ${plan.out}; upload ${o.upload ? plan.files.join(", ") : "skipped (--no-upload)"}`);
+  if (!uploadsCaptions(captionsReview)) {
+    const why = captionsReview === undefined ? `films.json does not list ${plan.slug}` : captionsReview === null ? `films.json lists no English captions for ${plan.slug}` : `films.json lists ${plan.slug}'s English captions as ${captionsReview}`;
+    console.log(`release-film: ${why}: captions-en.vtt is written and checked, not uploaded`);
+  }
   if (!o.trailer) console.log("release-film: no --trailer: no trailer is declared or uploaded, any earlier one is deleted; the site shows none");
   if (o.dryRun) for (const d of [...new Set([plan.out, plan.renderDir].map((x) => driveOf(x)).filter((x) => x === "D:"))]) console.log(`release-film: a real run first checks: fsutil dirty query ${d}`);
   for (const step of plan.steps) {
