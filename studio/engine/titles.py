@@ -920,9 +920,9 @@ AUDIO_RATE = 48000                  # the mix's rate (render.AUDIO_RATE)
 AUDIO_GAIN_RANGE = (-40.0, 12.0)    # a declared audio_gain_db outside this is refused
 # A40 title level (GRAMMAR): the house title loudness in the mix, before the programme gain. Two dB under the dialogue
 # (render.DIALOGUE_LUFS, -20) and four over a featured cue (-26): the titles are a wordless featured passage, never
-# louder than the voice a film is carried by; the v5c masters are mastered at -21.4 LUFS, so the house level asks only
-# about -0.6 dB of them. After the programme gain (about +2.5 to +3 dB on the released films) they sit near -19.5 LUFS,
-# the same in every film.
+# louder than the voice a film is carried by. The v5c masters measure -21.4 LUFS, so the house level asks -0.6 dB of
+# them, but their mono true peak (-0.94 dBTP, the oak hits) holds them a further 4 to 4.5 dB down under the limiter
+# rule: about -23.5 LUFS in the mastered film, the same in every film whatever its programme gain.
 TITLE_LUFS = -22.0
 TITLE_PEAK_MARGIN_DB = 1.0          # after the programme gain the title's true peak stays this far under the limiter's
                                     # ceiling (render: TARGET_TP - LIMIT_MARGIN_DB), so the limiter never acts on it
