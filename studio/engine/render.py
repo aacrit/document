@@ -6238,7 +6238,8 @@ def level_title_audio(recs: list[dict], ys: list[np.ndarray], rest: np.ndarray, 
     ceiling = TARGET_TP - LIMIT_MARGIN_DB - TS.TITLE_PEAK_MARGIN_DB
     live = [k for k, r in enumerate(recs) if not r["silent"] and len(ys[k])]
     ms = {k: _measure(ys[k]) for k in live}
-    house = {k: TS.TITLE_LUFS - ms[k]["input_i"] for k in live if math.isfinite(ms[k]["input_i"])}
+    want = {k: TS.TITLE_LUFS - ms[k]["input_i"] for k in live if math.isfinite(ms[k]["input_i"])}
+    house = {k: min(g, TS.AUDIO_GAIN_RANGE[1]) for k, g in want.items()}          # never more than +12 dB
     gain = {k: (recs[k]["gain_db"] if recs[k]["gain_declared"] else house.get(k, 0.0)) for k in live}
     lift, passes = 0.0, []
 
@@ -6250,6 +6251,7 @@ def level_title_audio(recs: list[dict], ys: list[np.ndarray], rest: np.ndarray, 
             y[i: i + len(seg)] += seg
         return y
 
+    settled = not live
     for _ in range(TS.TITLE_LEVEL_PASSES if live else 0):
         m = _measure(full())
         lift = round(TARGET_LUFS - m["input_i"], 2) if math.isfinite(m["input_i"]) else 0.0
@@ -6260,6 +6262,7 @@ def level_title_audio(recs: list[dict], ys: list[np.ndarray], rest: np.ndarray, 
         passes.append({"input_i": m["input_i"], "lift_db": lift,
                        "gains_db": {recs[k]["shot"]: round(gain[k], 2) for k in live}})
         if all(abs(gain[k] - before[k]) < 0.05 for k in live):
+            settled = True                  # this pass measured the mix at the gains it keeps
             break
     bad = []
     for k, r in enumerate(recs):
@@ -6270,7 +6273,9 @@ def level_title_audio(recs: list[dict], ys: list[np.ndarray], rest: np.ndarray, 
         if k in live:
             tp = ms[k]["input_tp"] + g + lift
             held = house.get(k, g) - g
-            ok = tp <= ceiling + 0.05 and (r["gain_declared"] or held <= TS.TITLE_HOLD_MAX_DB + 1e-6)
+            over_max = (not r["gain_declared"]) and want.get(k, 0.0) > TS.AUDIO_GAIN_RANGE[1] + 1e-6
+            ok = (settled and tp <= ceiling + 0.05 and not over_max
+                  and (r["gain_declared"] or held <= TS.TITLE_HOLD_MAX_DB + 1e-6))
             r.update(level_lufs=round(ms[k]["input_i"] + g, 2), programme_lift_db=lift, predicted_tp_dbtp=round(tp, 2))
             journal.lint("title-audio-level", ok, stage="assembly", unit=r["shot"], grammar="A40, 8.5, A15",
                          phase="preflight", severity="warn" if draft else "block",
@@ -6278,13 +6283,17 @@ def level_title_audio(recs: list[dict], ys: list[np.ndarray], rest: np.ndarray, 
                                    "house_lufs": TS.TITLE_LUFS, "gain_db": round(g, 2), "declared": r["gain_declared"],
                                    "held_under_house_db": round(held, 2), "hold_max_db": TS.TITLE_HOLD_MAX_DB,
                                    "programme_lift_db": lift, "predicted_tp_dbtp": round(tp, 2), "max_tp_dbtp": ceiling,
-                                   "passes": passes,
-                                   "fix": None if ok else ("lower the declared audio_gain_db" if r["gain_declared"] else
-                                                           "the title's peaks are too far over its loudness to sit at "
-                                                           "the house level under the limiter: remaster its sound")})
+                                   "passes": passes, "settled": settled, "house_gain_wanted_db": round(want.get(k, 0.0), 2),
+                                   "max_gain_db": TS.AUDIO_GAIN_RANGE[1],
+                                   "fix": None if ok else (
+                                       "the programme gain did not settle with the title's level: refused" if not settled
+                                       else "lower the declared audio_gain_db" if r["gain_declared"] else
+                                       "the title's sound is too quiet or its peaks too far over its loudness to sit at "
+                                       "the house level under the limiter: remaster its sound")})
             if not ok:
                 bad.append(f"{r['shot']}: true peak {tp:.2f} dBTP after the programme gain (at most {ceiling:g}), "
-                           f"held {held:.2f} dB under the house level")
+                           f"held {held:.2f} dB under the house level, wanting {want.get(k, 0.0):+.2f} dB"
+                           + ("" if settled else ", the level loop not settled"))
         journal.decision("assembly", f"{r['shot']}: the series titles play their own sound ({r['master_s']:.3f} s of the "
                          f"master's track" + (f", {r['tail_s']:.3f} s of its audio_tail" if r["tail_s"] else "")
                          + (f", {r['room_s']:.3f} s of its room continued" if r["room_s"] else "")
@@ -6294,6 +6303,34 @@ def level_title_audio(recs: list[dict], ys: list[np.ndarray], rest: np.ndarray, 
                          f"({TS.TITLE_LUFS:g} LUFS) or its declared gain, its true peak kept "
                          f"{TS.TITLE_PEAK_MARGIN_DB:g} dB under the limiter after the programme gain", unit=r["shot"],
                          evidence=dict(r))
+    return [] if draft else bad
+
+
+def title_mastered_lints(journal: Journal, placed: dict, loud: dict, *, draft: bool = False) -> list[str]:
+    """title-audio-level after mastering (A40 title level): on the final mix, after the voice-ceiling pass and the
+    loudness pass, the master limiter acted nowhere inside a title's span, the title shot and its lockup card (the
+    limiter's logged places, its largest first), and the title's predicted true peak at the programme gain the
+    mastering actually applied is still under the ceiling with the house margin. Blocking on a final render, a
+    warning on a draft. Returns the reasons to refuse."""
+    lim = loud.get("limiter") or {}
+    acted = list(lim.get("acted") or [])
+    gain = float(loud.get("gain_db") or 0.0)
+    ceiling = TARGET_TP - LIMIT_MARGIN_DB - TS.TITLE_PEAK_MARGIN_DB
+    bad = []
+    for t in placed.get("titles") or []:
+        a, b = t["at_s"], t["end_s"]
+        inside = [e for e in acted if e["at_s"] < b and e["at_s"] + e["dur_s"] > a]
+        tp = None if t.get("predicted_tp_dbtp") is None else round(t["predicted_tp_dbtp"] - t["programme_lift_db"] + gain, 2)
+        ok = not inside and (tp is None or tp <= ceiling + 0.25)
+        journal.lint("title-audio-level", ok, stage="assembly", unit=t["shot"], grammar="A40, 8.5", phase="mastered",
+                     severity="warn" if draft else "block",
+                     evidence={"span_s": [round(a, 3), round(b, 3)], "limiter_acted_inside": inside[:20],
+                               "limiter_places_logged": len(acted), "limiter_places_total": lim.get("acted_total", 0),
+                               "programme_gain_db": gain, "predicted_tp_dbtp": tp, "max_tp_dbtp": ceiling,
+                               "fix": None if ok else "the master limiter acts on the series titles: lower their level"})
+        if not ok:
+            bad.append(f"{t['shot']}: the master limiter acted inside the title's span {a:.2f} to {b:.2f} s "
+                       f"({len(inside)} places) or its true peak reaches {tp} dBTP at the mastered gain")
     return [] if draft else bad
 
 
@@ -8919,6 +8956,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         journal.artifact("assembly", work / "mix-norm.wav", unit="loudness", role="mix-normalised")
         # Pre-flight, before any frame: a final master's loudness is linear, and its limiter only catches peaks (GRAMMAR 8.5).
         refusals = loudness_lints(journal, loud, draft=draft)
+        refusals += title_mastered_lints(journal, placed, loud, draft=draft)
         if refusals:
             raise Refused(f"loudness (pre-flight): {'; '.join(refusals)} (GRAMMAR 8.5; render with --draft to accept it)")
         mix_for_master = work / "mix-norm.wav"

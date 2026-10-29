@@ -52,6 +52,18 @@ def tmasters(tmp_path_factory, film):
     subprocess.run([R.ffmpeg(), "-v", "error", "-y", "-i", str(d / "spike-src.mkv"), "-i", str(d / "spike.sound.wav"),
                     "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "pcm_s16le", str(d / "spike.mkv")], check=True)
     out["spike"] = d / "spike.mkv"
+    for name, shape in (("zero_end", "zero_end"), ("quiet", "quiet")):
+        make_master(d / f"{name}-src.mkv", rec)
+        z, _ = sf.read(str(d / f"{name}-src.sound.wav"), dtype="float32", always_2d=True)
+        if shape == "zero_end":
+            z[-int((1.0 + TS.ROOM_S) * RATE):] = 0.0             # it ends on digital zero, not a room
+        else:
+            z *= np.float32(10 ** (-30 / 20))                    # 30 dB under the stand-in Foley: about -54 LUFS
+        sf.write(str(d / f"{name}.sound.wav"), z, RATE, subtype="FLOAT")
+        subprocess.run([R.ffmpeg(), "-v", "error", "-y", "-i", str(d / f"{name}-src.mkv"), "-i", str(d / f"{name}.sound.wav"),
+                        "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "pcm_s16le", str(d / f"{name}.mkv")],
+                       check=True)
+        out[name] = d / f"{name}.mkv"
     ring = make_master(d / "ring.mkv", rec)
     x, _ = sf.read(str(d / "ring.sound.wav"), dtype="float32", always_2d=True)
     x[-int(TS.ROOM_S * RATE):] = 0.05                      # loud to the last sample: no room in it
@@ -253,6 +265,45 @@ def test_title_audio_a_bad_tail_is_refused(tmp_path, tmasters):
     assert isinstance(plan, R.Refused) and failed(j, "title-audio")
 
 
+def test_title_audio_a_room_of_digital_zero_is_refused(tmp_path, tmasters):
+    """No tail, and the master ends on digital zero: nothing to continue under the lockup card but digital black."""
+    plan, j = plan_of(tfilm(tmp_path, tmasters, master="zero_end", item=NO_LOCKUP, edit=with_shots((CARD,))))
+    assert isinstance(plan, R.Refused) and failed(j, "title-audio")
+    assert "digital zero" in " ".join(next(e for e in lints(j, "title-audio") if e["status"] == "fail")["evidence"]["problems"])
+
+
+def test_title_audio_the_room_loop_takes_the_longest_room_the_master_ends_on():
+    x = np.concatenate([np.full(RATE * 3, 0.1, np.float32),
+                        3e-4 * np.random.default_rng(5).standard_normal(RATE * 9).astype(np.float32)])
+    assert len(TS.room_of(x)) / RATE == pytest.approx(TS.ROOM_MAX_S)               # capped
+    y = np.concatenate([np.full(RATE * 3, 0.1, np.float32), x[-int(RATE * 3.5):]])
+    assert len(TS.room_of(y)) / RATE == pytest.approx(3.5, abs=TS.ROOM_BLOCK_S)     # all of the room, no Foley
+    assert TS.room_problem(np.zeros(RATE * 2, np.float32)) is not None
+    assert TS.room_problem(x[-RATE * 2:]) is None
+
+
+def test_title_audio_a_house_gain_over_12_db_is_refused(tmp_path, tmasters):
+    """A master so quiet the house level would ask more than +12 dB of it: refused, remaster its sound."""
+    plan, j, *_ = mixed_or_refused(tfilm(tmp_path, tmasters, master="quiet"))
+    assert isinstance(plan, R.Refused) and failed(j, "title-audio-level")
+    ev = next(e for e in lints(j, "title-audio-level") if e["status"] == "fail")["evidence"]
+    assert ev["house_gain_wanted_db"] > 12 and ev["gain_db"] <= 12 and "remaster" in ev["fix"]
+
+
+def test_title_audio_the_limiter_acting_inside_the_title_is_refused_after_mastering():
+    placed = {"titles": [{"shot": "TS1", "at_s": 10.0, "end_s": 52.0, "predicted_tp_dbtp": -3.2, "programme_lift_db": 2.5}]}
+    j = J.Journal(film="a40-mastered")
+    clean = {"gain_db": 2.5, "limiter": {"acted": [{"at_s": 60.0, "dur_s": 0.01, "max_db": 0.4}], "acted_total": 1}}
+    assert R.title_mastered_lints(j, placed, clean) == [] and passed(j, "title-audio-level")
+    j = J.Journal(film="a40-mastered-2")
+    hit = {"gain_db": 2.5, "limiter": {"acted": [{"at_s": 30.0, "dur_s": 0.02, "max_db": 0.6}], "acted_total": 1}}
+    assert R.title_mastered_lints(j, placed, hit) and failed(j, "title-audio-level")
+    j = J.Journal(film="a40-mastered-3")                      # the mastering lifted more than the level loop measured
+    assert R.title_mastered_lints(j, placed, {"gain_db": 4.0, "limiter": None}) and failed(j, "title-audio-level")
+    j = J.Journal(film="a40-mastered-4")
+    assert R.title_mastered_lints(j, placed, hit, draft=True) == [] and failed(j, "title-audio-level")
+
+
 def test_title_audio_no_tail_and_no_room_to_continue_is_refused(tmp_path, tmasters):
     plan, j = plan_of(tfilm(tmp_path, tmasters, master="ring", item=NO_LOCKUP, edit=with_shots((CARD,))))
     assert isinstance(plan, R.Refused) and failed(j, "title-audio")
@@ -284,8 +335,14 @@ def test_title_audio_a_master_with_no_audio_stream_is_refused(tmp_path, tmasters
     assert "no audio stream" in " ".join(next(e for e in lints(j, "title-audio") if e["status"] == "fail")["evidence"]["problems"])
 
 
-def test_title_audio_a_silent_master_is_its_own_declared_silence(tmp_path, tmasters):
-    plan, j = plan_of(tfilm(tmp_path, tmasters, master="silent"))
+def test_title_audio_a_silent_master_is_refused_unless_its_silence_cites_a_ruling(tmp_path, tmasters):
+    """A silent track is a master muxed without its sound (the bug this rule exists for): refused, unless the item
+    declares the silence and cites the founder ruling for it; then its silence is its own, declared intended."""
+    plan, j = plan_of(tfilm(tmp_path / "bare", tmasters, master="silent"))
+    assert isinstance(plan, R.Refused) and failed(j, "title-audio")
+    assert "audio_silence_ruling" in " ".join(next(e for e in lints(j, "title-audio") if e["status"] == "fail")["evidence"]["problems"])
+    plan, j = plan_of(tfilm(tmp_path / "ruled", tmasters, master="silent",
+                            item={"audio_silence_ruling": "founder, 2026-10-28: this title plays in silence (a test)"}))
     assert not isinstance(plan, Exception), plan
     assert passed(j, "title-audio") and plan["title_audio"][0]["silent"] is True
     assert (COLD_S, pytest.approx(SHIFT)) in [(a, pytest.approx(b)) for a, b in plan["silences"]] or any(

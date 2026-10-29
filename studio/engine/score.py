@@ -1022,14 +1022,17 @@ def handover_end(take: dict | None, t1: float) -> float:
     return end
 
 
-def take_handover(take: dict | None, t0: float, t1: float) -> dict | None:
+def take_handover(take: dict | None, t0: float, t1: float, reach: float | None = None) -> dict | None:
     """S7, the A40 handover: the rest in the take's map that says why ``A40
     handover`` and covers the series titles from their first frame (``t0``) to
     HANDOVER_AFTER_S after their last (``t1``), or to the house motif's first
-    note when it follows them sooner (handover_end); None when there is none."""
+    note when it follows them sooner (handover_end), and at least to ``reach``
+    (A40 standalone audio: the cut out of the title's lockup card, where its own
+    sound ends); None when there is none."""
+    end = max(handover_end(take, t1), reach if reach is not None else t1)
     for r in (take or {}).get("rests", []):
         if (str(r.get("why", "")).startswith(HANDOVER_WHY) and r["start_s"] <= t0 + TAKE_EDGE_TOL_S
-                and r["end_s"] >= handover_end(take, t1) - TAKE_EDGE_TOL_S):
+                and r["end_s"] >= end - TAKE_EDGE_TOL_S):
             return r
     return None
 

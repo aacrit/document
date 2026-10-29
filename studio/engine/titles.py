@@ -655,7 +655,7 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
         # its rest map declares the A40 handover over the slot (the take rests there and the title carries the room;
         # the mix's take-handover lint measures that it does)
         handover = {c.get("id"): r["id"] for c in sounding if roles[c.get("id")] == "take"
-                    for r in [SC.take_handover(c.get("_take"), t0, t1)] if r is not None}
+                    for r in [SC.take_handover(c.get("_take"), t0, t1, reach=end_s)] if r is not None}
         wrong = [cid for cid in roles if cid not in handover]
         lint("title-audio-slot", not wrong, unit=sid, grammar="A40, A29, A29 take",
              evidence={"cues": roles, "span_s": [round(t0, 3), round(end_s, 3)], "lockup_card": card_id if card else None,
@@ -927,12 +927,18 @@ TITLE_LUFS = -22.0
 TITLE_PEAK_MARGIN_DB = 1.0          # after the programme gain the title's true peak stays this far under the limiter's
                                     # ceiling (render: TARGET_TP - LIMIT_MARGIN_DB), so the limiter never acts on it
 TITLE_HOLD_MAX_DB = 6.0             # the peak rule may hold a title at most this far under TITLE_LUFS; more is refused
+                                    # (the house gain is at most AUDIO_GAIN_RANGE[1]; a title needing more is refused)
 TITLE_LEVEL_PASSES = 4              # the programme gain moves with the title's own level: re-measured at most this often
 SILENT_MASTER_DBFS = -80.0          # a master whose own track's RMS is at or under this is silent: its silence is its own
 AUDIO_FLOOR_DBFS = -70.0            # title-audio (post-render): the rendered title span's RMS at least this, unless silent
 TAIL_FLOOR_DBFS = -90.0             # ... and the lockup's span at least this: digital black measured -91 in the bug
-ROOM_S = 2.0                        # no tail: the master's last ROOM_S of sound is its room, looped under the lockup card
+ROOM_S = 2.0                        # no tail: at least the master's last ROOM_S of sound is its room, looped under the card
+ROOM_MAX_S = 6.0                    # ... the loop takes the longest room stretch the master ends on, up to this (a longer
+                                    # loop has no audible period)
+ROOM_BLOCK_S = 0.1                  # ... measured in blocks of this
 ROOM_MAX_DBFS = -55.0               # ... and is room only when its RMS is at most this (no Foley ringing in it)
+ROOM_MIN_DBFS = -85.0               # ... and at least this: a room, not digital zero (no tail and no room: refused)
+LENGTH_GAP_WARN_FRAMES = 1.0        # the master's sound shorter or longer than its picture by more than this: a warning
 ROOM_XFADE_S = 0.5                  # the loop's equal-power crossfade
 SPLICE_S = 0.010                    # master to tail: a 10 ms crossfade at the title's last frame (the same mix, continued)
 END_FADE_S = 0.100                  # the title's sound ends at the cut into the film with a 100 ms fade (no click)
@@ -987,6 +993,31 @@ def sync_offset_ms(n_out: int, src: float, fps: float, n: int | None = None) -> 
     return worst * 1000.0
 
 
+def room_of(x: np.ndarray, rate: int = AUDIO_RATE) -> np.ndarray:
+    """The room the master ends on: its last ROOM_S at least, grown back block by block (ROOM_BLOCK_S) while each
+    block is room (RMS at most ROOM_MAX_DBFS), up to ROOM_MAX_S."""
+    x = np.asarray(x, np.float32)
+    k = int(round(ROOM_BLOCK_S * rate))
+    n = min(len(x), int(round(ROOM_S * rate)))
+    while n + k <= min(len(x), int(round(ROOM_MAX_S * rate))) and rms_dbfs(x[len(x) - n - k: len(x) - n]) <= ROOM_MAX_DBFS:
+        n += k
+    return x[len(x) - n:]
+
+
+def room_problem(room: np.ndarray) -> str | None:
+    """Why the master's ending cannot be continued as its room under the lockup card, or None."""
+    r = rms_dbfs(room)
+    if not len(room):
+        return "the master has no sound to continue"
+    if r > ROOM_MAX_DBFS:
+        return (f"the master's last {len(room) / AUDIO_RATE:.2f} s are not room ({r:.1f} dBFS, at most {ROOM_MAX_DBFS:g}): "
+                "its room cannot be continued under the lockup card; declare its audio_tail")
+    if r < ROOM_MIN_DBFS:
+        return (f"the master's last {len(room) / AUDIO_RATE:.2f} s measure {r:.1f} dBFS (at least {ROOM_MIN_DBFS:g}): "
+                "digital zero, no room to continue under the lockup card; declare its audio_tail")
+    return None
+
+
 def room_loop(room: np.ndarray, n: int, xfade: int) -> np.ndarray:
     """``n`` samples of ``room`` looped with equal-power crossfades of ``xfade`` samples (a room recording continued)."""
     room = np.asarray(room, np.float32)
@@ -1036,8 +1067,8 @@ def title_track(master: np.ndarray, title_n: int, end_n: int, *, tail: np.ndarra
             filled = b
             how.update({"tail_s": round((b - k) / rate, 4), "from": "tail"})
     if filled < end_n:
-        room = master[max(0, len(master) - int(round(ROOM_S * rate))):]
-        if len(room) and rms_dbfs(room) <= ROOM_MAX_DBFS:
+        room = room_of(master, rate)
+        if room_problem(room) is None:
             xf = min(int(round(ROOM_XFADE_S * rate)), filled)
             loop = room_loop(room, end_n - filled + xf, int(round(ROOM_XFADE_S * rate)))
             a = filled - xf                     # the loop rises under the master's last samples as they fall
@@ -1126,7 +1157,19 @@ def audio_plan(lint, s: dict, item: dict, probe: dict, ffmpeg: str, ffprobe: str
         except Exception as e:
             problems.append(f"{type(e).__name__}: {e}")
     silent = x is not None and rms_dbfs(x) <= SILENT_MASTER_DBFS
+    ruling = item.get("audio_silence_ruling")
+    if silent:
+        # a silent track is a master muxed without its sound, unless the item declares the silence and the ruling
+        ev["audio_silence_ruling"] = ruling
+        if not (isinstance(ruling, str) and ruling.strip()):
+            problems.append(f"the master's own track measures {rms_dbfs(x):.1f} dBFS (at or under "
+                            f"{SILENT_MASTER_DBFS:g}): silent; mux its sound, or declare audio_silence_ruling citing "
+                            "the founder ruling that the title plays in silence")
     title_n = int(round((t1 - t0) * AUDIO_RATE))
+    gap = None
+    if x is not None:
+        gap = (len(x) - title_n) / AUDIO_RATE                 # the sound against the picture, in s
+        ev["audio_minus_picture_s"] = round(gap, 4)
     end_n = int(round((end_s - t0) * AUDIO_RATE))
     if x is not None and y is not None:
         m = min(title_n, len(x), len(y))
@@ -1139,12 +1182,16 @@ def audio_plan(lint, s: dict, item: dict, probe: dict, ffmpeg: str, ffprobe: str
             problems.append(f"audio_tail runs {len(y) / AUDIO_RATE:.3f} s; the title's sound runs {end_s - t0:.3f} s, to "
                             "the cut out of the lockup card")
     if x is not None and y is None and not silent and end_n > len(x):
-        room = x[max(0, len(x) - int(round(ROOM_S * AUDIO_RATE))):]
-        ev["room_rms_dbfs"] = round(rms_dbfs(room), 1)
-        if rms_dbfs(room) > ROOM_MAX_DBFS:
-            problems.append(f"the master's last {ROOM_S:g} s are not room ({rms_dbfs(room):.1f} dBFS, at most "
-                            f"{ROOM_MAX_DBFS:g}), so its room cannot be continued under the lockup card: declare its "
-                            "audio_tail")
+        room = room_of(x)
+        ev.update(room_rms_dbfs=round(rms_dbfs(room), 1), room_s=round(len(room) / AUDIO_RATE, 2))
+        why = room_problem(room)
+        if why:
+            problems.append(why)
+    if gap is not None and abs(gap) > LENGTH_GAP_WARN_FRAMES / fps + 1e-9:
+        lint("title-audio-length", False, unit=sid, severity="warn", grammar="A40",
+             evidence={"audio_minus_picture_s": round(gap, 4), "warn_over_s": round(LENGTH_GAP_WARN_FRAMES / fps, 4),
+                       "filled_by": "the room continued" if gap < 0 else "cut at the title's end (or carried by its tail)",
+                       "fix": "mux the sound to the picture's own length"})
     lint("title-audio", not problems, unit=sid, grammar="A40",
          evidence=dict(ev, silent=silent, problems=problems,
                        fix=None if not problems else "the series titles carry their own sound: mux it into the master, "
