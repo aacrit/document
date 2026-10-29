@@ -346,7 +346,8 @@ def test_title_audio_the_limiter_acting_inside_the_title_is_refused_after_master
 def test_title_audio_no_tail_and_no_room_to_continue_is_refused(tmp_path, tmasters):
     plan, j = plan_of(tfilm(tmp_path, tmasters, master="ring", item=NO_LOCKUP, edit=with_shots((CARD,))))
     assert isinstance(plan, R.Refused) and failed(j, "title-audio")
-    assert "not room" in " ".join(next(e for e in lints(j, "title-audio") if e["status"] == "fail")["evidence"]["problems"])
+    probs = " ".join(next(e for e in lints(j, "title-audio") if e["status"] == "fail")["evidence"]["problems"])
+    assert "of room (at least 2 s" in probs and "audio_tail" in probs        # Foley to its last block: no room
 
 
 def test_title_track_splices_and_loops_without_a_gap():
