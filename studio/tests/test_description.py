@@ -230,10 +230,12 @@ def test_a_4_0_maps_data_note_is_printed_when_its_entry_is_left_out_and_there_is
     seen = {"note": False, "neither": False}
     for cap in range(2600, 4200, 5):
         monkeypatch.setattr(D, "MAX_CHARS", cap)
-        try:
-            t = D.description_text(src, FILM)
-        except D.AttributionOverflow:
+        r = D.compose(src, FILM)
+        assert not r["omitted"]                                                 # no pre-4.0 work in this film
+        if r["problems"]:                                                       # a cap even the floor does not fit
+            assert len(r["text"]) > cap and not r["external_publish_ready"]
             continue
+        t = r["text"]
         assert len(t) <= cap
         lines = t.splitlines()
         if entry in lines:
@@ -276,14 +278,49 @@ def test_every_pre_4_0_credit_is_printed_in_full_before_any_4_0_one():
         lines.index(next(ln for ln in lines if ln.startswith("Old licence photograph 71.")))  # printed in film order
 
 
-def test_pre_4_0_credits_that_cannot_fit_are_a_hard_error_naming_them():
-    try:
-        D.description_text(_crowded("CC BY 2.0", every=1), FILM)
-    except D.AttributionOverflow as e:
-        msg = str(e)
-    else:
-        raise AssertionError("a pre-4.0 attribution was dropped")
-    assert "CB-0" in msg and "Licensed photograph 0" in msg and str(D.MAX_CHARS) in msg and "before 4.0" in msg
+def _partition_scale(n=120):
+    """Not a Free Agent's shape: so many pre-4.0 CC works that their credits alone run to tens of thousands of
+    characters (32,860 there), with a 4.0 map and public domain stills among them."""
+    src = _long_film(n=n, at=47)
+    for i in range(n):
+        if i != 47 and i % 4:
+            src["shots"][i] = _photo(i, "CC BY-SA 3.0" if i % 2 else "CC BY 2.0")
+    return src
+
+
+def test_pre_4_0_credits_that_cannot_fit_write_the_best_description_that_fits():
+    src = _partition_scale()
+    full = [e for e in D.notes(src)["source_entries"] if e["tier"] == "full"]
+    assert sum(len(e["line"]) + 1 for e in full) > 3 * D.MAX_CHARS            # the overflow is real, not marginal
+    r = D.compose(src, FILM)                                                    # never raises: no render is gated
+    t = r["text"]
+    assert len(t) <= D.MAX_CHARS
+    lines = t.splitlines()
+    page = "https://document.voidvision.org/f/fixture/sources/"
+    assert lines[2] == D.INCOMPLETE.format(url=page)                            # the header, after the title and logline
+    assert "incomplete" in lines[2] and "Full credits for every shot" in lines[2] and "\u2014" not in lines[2]
+    assert LINK in lines                                                        # room kept for the sources-page line
+    kept = [e for e in full if e["line"] in lines]
+    assert kept and r["omitted"] and len(kept) + len(r["omitted"]) == len(full)  # every pre-4.0 credit kept or listed
+    assert [e["line"] for e in kept] == [ln for ln in lines if ln.startswith("Licensed photograph ")]   # film order
+    for e in kept:                                                              # what is printed is printed whole
+        assert "By Photographer" in e["line"] and "https://creativecommons.org/licenses/" in e["line"]
+    assert "Public domain still" not in t                                       # no plain entry while a credit is out
+    assert r["external_publish_ready"] is False
+    assert r["problems"] and all(e["name"] in r["problems"][0] for e in r["omitted"]) and "before 4.0" in r["problems"][0]
+    assert D.release_problem(src, FILM) is None                                 # the site release is never refused for it
+    assert D.external_problems(src, FILM) == r["problems"]
+
+
+def test_a_film_that_fits_has_no_header_and_is_ready_for_external_publication():
+    for src in (SRC, _long_film(), _crowded()):                                 # Real World's shape, and 4.0 overflow
+        r = D.compose(src, FILM)
+        assert r["external_publish_ready"] is True and not r["omitted"] and not r["problems"]
+        assert "This description is incomplete" not in r["text"]
+    every_pre_4 = _crowded()
+    for i in (5, 33, 71):
+        every_pre_4["shots"][i] = _photo(i, "CC BY-SA 2.0", f"Old licence photograph {i}")
+    assert D.compose(every_pre_4, FILM)["external_publish_ready"] is True       # every pre-4.0 credit fits
 
 
 def test_the_sources_page_link_uses_the_slug_from_films_json():
@@ -331,16 +368,45 @@ def test_the_reviewers_probes_are_not_the_studios_own():
     assert not D.obligated(drawn)
 
 
-def test_the_cli_writes_an_unlisted_film_and_refuses_a_pre_4_0_overflow(tmp_path):
+def test_the_cli_writes_an_unlisted_film_with_its_own_slug(tmp_path):
     (tmp_path / "sources.json").write_text(json.dumps(_crowded()), encoding="utf-8")
     assert D.main([str(tmp_path / "sources.json"), "--films", str(tmp_path / "none.json")]) == 0
     assert "/f/fixture/sources/" in (tmp_path / "description.txt").read_text(encoding="utf-8")
-    (tmp_path / "description.txt").unlink()
-    (tmp_path / "sources.json").write_text(json.dumps(_crowded("CC BY 2.0", every=1)), encoding="utf-8")
-    try:
-        D.main([str(tmp_path / "sources.json"), "--films", str(tmp_path / "none.json")])
-    except D.AttributionOverflow:
-        pass
-    else:
-        raise AssertionError("the CLI wrote a description that drops a pre-4.0 attribution")
-    assert not (tmp_path / "description.txt").exists()
+    side = json.loads((tmp_path / D.SIDECAR).read_text(encoding="utf-8"))
+    assert side["external_publish_ready"] is False and not side["listed"]       # its credits lean on an unserved page
+    assert side["left_to_sources_page"] and not side["omitted"]
+
+
+def _write(tmp_path, src):
+    (tmp_path / "sources.json").write_text(json.dumps(src), encoding="utf-8")
+    reg = tmp_path / "films.json"
+    reg.write_text(json.dumps({"films": [FILM]}), encoding="utf-8")
+    return tmp_path / "sources.json", reg
+
+
+def test_a_pre_4_0_overflow_is_written_with_its_sidecar_and_check_external_refuses_it(tmp_path, capsys):
+    sources, reg = _write(tmp_path, _partition_scale())
+    assert D.main([str(sources), "--films", str(reg)]) == 0                     # written, never refused
+    text = (tmp_path / "description.txt").read_text(encoding="utf-8")
+    assert len(text.rstrip("\n")) <= D.MAX_CHARS and "This description is incomplete" in text
+    side = json.loads((tmp_path / D.SIDECAR).read_text(encoding="utf-8"))
+    assert side["external_publish_ready"] is False and side["listed"] is True
+    assert side["chars"] == len(text.rstrip("\n")) and side["max_chars"] == D.MAX_CHARS
+    assert side["omitted"] and all(o["tier"] == "full" and o["ledger_id"].startswith("CB-") for o in side["omitted"])
+    assert all(o["line"] not in text for o in side["omitted"])                  # the sidecar lists what is not printed
+    capsys.readouterr()
+    assert D.main(["--check-external", str(sources), "--films", str(reg)]) == 1
+    err = capsys.readouterr().err
+    assert "external publication refused" in err and "A56" in err
+    for o in side["omitted"]:                                                   # names every omitted pre-4.0 entry
+        assert o["name"] in err
+
+
+def test_check_external_passes_a_film_that_fits_and_its_sidecar_says_ready(tmp_path, capsys):
+    sources, reg = _write(tmp_path, _long_film())                               # Real World's shape: it fits
+    assert D.main([str(sources), "--films", str(reg)]) == 0
+    side = json.loads((tmp_path / D.SIDECAR).read_text(encoding="utf-8"))
+    assert side["external_publish_ready"] is True and side["omitted"] == [] and side["problems"] == []
+    assert D.main(["--check-external", str(sources), "--films", str(reg)]) == 0
+    assert "external publication: ready" in capsys.readouterr().out
+    assert D.main(["--check-external", str(sources), "--films", str(tmp_path / "none.json")]) == 0   # nothing left out

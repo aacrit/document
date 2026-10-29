@@ -6,21 +6,28 @@ licences, the map notes, the gaps in the record and the shortfall statements)
 is stated in the sources data. This module prints that data as plain text for
 the film's video description (``<out>/description.txt``, at most 5000
 characters, no markup), in the sections of document-description-block-spec.md.
-Every work under a CC licence before 4.0 is credited here in full; only a 4.0
-work may be left to the film's sources page (CC BY 4.0 3(a)(2)): see
-description_text.
+description.txt exists only for publication on an outside platform with that
+limit (a video platform); the site's Sources page carries every credit, creator,
+deed and data link, so the description never gates a render or a site release.
+Every work under a CC licence before 4.0 is credited here in full when it fits;
+only a 4.0 work may be left to the film's sources page (CC BY 4.0 3(a)(2)). When
+the pre-4.0 credits do not fit, the best description that fits is written with a
+header saying it is incomplete, and its sidecar ``description.attribution.json``
+says ``external_publish_ready: false`` and lists what was left out: see compose.
 The Sources page's "Notes on this film" (web/src/film-data.ts ``filmNotes``)
 reads the same fields of the same file.
 
-``description_text`` is pure (no I/O). The CLI writes the file:
+``description_text`` and ``compose`` are pure (no I/O). The CLI writes the files, or checks external publication:
 
     python -m studio.engine.description <out>/sources.json [--films films.json] [--out description.txt]
+    python -m studio.engine.description --check-external <out>/sources.json [--films films.json]
 """
 from __future__ import annotations
 
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 
 SITE = "https://document.voidvision.org"
@@ -61,12 +68,6 @@ _SPELLED = re.compile(r"(?i)\bCreative\s+Commons\s+Attribution((?:[- ]?(?:Share[
 _CC_ID = re.compile(r"(?i)\bCC[- ]?(BY(?:[- ](?:NC|ND|SA)){0,2})[- ]?(\d\.\d)(?:[- ](IGO|[A-Za-z]{2})\b)?")
 _CC0 = re.compile(r"(?i)\bCC[- ]?0\b|\bCC[- ]?ZERO\b|\bCreative\s+Commons\s+Zero\b")
 _ATTRIBUTION = re.compile(r"(?i)\bCC[- ]?BY\b")      # every CC licence that asks for attribution (BY, BY-SA, ...)
-
-
-class AttributionOverflow(ValueError):
-    """A work under a CC licence before 4.0 cannot be credited in full within the description's cap. Before 4.0 the
-    licence asks for the credit itself, so it is never replaced by the sources-page line (CC BY 4.0 3(a)(2) allows
-    that for 4.0 works only)."""
 
 
 def normalise_licence(text) -> str:
@@ -323,34 +324,46 @@ def sources_page(slug: str, site: str = SITE) -> str:
     return f"{site}/f/{slug}/sources/"
 
 
-def compose(src: dict, film: dict | None = None, *, site: str = SITE) -> tuple[str, list[dict]]:
-    """The description block and the obligated entries it leaves to the sources page (see description_text)."""
+INCOMPLETE = ("This description is incomplete: credits that do not fit here are left out. Full credits for every "
+              "shot are on the film's sources page: {url}")
+
+
+def compose(src: dict, film: dict | None = None, *, site: str = SITE) -> dict:
+    """The description block and what it leaves out, as a report:
+
+    ``text`` the block (see description_text); ``omitted`` the pre-4.0 credits left out (only when they cannot all
+    fit: then ``text`` opens with the INCOMPLETE header); ``left`` the 4.0 credits left to the sources page;
+    ``listed`` whether the film is in films.json (its sources page is served); ``external_publish_ready`` true only
+    when nothing a licence asks the description itself to carry is missing (no pre-4.0 credit left out, and no credit
+    left to a sources page that is not served); ``problems`` why not, one line each."""
     film = film or {}
     n = notes(src)
     slug = _s(film.get("slug") or src.get("slug"))     # the page films.json lists; else the render's own slug
     title = _s(film.get("title") or src.get("title"))
     head = title + (f" ({_s(film['dates'])})" if film.get("dates") else "")
-    out = [head]
+    page = sources_page(slug, site)
+    top = [head]
     if film.get("logline"):
         lg = _s(film["logline"])
-        out.append(lg[:1].upper() + lg[1:] + ("" if lg.endswith(".") else "."))
-    out += ["", "How to read the marks", "The mark in the corner says what you see."]
-    out += [line for _, line in MARKS]
+        top.append(lg[:1].upper() + lg[1:] + ("" if lg.endswith(".") else "."))
+    rest = ["", "How to read the marks", "The mark in the corner says what you see."]   # the header goes before this
+    rest += [line for _, line in MARKS]
     voices = [x for x in [n["narrator"],
                           ("Read by computer voices: " + "; ".join(n["readers"]) + ".") if n["readers"] else None,
                           ("Original recordings: " + "; ".join(n["originals"]) + ".") if n["originals"] else None] if x]
     if voices:
-        out += ["", "Voices"] + voices
+        rest += ["", "Voices"] + voices
     if n["unnamed"]:
-        out += ["", "Speakers not named on screen", "The record names these speakers only by role."] + n["unnamed"]
-    link = SOURCES_LINE.format(url=sources_page(slug, site))
+        rest += ["", "Speakers not named on screen", "The record names these speakers only by role."] + n["unnamed"]
+    link = SOURCES_LINE.format(url=page)
     entries = n["source_entries"]
+    header = {"on": False}
 
     def block(keep: set, data_notes: bool = True) -> str:
         """The text with the entries at these indexes, in film order. A map's data note repeats its own entry, so
         it is printed only when that entry is not, and only with data_notes (a map whose entry is left out is owed
-        attribution only under 4.0: a full-tier map is always printed, so the note is a courtesy, kept when there
-        is room)."""
+        attribution only under 4.0: a full-tier map is printed whenever the pre-4.0 credits fit, so the note is a
+        courtesy, kept when there is room)."""
         printed = {entries[i]["ledger_id"] for i in keep}
         a = (["", "Sources"] + [e["line"] for i, e in enumerate(entries) if i in keep] + [link]) if entries else []
         mn = [t for t in n["map_notes"] if n["map_note_owner"].get(t) is None
@@ -361,20 +374,42 @@ def compose(src: dict, film: dict | None = None, *, site: str = SITE) -> tuple[s
             a += ["", "Gaps in the record"]
             a += [g["says"] + (f" {g['searched']}" if g["searched"] else "") for g in n["gaps"]] + n["statements"]
         a += ([] if entries else ["", link]) + ["", "Correct something: " + f"{site}/f/{slug}/correct/"]
-        return "\n".join(out + a)
+        return "\n".join(top + ([INCOMPLETE.format(url=page)] if header["on"] else []) + rest + a)
+
+    listed = bool(_s(film.get("slug")))
+
+    def report(text: str, keep: set) -> dict:
+        omitted = [e for i, e in enumerate(entries) if e["tier"] == "full" and i not in keep]
+        left = [e for i, e in enumerate(entries) if e["tier"] == "uri" and i not in keep]
+        problems = []
+        if omitted:
+            problems.append(f"{slug or 'this film'}: {len(omitted)} work(s) under a CC licence before 4.0 do not fit "
+                            f"the description's cap of {MAX_CHARS} characters and are left out of it (the sources "
+                            f"page credits them): " + "; ".join(e["name"] for e in omitted))
+        if (left or omitted) and not listed:
+            problems.append(f"{slug or 'this film'} is not in films.json, so its sources page is not served, yet its "
+                            f"description leaves these attributions to that page: "
+                            + "; ".join(e["name"] for e in omitted + left))
+        if len(text) > MAX_CHARS:                    # even with every source left out (a very long voices list)
+            problems.append(f"{slug or 'this film'}: the description is {len(text)} characters with every source it "
+                            f"can leave out left out, over the cap of {MAX_CHARS}")
+        return {"text": text, "omitted": omitted, "left": left, "listed": listed, "slug": slug, "sources_page": page,
+                "external_publish_ready": not problems, "problems": problems}
 
     every = set(range(len(entries)))
     if not entries or len(block(every)) <= MAX_CHARS:
-        return block(every)[:MAX_CHARS], []
+        return report(block(every)[:MAX_CHARS], every)
     by = {t: [i for i, e in enumerate(entries) if e["tier"] == t] for t in ("full", "uri", "plain")}
     keep = set(by["full"])
-    floor = block(keep, data_notes=False)
-    if len(floor) > MAX_CHARS:
-        raise AttributionOverflow(
-            f"{slug or 'this film'}: the works under a CC licence before 4.0 must be credited in full, and with every "
-            f"other source cut the description is {len(floor)} characters, over the cap of {MAX_CHARS}: "
-            + "; ".join(entries[i]["name"] for i in by["full"]))
-    whole = True
+    if by["full"] and len(block(keep, data_notes=False)) > MAX_CHARS:
+        # the pre-4.0 credits alone do not fit: say so at the top, then keep as many of them as fit, whole, in film
+        # order (one that does not fit is skipped; a shorter one after it may still fit); the sources-page line stays
+        header["on"] = True
+        keep = set()
+        for i in by["full"]:
+            if len(block(keep | {i}, data_notes=False)) <= MAX_CHARS:
+                keep.add(i)
+    whole = not header["on"]
     for i in by["uri"]:                              # 4.0 works, whole, in film order, until the next does not fit
         if len(block(keep | {i}, data_notes=False)) > MAX_CHARS:
             whole = False
@@ -386,7 +421,7 @@ def compose(src: dict, film: dict | None = None, *, site: str = SITE) -> tuple[s
             if len(block(keep | {i}, data_notes=notes_on)) > MAX_CHARS:
                 break
             keep.add(i)
-    return block(keep, data_notes=notes_on), [entries[i] for i in by["uri"] if i not in keep]
+    return report(block(keep, data_notes=notes_on), keep)
 
 
 def description_text(src: dict, film: dict | None = None, *, site: str = SITE) -> str:
@@ -396,24 +431,39 @@ def description_text(src: dict, film: dict | None = None, *, site: str = SITE) -
     and data link. Over the cap, entries are kept in this order and printed in film order: every work under a CC
     licence before 4.0, whole (title, author, link, licence and deed URI: those licences ask for the credit itself);
     then works owed attribution only under 4.0, whole, for as many as fit (CC BY 4.0 3(a)(2) lets the sources page
-    carry the rest); then plain entries. AttributionOverflow is raised when the pre-4.0 credits alone do not fit.
-    ``film`` is the film's films.json entry; a film not listed yet takes its slug from sources.json (the release
-    step refuses it while its description leans on a sources page that is not served). A map's data note is
-    printed only when its own source entry is not."""
-    return compose(src, film, site=site)[0]
+    carry the rest); then plain entries. When the pre-4.0 credits alone do not fit, the block opens with the
+    INCOMPLETE header and keeps as many of them as fit; compose reports the rest, and the film is not ready for
+    external publication (``--check-external``). It never raises for length: the description gates no render.
+    ``film`` is the film's films.json entry; a film not listed yet takes its slug from sources.json. A map's data
+    note is printed only when its own source entry is not."""
+    return compose(src, film, site=site)["text"]
 
 
 def release_problem(src: dict, film: dict | None) -> str | None:
-    """Why the description cannot be published with this film, or None: its pre-4.0 credits do not fit, or it
-    leaves 4.0 attributions to a sources page the film does not have (not in films.json)."""
-    try:
-        _, left = compose(src, film)
-    except AttributionOverflow as e:
-        return str(e)
-    if left and not _s((film or {}).get("slug")):
-        return (f"{_s(src.get('slug')) or 'this film'} is not in films.json, so its sources page is not served, yet "
-                f"its description leaves these attributions to that page: " + "; ".join(e["name"] for e in left))
-    return None
+    """Why the description cannot be written with this film's site release, or None: it leaves attributions to a
+    sources page the film does not have (not in films.json). The cap is never a reason: the site's Sources page
+    carries every credit, and external publication has its own gate (external_problems, --check-external)."""
+    return next((p for p in compose(src, film)["problems"] if "not in films.json" in p), None)
+
+
+def external_problems(src: dict, film: dict | None) -> list[str]:
+    """Why this film's description cannot be published on an outside platform, or []: a pre-4.0 credit it leaves
+    out (those licences ask for the credit wherever the work is published; until a full-credits solution exists,
+    such as in-film end credits, external publication is refused), or a credit left to a sources page not served."""
+    return compose(src, film)["problems"]
+
+
+SIDECAR = "description.attribution.json"
+
+
+def sidecar_record(r: dict) -> dict:
+    """The sidecar beside description.txt: whether it may go to an outside platform, and every credit it leaves out."""
+    def row(e):
+        return {"ledger_id": e["ledger_id"], "name": e["name"], "tier": e["tier"], "line": e["line"]}
+    return {"external_publish_ready": r["external_publish_ready"], "max_chars": MAX_CHARS, "chars": len(r["text"]),
+            "slug": r["slug"], "sources_page": r["sources_page"], "listed": r["listed"],
+            "omitted": [row(e) for e in r["omitted"]], "left_to_sources_page": [row(e) for e in r["left"]],
+            "problems": r["problems"]}
 
 
 def film_entry(films_json: Path | None, slug: str) -> dict | None:
@@ -423,10 +473,18 @@ def film_entry(films_json: Path | None, slug: str) -> dict | None:
     return next((f for f in reg.get("films", []) if isinstance(f, dict) and f.get("slug") == slug), None)
 
 
+def sidecar_path(description: Path) -> Path:
+    return Path(description).with_name(SIDECAR)
+
+
 def write_description(sources_path: Path, films_json: Path | None = None, out: Path | None = None) -> Path:
+    """Write description.txt and its sidecar (SIDECAR, beside it) from sources.json; returns the description's path.
+    Never refuses for length: an overflow is written as the best description that fits, and the sidecar says so."""
     src = json.loads(Path(sources_path).read_text(encoding="utf-8"))
     out = Path(out) if out else Path(sources_path).with_name("description.txt")
-    out.write_text(description_text(src, film_entry(films_json, src.get("slug") or "")) + "\n", encoding="utf-8")
+    r = compose(src, film_entry(films_json, src.get("slug") or ""))
+    out.write_text(r["text"] + "\n", encoding="utf-8")
+    sidecar_path(out).write_text(json.dumps(sidecar_record(r), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return out
 
 
@@ -438,7 +496,19 @@ def main(argv=None) -> int:
     ap.add_argument("sources", type=Path)
     ap.add_argument("--films", type=Path, default=REPO_FILMS, help="the film registry (default: the repo's films.json)")
     ap.add_argument("--out", type=Path, default=None, help="default: description.txt beside sources.json")
+    ap.add_argument("--check-external", action="store_true",
+                    help="write nothing; exit 1 unless the description is ready for an outside platform (the gate for "
+                         "any external upload: every pre-4.0 credit in full)")
     a = ap.parse_args(argv)
+    if a.check_external:
+        src = json.loads(a.sources.read_text(encoding="utf-8"))
+        r = compose(src, film_entry(a.films, src.get("slug") or ""))
+        if r["external_publish_ready"]:
+            print(f"external publication: ready ({len(r['text'])} of {MAX_CHARS} characters)")
+            return 0
+        for p in r["problems"]:
+            print(f"external publication refused (GRAMMAR A56): {p}", file=sys.stderr)
+        return 1
     print(write_description(a.sources, a.films, a.out))
     return 0
 
