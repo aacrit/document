@@ -232,8 +232,8 @@ def test_a_4_0_maps_data_note_is_printed_when_its_entry_is_left_out_and_there_is
         monkeypatch.setattr(D, "MAX_CHARS", cap)
         r = D.compose(src, FILM)
         assert not r["omitted"]                                                 # no pre-4.0 work in this film
-        if r["problems"]:                                                       # a cap even the floor does not fit
-            assert len(r["text"]) > cap and not r["external_publish_ready"]
+        if r["incomplete"]:                                                     # a cap even the floor does not fit: cut
+            assert len(r["text"]) <= cap and r["trimmed"] and not r["external_publish_ready"]
             continue
         t = r["text"]
         assert len(t) <= cap
@@ -298,7 +298,7 @@ def test_pre_4_0_credits_that_cannot_fit_write_the_best_description_that_fits():
     lines = t.splitlines()
     page = "https://document.voidvision.org/f/fixture/sources/"
     assert lines[2] == D.INCOMPLETE.format(url=page)                            # the header, after the title and logline
-    assert "incomplete" in lines[2] and "Full credits for every shot" in lines[2] and "\u2014" not in lines[2]
+    assert "incomplete" in lines[2] and "Full credits and notes for every shot" in lines[2] and "\u2014" not in lines[2]
     assert LINK in lines                                                        # room kept for the sources-page line
     kept = [e for e in full if e["line"] in lines]
     assert kept and r["omitted"] and len(kept) + len(r["omitted"]) == len(full)  # every pre-4.0 credit kept or listed
@@ -397,7 +397,7 @@ def test_a_pre_4_0_overflow_is_written_with_its_sidecar_and_check_external_refus
     capsys.readouterr()
     assert D.main(["--check-external", str(sources), "--films", str(reg)]) == 1
     err = capsys.readouterr().err
-    assert "external publication refused" in err and "A56" in err
+    assert "outside platform: not ready (advisory" in err and "A56" in err
     for o in side["omitted"]:                                                   # names every omitted pre-4.0 entry
         assert o["name"] in err
 
@@ -408,5 +408,61 @@ def test_check_external_passes_a_film_that_fits_and_its_sidecar_says_ready(tmp_p
     side = json.loads((tmp_path / D.SIDECAR).read_text(encoding="utf-8"))
     assert side["external_publish_ready"] is True and side["omitted"] == [] and side["problems"] == []
     assert D.main(["--check-external", str(sources), "--films", str(reg)]) == 0
-    assert "external publication: ready" in capsys.readouterr().out
+    assert "outside platform: ready" in capsys.readouterr().out
     assert D.main(["--check-external", str(sources), "--films", str(tmp_path / "none.json")]) == 0   # nothing left out
+
+
+# ---- over the cap for any reason: the header, then the trailing sections cut; the fixed lines always stay ------------
+
+CORRECT = "Correct something: https://document.voidvision.org/f/fixture/correct/"
+
+
+def _fixed_lines_kept(t):
+    lines = t.splitlines()
+    assert len(t) <= D.MAX_CHARS
+    assert lines[2] == D.INCOMPLETE.format(url="https://document.voidvision.org/f/fixture/sources/")
+    assert LINK in lines and lines[-1] == CORRECT
+    return lines
+
+
+def test_an_overflow_from_map_notes_is_cut_to_fit_with_the_header():
+    src = dict(SRC, shots=SRC["shots"] + [
+        {"id": f"M{i}", "ledger_id": f"MAP-{i}", "mark": {"class": "DRAWN"}, "title": f"Map {i}",
+         "licence": "public domain", "notes": [f"Note {i} on this map, a sentence of some length to fill the cap."]}
+        for i in range(200)])
+    r = D.compose(src, FILM)
+    lines = _fixed_lines_kept(r["text"])
+    assert r["incomplete"] and r["trimmed"].get("map_notes") and not r["omitted"]
+    assert r["trimmed"].get("gaps") == 2                                        # the gaps go first, then the notes
+    assert "Gaps in the record" not in lines and "Map 0: Note 0 on this map" in r["text"]   # cut from the end
+    assert r["external_publish_ready"] is False and "map note(s)" in r["problems"][0]
+
+
+def test_an_overflow_from_voices_never_exceeds_the_cap_and_keeps_the_fixed_lines():
+    src = dict(SRC, readings=[{"id": f"L{i}", "speaker": f"sp-{i}", "name": f"Speaker with a long name {i}",
+                               "reader": f"kokoro:voice_{i}", "source": "x", "start_s": i} for i in range(400)],
+               unnamed_speakers=[{"name": f"A voice {i}", "lines": [{"id": f"U{i}", "start_s": i}]} for i in range(200)])
+    r = D.compose(src, FILM)
+    lines = _fixed_lines_kept(r["text"])
+    assert r["trimmed"].get("unnamed") or r["trimmed"].get("voices")
+    assert not r["external_publish_ready"]
+
+
+def test_a_title_longer_than_the_cap_is_itself_cut_and_the_fixed_lines_stay():
+    r = D.compose(SRC, dict(FILM, title="T" * 6000))
+    assert len(r["text"]) <= D.MAX_CHARS and r["incomplete"]
+    lines = r["text"].splitlines()
+    assert LINK in lines and lines[-1] == CORRECT and D.INCOMPLETE.split(":")[0] in r["text"]
+
+
+def test_the_unserved_page_is_a_structured_flag():
+    assert D.compose(_crowded(), None)["unserved_page"] is True
+    assert D.compose(_crowded(), FILM)["unserved_page"] is False
+    assert D.compose(SRC, None)["unserved_page"] is False                       # nothing left to the page
+    assert D.release_problem(_partition_scale(), FILM) is None                  # the cap is never a release reason
+
+
+def test_a_string_notes_in_sources_json_is_never_printed_letter_by_letter():
+    src = dict(SRC, shots=[dict(SRC["shots"][0], notes="Crop above the caption bar.")])
+    n = D.notes(src)
+    assert n["map_notes"] == [] and "Crop above" not in D.description_text(src, FILM)
