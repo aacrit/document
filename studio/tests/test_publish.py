@@ -107,17 +107,38 @@ def test_the_pre_flight_reads_the_description_from_the_plans_own_sources_data_an
     assert fit["fits"] is True and fit["omitted"] == []
 
 
-def test_a_ledgers_string_notes_is_a_working_note_never_published_letter_by_letter():
+def test_published_notes_are_a_list_and_a_string_notes_is_refused():
     still = {"id": "S-102", "notes": "Crop above the caption bar (the caption is the filmstrip maker's, c. 1950)."}
     assert R.public_notes(still) == []                                       # never 75 one-letter notes
     assert R.public_notes({"notes": ["Streets after 2001 are not drawn.", "  ", 3]}) == ["Streets after 2001 are not drawn."]
     assert R.public_notes({}) == [] and R.public_notes(None) == []
-    assert R.notes_problem(still, drawn=False)[0] == "warn"                  # journaled as unpublished
-    assert R.notes_problem(still, drawn=True)[0] == "block"                  # a map's notes are published: a list
-    assert R.notes_problem({"notes": ["ok", 3]}, drawn=False)[0] == "block"
-    assert R.notes_problem({"notes": {"a": 1}}, drawn=False)[0] == "block"
-    assert R.notes_problem({"notes": ["A sentence."]}, drawn=True) is None
-    assert R.notes_problem({"notes": None}, drawn=True) is None and R.notes_problem({}, drawn=False) is None
+    assert "work_notes" in R.notes_problem(still)                            # refused on every item, with the fix
+    assert R.notes_problem({"notes": ["ok", 3]}) and R.notes_problem({"notes": {"a": 1}})
+    assert R.notes_problem({"notes": ["A sentence."]}) is None
+    assert R.notes_problem({"notes": None}) is None and R.notes_problem({"work_notes": "HOLD only."}) is None
+
+
+def test_work_notes_are_never_published_in_sources_json(plan):
+    secret = "WORK NOTE: crop above the caption, never under a recovery line"
+    shots = [dict(s, _item=dict(s["_item"], work_notes=secret)) if s.get("_item") else s for s in plan["shots"]]
+    assert any(s.get("_item") for s in shots)
+    doc = R.sources_doc(dict(plan, shots=shots), Journal(film="work-notes"), {})
+    text = json.dumps(doc, default=str)
+    assert secret not in text and "work_notes" not in text
+    from studio.engine import description as DSC
+    assert secret not in DSC.description_text(doc, None)
+
+
+def test_a_string_notes_refuses_the_plan(film, tmp_path):
+    led = json.loads((Path(film) / "stills-ledger.json").read_text(encoding="utf-8"))
+    copy = tmp_path / "film"
+    shutil.copytree(film, copy)
+    for item in led["items"]:                                                  # whichever the film cites
+        item["notes"] = "HOLD only, no deep push."
+    (copy / "stills-ledger.json").write_text(json.dumps(led), encoding="utf-8")
+    j = Journal(film="notes", out_dir=tmp_path / "j")
+    with pytest.raises(R.Refused, match="ledger-notes"):
+        R.build_plan(copy, W=640, H=360, burn_subtitles=False, journal=j)
 
 
 def test_the_plan_lints_ledger_notes_before_any_frame():

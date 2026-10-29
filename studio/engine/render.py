@@ -2886,11 +2886,9 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                 lint(c["rule"], c["ok"], unit=s["id"], severity=c["severity"], evidence=c["evidence"],
                      grammar="1.6" if c["rule"] == "no-bodies" and not rule["declared"] else "1.6, 11.1, A21")
             # A56: a ledger item's notes reach sources.json only as a list of sentences (public_notes)
-            np_ = notes_problem(item, drawn=kind == "drawn" or s.get("mark") == "DRAWN"
-                                or (kind in IMAGE_KINDS and item.get("_path") and MP.drawn_kind(item)[0] == "map"))
-            if np_:
-                lint("ledger-notes", False, unit=s["id"], severity=np_[0], grammar="A56",
-                     evidence={"asset": s.get("asset"), "why": np_[1]})
+            np_ = notes_problem(item)
+            lint("ledger-notes", np_ is None, unit=s["id"], grammar="A56",
+                 evidence={"asset": s.get("asset"), "why": np_} if np_ else None)
             if not item.get("_path") or not Path(item["_path"]).exists():
                 lint("asset-file", False, unit=s["id"], evidence={"file": item.get("_path")})
                 continue
@@ -8569,34 +8567,29 @@ def title_sources_fields(s: dict) -> dict:
 
 def public_notes(item: dict | None) -> list[str]:
     """A56: the notes sources.json states for a shot (the Sources page's "Notes on this film", the description's
-    "Notes on the maps"): a drawn ledger's ``notes``, a list of sentences. A string ``notes`` is a stills or footage
-    ledger's working note for the studio (a crop instruction, a placement caution) and is never published; it is
-    never read character by character either (Not a Free Agent's S-102 and 17 more shots printed 363
-    one-character notes that way)."""
+    "Notes on the maps"): the ledger's ``notes``, a list of sentences, the only shape the ledger-notes lint lets
+    through. A ledger's ``work_notes`` (the studio's working notes: crop and placement instructions) is never read
+    here, and never published. Never a string read character by character (Not a Free Agent's S-102 and 17 more shots
+    printed 363 one-character notes that way)."""
     n = (item or {}).get("notes")
     if not isinstance(n, list):
         return []
     return [" ".join(x.split()) for x in n if isinstance(x, str) and x.strip()]
 
 
-def notes_problem(item: dict | None, *, drawn: bool) -> tuple[str, str] | None:
-    """The ledger-notes lint: (severity, why) when an item's ``notes`` has a shape the sources data cannot state, or
-    None. A drawn item's notes are published, so they must be a list of non-empty strings (block); a list holding
-    anything else blocks for any item; a string on a still or a clip is its working note, journaled as unpublished
-    (warn); anything else blocks."""
+def notes_problem(item: dict | None) -> str | None:
+    """The ledger-notes lint (blocking): why an item's ``notes`` cannot be published as it stands, or None. ``notes``
+    is published, so it is a list of non-empty sentences; a working note belongs in ``work_notes``, never published."""
     n = (item or {}).get("notes")
     if n is None:
         return None
     if isinstance(n, list):
         bad = [i for i, x in enumerate(n) if not isinstance(x, str) or not x.strip()]
-        return ("block", f"notes[{bad[0]}] is not a sentence: every published note is a non-empty string") if bad else None
+        return f"notes[{bad[0]}] is not a sentence: every published note is a non-empty string" if bad else None
     if isinstance(n, str):
-        if drawn:
-            return ("block", "a drawn frame's notes are published and must be a list of sentences, not one string "
-                             "(a string would be read character by character)")
-        return ("warn", "a string notes is the ledger's working note: it is not published")
-    return ("block", f"notes is a {type(n).__name__}: it must be a list of sentences (or, on a still or a clip, a "
-                     f"working note string, never published)")
+        return ("notes is one string: published notes are a list of sentences, and a working note for the studio "
+                "goes in work_notes (never published)")
+    return f"notes is a {type(n).__name__}: it must be a list of sentences (a working note goes in work_notes)"
 
 
 def description_fit(plan: dict, journal: Journal) -> dict:
