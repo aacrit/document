@@ -15,8 +15,8 @@ at 1.5 degrees along the path. The warp is zero on and past the lip line: the we
 
 Where the build departs from the spec's estimates (each forced by its own numbers; the report repeats them):
 - the start is the beats' (0.20, 0.22) and the lip v5d's x = 2.43, so the path is 2.48 m straight to the lip, not
-  2.62; the sheets, at their real sizes in date order, overlap more (Piri over Ino 0.12 m, Ino over the chart's top
-  panel 0.10 m) and Ino shows 0.38 m of the path, not 0.48;
+  2.62; the sheets lie at their real sizes in date order, Ino at s 1.80-2.30 over the chart's top panel for its last
+  0.20 m (the path meets the chart's square at s 2.10);
 - the chart lies squared to the well (its downhill edge is the lip, as the spec says), so the path crosses it on the
   diagonal;
 - the weights stand on the path's right so the glance turns the ball left (+y), as section 3.4 requires; the
@@ -142,9 +142,9 @@ SHEETS = [
      "t": 0.00015, "drape": 0.015, "layer": 5, "what": "Gutenberg leaf; the galley on its left margin"},
     {"name": "piri", "ledger": "T-04", "date": 1513, "surface": "parchment", "s": (1.17, 1.82), "n": (-0.43, 0.43),
      "t": 0.0003, "drape": 0.015, "layer": 4, "what": "Piri Reis (keyed fragment, 0.65 x 0.87)"},
-    {"name": "ino", "ledger": "T-08", "date": 1821, "surface": "washi", "s": (1.70, 2.20), "n": (-0.29, 0.29),
+    {"name": "ino", "ledger": "T-08", "date": 1821, "surface": "washi", "s": (1.80, 2.30), "n": (-0.29, 0.29),
      "t": 0.00016, "drape": 0.015, "layer": 3, "what": "Ino sheet 6, folded in half (crease away from the path)"},
-    {"name": "chart", "ledger": "T-20", "date": 1931, "surface": "chart", "rect": (LIP_X - 0.34, LIP_X, 1.20, 1.54),
+    {"name": "chart", "ledger": "T-20", "date": 1931, "surface": "chart", "rect": (LIP_X - 0.34, LIP_X, 1.12, 1.46),
      "t": 0.00072, "drape": 0.015, "layer": 2, "what": "Admiralty 983 folded in six, squared to the well"},
 ]
 BY_NAME = {s["name"]: s for s in SHEETS}
@@ -166,6 +166,14 @@ def footprint(name):
     return inside, [(START[0] + a * U[0] + b * N[0], START[1] + a * U[1] + b * N[1]) for a, b in cs]
 
 
+def path_span(name, ds=0.0005):
+    """(s0, s1): where the nominal path runs over the sheet's footprint (whatever lies on top of it)."""
+    ss = np.arange(-0.05, S_LIP + 1e-9, ds)
+    inside, _ = footprint(name)
+    m = inside(*point(ss))
+    return (float(ss[m].min()), float(ss[m].max())) if m.any() else None
+
+
 # ------------------------------------------------------------------------------------------------ the ground
 
 
@@ -183,13 +191,18 @@ def stack_grid(cell=CELL):
     wz = warp(X, Y)
     cur = wz.copy()
     tops = {}
-    for sh in sorted(SHEETS, key=lambda s: s["layer"]):
-        inside, _ = footprint(sh["name"])
-        m = inside(X, Y)
-        sm = gaussian_filter(cur, sh["drape"] / cell / 2.0, mode="nearest")
-        top = np.maximum(cur, sm) + sh["t"]
-        tops[sh["name"]] = np.where(m, top, np.nan)
-        cur = np.where(m, top, cur)
+    # one layer at a time, every sheet of a layer laid on the same ground (the Atlas's two boards lie side by side:
+    # board 2 must not drape over board 1)
+    for layer in sorted({s["layer"] for s in SHEETS}):
+        nxt = cur.copy()
+        for sh in [s for s in SHEETS if s["layer"] == layer]:
+            inside, _ = footprint(sh["name"])
+            m = inside(X, Y)
+            sm = gaussian_filter(cur, sh["drape"] / cell / 2.0, mode="nearest")
+            top = np.maximum(cur, sm) + sh["t"]
+            tops[sh["name"]] = np.where(m, top, np.nan)
+            nxt = np.where(m, top, nxt)
+        cur = nxt
     return xs, ys, wz, tops, cur
 
 

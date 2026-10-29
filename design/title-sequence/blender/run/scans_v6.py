@@ -260,29 +260,64 @@ def planes(hull):
 
 
 def depth_inside(pl, P):
-    """max over faces of (n . p - d): negative inside the convex part (exactly minus the depth), positive outside."""
+    """max over faces of (n . p - d): negative inside the convex part (exactly minus the depth), positive outside (a
+    lower bound on the distance, exact where the nearest feature is a face). Batched under machine_v6.batch_rows."""
+    import machine_v6 as MV
     n, d = pl
-    out = np.full(len(P), -np.inf)
-    for k in range(0, len(n), 256):
-        out = np.maximum(out, (P @ n[k:k + 256].T - d[k:k + 256]).max(1))
+    out = np.empty(len(P))
+    rows = MV.batch_rows(8 * min(len(n), 256) * 2)
+    for i in range(0, len(P), rows):
+        Q = P[i:i + rows]
+        o = np.full(len(Q), -np.inf)
+        for k in range(0, len(n), 256):
+            o = np.maximum(o, (Q @ n[k:k + 256].T - d[k:k + 256]).max(1))
+        out[i:i + rows] = o
     return out
 
 
-def chunked_signed(mesh, P, chunk=4000):
-    """trimesh's signed distance (positive inside) in chunks, so a large point set never builds a huge array."""
+VIS_SPACING = 0.00025      # the visual band's sample spacing (0.25 mm) for the gap check
+VIS_MAX = 400_000          # and its cap (about 10 MB of points)
+
+
+def visual_samples(band_visual, seed=1):
+    """Oriented points on the visual band (surface sample, outward face normals), and a KD-tree over them. No ray test:
+    the bluescreen of 2026-10-26 came from trimesh's ray-based inside test asking for 13 GiB."""
     import trimesh
-    return np.concatenate([trimesh.proximity.signed_distance(mesh, P[i:i + chunk])
-                           for i in range(0, len(P), chunk)]) if len(P) else np.zeros(0)
+    from scipy.spatial import cKDTree
+    m = band_visual
+    zc = m.triangles_center[:, 2]
+    keep = (zc > 0.0) & (zc < BAND_TOP + 0.002)
+    sub = m.submesh([np.nonzero(keep)[0]], append=True)
+    n = int(min(VIS_MAX, max(20_000, sub.area / VIS_SPACING ** 2)))
+    pts, fi = trimesh.sample.sample_surface(sub, n, seed=seed)
+    return pts, sub.face_normals[fi], cKDTree(pts)
+
+
+def visual_signed(vis, P, k=4):
+    """Signed distance of points to the visual surface (positive outside), from the nearest oriented samples: the
+    offset along the normal of the nearest of the k nearest samples. Its error is about the spacing squared over the
+    local radius of curvature (under 0.01 mm at 0.25 mm spacing and 3 mm radii). Batched."""
+    import machine_v6 as MV
+    pts, nrm, tree = vis
+    out = np.empty(len(P))
+    rows = MV.batch_rows(8 * (3 + 2 * k) * 4)
+    for i in range(0, len(P), rows):
+        Q = P[i:i + rows]
+        dd, ii = tree.query(Q, k=k)
+        j = ii[np.arange(len(Q)), np.argmin(dd, axis=1)]
+        out[i:i + rows] = np.einsum("ij,ij->i", Q - pts[j], nrm[j])
+    return out
 
 
 def gaps(band_visual, parts, n=60000, seed=0):
     """(air, missing, info) in metres on the contact band (0.5 mm to BAND_TOP): air, how far any part's outer surface
     lies outside the visual solid (the ball would strike air); missing, how far any visual surface lies outside every
-    part (the ball would pass into the object). Per part: its worst air and where."""
+    part (the ball would pass into the object). Per part: its worst air and where. Sampled, never ray-cast."""
     import trimesh
     rng = np.random.default_rng(seed)
     pls = [planes(p) for p in parts]
     area = sum(q.area for q in parts)
+    vis = visual_samples(band_visual)
     per_part = []
     air_all, pts_all = [], []
     for j, p in enumerate(parts):
@@ -298,26 +333,20 @@ def gaps(band_visual, parts, n=60000, seed=0):
         s = s[~buried]
         if not len(s):
             continue
-        sd = chunked_signed(band_visual, s)
-        a = -sd
+        a = visual_signed(vis, s)
         air_all.append(a)
         pts_all.append(s)
         w = int(np.argmax(a))
         per_part.append({"part": j, "air_max_m": float(max(0.0, a[w])), "at": s[w].round(4).tolist()})
     air_v = np.concatenate(air_all) if air_all else np.zeros(1)
-    V, _ = trimesh.sample.sample_surface(band_visual, n, seed=1)
+    V = vis[0][::max(1, len(vis[0]) // n)]
     V = V[(V[:, 2] > 0.0005) & (V[:, 2] < BAND_TOP)]
-    inside_any = np.zeros(len(V), bool)
+    depth = np.full(len(V), np.inf)
     for pl in pls:
-        inside_any |= depth_inside(pl, V) <= 1e-6
-    out_pts = V[~inside_any]
-    miss = np.zeros(len(out_pts))
-    if len(out_pts):
-        best = np.full(len(out_pts), np.inf)
-        for p in parts:                             # exact distance to each (small) hull, only for points outside all
-            _, dist, _ = trimesh.proximity.closest_point(p, out_pts)
-            best = np.minimum(best, dist)
-        miss = best
+        depth = np.minimum(depth, depth_inside(pl, V))
+    outside = depth > 1e-6
+    out_pts = V[outside]
+    miss = depth[outside]
     missing = float(miss.max()) if len(miss) else 0.0
     # by side: the worst air and missing in each 30 degree sector about the footprint centre (the origin), so the
     # side the ball can reach can be judged on its own and the object turned to present it
@@ -334,6 +363,8 @@ def gaps(band_visual, parts, n=60000, seed=0):
     mid = Vb[(Vb[:, 2] > 0.004) & (Vb[:, 2] < 0.012)]
     far = mid[int(np.argmax(np.hypot(mid[:, 0], mid[:, 1])))] if len(mid) else np.zeros(3)
     return float(max(0.0, air_v.max())), missing, {
+        "method": f"sampled: visual band {len(vis[0])} oriented points at {VIS_SPACING * 1000:.2f} mm (KD-tree), parts "
+                  "by their face planes; no ray tests",
         "sectors": sec, "protrusion_deg": float(np.degrees(np.arctan2(far[1], far[0]))),
         "protrusion_r_m": float(np.hypot(far[0], far[1])),
         "n_visual_pts": int(len(V)), "n_visual_outside_parts": int(len(out_pts)),

@@ -26,10 +26,12 @@ def test_the_sheets_lie_in_date_order_older_over_newer():
     assert dates == sorted(dates)
     assert T.SHEETS[0]["layer"] > T.SHEETS[-1]["layer"]
     for a, b in zip(T.SHEETS, T.SHEETS[1:]):                  # each next sheet starts before the last one ends
+        sa, sb = T.path_span(a["name"]), T.path_span(b["name"])
         if a["name"] == "atlas1":
-            assert math.isclose(b["s"][0] - a["s"][1], T.HINGE_GAP)
+            assert math.isclose(sb[0] - sa[1], T.HINGE_GAP, abs_tol=0.0011)
         else:
-            assert b["s"][0] < a["s"][1], (a["name"], b["name"])
+            assert sb[0] < sa[1], (a["name"], b["name"], sa, sb)
+    assert math.isclose(T.path_span("chart")[1], T.S_LIP, abs_tol=0.001)        # the chart's edge is the lip
 
 
 def test_the_warp_is_under_8_mm_and_falls_only_downhill_along_the_path():
@@ -64,13 +66,16 @@ def test_the_path_meets_the_well_inside_its_mouth_and_the_rest_is_on_the_record_
 
 
 def test_stack_heights_give_only_down_steps_along_the_path():
-    prof = T.ground_profile(np.linspace(0.0, T.S_LIP - 0.002, 3000))
-    rises = T.rises(prof["s"], prof["z"] - prof["warp"])
-    # the drape over a lower sheet's edge is a gentle rise of at most one lower sheet's thickness
+    prof = T.ground_profile(np.linspace(0.0, T.S_LIP - 0.002, 6000))
+    # the ball rides the envelope of its centre (it bridges the 1.5 mm hinge gap); the drape over a lower sheet's edge
+    # is a gentle rise of at most that sheet's thickness, never a step
+    rises = T.rises(prof["s"], prof["zc"] - prof["warp"])
     assert all(r["h"] <= 0.00075 and r["len"] >= 0.01 for r in rises), rises
-    steps = T.down_steps(prof["s"], prof["z"] - prof["warp"])
-    names = [d["onto"] for d in steps]
-    assert names == ["atlas2", "leaf", "piri", "ino", "chart"]
+    steps = [d for d in T.down_steps(prof["s"], prof["z"] - prof["warp"]) if "oak" not in (d["onto"], d["from"])]
+    assert [d["onto"] for d in steps] == ["leaf", "piri", "ino", "chart"]
+    assert all(d["dz"] < 0 for d in steps), steps
+    oak = [d for d in T.down_steps(prof["s"], prof["z"]) if d["onto"] == "oak"]
+    assert len(oak) == 1 and abs(oak[0]["s"] - T.path_span("atlas1")[1]) < 0.002       # only the hinge gap
 
 
 def test_roll_1d_holds_speed_at_equilibrium_and_stops_below_it():
