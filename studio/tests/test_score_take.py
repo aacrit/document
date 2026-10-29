@@ -161,6 +161,9 @@ def test_the_handover_rest_covers_the_slot_and_eight_seconds_after():
     assert SC.take_handover(_take(rests=RESTS + [rest]), 10.0, 20.0)["id"] == "h"
     assert SC.take_handover(_take(rests=RESTS + [dict(rest, end_s=25.0)]), 10.0, 20.0) is None   # 5 s after, not 8
     assert SC.take_handover(_take(rests=RESTS + [dict(rest, why="a breath")]), 10.0, 20.0) is None
+    # A40 standalone audio: the rest reaches the cut out of the lockup card too, when that is later
+    assert SC.take_handover(_take(rests=RESTS + [rest]), 10.0, 20.0, reach=26.0)["id"] == "h"
+    assert SC.take_handover(_take(rests=RESTS + [rest]), 10.0, 20.0, reach=40.0) is None
 
 
 # --------------------------------------------------------------------------
@@ -487,8 +490,7 @@ from test_a40_title_sequence import COLD_S, SHIFT, TITLE_S, failed, masters, pas
 def test_the_take_may_span_the_titles_only_with_the_handover_rest(tmp_path, masters):  # noqa: F811
     def score(play):
         end = max(s["start_s"] + (s.get("dur_s") or 3.0) for part in play["parts"] for s in part["shots"])
-        play["music"] = [_take_cue(end_s=end),
-                         {"id": "MT", "kind": "music", "role": "main_title", "start_s": COLD_S, "end_s": SHIFT, "wav": "mt.wav"}]
+        play["music"] = [_take_cue(end_s=end)]     # A40 standalone audio: no main-title cue; the title has its own
     handover = {"id": "rest-a40", "start_s": COLD_S, "end_s": SHIFT + 8.0, "why": "A40 handover: the titles carry the room"}
     late = [{"id": "tr-1", "role": "transition", "start_s": 15.0, "end_s": 20.0}]
     film = titled_film(tmp_path / "a", masters, edit=score)

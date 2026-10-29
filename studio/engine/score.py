@@ -1022,14 +1022,17 @@ def handover_end(take: dict | None, t1: float) -> float:
     return end
 
 
-def take_handover(take: dict | None, t0: float, t1: float) -> dict | None:
+def take_handover(take: dict | None, t0: float, t1: float, reach: float | None = None) -> dict | None:
     """S7, the A40 handover: the rest in the take's map that says why ``A40
     handover`` and covers the series titles from their first frame (``t0``) to
     HANDOVER_AFTER_S after their last (``t1``), or to the house motif's first
-    note when it follows them sooner (handover_end); None when there is none."""
+    note when it follows them sooner (handover_end), and at least to ``reach``
+    (A40 standalone audio: the cut out of the title's lockup card, where its own
+    sound ends); None when there is none."""
+    end = max(handover_end(take, t1), reach if reach is not None else t1)
     for r in (take or {}).get("rests", []):
         if (str(r.get("why", "")).startswith(HANDOVER_WHY) and r["start_s"] <= t0 + TAKE_EDGE_TOL_S
-                and r["end_s"] >= handover_end(take, t1) - TAKE_EDGE_TOL_S):
+                and r["end_s"] >= end - TAKE_EDGE_TOL_S):
             return r
     return None
 
@@ -2076,6 +2079,20 @@ def declared_silences(play: dict) -> list[tuple[float, float]]:
     return sorted(out)
 
 
+def title_own_sound(play: dict) -> list[tuple[float, float]]:
+    """A40 standalone audio, offline: each series title's own sound, from its first frame to the end of the part that
+    holds it (its lockup card ends that part), as start_s and dur_s place them. The engine plays it there (the master's
+    track, then its audio_tail or its room), so it is a source's own sound for music-holes; whether the master carries
+    sound at all is the engine's title-audio lint, which needs its probe."""
+    out = []
+    for part in play["parts"]:
+        sh = [s for s in part.get("shots", []) if s.get("dur_s") is not None]
+        for k, s in enumerate(sh):
+            if s.get("kind") == "title_sequence":
+                out.append((float(s["start_s"]), max(float(x["start_s"]) + float(x["dur_s"]) for x in sh[k:])))
+    return out
+
+
 def offline(film: Path, *, wav_dir: Path | None = None, voices: bool = True, registry: list[dict] | None = None) -> dict:
     """The A29 checks on a film's score as its screenplay places it, read
     from the cue WAVs (``wav_dir`` replaces each cue's WAV with
@@ -2151,6 +2168,7 @@ def offline(film: Path, *, wav_dir: Path | None = None, voices: bool = True, reg
     # (that needs its probe), so a hole under one is reported here and not by the engine.
     own = [(float(ln["start_s"]), float(ln["start_s"]) + float(ln["out_s"]) - float(ln["in_s"]))
            for part in play["parts"] for ln in part.get("lines", []) if ln.get("archival_audio") and ln.get("clip")]
+    own += title_own_sound(play)          # A40 standalone audio: the series titles' own sound
     phone = None
     n = int(math.ceil(end * RATE)) + 1
     if voices:

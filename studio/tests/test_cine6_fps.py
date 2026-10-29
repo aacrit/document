@@ -481,8 +481,10 @@ def make_master_at(path, record_png, rate: str, n: int, tl, dip):
     holds = TS.dip_hold_frames(item)
     shots = [{"start": m["frame"] / r, "cls": m["cls"], "label": m.get("label", "")} for m in tl]
     t0 = dip["centre_frame"] / r - dip["s"] / 2
+    wav = A.sound_wav(path.with_suffix(".sound.wav"), n / r, fps=r, click_frame=tl[1]["frame"])   # its own track (A40)
     p = subprocess.Popen([R.ffmpeg(), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", rate,
-                          "-i", "-", "-c:v", "ffv1", "-level", "3", "-g", "1", "-pix_fmt", "bgr0", str(path)], stdin=subprocess.PIPE)
+                          "-i", "-", "-i", str(wav), "-map", "0:v:0", "-map", "1:a:0", "-c:a", "pcm_s16le",
+                          "-c:v", "ffv1", "-level", "3", "-g", "1", "-pix_fmt", "bgr0", str(path)], stdin=subprocess.PIPE)
     for k in range(n):
         t = k / r
         pic = machine if k < tl[1]["frame"] else rec if k < tl[2]["frame"] else lock

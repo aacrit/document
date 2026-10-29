@@ -46,8 +46,8 @@ def fade_frames(item: dict) -> int:
 HUE_TOL = 2                         # a burned glyph pixel is its class hue within this (the master is lossless RGB)
 RECORD_LIMIT = 6.0                  # A7's low-pass mean difference: the record beat is the film's own scan, held whole
 LOCKUP_MIN_PX = 2000                # bright type pixels in the lockup band at 1080p: the words and the logomark are there
-THEME_ROLE = "main_title"           # the main-title theme cue (score.py), composed for the series titles
-STAND_IN = ("motif",)               # until the theme exists, the house motif may stand in (a reviewer item), or silence
+THEME_ROLE = "main_title"           # the main-title theme cue (score.py): over a title_slot placeholder only; a real
+                                    # title carries its theme in its own sound (A40 standalone audio)
 PLACE_AFTER = "cold_open"           # the hook
 CHAPTER = "chapter"                 # Part 1 and on
 # Licences from the least to the most demanding: the master's own licence is at least as demanding as any input's.
@@ -540,9 +540,9 @@ def _overlaps(a0: float, a1: float, b0: float, b1: float, eps: float = 0.5 / FPS
 
 def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, lines: list[dict], texts: list[dict],
                cues: list[dict], vl: list[dict], silences: list, fps: float = FPS) -> dict:
-    """Every A40 check the plan can decide. ``lint`` is build_plan's; ``silences`` gains the title's span when
-    nothing sounds under it (silence is allowed until the main-title theme exists). Returns, per title shot id,
-    what the plan and the frames need: {item, burned, record_path, probe}. ``fps`` is the film's master rate (A44): the
+    """Every A40 check the plan can decide. ``lint`` is build_plan's; ``silences`` gains the title's span (to the cut
+    out of its lockup card) when the master's own sound is silent. Returns, per title shot id, what the plan and the
+    frames need: {item, burned, record_path, probe, audio} (``audio``: the mix's entry, audio_plan's). ``fps`` is the film's master rate (A44): the
     shots' frames are at it, and a title at another rate is conformed to it by frame repeat and declared."""
     from studio.engine import render as R      # the engine's probes and licence rules (render imports this module)
     from studio.engine import score as SC
@@ -642,40 +642,39 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
                  and isinstance(c.get("end_s"), (int, float)) and _overlaps(float(c["start_s"]), float(c["end_s"]), t0, t1)]
         lint("title-sequence-clear", not over, unit=sid, grammar="A40",
              evidence={"over": over[:20], "fix": None if not over else "nothing is spoken, drawn or subtitled over the series titles"})
-        # The audio slot: the main-title theme; until it exists, the house motif or silence
-        sounding = [c for c in cues if _overlaps(float(c.get("start_s", 0)), float(c.get("end_s", 0)), t0, t1)]
+        # A40 standalone audio (founder ruling 2026-10-26): the title carries its own sound, the master's own track,
+        # continued under the lockup card that ends its part (its audio_tail, or its room); the film's score starts after
+        # the title. So no cue, ambience or voice sounds from the title's first frame to the cut out of its lockup card,
+        # the main-title theme included (it lives in the master), save a take resting there by its A40 handover
+        card_id, card_why, card_px = lockup_card(shots, i, item, R.card_kind, fps)
+        card = next((x for x in shots if x["id"] == card_id), None) if card_why is None else None
+        end_s = card["f1"] / fps if card is not None else t1
+        sounding = [c for c in cues if _overlaps(float(c.get("start_s", 0)), float(c.get("end_s", 0)), t0, end_s)]
         roles = {c.get("id"): (SC.cue_role(c) if c.get("kind", "music") == "music" else "ambience") for c in sounding}
         # A29 take (S7): the film's take runs from its first frame to its last, so it spans the slot; it may, only when
         # its rest map declares the A40 handover over the slot (the take rests there and the title carries the room;
         # the mix's take-handover lint measures that it does)
         handover = {c.get("id"): r["id"] for c in sounding if roles[c.get("id")] == "take"
-                    for r in [SC.take_handover(c.get("_take"), t0, t1)] if r is not None}
-        wrong = [cid for cid, r in roles.items() if r not in (THEME_ROLE,) + STAND_IN and cid not in handover]
+                    for r in [SC.take_handover(c.get("_take"), t0, t1, reach=end_s)] if r is not None}
+        wrong = [cid for cid in roles if cid not in handover]
         lint("title-audio-slot", not wrong, unit=sid, grammar="A40, A29, A29 take",
-             evidence={"cues": roles, "allowed": [THEME_ROLE, *STAND_IN], "take_handover": handover,
-                       "fix": None if not wrong else "only the main-title theme (or, until it exists, the house motif) "
-                                                     "sounds under the series titles: end the other cues at the cut (a "
-                                                     "take declares its rest there: why \"A40 handover\", from the "
-                                                     "title's first frame to 8 s after its last)"})
-        sounding = [c for c in sounding if c.get("id") not in handover]   # a resting take is not heard in the slot
-        theme = [c for c in sounding if roles[c.get("id")] == THEME_ROLE]
-        for c in theme:
-            a, b = float(c["start_s"]), float(c["end_s"])
-            ok = abs(a - t0) <= 0.5 / fps and b <= t1 + 0.5 / fps
-            lint("title-theme", ok, unit=c.get("id"), grammar="A40",
-                 evidence={"start_s": a, "end_s": b, "title": [round(t0, 3), round(t1, 3)],
-                           "fix": None if ok else "the theme starts on the title's first frame and ends by its last"})
-        if not theme:
-            stand = [cid for cid, r in roles.items() if r in STAND_IN]
-            journal.lint("title-theme-pending", True, stage="scout", unit=sid, severity="review", grammar="A40", phase="preflight",
-                         evidence={"stand_in": stand or "silence",
-                                   "check": "The main-title theme is not placed yet: the series titles play under "
-                                            + ("the house motif" if stand else "silence")
-                                            + ". Place the music director's main_title cue when it exists."})
-            if not sounding:
-                silences.append((t0, t1))
-                journal.decision("scout", f"{sid}: silence under the series titles", "A40: until the main-title theme "
-                                 "exists the slot may be silent; declared intended so A19 does not warn", unit=sid)
+             evidence={"cues": roles, "span_s": [round(t0, 3), round(end_s, 3)], "lockup_card": card_id if card else None,
+                       "take_handover": handover,
+                       "fix": None if not wrong else "the series titles carry their own sound to the cut out of their "
+                                                     "lockup card, and the film's score starts after it: end every cue "
+                                                     "before the title's first frame or start it at that cut (a take "
+                                                     "declares its rest there: why \"A40 handover\", from the title's "
+                                                     "first frame to 8 s after its last)"})
+        for c in sounding:
+            if roles[c.get("id")] == THEME_ROLE:
+                lint("title-theme", False, unit=c.get("id"), grammar="A40",
+                     evidence={"start_s": float(c["start_s"]), "end_s": float(c["end_s"]),
+                               "title": [round(t0, 3), round(t1, 3)],
+                               "fix": "no main-title cue in a film: the theme is the title's own sound, in its master "
+                                      "(or its audio_tail)"})
+        journal.decision("scout", f"{sid}: the series titles play their own sound", "A40 standalone audio (founder "
+                         "2026-10-26): no film cue under the title or its lockup card; the score starts after them",
+                         unit=sid, evidence={"span_s": [round(t0, 3), round(end_s, 3)], "take_handover": handover})
         # Provenance: the title's assets ledger, every input open-licensed, sourced and not AI
         prov, prov_path, why = provenance(item)
         problems = [why] if why else []
@@ -746,6 +745,17 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
              evidence=dict(ev, fix=None if fmt_ok else "the master is 1920x1080 at the rate its "
                                                        "ledger states (24 or 30000/1001), its frame count the ledger's, and "
                                                        "the shot's dur_s is frames / that rate (A44)"))
+        # A40 standalone audio: the master's own track, frame-aligned, continued under the lockup card (title-audio)
+        if fmt_ok and path:
+            a = audio_plan(lint, s, item, out[sid]["probe"], R.ffmpeg(), R.ffprobe(), fps=fps, end_s=end_s,
+                           card=card_id if card is not None else None)
+            out[sid]["audio"] = a
+            if a is not None and a["silent"]:
+                silences.append((t0, end_s))
+                journal.decision("scout", f"{sid}: the series titles' own sound is silent", "A40 standalone audio: the "
+                                 f"master's own track measures {a['master_rms_dbfs']} dBFS (at most "
+                                 f"{SILENT_MASTER_DBFS:g}); its silence is its own, declared intended so A19 does not "
+                                 "warn", unit=sid)
         # The record beat: the film's own record, from this film's ledgers, its pixels the film's scan
         rid = item.get("record")
         rec = assets.get(rid) if rid else None
@@ -889,7 +899,6 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
         except Exception:
             lp = 0
         in_master = lp >= LOCKUP_MIN_PX
-        card_id, card_why, card_px = lockup_card(shots, i, item, R.card_kind, fps)
         lk_ok = in_master or card_why is None
         lint("title-lockup", lk_ok, unit=sid, grammar="A40, BRAND-KIT 2, BRAND-KIT 15",
              evidence={"frame": lf, "bright_px": lp, "min_px": LOCKUP_MIN_PX, "lockup": SERIES,
@@ -900,6 +909,343 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
                                                   f"{LOCKUP_CARD_MIN_S:g} s, cut in after the title and its record "
                                                   "holds, and cut out)")})
     return out
+
+
+# --------------------------------------------------------------------------
+# The title's own sound (A40 standalone audio, founder ruling 2026-10-26: the title carries its own audio, and a
+# film's score starts after it; no main-title cue in films)
+# --------------------------------------------------------------------------
+
+AUDIO_RATE = 48000                  # the mix's rate (render.AUDIO_RATE)
+AUDIO_GAIN_RANGE = (-40.0, 12.0)    # a declared audio_gain_db outside this is refused
+# A40 title level (GRAMMAR): the house title loudness in the mix, before the programme gain. Two dB under the dialogue
+# (render.DIALOGUE_LUFS, -20) and four over a featured cue (-26): the titles are a wordless featured passage, never
+# louder than the voice a film is carried by. The v5c masters measure -21.4 LUFS, so the house level asks -0.6 dB of
+# them, but their mono true peak (-0.94 dBTP, the oak hits) holds them a further 4 to 4.5 dB down under the limiter
+# rule: about -23.5 LUFS in the mastered film, the same in every film whatever its programme gain.
+TITLE_LUFS = -22.0
+TITLE_PEAK_MARGIN_DB = 1.0          # after the programme gain the title's true peak stays this far under the limiter's
+                                    # ceiling (render: TARGET_TP - LIMIT_MARGIN_DB), so the limiter never acts on it
+TITLE_HOLD_MAX_DB = 6.0             # the peak rule may hold a title at most this far under TITLE_LUFS; more is refused
+                                    # (the house gain is at most AUDIO_GAIN_RANGE[1]; a title needing more is refused)
+TITLE_LEVEL_PASSES = 8              # the programme gain moves with the title's own level: re-measured at most this often
+SILENT_MASTER_DBFS = -80.0          # a master whose own track's RMS is at or under this is silent: its silence is its own
+AUDIO_FLOOR_DBFS = -70.0            # title-audio (post-render): the rendered title span's RMS at least this, unless silent
+TAIL_FLOOR_DBFS = -90.0             # ... and the lockup's span at least this: digital black measured -91 in the bug
+ROOM_S = 2.0                        # no tail: at least the master's last ROOM_S of sound is its room, looped under the card
+ROOM_MAX_S = 6.0                    # ... the loop takes the longest room stretch the master ends on, up to this (a longer
+                                    # loop has no audible period)
+ROOM_BLOCK_S = 0.1                  # ... measured in blocks of this
+ROOM_MAX_DBFS = -55.0               # ... and is room only when its RMS is at most this (no Foley ringing in it)
+ROOM_MIN_DBFS = -85.0               # ... and at least this: a room, not digital zero (no tail and no room: refused)
+RULING_REF = re.compile(r"\bfounder, (\d{4}-\d{2}-\d{2})\b")   # audio_silence_ruling cites "founder, YYYY-MM-DD"
+LENGTH_GAP_WARN_FRAMES = 1.0        # the master's sound shorter or longer than its picture by more than this: a warning
+ROOM_XFADE_S = 0.5                  # the loop's equal-power crossfade
+SPLICE_S = 0.010                    # master to tail: a 10 ms crossfade at the title's last frame (the same mix, continued)
+END_FADE_S = 0.100                  # the title's sound ends at the cut into the film with a 100 ms fade (no click)
+TAIL_MATCH_DB = -30.0               # the tail's head is the master's own track: their difference at least 30 dB under it
+SYNC_MAX_FRAMES = 1.0               # title-audio-sync: the picture's conform keeps the sound within one film frame
+
+
+def rms_dbfs(x: np.ndarray) -> float:
+    x = np.asarray(x, np.float64)
+    if not len(x):
+        return -200.0
+    return float(10 * np.log10(max(float(np.mean(x * x)), 1e-20)))
+
+
+def audio_gain(item: dict) -> tuple[float, str | None]:
+    """(the title's declared audio gain in dB, 0 at unity; why it is refused, or None)."""
+    g = item.get("audio_gain_db", 0.0)
+    if isinstance(g, bool) or not isinstance(g, (int, float)) or not np.isfinite(float(g)):
+        return 0.0, f"audio_gain_db {g!r} is not a number of dB"
+    if not AUDIO_GAIN_RANGE[0] <= float(g) <= AUDIO_GAIN_RANGE[1]:
+        return 0.0, f"audio_gain_db {g:g} is outside {AUDIO_GAIN_RANGE[0]:g} to {AUDIO_GAIN_RANGE[1]:g} dB"
+    return float(g), None
+
+
+def tail_path(item: dict) -> tuple[str | None, str | None]:
+    """(the declared ``audio_tail`` file, resolved beside the played master, or None; the problem, or None). The tail
+    is the title's full-length mix (its master's own track and what follows it under the lockup card), from the
+    title's first frame: ``audio_tail: "<file>"`` or ``{"file": "<file>"}``."""
+    t = item.get("audio_tail")
+    if t is None:
+        return None, None
+    f = t.get("file") if isinstance(t, dict) else t
+    if not isinstance(f, str) or not f.strip():
+        return None, "audio_tail names no file"
+    p = Path(f)
+    if not p.is_absolute() and item.get("_path"):
+        p = Path(item["_path"]).parent / p
+    if not p.exists():
+        return str(p), f"audio_tail not found at {p}"
+    return str(p.resolve()), None
+
+
+def sync_offset_ms(n_out: int, src: float, fps: float, n: int | None = None) -> float:
+    """The worst offset, in ms, between the title's sound and its picture over the shot's ``n_out`` film frames: the
+    sound plays at its own speed from the shot's first frame (no resample, no pitch change), and film frame k shows the
+    master frame a repeat or drop conform puts there (cadence.source_index), so the offset at k is that frame's time in
+    the master less k's time in the film. 1:1 (the same rate) is 0."""
+    worst = 0.0
+    for k in range(max(0, n_out)):
+        j = source_frame(k, fps, src, n)
+        worst = max(worst, abs(j / src - k / fps))
+    return worst * 1000.0
+
+
+def _block_db(x: np.ndarray, k: int) -> np.ndarray:
+    m = len(x) // k
+    if m <= 0:
+        return np.zeros(0)
+    y = np.asarray(x[len(x) - m * k:], np.float64).reshape(m, k)        # whole blocks, aligned to the end
+    return 10 * np.log10(np.maximum((y * y).mean(axis=1), 1e-20))
+
+
+def room_span(x: np.ndarray, rate: int = AUDIO_RATE) -> tuple[int, int]:
+    """(a, b): the samples of the room the master ends on. Trailing ROOM_BLOCK_S blocks under ROOM_MIN_DBFS (a fade
+    into digital zero) are trimmed first (``b``); from there it grows back block by block while each block is room
+    (at least ROOM_MIN_DBFS, at most ROOM_MAX_DBFS), up to ROOM_MAX_S. Its length may be under ROOM_S: room_problem
+    refuses that."""
+    x = np.asarray(x, np.float32)
+    k = int(round(ROOM_BLOCK_S * rate))
+    db = _block_db(x, k)
+    b, i = len(x), len(db) - 1
+    while i >= 0 and db[i] < ROOM_MIN_DBFS:
+        b -= k
+        i -= 1
+    a, cap = b, int(round(ROOM_MAX_S * rate))
+    while i >= 0 and ROOM_MIN_DBFS <= db[i] <= ROOM_MAX_DBFS and b - a + k <= cap:
+        a -= k
+        i -= 1
+    return max(0, a), max(0, b)
+
+
+def room_of(x: np.ndarray, rate: int = AUDIO_RATE) -> np.ndarray:
+    """The room the master ends on (room_span)."""
+    a, b = room_span(x, rate)
+    return np.asarray(x, np.float32)[a:b]
+
+
+def room_problem(room: np.ndarray, rate: int = AUDIO_RATE) -> str | None:
+    """Why the master's ending cannot be continued as its room under the lockup card, or None: it must be at least
+    ROOM_S long, at most ROOM_MAX_DBFS overall, and every ROOM_BLOCK_S block of it at least ROOM_MIN_DBFS (a room,
+    never digital zero)."""
+    if len(room) < int(round(ROOM_S * rate)) - 1:
+        return (f"the master ends on {len(room) / rate:.2f} s of room (at least {ROOM_S:g} s, every "
+                f"{ROOM_BLOCK_S * 1000:g} ms at {ROOM_MIN_DBFS:g} to {ROOM_MAX_DBFS:g} dBFS): no room to continue under "
+                "the lockup card, or it fades into digital zero; declare its audio_tail")
+    r = rms_dbfs(room)
+    if r > ROOM_MAX_DBFS:
+        return (f"the master's last {len(room) / rate:.2f} s are not room ({r:.1f} dBFS, at most {ROOM_MAX_DBFS:g}): "
+                "its room cannot be continued under the lockup card; declare its audio_tail")
+    low = float(_block_db(room, int(round(ROOM_BLOCK_S * rate))).min())
+    if low < ROOM_MIN_DBFS:
+        return (f"a {ROOM_BLOCK_S * 1000:g} ms block of the master's room measures {low:.1f} dBFS (at least "
+                f"{ROOM_MIN_DBFS:g}): digital zero, no room to continue under the lockup card; declare its audio_tail")
+    return None
+
+
+def room_loop(room: np.ndarray, n: int, xfade: int) -> np.ndarray:
+    """``n`` samples of ``room`` looped with equal-power crossfades of ``xfade`` samples (a room recording continued)."""
+    room = np.asarray(room, np.float32)
+    if n <= 0 or not len(room):
+        return np.zeros(max(0, n), np.float32)
+    xfade = max(0, min(xfade, len(room) // 2))
+    out = np.zeros(n + len(room), np.float32)
+    step = len(room) - xfade
+    u = (np.arange(xfade) + 0.5) / max(xfade, 1)
+    fin, fout = np.sin(0.5 * np.pi * u).astype(np.float32), np.cos(0.5 * np.pi * u).astype(np.float32)
+    at = 0
+    while at < n:
+        seg = room.copy()
+        if xfade and at > 0:
+            seg[:xfade] *= fin
+        if xfade:
+            seg[-xfade:] *= fout
+        out[at: at + len(seg)] += seg
+        at += step
+    return out[:n]
+
+
+def title_track(master: np.ndarray, title_n: int, end_n: int, *, tail: np.ndarray | None = None,
+                rate: int = AUDIO_RATE) -> tuple[np.ndarray, dict]:
+    """The title's sound from its first frame to ``end_n`` samples on (the cut out of the lockup card, or the title's
+    own last frame): the master's own track under the title (``title_n`` samples); then the declared tail's samples
+    from that point on, spliced with a SPLICE_S crossfade (the tail is the same mix, continued), or, with no tail, the
+    master's own room continued: its last ROOM_S looped (room_loop) from the master's last sample, when that stretch is
+    room; at the end an END_FADE_S fade into the cut. Returns (the samples, what was done)."""
+    master = np.asarray(master, np.float32)
+    out = np.zeros(max(0, end_n), np.float32)
+    k = min(len(master), end_n if tail is None else title_n, end_n)
+    m = int(round(SPLICE_S * rate)) if tail is not None else 0
+    kk = min(len(master), end_n, k + m)              # the master's samples the splice fades out over, past k
+    out[:kk] = master[:kk]
+    how = {"master_s": round(k / rate, 4), "tail_s": 0.0, "room_s": 0.0, "from": None}
+    filled = k
+    if tail is not None and end_n > k:
+        tail = np.asarray(tail, np.float32)
+        a = max(0, k - m // 2)
+        b = min(end_n, len(tail))
+        if b > a:
+            w = min(m, b - a)
+            u = ((np.arange(w) + 0.5) / max(w, 1)).astype(np.float32)
+            out[a: a + w] = out[a: a + w] * (1 - u) + tail[a: a + w] * u     # the master hands over to the same mix
+            out[a + w: b] = tail[a + w: b]
+            filled = b
+            how.update({"tail_s": round((b - k) / rate, 4), "from": "tail"})
+    if filled < end_n:
+        ra, rb = room_span(master, rate)
+        room = master[ra:rb]
+        if tail is None and rb < filled:      # the master fades into digital zero: the room takes over where it ends
+            how["zero_tail_replaced_s"] = round((filled - rb) / rate, 4)
+            filled = rb
+        if room_problem(room, rate) is None:
+            xf = min(int(round(ROOM_XFADE_S * rate)), filled)
+            loop = room_loop(room, end_n - filled + xf, int(round(ROOM_XFADE_S * rate)))
+            a = filled - xf                     # the loop rises under the master's last samples as they fall
+            if xf:
+                u = ((np.arange(xf) + 0.5) / xf).astype(np.float32)
+                out[a:filled] = out[a:filled] * np.cos(0.5 * np.pi * u) + loop[:xf] * np.sin(0.5 * np.pi * u)
+            out[filled:end_n] = loop[xf: xf + end_n - filled]
+            how.update({"room_s": round((end_n - filled) / rate, 4), "from": how["from"] or "room"})
+            filled = end_n
+        else:
+            how.update(unfilled_s=round((end_n - filled) / rate, 4), room_rms_dbfs=round(rms_dbfs(room), 1))
+    f = min(int(round(END_FADE_S * rate)), filled)
+    if f > 0:
+        out[filled - f: filled] *= np.linspace(1.0, 0.0, f, dtype=np.float32)
+    return out, how
+
+
+def stream_starts(ffprobe: str, path: str) -> dict:
+    """{codec_type: start_time in s} for the file's first video and audio streams (a stream that states none: 0)."""
+    r = subprocess.run([ffprobe, "-v", "error", "-show_entries", "stream=codec_type,start_time", "-of", "json", str(path)],
+                       capture_output=True, text=True, timeout=60)
+    out: dict = {}
+    try:
+        for s in json.loads(r.stdout or "{}").get("streams", []):
+            t = s.get("codec_type")
+            if t in ("video", "audio") and t not in out:
+                try:
+                    out[t] = float(s.get("start_time"))
+                except (TypeError, ValueError):
+                    out[t] = 0.0
+    except ValueError:
+        pass
+    return out
+
+
+def read_audio(ffmpeg: str, path: str, start_s: float = 0.0, dur_s: float | None = None) -> np.ndarray:
+    """A file's first audio stream from ``start_s``, mono 48 kHz float (as the mix reads a clip's own sound)."""
+    cmd = [ffmpeg, "-v", "error"] + (["-ss", f"{start_s:.4f}"] if start_s > 0 else []) + ["-i", str(path)]
+    cmd += ["-map", "0:a:0", "-vn", "-ac", "1", "-ar", str(AUDIO_RATE)]
+    if dur_s is not None:
+        cmd += ["-t", f"{max(0.0, dur_s):.4f}"]
+    r = subprocess.run(cmd + ["-f", "f32le", "-"], capture_output=True, timeout=300, stdin=subprocess.DEVNULL)
+    if r.returncode:
+        raise ValueError(f"the audio of {path} could not be read: {r.stderr.decode(errors='replace')[-300:]}")
+    return np.frombuffer(r.stdout, dtype=np.float32).copy()
+
+
+def master_audio(ffmpeg: str, ffprobe: str, path: str) -> tuple[np.ndarray, float]:
+    """(the master's own track, aligned so sample 0 is its first frame; the audio stream's start less the video's)."""
+    st = stream_starts(ffprobe, path)
+    off = st.get("audio", 0.0) - st.get("video", 0.0)
+    x = read_audio(ffmpeg, path)
+    if off > 0:
+        x = np.concatenate([np.zeros(int(round(off * AUDIO_RATE)), np.float32), x])
+    elif off < 0:
+        x = x[int(round(-off * AUDIO_RATE)):]
+    return x, off
+
+
+def audio_plan(lint, s: dict, item: dict, probe: dict, ffmpeg: str, ffprobe: str, *, fps: float,
+               end_s: float, card: str | None) -> dict | None:
+    """title-audio at plan time (A40 standalone audio): the played master carries an audio stream; its declared gain
+    and tail are well formed; the tail, when declared, is the master's own mix continued and runs to the cut out of
+    the lockup card (``end_s``); with no tail, the master's last ROOM_S is room, so it can be continued under the card;
+    and title-audio-sync: the picture's conform keeps the sound within SYNC_MAX_FRAMES. Returns what the mix needs
+    (an entry of plan["title_audio"]), or None when refused."""
+    sid = s["id"]
+    path = item.get("_path")
+    t0, t1 = s["f0"] / fps, s["f1"] / fps
+    gain, gwhy = audio_gain(item)
+    tail, twhy = tail_path(item)
+    problems = [p for p in (gwhy, twhy) if p]
+    ev: dict = {"file": path, "has_audio": bool(probe.get("has_audio")), "gain_db": gain, "audio_tail": tail,
+                "title_s": [round(t0, 4), round(t1, 4)], "end_s": round(end_s, 4), "lockup_card": card}
+    if not probe.get("has_audio"):
+        problems.append("the master has no audio stream: the series titles carry their own sound (A40)")
+    x = y = None
+    if not problems:
+        try:
+            x, off = master_audio(ffmpeg, ffprobe, path)
+            ev.update(audio_start_offset_s=round(off, 4), master_audio_s=round(len(x) / AUDIO_RATE, 4),
+                      master_rms_dbfs=round(rms_dbfs(x), 2))
+            if tail:
+                y = read_audio(ffmpeg, tail)
+                ev["tail_audio_s"] = round(len(y) / AUDIO_RATE, 4)
+        except Exception as e:
+            problems.append(f"{type(e).__name__}: {e}")
+    silent = x is not None and rms_dbfs(x) <= SILENT_MASTER_DBFS
+    ruling = item.get("audio_silence_ruling")
+    if silent:
+        # a silent track is a master muxed without its sound, unless the item declares the silence and the ruling
+        ev["audio_silence_ruling"] = ruling
+        if not (isinstance(ruling, str) and RULING_REF.search(ruling)):
+            problems.append(f"the master's own track measures {rms_dbfs(x):.1f} dBFS (at or under "
+                            f"{SILENT_MASTER_DBFS:g}): silent; mux its sound, or declare audio_silence_ruling citing "
+                            "the founder ruling that the title plays in silence, as \"founder, YYYY-MM-DD: ...\"")
+    title_n = int(round((t1 - t0) * AUDIO_RATE))
+    gap = None
+    if x is not None:
+        gap = (len(x) - title_n) / AUDIO_RATE                 # the sound against the picture, in s
+        ev["audio_minus_picture_s"] = round(gap, 4)
+    end_n = int(round((end_s - t0) * AUDIO_RATE))
+    if x is not None and y is not None:
+        m = min(title_n, len(x), len(y))
+        d = rms_dbfs(y[:m] - x[:m]) - rms_dbfs(x[:m]) if m else 0.0
+        ev["tail_difference_db"] = round(d, 1)
+        if not silent and d > TAIL_MATCH_DB:
+            problems.append(f"audio_tail's first {m / AUDIO_RATE:.2f} s differ from the master's own track by "
+                            f"{d:+.1f} dB (at most {TAIL_MATCH_DB:g}): the tail is the master's own mix, continued")
+        if len(y) < end_n - int(round(AUDIO_RATE / fps)):
+            problems.append(f"audio_tail runs {len(y) / AUDIO_RATE:.3f} s; the title's sound runs {end_s - t0:.3f} s, to "
+                            "the cut out of the lockup card")
+    if x is not None and y is None and not silent and end_n > len(x):
+        room = room_of(x)
+        ev.update(room_rms_dbfs=round(rms_dbfs(room), 1), room_s=round(len(room) / AUDIO_RATE, 2))
+        why = room_problem(room)
+        if why:
+            problems.append(why)
+    if gap is not None and abs(gap) > LENGTH_GAP_WARN_FRAMES / fps + 1e-9:
+        lint("title-audio-length", False, unit=sid, severity="warn", grammar="A40",
+             evidence={"audio_minus_picture_s": round(gap, 4), "warn_over_s": round(LENGTH_GAP_WARN_FRAMES / fps, 4),
+                       "filled_by": "the room continued" if gap < 0 else "cut at the title's end (or carried by its tail)",
+                       "fix": "mux the sound to the picture's own length"})
+    lint("title-audio", not problems, unit=sid, grammar="A40",
+         evidence=dict(ev, silent=silent, problems=problems,
+                       fix=None if not problems else "the series titles carry their own sound: mux it into the master, "
+                                                     "and declare audio_tail (the full-length mix) or end the master "
+                                                     "on its room"))
+    src = rate_of(item) or float(FPS)
+    n_out = s["f1"] - s["f0"]
+    off_ms = sync_offset_ms(n_out, src, fps, int(item.get("frames") or 0) or None)
+    limit = SYNC_MAX_FRAMES * 1000.0 / fps
+    lint("title-audio-sync", off_ms <= limit + 1e-6, unit=sid, grammar="A40, A44, A6",
+         evidence={"master_fps": round(src, 4), "film_fps": round(fps, 4), "frames": n_out,
+                   "method": ("1:1: every master frame one film frame, the sound as recorded" if abs(src - fps) < 1e-6 else
+                              f"the picture {'repeat' if fps > src else 'drop'}-conformed with no speed change (A44); the "
+                              "sound played at its own speed and pitch from the shot's first frame (no resample, no "
+                              "time-stretch), so picture and sound both keep the master's clock"),
+                   "max_offset_ms": round(off_ms, 2), "limit_ms": round(limit, 2)})
+    if problems:
+        return None
+    return {"shot": sid, "file": path, "at_s": t0, "title_end_s": t1, "end_s": end_s, "tail": tail, "gain_db": gain,
+            "gain_declared": item.get("audio_gain_db") is not None,
+            "lockup_card": card, "silent": silent, "master_rms_dbfs": ev.get("master_rms_dbfs"),
+            "audio_start_offset_s": ev.get("audio_start_offset_s", 0.0), "sync_max_offset_ms": round(off_ms, 2)}
 
 
 LOCKUP_CARD_KIND = "lockup"
