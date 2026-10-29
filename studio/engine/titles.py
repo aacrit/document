@@ -928,7 +928,7 @@ TITLE_PEAK_MARGIN_DB = 1.0          # after the programme gain the title's true 
                                     # ceiling (render: TARGET_TP - LIMIT_MARGIN_DB), so the limiter never acts on it
 TITLE_HOLD_MAX_DB = 6.0             # the peak rule may hold a title at most this far under TITLE_LUFS; more is refused
                                     # (the house gain is at most AUDIO_GAIN_RANGE[1]; a title needing more is refused)
-TITLE_LEVEL_PASSES = 4              # the programme gain moves with the title's own level: re-measured at most this often
+TITLE_LEVEL_PASSES = 8              # the programme gain moves with the title's own level: re-measured at most this often
 SILENT_MASTER_DBFS = -80.0          # a master whose own track's RMS is at or under this is silent: its silence is its own
 AUDIO_FLOOR_DBFS = -70.0            # title-audio (post-render): the rendered title span's RMS at least this, unless silent
 TAIL_FLOOR_DBFS = -90.0             # ... and the lockup's span at least this: digital black measured -91 in the bug

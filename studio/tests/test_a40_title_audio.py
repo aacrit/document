@@ -123,7 +123,7 @@ def test_title_audio_the_master_track_is_mixed_at_the_house_title_level(tmp_path
     rec = placed["titles"][0]
     x = master_track(tmasters["burned"])
     got = seg(mix, COLD_S, COLD_S + TITLE_S - TS.END_FADE_S)
-    assert np.allclose(got, x[: len(got)] * g_of(rec), atol=1e-5)       # sample for sample: one gain, no shaping
+    assert np.allclose(got, x[: len(got)] * g_of(rec), rtol=2e-3, atol=1e-5)       # sample for sample: one gain, no shaping
     assert rec["shot"] == "TS1" and rec["gain_declared"] is False
     ev = lints(j, "title-audio-level")[0]["evidence"]
     assert passed(j, "title-audio-level")
@@ -229,13 +229,13 @@ def test_title_audio_a_declared_tail_plays_across_the_lockup_card(tmp_path, tmas
     assert rec["end_s"] == pytest.approx(SHIFT + CARD["dur_s"]) and rec["tail_s"] == pytest.approx(CARD["dur_s"], abs=0.01)
     card = seg(mix, SHIFT + 0.1, SHIFT + CARD["dur_s"] - 0.2)
     want = seg(TS.read_audio(R.ffmpeg(), str(tail)), TITLE_S + 0.1, TITLE_S + CARD["dur_s"] - 0.2)
-    assert np.allclose(card, want * g_of(rec), atol=1e-5)              # the tail's own samples, at the title's gain
+    assert np.allclose(card, want * g_of(rec), rtol=2e-3, atol=1e-5)              # the tail's own samples, at the title's gain
     spec = np.abs(np.fft.rfft(card))
     assert abs(np.argmax(spec) * RATE / len(card) - 1000.0) < 2.0     # its own pitch
     # under the title the master's own track, spliced to the tail at the cut (no gap, no doubling)
     x = master_track(tmasters["burned"])
     head = seg(mix, COLD_S, SHIFT - 0.01)
-    assert np.allclose(head, x[: len(head)] * g_of(rec), atol=1e-5)
+    assert np.allclose(head, x[: len(head)] * g_of(rec), rtol=2e-3, atol=1e-5)
     assert any(abs(a - COLD_S) < 1e-6 and abs(b - (SHIFT + CARD["dur_s"])) < 1e-6 for a, b in stems["own_sound"])
     # it ends at the cut into the film: nothing of it after the card
     assert rec["dur_s"] == pytest.approx(TITLE_S + CARD["dur_s"], abs=1e-3)

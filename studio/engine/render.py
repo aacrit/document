@@ -6252,13 +6252,21 @@ def level_title_audio(recs: list[dict], ys: list[np.ndarray], rest: np.ndarray, 
         return y
 
     settled = not live
+    prev: dict = {}                         # each title's last (gain, lift): the lift's slope against its own gain
     for _ in range(TS.TITLE_LEVEL_PASSES if live else 0):
         m = _measure(full())
         lift = round(TARGET_LUFS - m["input_i"], 2) if math.isfinite(m["input_i"]) else 0.0
         before = dict(gain)
         for k in live:
             if not recs[k]["gain_declared"]:
-                gain[k] = min(house.get(k, 0.0), ceiling - lift - ms[k]["input_tp"])
+                # the gain that puts the true peak at the ceiling, where the lift moves with the gain itself (a title
+                # that is much of the programme lowers the lift as it rises): a secant step on the measured slope
+                s = 0.0
+                if k in prev and abs(gain[k] - prev[k][0]) > 1e-3:
+                    s = max(-0.99, min(0.0, (lift - prev[k][1]) / (gain[k] - prev[k][0])))
+                g_peak = (ceiling - ms[k]["input_tp"] - lift + s * gain[k]) / (1.0 + s)
+                prev[k] = (gain[k], lift)
+                gain[k] = min(house.get(k, 0.0), g_peak)
         passes.append({"input_i": m["input_i"], "lift_db": lift,
                        "gains_db": {recs[k]["shot"]: round(gain[k], 2) for k in live}})
         if all(abs(gain[k] - before[k]) < 0.05 for k in live):
