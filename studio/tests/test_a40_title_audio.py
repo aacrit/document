@@ -52,11 +52,15 @@ def tmasters(tmp_path_factory, film):
     subprocess.run([R.ffmpeg(), "-v", "error", "-y", "-i", str(d / "spike-src.mkv"), "-i", str(d / "spike.sound.wav"),
                     "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "pcm_s16le", str(d / "spike.mkv")], check=True)
     out["spike"] = d / "spike.mkv"
-    for name, shape in (("zero_end", "zero_end"), ("quiet", "quiet")):
+    for name, shape in (("zero_end", "zero_end"), ("quiet", "quiet"), ("fade_zero", "fade_zero")):
         make_master(d / f"{name}-src.mkv", rec)
         z, _ = sf.read(str(d / f"{name}-src.sound.wav"), dtype="float32", always_2d=True)
         if shape == "zero_end":
             z[-int((1.0 + TS.ROOM_S) * RATE):] = 0.0             # it ends on digital zero, not a room
+        elif shape == "fade_zero":                               # its room fades into digital zero over its last 1.5 s
+            n = int(1.5 * RATE)
+            z[-n:] *= np.linspace(1.0, 0.0, n, dtype=np.float32)[:, None] ** 4
+            z[-int(0.6 * RATE):] = 0.0
         else:
             z *= np.float32(10 ** (-30 / 20))                    # 30 dB under the stand-in Foley: about -54 LUFS
         sf.write(str(d / f"{name}.sound.wav"), z, RATE, subtype="FLOAT")
@@ -272,6 +276,38 @@ def test_title_audio_a_room_of_digital_zero_is_refused(tmp_path, tmasters):
     assert "digital zero" in " ".join(next(e for e in lints(j, "title-audio") if e["status"] == "fail")["evidence"]["problems"])
 
 
+def test_title_audio_a_room_fading_into_digital_zero_never_loops_digital_black(tmp_path, tmasters):
+    """The master's room fades into digital zero: the zero blocks are trimmed before the room is measured, so what is
+    left (under ROOM_S of room) is refused at plan time; a fade that still leaves ROOM_S of room is continued from
+    where the room ends, never from the zero."""
+    plan, j = plan_of(tfilm(tmp_path, tmasters, master="fade_zero", item=NO_LOCKUP, edit=with_shots((CARD,))))
+    assert isinstance(plan, R.Refused) and failed(j, "title-audio")
+    probs = " ".join(next(e for e in lints(j, "title-audio") if e["status"] == "fail")["evidence"]["problems"])
+    assert "digital zero" in probs
+    room = 3e-4 * np.random.default_rng(9).standard_normal(RATE * 4).astype(np.float32)
+    x = np.concatenate([np.full(RATE, 0.1, np.float32), room, np.zeros(RATE // 2, np.float32)])
+    a, b = TS.room_span(x)
+    assert b == len(x) - RATE // 2 and TS.room_problem(x[a:b]) is None              # the zero trimmed, the room kept
+    y, how = TS.title_track(x, len(x), len(x) + RATE * 6)
+    assert how["zero_tail_replaced_s"] == pytest.approx(0.5) and how["from"] == "room"
+    blocks = TS._block_db(y[RATE + RATE // 2: -int(TS.END_FADE_S * RATE)], int(TS.ROOM_BLOCK_S * RATE))
+    assert blocks.min() > TS.TAIL_FLOOR_DBFS                                         # no digital black under the card
+    gap = np.concatenate([room[: RATE * 2], np.zeros(RATE // 10, np.float32), room[: RATE]])   # one zero block inside
+    assert "digital zero" in TS.room_problem(gap)
+
+
+def test_title_audio_a_silence_ruling_must_cite_a_dated_founder_ruling(tmp_path, tmasters):
+    for k, ruling in enumerate(("intended", "the founder said so", "founder 2026-10-28")):
+        plan, j = plan_of(tfilm(tmp_path / f"r{k}", tmasters, master="silent", item={"audio_silence_ruling": ruling}))
+        assert isinstance(plan, R.Refused) and failed(j, "title-audio"), ruling
+
+
+def test_title_audio_the_engine_journals_its_commit_at_run_start():
+    g = R.engine_git()
+    assert set(g) == {"sha", "dirty", "root"}
+    assert g["sha"] is None or (len(g["sha"]) == 40 and isinstance(g["dirty"], bool))
+
+
 def test_title_audio_the_room_loop_takes_the_longest_room_the_master_ends_on():
     x = np.concatenate([np.full(RATE * 3, 0.1, np.float32),
                         3e-4 * np.random.default_rng(5).standard_normal(RATE * 9).astype(np.float32)])
@@ -302,6 +338,9 @@ def test_title_audio_the_limiter_acting_inside_the_title_is_refused_after_master
     assert R.title_mastered_lints(j, placed, {"gain_db": 4.0, "limiter": None}) and failed(j, "title-audio-level")
     j = J.Journal(film="a40-mastered-4")
     assert R.title_mastered_lints(j, placed, hit, draft=True) == [] and failed(j, "title-audio-level")
+    j = J.Journal(film="a40-mastered-5")                      # more places than logged: it fails closed
+    many = {"gain_db": 2.5, "limiter": dict(clean["limiter"], acted_total=500)}
+    assert R.title_mastered_lints(j, placed, many) and failed(j, "title-audio-level")
 
 
 def test_title_audio_no_tail_and_no_room_to_continue_is_refused(tmp_path, tmasters):

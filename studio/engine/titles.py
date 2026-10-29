@@ -938,6 +938,7 @@ ROOM_MAX_S = 6.0                    # ... the loop takes the longest room stretc
 ROOM_BLOCK_S = 0.1                  # ... measured in blocks of this
 ROOM_MAX_DBFS = -55.0               # ... and is room only when its RMS is at most this (no Foley ringing in it)
 ROOM_MIN_DBFS = -85.0               # ... and at least this: a room, not digital zero (no tail and no room: refused)
+RULING_REF = re.compile(r"\bfounder,? (\d{4}-\d{2}-\d{2})\b")   # audio_silence_ruling cites "founder, YYYY-MM-DD"
 LENGTH_GAP_WARN_FRAMES = 1.0        # the master's sound shorter or longer than its picture by more than this: a warning
 ROOM_XFADE_S = 0.5                  # the loop's equal-power crossfade
 SPLICE_S = 0.010                    # master to tail: a 10 ms crossfade at the title's last frame (the same mix, continued)
@@ -993,28 +994,55 @@ def sync_offset_ms(n_out: int, src: float, fps: float, n: int | None = None) -> 
     return worst * 1000.0
 
 
-def room_of(x: np.ndarray, rate: int = AUDIO_RATE) -> np.ndarray:
-    """The room the master ends on: its last ROOM_S at least, grown back block by block (ROOM_BLOCK_S) while each
-    block is room (RMS at most ROOM_MAX_DBFS), up to ROOM_MAX_S."""
+def _block_db(x: np.ndarray, k: int) -> np.ndarray:
+    m = len(x) // k
+    if m <= 0:
+        return np.zeros(0)
+    y = np.asarray(x[len(x) - m * k:], np.float64).reshape(m, k)        # whole blocks, aligned to the end
+    return 10 * np.log10(np.maximum((y * y).mean(axis=1), 1e-20))
+
+
+def room_span(x: np.ndarray, rate: int = AUDIO_RATE) -> tuple[int, int]:
+    """(a, b): the samples of the room the master ends on. Trailing ROOM_BLOCK_S blocks under ROOM_MIN_DBFS (a fade
+    into digital zero) are trimmed first (``b``); from there it grows back block by block while each block is room
+    (at least ROOM_MIN_DBFS, at most ROOM_MAX_DBFS), up to ROOM_MAX_S. Its length may be under ROOM_S: room_problem
+    refuses that."""
     x = np.asarray(x, np.float32)
     k = int(round(ROOM_BLOCK_S * rate))
-    n = min(len(x), int(round(ROOM_S * rate)))
-    while n + k <= min(len(x), int(round(ROOM_MAX_S * rate))) and rms_dbfs(x[len(x) - n - k: len(x) - n]) <= ROOM_MAX_DBFS:
-        n += k
-    return x[len(x) - n:]
+    db = _block_db(x, k)
+    b, i = len(x), len(db) - 1
+    while i >= 0 and db[i] < ROOM_MIN_DBFS:
+        b -= k
+        i -= 1
+    a, cap = b, int(round(ROOM_MAX_S * rate))
+    while i >= 0 and ROOM_MIN_DBFS <= db[i] <= ROOM_MAX_DBFS and b - a + k <= cap:
+        a -= k
+        i -= 1
+    return max(0, a), max(0, b)
 
 
-def room_problem(room: np.ndarray) -> str | None:
-    """Why the master's ending cannot be continued as its room under the lockup card, or None."""
+def room_of(x: np.ndarray, rate: int = AUDIO_RATE) -> np.ndarray:
+    """The room the master ends on (room_span)."""
+    a, b = room_span(x, rate)
+    return np.asarray(x, np.float32)[a:b]
+
+
+def room_problem(room: np.ndarray, rate: int = AUDIO_RATE) -> str | None:
+    """Why the master's ending cannot be continued as its room under the lockup card, or None: it must be at least
+    ROOM_S long, at most ROOM_MAX_DBFS overall, and every ROOM_BLOCK_S block of it at least ROOM_MIN_DBFS (a room,
+    never digital zero)."""
+    if len(room) < int(round(ROOM_S * rate)) - 1:
+        return (f"the master ends on {len(room) / rate:.2f} s of room (at least {ROOM_S:g} s, every "
+                f"{ROOM_BLOCK_S * 1000:g} ms at {ROOM_MIN_DBFS:g} to {ROOM_MAX_DBFS:g} dBFS): no room to continue under "
+                "the lockup card, or it fades into digital zero; declare its audio_tail")
     r = rms_dbfs(room)
-    if not len(room):
-        return "the master has no sound to continue"
     if r > ROOM_MAX_DBFS:
-        return (f"the master's last {len(room) / AUDIO_RATE:.2f} s are not room ({r:.1f} dBFS, at most {ROOM_MAX_DBFS:g}): "
+        return (f"the master's last {len(room) / rate:.2f} s are not room ({r:.1f} dBFS, at most {ROOM_MAX_DBFS:g}): "
                 "its room cannot be continued under the lockup card; declare its audio_tail")
-    if r < ROOM_MIN_DBFS:
-        return (f"the master's last {len(room) / AUDIO_RATE:.2f} s measure {r:.1f} dBFS (at least {ROOM_MIN_DBFS:g}): "
-                "digital zero, no room to continue under the lockup card; declare its audio_tail")
+    low = float(_block_db(room, int(round(ROOM_BLOCK_S * rate))).min())
+    if low < ROOM_MIN_DBFS:
+        return (f"a {ROOM_BLOCK_S * 1000:g} ms block of the master's room measures {low:.1f} dBFS (at least "
+                f"{ROOM_MIN_DBFS:g}): digital zero, no room to continue under the lockup card; declare its audio_tail")
     return None
 
 
@@ -1067,8 +1095,12 @@ def title_track(master: np.ndarray, title_n: int, end_n: int, *, tail: np.ndarra
             filled = b
             how.update({"tail_s": round((b - k) / rate, 4), "from": "tail"})
     if filled < end_n:
-        room = room_of(master, rate)
-        if room_problem(room) is None:
+        ra, rb = room_span(master, rate)
+        room = master[ra:rb]
+        if tail is None and rb < filled:      # the master fades into digital zero: the room takes over where it ends
+            how["zero_tail_replaced_s"] = round((filled - rb) / rate, 4)
+            filled = rb
+        if room_problem(room, rate) is None:
             xf = min(int(round(ROOM_XFADE_S * rate)), filled)
             loop = room_loop(room, end_n - filled + xf, int(round(ROOM_XFADE_S * rate)))
             a = filled - xf                     # the loop rises under the master's last samples as they fall
@@ -1161,10 +1193,10 @@ def audio_plan(lint, s: dict, item: dict, probe: dict, ffmpeg: str, ffprobe: str
     if silent:
         # a silent track is a master muxed without its sound, unless the item declares the silence and the ruling
         ev["audio_silence_ruling"] = ruling
-        if not (isinstance(ruling, str) and ruling.strip()):
+        if not (isinstance(ruling, str) and RULING_REF.search(ruling)):
             problems.append(f"the master's own track measures {rms_dbfs(x):.1f} dBFS (at or under "
                             f"{SILENT_MASTER_DBFS:g}): silent; mux its sound, or declare audio_silence_ruling citing "
-                            "the founder ruling that the title plays in silence")
+                            "the founder ruling that the title plays in silence, as \"founder, YYYY-MM-DD: ...\"")
     title_n = int(round((t1 - t0) * AUDIO_RATE))
     gap = None
     if x is not None:

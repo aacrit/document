@@ -326,6 +326,23 @@ def count_frames(path: Path) -> int:
         return -1
 
 
+def engine_git() -> dict:
+    """The engine's own commit at run.start: ``git rev-parse HEAD`` of the checkout this module runs from, and whether
+    its tracked files differ from it (``dirty``); None for each when git cannot say (not a checkout, no git)."""
+    root = str(_HERE.parents[1])
+    out = {"sha": None, "dirty": None, "root": root}
+    try:
+        r = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True, timeout=20)
+        if r.returncode == 0:
+            out["sha"] = r.stdout.strip()
+            d = subprocess.run(["git", "-C", root, "status", "--porcelain", "--untracked-files=no"],
+                               capture_output=True, text=True, timeout=60)
+            out["dirty"] = bool(d.stdout.strip()) if d.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return out
+
+
 def ffmpeg_version() -> str:
     try:
         return subprocess.run([ffmpeg(), "-version"], capture_output=True, text=True, timeout=10).stdout.splitlines()[0]
@@ -6322,6 +6339,7 @@ def title_mastered_lints(journal: Journal, placed: dict, loud: dict, *, draft: b
     warning on a draft. Returns the reasons to refuse."""
     lim = loud.get("limiter") or {}
     acted = list(lim.get("acted") or [])
+    unlogged = int(lim.get("acted_total") or 0) > len(acted)     # more places than logged: none can be ruled out
     gain = float(loud.get("gain_db") or 0.0)
     ceiling = TARGET_TP - LIMIT_MARGIN_DB - TS.TITLE_PEAK_MARGIN_DB
     bad = []
@@ -6329,11 +6347,12 @@ def title_mastered_lints(journal: Journal, placed: dict, loud: dict, *, draft: b
         a, b = t["at_s"], t["end_s"]
         inside = [e for e in acted if e["at_s"] < b and e["at_s"] + e["dur_s"] > a]
         tp = None if t.get("predicted_tp_dbtp") is None else round(t["predicted_tp_dbtp"] - t["programme_lift_db"] + gain, 2)
-        ok = not inside and (tp is None or tp <= ceiling + 0.25)
+        ok = not inside and not unlogged and (tp is None or tp <= ceiling + 0.25)
         journal.lint("title-audio-level", ok, stage="assembly", unit=t["shot"], grammar="A40, 8.5", phase="mastered",
                      severity="warn" if draft else "block",
                      evidence={"span_s": [round(a, 3), round(b, 3)], "limiter_acted_inside": inside[:20],
                                "limiter_places_logged": len(acted), "limiter_places_total": lim.get("acted_total", 0),
+                               "fails_closed": unlogged,
                                "programme_gain_db": gain, "predicted_tp_dbtp": tp, "max_tp_dbtp": ceiling,
                                "fix": None if ok else "the master limiter acts on the series titles: lower their level"})
         if not ok:
@@ -6354,18 +6373,25 @@ def title_audio_rendered(journal: Journal, plan: dict, master: Path, *, span: di
     bad = []
     for t in plan.get("title_audio") or []:
         parts = [("title", t["at_s"], t["title_end_s"], TS.AUDIO_FLOOR_DBFS)]
-        if t["end_s"] > t["title_end_s"] + 1e-6:
-            parts.append(("lockup", t["title_end_s"], t["end_s"], TS.TAIL_FLOOR_DBFS))
+        if t["end_s"] > t["title_end_s"] + 1e-6:      # the lockup: every 100 ms block, the closing fade aside
+            parts.append(("lockup", t["title_end_s"], t["end_s"] - TS.END_FADE_S, TS.TAIL_FLOOR_DBFS))
         for what, a, b, floor in parts:
             a, b = max(0.0, a - off), min(dur, b - off)
             if b - a < 0.5:                     # not in this span, or too little of it to measure
                 continue
             x = TS.read_audio(ffmpeg(), str(master), start_s=a, dur_s=b - a)
-            got = TS.rms_dbfs(x)
+            if what == "lockup":
+                k = int(round(TS.ROOM_BLOCK_S * AUDIO_RATE))
+                m = len(x) // k
+                got = float(TS._block_db(x[: m * k][::-1].copy(), k).min()) if m else -200.0   # the quietest block
+            else:
+                got = TS.rms_dbfs(x)
             ok = bool(t.get("silent")) or got >= floor
             journal.lint("title-audio", ok, stage="assembly", unit=t["shot"], grammar="A40", phase="post-render",
                          severity="warn" if draft else "block",
                          evidence={"part": what, "from_s": round(a, 3), "to_s": round(b, 3), "rms_dbfs": round(got, 2),
+                                   "measure": ("the quietest 100 ms block (its closing fade aside)" if what == "lockup"
+                                               else "RMS over the title shot"),
                                    "floor_dbfs": floor, "master_silent": bool(t.get("silent")),
                                    "master_rms_dbfs": t.get("master_rms_dbfs"), "lockup_card": t.get("lockup_card"),
                                    "fix": None if ok else "the series titles play in silence: the master's own sound "
@@ -8785,7 +8811,8 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         journal.event("stage", "run", None, lens="run.start", status="start", film=film.name, run_kind=journal.kind,
                       stages=["scout", "conform", "assembly", "motion", "marks"], resumed_from=from_shot,
                       settings=dict(settings, workers=n, workers_requested=n_req), model=ENGINE_MODEL,
-                      ffmpeg=ffmpeg_version(), out=str(out), predict={}, baselines_at=None, machine=journal.machine())
+                      ffmpeg=ffmpeg_version(), out=str(out), predict={}, baselines_at=None, machine=journal.machine(),
+                      engine_git=engine_git())
         # Pre-flight: every check the plan can decide runs here, before any frame is rendered: the drive,
         # licences, marks, transitions, dips, zoom limits, A7 framing, voice-overlap, then A7 on each
         # still's own first frame. The rendered pixels are checked again after motion (phase post-render).
