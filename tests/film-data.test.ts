@@ -526,6 +526,17 @@ describe("notes on this film (A56)", () => {
     return j;
   };
 
+  it("never publishes a ledger's work_notes, nor a string notes letter by letter", () => {
+    const j = raw();
+    j.shots[0].work_notes = "WORK NOTE: crop above the caption";
+    j.shots[1].notes = "Crop above the caption bar.";
+    const d = parseSources(j);
+    expect(JSON.stringify(d)).not.toContain("WORK NOTE");
+    expect(JSON.stringify(d)).not.toContain("work_notes");
+    expect(d.shots[1].notes).toEqual([]);
+    expect(filmNotes(d).mapNotes.join(" ")).not.toContain("Crop above");
+  });
+
   it("states each disclosure the picture no longer shows, from the sources data", () => {
     const d = parseSources(withNotes());
     const n = filmNotes(d);

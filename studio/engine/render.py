@@ -2885,6 +2885,10 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             for c in POL.asset_checks(item, rule):
                 lint(c["rule"], c["ok"], unit=s["id"], severity=c["severity"], evidence=c["evidence"],
                      grammar="1.6" if c["rule"] == "no-bodies" and not rule["declared"] else "1.6, 11.1, A21")
+            # A56: a ledger item's notes reach sources.json only as a list of sentences (public_notes)
+            np_ = notes_problem(item)
+            lint("ledger-notes", np_ is None, unit=s["id"], grammar="A56",
+                 evidence={"asset": s.get("asset"), "why": np_} if np_ else None)
             if not item.get("_path") or not Path(item["_path"]).exists():
                 lint("asset-file", False, unit=s["id"], evidence={"file": item.get("_path")})
                 continue
@@ -8561,25 +8565,43 @@ def title_sources_fields(s: dict) -> dict:
         "provenance": [dict({k: x.get(k) for k in keep}, credit=TS.plain(x.get("credit"))) for x in TS.provenance_items(prov)]}}
 
 
-def retire_description(path: Path) -> Path | None:
-    """An earlier render's description.txt, renamed description.stale.txt so it never sits beside a new sources.json
-    as if it described it. Returns the new path, or None when there was none."""
-    if not path.exists():
+def public_notes(item: dict | None) -> list[str]:
+    """A56: the notes sources.json states for a shot (the Sources page's "Notes on this film", the description's
+    "Notes on the maps"): the ledger's ``notes``, a list of sentences, the only shape the ledger-notes lint lets
+    through. A ledger's ``work_notes`` (the studio's working notes: crop and placement instructions) is never read
+    here, and never published. Never a string read character by character (Not a Free Agent's S-102 and 17 more shots
+    printed 363 one-character notes that way)."""
+    n = (item or {}).get("notes")
+    if not isinstance(n, list):
+        return []
+    return [" ".join(x.split()) for x in n if isinstance(x, str) and x.strip()]
+
+
+def notes_problem(item: dict | None) -> str | None:
+    """The ledger-notes lint (blocking): why an item's ``notes`` cannot be published as it stands, or None. ``notes``
+    is published, so it is a list of non-empty sentences; a working note belongs in ``work_notes``, never published."""
+    n = (item or {}).get("notes")
+    if n is None:
         return None
-    stale = path.with_name("description.stale.txt")
-    path.replace(stale)
-    return stale
+    if isinstance(n, list):
+        bad = [i for i, x in enumerate(n) if not isinstance(x, str) or not x.strip()]
+        return f"notes[{bad[0]}] is not a sentence: every published note is a non-empty string" if bad else None
+    if isinstance(n, str):
+        return ("notes is one string: published notes are a list of sentences, and a working note for the studio "
+                "goes in work_notes (never published)")
+    return f"notes is a {type(n).__name__}: it must be a list of sentences (a working note goes in work_notes)"
 
 
-def description_overflow(plan: dict, journal: Journal) -> str | None:
-    """Why this plan's description block cannot be written (its pre-4.0 credits do not fit the cap), or None. Read
-    from the sources data the render will write, so a final render is refused before its frames, not after."""
-    try:
-        doc = sources_doc(plan, journal, {})
-        DSC.description_text(doc, DSC.film_entry(DSC.REPO_FILMS, doc.get("slug") or ""))
-    except DSC.AttributionOverflow as e:
-        return str(e)
-    return None
+def description_fit(plan: dict, journal: Journal) -> dict:
+    """What this plan's description block will leave out, read from the sources data the render will write, before
+    any frame: whether it fits whole (``fits``: no INCOMPLETE header), the pre-4.0 credits it leaves out
+    (``omitted``) and the lines it cuts to fit (``trimmed``). Never a refusal (GRAMMAR A56): description.txt is only
+    for publication on an outside platform, by hand, and the site's Sources page carries every credit and note."""
+    doc = sources_doc(plan, journal, {})
+    r = DSC.compose(doc, DSC.film_entry(DSC.REPO_FILMS, doc.get("slug") or ""))
+    return {"fits": not r["incomplete"], "external_publish_ready": r["external_publish_ready"], "chars": len(r["text"]),
+            "max_chars": DSC.MAX_CHARS, "omitted": [e["name"] for e in r["omitted"]], "trimmed": r["trimmed"],
+            "problems": r["problems"]}
 
 
 def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
@@ -8597,7 +8619,7 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             # A56: what a drawn frame no longer draws (a map's notes, its data credit, why its licence) is stated here
             "licence_note": it.get("licence_note"), "source_line": it.get("source_line"),
             **({"data_sources": it["data_sources"]} if it.get("data_sources") else {}),   # a map's sources, with urls
-            "notes": [str(n) for n in it.get("notes") or [] if str(n).strip()],
+            "notes": public_notes(it),
             "alterations": s.get("alterations") or [], "transition_in": s["transition_in"],
             "preset": (s.get("_cam") or {}).get("preset"), "fill_ok": (s.get("_cam") or {}).get("fill_ok"),
             "fill": (s.get("_cam") or {}).get("fill"),
@@ -8966,12 +8988,10 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         fill_refusals = card_fill_lints(journal, plan)
         if fill_refusals:
             raise Refused(f"filled cards (pre-flight): {'; '.join(fill_refusals)} (E15: a card's text is drawn whole or refused)")
-        if not check:              # A56: the description block, from this plan, before any frame (never at the end)
-            desc_why = description_overflow(plan, journal)
-            journal.lint("description-fits", desc_why is None, stage="assembly", phase="preflight", grammar="A56",
-                         severity="warn" if advisory else "block", evidence={"why": desc_why})
-            if desc_why and not advisory:
-                raise Refused(f"description (pre-flight): {desc_why} (GRAMMAR A56)")
+        if not check:              # A56: the description block, from this plan, before any frame: a warning, never a refusal
+            desc = description_fit(plan, journal)
+            journal.lint("description-fits", desc["fits"], stage="assembly", phase="preflight", grammar="A56",
+                         severity="warn", evidence=desc)
         for i in pending:
             key_shot(i)
         todo.sort()
@@ -9220,13 +9240,10 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         if not span:
             doc = sources_doc(plan, journal, extra)
             sources_path.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
-            if not check:                   # A56: the description block, from the same data (description.py)
-                try:
-                    journal.artifact("assembly", DSC.write_description(sources_path, DSC.REPO_FILMS), role="description")
-                except DSC.AttributionOverflow as e:      # only a draft gets here: the pre-flight refuses a final render
-                    stale = retire_description(sources_path.with_name("description.txt"))
-                    journal.lint("description-fits", False, stage="assembly", severity="warn", grammar="A56",
-                                 evidence={"why": str(e), "stale": str(stale) if stale else None})
+            if not check:                   # A56: the description block and its sidecar, from the same data (description.py)
+                desc_path = DSC.write_description(sources_path, DSC.REPO_FILMS)
+                journal.artifact("assembly", desc_path, role="description")
+                journal.artifact("assembly", DSC.sidecar_path(desc_path), role="description-attribution")
         for i in in_span:
             journal.artifact("motion", segs[i], unit=ids[i], role="check-segment" if check else "segment")
         journal.artifact("assembly", master, role="check-master" if check else "master")
@@ -9294,15 +9311,23 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
             raise Refused(f"a shortfall card's numbers come from the render's own measurement and {why}: render the film")
         fill_cards(plan, values, journal)
     doc = sources_doc(plan, journal, extra)
-    # release step [a]: the description must be publishable with this film (A56), checked before either file is written
-    why = DSC.release_problem(doc, DSC.film_entry(DSC.REPO_FILMS, doc.get("slug") or ""))
+    # release step [a]: the description must not lean on a sources page the site does not serve (A56), checked before
+    # either file is written; its length never refuses (the Sources page carries every credit and note; the text says
+    # when it is incomplete, and --check-external reports it, advisory)
+    film_entry = DSC.film_entry(DSC.REPO_FILMS, doc.get("slug") or "")
+    why = DSC.release_problem(doc, film_entry)
     journal.lint("description-release", why is None, stage="assembly", phase="sources-only", grammar="A56",
                  evidence={"why": why})
     if why:
         raise Refused(f"description: {why} (GRAMMAR A56)")
     path.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
     journal.artifact("assembly", path, role="sources")
-    journal.artifact("assembly", DSC.write_description(path, DSC.REPO_FILMS), role="description")
+    desc_path = DSC.write_description(path, DSC.REPO_FILMS)
+    journal.artifact("assembly", desc_path, role="description")
+    journal.artifact("assembly", DSC.sidecar_path(desc_path), role="description-attribution")
+    external = DSC.external_problems(doc, film_entry)
+    journal.lint("description-external", not external, stage="assembly", phase="sources-only", grammar="A56",
+                 severity="warn", evidence={"problems": external})
     return {"sources": str(path), "frames": plan["frames"], "duration_s": plan["duration_s"], "master_sha256": extra["master_sha256"]}
 
 
