@@ -234,7 +234,7 @@ def main():
         # bake from f0 met the weights head-on). Later stages restore exact snapshots of such runs.
         t0 = time.time()
         d = V.new_data(w)
-        w.place_galley(d, V.SORT1_S, 0.0 + 0.98 * (T.R + V.SORT[1]))       # a first guess, for the line only
+        w.place_galley(d, V.SORT1_S, 0.20)          # standing from f0 but 0.2 m aside: the ball's free line to it
         rec = V.run(w, d, 40.0, stop_at=lambda d_: V.ball_s(w, d_) >= V.SORT1_S - 0.002)
         A = V.track_array(rec)
         note(stage="to galley", status=rec.status, t=d.time + T.T_RELEASE, s=V.ball_s(w, d), wall_s=time.time() - t0,
@@ -274,8 +274,11 @@ def main():
                 note(stage="galley try", **rows[-1])
             ok = [r for r in rows if r["turn"] is not None and r["fallen"] == 12 and r["kept"] and r["kept"] >= 0.90
                   and not r["strays"]]
-            pick = min(ok or [r for r in rows if r["turn"] is not None],
-                       key=lambda r: abs(r["turn"] - (-6.5)))
+            clean = [r for r in rows if r["turn"] is not None and r["fallen"] == 12 and r["kept"] is not None
+                     and not r["strays"]]
+            if not (ok or clean):
+                raise SystemExit("no galley placement without a stray contact topples the row and lets the ball by")
+            pick = min(ok or clean, key=lambda r: abs(r["turn"] - (-6.5)))
             b_g = pick["b"]
             note(stage="galley", b=b_g, pick=pick, meets_acceptance=bool(ok), n_ball=nb, v_at=sp)
             save_cache(galley={"b": b_g})
