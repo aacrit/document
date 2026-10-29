@@ -107,6 +107,26 @@ def test_the_pre_flight_reads_the_description_from_the_plans_own_sources_data_an
     assert fit["fits"] is True and fit["omitted"] == []
 
 
+def test_a_ledgers_string_notes_is_a_working_note_never_published_letter_by_letter():
+    still = {"id": "S-102", "notes": "Crop above the caption bar (the caption is the filmstrip maker's, c. 1950)."}
+    assert R.public_notes(still) == []                                       # never 75 one-letter notes
+    assert R.public_notes({"notes": ["Streets after 2001 are not drawn.", "  ", 3]}) == ["Streets after 2001 are not drawn."]
+    assert R.public_notes({}) == [] and R.public_notes(None) == []
+    assert R.notes_problem(still, drawn=False)[0] == "warn"                  # journaled as unpublished
+    assert R.notes_problem(still, drawn=True)[0] == "block"                  # a map's notes are published: a list
+    assert R.notes_problem({"notes": ["ok", 3]}, drawn=False)[0] == "block"
+    assert R.notes_problem({"notes": {"a": 1}}, drawn=False)[0] == "block"
+    assert R.notes_problem({"notes": ["A sentence."]}, drawn=True) is None
+    assert R.notes_problem({"notes": None}, drawn=True) is None and R.notes_problem({}, drawn=False) is None
+
+
+def test_the_plan_lints_ledger_notes_before_any_frame():
+    src = Path(R.__file__).read_text(encoding="utf-8")
+    at = src.index('lint("ledger-notes"')
+    assert src.index("def build_plan(") < at < src.index("def render(")
+    assert '"notes": public_notes(it)' in src                                # sources_doc reads only the list
+
+
 def test_the_pre_flight_lint_is_a_warning_in_the_render():
     src = Path(R.__file__).read_text(encoding="utf-8")
     at = src.index('journal.lint("description-fits"')

@@ -2885,6 +2885,12 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             for c in POL.asset_checks(item, rule):
                 lint(c["rule"], c["ok"], unit=s["id"], severity=c["severity"], evidence=c["evidence"],
                      grammar="1.6" if c["rule"] == "no-bodies" and not rule["declared"] else "1.6, 11.1, A21")
+            # A56: a ledger item's notes reach sources.json only as a list of sentences (public_notes)
+            np_ = notes_problem(item, drawn=kind == "drawn" or s.get("mark") == "DRAWN"
+                                or (kind in IMAGE_KINDS and item.get("_path") and MP.drawn_kind(item)[0] == "map"))
+            if np_:
+                lint("ledger-notes", False, unit=s["id"], severity=np_[0], grammar="A56",
+                     evidence={"asset": s.get("asset"), "why": np_[1]})
             if not item.get("_path") or not Path(item["_path"]).exists():
                 lint("asset-file", False, unit=s["id"], evidence={"file": item.get("_path")})
                 continue
@@ -8561,15 +8567,48 @@ def title_sources_fields(s: dict) -> dict:
         "provenance": [dict({k: x.get(k) for k in keep}, credit=TS.plain(x.get("credit"))) for x in TS.provenance_items(prov)]}}
 
 
+def public_notes(item: dict | None) -> list[str]:
+    """A56: the notes sources.json states for a shot (the Sources page's "Notes on this film", the description's
+    "Notes on the maps"): a drawn ledger's ``notes``, a list of sentences. A string ``notes`` is a stills or footage
+    ledger's working note for the studio (a crop instruction, a placement caution) and is never published; it is
+    never read character by character either (Not a Free Agent's S-102 and 17 more shots printed 363
+    one-character notes that way)."""
+    n = (item or {}).get("notes")
+    if not isinstance(n, list):
+        return []
+    return [" ".join(x.split()) for x in n if isinstance(x, str) and x.strip()]
+
+
+def notes_problem(item: dict | None, *, drawn: bool) -> tuple[str, str] | None:
+    """The ledger-notes lint: (severity, why) when an item's ``notes`` has a shape the sources data cannot state, or
+    None. A drawn item's notes are published, so they must be a list of non-empty strings (block); a list holding
+    anything else blocks for any item; a string on a still or a clip is its working note, journaled as unpublished
+    (warn); anything else blocks."""
+    n = (item or {}).get("notes")
+    if n is None:
+        return None
+    if isinstance(n, list):
+        bad = [i for i, x in enumerate(n) if not isinstance(x, str) or not x.strip()]
+        return ("block", f"notes[{bad[0]}] is not a sentence: every published note is a non-empty string") if bad else None
+    if isinstance(n, str):
+        if drawn:
+            return ("block", "a drawn frame's notes are published and must be a list of sentences, not one string "
+                             "(a string would be read character by character)")
+        return ("warn", "a string notes is the ledger's working note: it is not published")
+    return ("block", f"notes is a {type(n).__name__}: it must be a list of sentences (or, on a still or a clip, a "
+                     f"working note string, never published)")
+
+
 def description_fit(plan: dict, journal: Journal) -> dict:
     """What this plan's description block will leave out, read from the sources data the render will write, before
-    any frame: the pre-4.0 credits that do not fit the cap (``omitted``), and whether the description is ready for an
-    outside platform. Never a refusal (GRAMMAR A56): description.txt is only for external publication, and the site's
-    Sources page carries every credit; ``python -m studio.engine.description --check-external`` is that gate."""
+    any frame: whether it fits whole (``fits``: no INCOMPLETE header), the pre-4.0 credits it leaves out
+    (``omitted``) and the lines it cuts to fit (``trimmed``). Never a refusal (GRAMMAR A56): description.txt is only
+    for publication on an outside platform, by hand, and the site's Sources page carries every credit and note."""
     doc = sources_doc(plan, journal, {})
     r = DSC.compose(doc, DSC.film_entry(DSC.REPO_FILMS, doc.get("slug") or ""))
-    return {"fits": not r["omitted"], "external_publish_ready": r["external_publish_ready"], "chars": len(r["text"]),
-            "max_chars": DSC.MAX_CHARS, "omitted": [e["name"] for e in r["omitted"]], "problems": r["problems"]}
+    return {"fits": not r["incomplete"], "external_publish_ready": r["external_publish_ready"], "chars": len(r["text"]),
+            "max_chars": DSC.MAX_CHARS, "omitted": [e["name"] for e in r["omitted"]], "trimmed": r["trimmed"],
+            "problems": r["problems"]}
 
 
 def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
@@ -8587,7 +8626,7 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             # A56: what a drawn frame no longer draws (a map's notes, its data credit, why its licence) is stated here
             "licence_note": it.get("licence_note"), "source_line": it.get("source_line"),
             **({"data_sources": it["data_sources"]} if it.get("data_sources") else {}),   # a map's sources, with urls
-            "notes": [str(n) for n in it.get("notes") or [] if str(n).strip()],
+            "notes": public_notes(it),
             "alterations": s.get("alterations") or [], "transition_in": s["transition_in"],
             "preset": (s.get("_cam") or {}).get("preset"), "fill_ok": (s.get("_cam") or {}).get("fill_ok"),
             "fill": (s.get("_cam") or {}).get("fill"),
@@ -9280,8 +9319,8 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
         fill_cards(plan, values, journal)
     doc = sources_doc(plan, journal, extra)
     # release step [a]: the description must not lean on a sources page the site does not serve (A56), checked before
-    # either file is written; its length never refuses (the Sources page carries every credit; --check-external gates
-    # an outside platform)
+    # either file is written; its length never refuses (the Sources page carries every credit and note; the text says
+    # when it is incomplete, and --check-external reports it, advisory)
     film_entry = DSC.film_entry(DSC.REPO_FILMS, doc.get("slug") or "")
     why = DSC.release_problem(doc, film_entry)
     journal.lint("description-release", why is None, stage="assembly", phase="sources-only", grammar="A56",
