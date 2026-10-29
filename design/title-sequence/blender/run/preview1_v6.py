@@ -368,7 +368,8 @@ def main():
                                                    indent=1, default=float), encoding="utf-8")
     plot(track, bake, ev, res, OUT / "bake-plot.png")
     report(res, OUT / "report.md")
-    print(json.dumps({k: (v.get("pass", v.get("pass_")) if isinstance(v, dict) else None) for k, v in res.items()}))
+    print(json.dumps({k: (v.get("pass", v.get("pass_")) if isinstance(v, dict) else None) for k, v in res.items()},
+                     default=lambda o: o.item() if hasattr(o, "item") else str(o)))
 
 
 if __name__ == "__main__":

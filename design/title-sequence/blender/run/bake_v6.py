@@ -228,16 +228,21 @@ def main():
     note(stage="model", ngeom=w.m.ngeom, nbody=w.m.nbody, fall_deg=T.FALL_DEG, roll=w.roll)
 
     with MV.heavy("v6 bake 1/5: the galley glance (MuJoCo)", enabled=use_lock):
+        # Every run that chooses a placement is the bake's own run up to that point: the glances are grazes (b near
+        # 0.98) and the trajectory is chaotically sensitive, so the galley stands from f0 in every run (sorts set down
+        # later settle differently and the solver, which solves them with the ball, shifts the ball by a hair: a first
+        # bake from f0 met the weights head-on). Later stages restore exact snapshots of such runs.
         t0 = time.time()
         d = V.new_data(w)
-        rec = V.run(w, d, 40.0, stop_at=lambda d_: V.ball_s(w, d_) >= V.SORT1_S - 0.10)
+        w.place_galley(d, V.SORT1_S, 0.0 + 0.98 * (T.R + V.SORT[1]))       # a first guess, for the line only
+        rec = V.run(w, d, 40.0, stop_at=lambda d_: V.ball_s(w, d_) >= V.SORT1_S - 0.002)
         A = V.track_array(rec)
         note(stage="to galley", status=rec.status, t=d.time + T.T_RELEASE, s=V.ball_s(w, d), wall_s=time.time() - t0,
              v=float(np.linalg.norm(A[-1, 4:6])), v_max=float(np.max(np.linalg.norm(A[:, 4:6], axis=1))))
         if rec.status != "stop":
             raise SystemExit(f"the ball did not reach the galley: {rec.status}")
-        stA = V.snapshot(w, d)
-        p, v, sp = stage_line(w, stA, V.SORT1_S)
+        p, v, t_ = V.line_at(rec, V.SORT1_S - 0.02)
+        sp = float(np.linalg.norm(A[-1, 4:6]))
         nb = float(T.across(*p))
         if "--galley-b" in sys.argv:                 # the earlier search's answer (placement-log), re-rolled below
             cache["galley"] = {"b": float(sys.argv[sys.argv.index("--galley-b") + 1])}
@@ -253,7 +258,7 @@ def main():
             # of those takes the turn nearest the spec's 5-8 degrees; the miss is reported.
             rows = []
             for b in GALLEY_GRID:
-                dd = V.restore(w, stA)
+                dd = V.new_data(w)
                 w.place_galley(dd, V.SORT1_S, nb + b * (T.R + V.SORT[1]))
                 r_ = V.run(w, dd, 40.0, stop_at=lambda d_: V.ball_s(w, d_) >= V.SORT1_S + 0.45)
                 g = V.glance(r_, 3)
@@ -277,7 +282,7 @@ def main():
     galley = {"s1": V.SORT1_S, "n_row": nb + b_g * (T.R + V.SORT[1]), "b": b_g}
 
     with MV.heavy("v6 bake 2/5: past the galley (MuJoCo)", enabled=use_lock):
-        d = V.restore(w, stA)
+        d = V.new_data(w)
         w.place_galley(d, galley["s1"], galley["n_row"])
         rec = V.run(w, d, 40.0, stop_at=lambda d_: V.ball_s(w, d_) >= 1.36)
         note(stage="past galley", status=rec.status, t=d.time + T.T_RELEASE, glance=V.glance(rec, 3))
@@ -293,6 +298,7 @@ def main():
     for s_w in WEIGHTS_STATIONS:
         with MV.heavy(f"v6 bake 3/5: weights at s {s_w:.2f} and the globe (MuJoCo)", enabled=use_lock):
             w.park("globe")
+            w.park("weights")                       # the line to this station is rolled with nothing in the way
             p, v, sp = stage_line(w, stB, s_w)
 
             def weights_turn(b):
