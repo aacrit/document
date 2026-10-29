@@ -87,10 +87,13 @@ def across(x, y):
 # ------------------------------------------------------------------------------------------------ the fall
 
 # Tuned to the measured mu_r (murr_v6, 30 mm, at 0.13 m/s) with tune_fall(): the fall and the start speed that give
-# the longest roll keeping 0.10 m/s before the sag. The spec's 0.45 rolls the path in under 9 s. No uniform fall
-# reaches the spec's 20-24 s: the papers' mu_r spread from 0.0061 (parchment) to 0.0086 (washi), so a fall slow
-# enough for one runs away or stalls on another; the 1D ceiling is about 16.5 s.
-FALL_DEG = 0.3725                          # tune_fall on murr_v6's measured mu_r (fall-tune.json): 16.4 s, v_min 0.104
+# the longest roll keeping 0.10 m/s before the sag. The spec's 0.45 with its 0.22 m/s latch rolls the path in under 9
+# s. No uniform fall reaches the spec's 20-24 s: the papers' mu_r spread from 0.0061 (parchment) to 0.0086 (washi), so
+# a fall slow enough for one runs away or stalls on another; the 1D ceiling is about 16.5 s.
+# With the glance losses the bake measured (the galley keeps 0.81 past the row, the weights about 0.80, the globe
+# 0.90): 0.4075 gives the longest roll (16.5 s) but leaves 0.1005 m/s, no margin for the 3D path's meander, and a
+# first bake at 0.3725 stalled at x 2.05; 0.42 gives 15.3 s at 0.107 m/s.
+FALL_DEG = 0.42
 SAGS = [{"name": "latch sag", "deg": 1.0, "len": 0.15, "where": "board 1, the first 0.15 m after the latch"},
         {"name": "chart sag", "deg": 1.5, "len": 0.30, "where": "the chart's last 0.30 m before the lip"}]
 SAG_EASE = 0.02                            # each sag eases in and out over 2 cm (no kink)

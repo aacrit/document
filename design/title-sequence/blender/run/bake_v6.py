@@ -38,7 +38,17 @@ OUT = V.OUT
 CLEAR = 0.03                                       # the close passes: 3 cm from the ball's surface (spec 3.6)
 S_WEIGHTS = 1.50
 GLOBE_STATIONS = (1.95, 2.00, 2.05, 2.10)
-GLOBE_B = (0.55, 0.65, 0.75, 0.85, 0.92)
+# a rolling ball meets a turned foot's rim much as it meets the sorts' corners: b 0.55-0.92 turned it 33-79 degrees
+# (first grid, 2026-10-28); the spec's 15-25 lies at grazing b
+GLOBE_B = (0.93, 0.945, 0.955, 0.965, 0.975)
+WEIGHTS_STATIONS = (1.45, 1.58, 1.70)
+GALLEY_GRID = (0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.90, 0.95, 0.98)
+
+
+def tilt_deg(q):
+    """A sort's tilt from upright (its own z against the world's), degrees."""
+    w_, x_, y_, z_ = q
+    return math.degrees(math.acos(max(-1.0, min(1.0, 1 - 2 * (x_ * x_ + y_ * y_)))))
 
 
 def left_of(v):
@@ -122,7 +132,14 @@ def place_globe(w, p, v, b, foot_k=0):
     fw = np.array([c * cs[foot_k][0] - s * cs[foot_k][1], s * cs[foot_k][0] + c * cs[foot_k][1]])
     C = F - fw
     w.place("globe", float(C[0]), float(C[1]), yaw)
-    return {"b": b, "foot": foot_k, "r_foot_band": r, "foot_xy": F.tolist(), "n_feet": len(cs)}
+    # every foot on the oak of the table: inside its edges by 1 cm, none in the well
+    feet_w = [C + np.array([c * f[0] - s * f[1], s * f[0] + c * f[1]]) for f in cs]
+    W, H = T.TABLE["size"]
+    wx, wy = T.WELL["x"], T.WELL["y"]
+    on = all(0.01 + rr < q[0] < W - 0.01 - rr and 0.01 + rr < q[1] < H - 0.01 - rr and
+             not (wx[0] - rr < q[0] < wx[1] + rr and wy[0] - rr < q[1] < wy[1] + rr) for q, rr in zip(feet_w, radii))
+    return {"b": b, "foot": foot_k, "r_foot_band": r, "foot_xy": F.tolist(), "n_feet": len(cs),
+            "feet_xy": [q.tolist() for q in feet_w], "on_table": bool(on)}
 
 
 def run_to_rest(w, st):
@@ -229,72 +246,107 @@ def main():
             b_g = cache["galley"]["b"]
             note(stage="galley", b=b_g, resumed=True)
         else:
-            def galley_turn(b):
+            # A rolling ball beside the row meets sort 1's vertical corner edge, not its face, for any b over 0.30: the
+            # turn is set by how sideways that edge's normal is, about 16 degrees at b 0.97, and a graze slight enough
+            # for 6.5 degrees (b near 0.995) cannot topple the sort. So the grid keeps the placements where all
+            # twelve sorts fall and the ball keeps 90 percent of its speed past the row (preview 1's acceptance), and
+            # of those takes the turn nearest the spec's 5-8 degrees; the miss is reported.
+            rows = []
+            for b in GALLEY_GRID:
                 dd = V.restore(w, stA)
                 w.place_galley(dd, V.SORT1_S, nb + b * (T.R + V.SORT[1]))
-                r_ = V.run(w, dd, 40.0, stop_at=lambda d_: V.ball_s(w, d_) >= V.SORT1_S + 0.30)
+                r_ = V.run(w, dd, 40.0, stop_at=lambda d_: V.ball_s(w, d_) >= V.SORT1_S + 0.45)
                 g = V.glance(r_, 3)
-                return g["turn_deg"] if g else 0.0
-            b_g, turn_g, hist = V.search(galley_turn, 0.70, 0.97, -6.5, 0.6, n=8)
-            note(stage="galley", b=b_g, turn=turn_g, hist=hist, n_ball=nb, v_at=sp)
+                fallen = sum(tilt_deg(dd.xquat[bid]) > 60 for bid in w.sorts)
+                A = V.track_array(r_)
+                past = T.along(A[:, 1], A[:, 2]) >= w.placed["galley"]["s_end"]
+                # speed kept past the row: None when the ball never gets past it (a hard glance turns it away)
+                kept = float(np.linalg.norm(A[int(np.argmax(past)), 4:6]) / g["v_before"]) if g and past.any() else None
+                strays = sorted({c["pair"] for c in r_.contacts if "ball" in c["pair"].split("|")
+                                 and T.contact_class(c["pair"]) is None})
+                rows.append({"b": b, "turn": g["turn_deg"] if g else None, "fallen": int(fallen), "kept": kept,
+                             "strays": strays})
+                note(stage="galley try", **rows[-1])
+            ok = [r for r in rows if r["turn"] is not None and r["fallen"] == 12 and r["kept"] and r["kept"] >= 0.90
+                  and not r["strays"]]
+            pick = min(ok or [r for r in rows if r["turn"] is not None],
+                       key=lambda r: abs(r["turn"] - (-6.5)))
+            b_g = pick["b"]
+            note(stage="galley", b=b_g, pick=pick, meets_acceptance=bool(ok), n_ball=nb, v_at=sp)
             save_cache(galley={"b": b_g})
     galley = {"s1": V.SORT1_S, "n_row": nb + b_g * (T.R + V.SORT[1]), "b": b_g}
 
-    with MV.heavy("v6 bake 2/5: the weights glance (MuJoCo)", enabled=use_lock):
+    with MV.heavy("v6 bake 2/5: past the galley (MuJoCo)", enabled=use_lock):
         d = V.restore(w, stA)
         w.place_galley(d, galley["s1"], galley["n_row"])
         rec = V.run(w, d, 40.0, stop_at=lambda d_: V.ball_s(w, d_) >= 1.36)
         note(stage="past galley", status=rec.status, t=d.time + T.T_RELEASE, glance=V.glance(rec, 3))
         stB = V.snapshot(w, d)
-        p, v, sp = stage_line(w, stB, S_WEIGHTS)
 
-        def weights_turn(b):
-            place_weights(w, p, v, b)
-            r_ = V.run(w, V.restore(w, stB), 40.0, stop_at=lambda d_: V.ball_s(w, d_) >= S_WEIGHTS + 0.15)
-            g = V.glance(r_, 4)
-            return g["turn_deg"] if g else 0.0
-        if "weights" in cache:
-            b_w, turn_w, hist = cache["weights"]["b"], None, []
-        else:
-            b_w, turn_w, hist = V.search(weights_turn, 0.99, 0.55, 25.0, 1.5, n=10)
-            save_cache(weights={"b": b_w})
-        wi = place_weights(w, p, v, b_w)
-        note(stage="weights", turn=turn_w, hist=hist, v_at=sp, **wi, placed=w.placed["weights"])
+    # The weights and the globe are placed together: the globe's right turn can only aim the ball into the well if
+    # the ball reaches the globe still heading up-table from the weights' left turn (a first search with the weights
+    # at s 1.50 had the ball back on the fall line by the globe, and every right turn then ran it past the well's
+    # near side). For each weights station (its own lock window): the weights' impact parameter for a 25 degree turn,
+    # then a grid of globe stations and impact parameters, kept when the turn is 15-25 degrees right, the ball comes to
+    # rest in the well, and the globe's feet stand on the table.
+    cands = []
+    for s_w in WEIGHTS_STATIONS:
+        with MV.heavy(f"v6 bake 3/5: weights at s {s_w:.2f} and the globe (MuJoCo)", enabled=use_lock):
+            w.park("globe")
+            p, v, sp = stage_line(w, stB, s_w)
 
-    with MV.heavy("v6 bake 3/5: the globe glance and the stop (MuJoCo)", enabled=use_lock):
+            def weights_turn(b):
+                place_weights(w, p, v, b)
+                r_ = V.run(w, V.restore(w, stB), 40.0, stop_at=lambda d_: V.ball_s(w, d_) >= s_w + 0.15)
+                g = V.glance(r_, 4)
+                return g["turn_deg"] if g else 0.0
+            b_w, turn_w, hist = V.search(weights_turn, 0.995, 0.80, 25.0, 1.5, n=9)
+            wi = place_weights(w, p, v, b_w)
+            note(stage="weights", s_w=s_w, turn=turn_w, hist=hist, v_at=sp, **wi, placed=w.placed["weights"])
+            if not (20.0 <= turn_w <= 30.0):
+                continue
+            d = V.restore(w, stB)
+            V.run(w, d, 40.0, stop_at=lambda d_: V.ball_s(w, d_) >= s_w + 0.22)
+            stC = V.snapshot(w, d)
+            for s_g in (s_w + 0.30, s_w + 0.40, s_w + 0.50):
+                if s_g > T.S_LIP - 0.35:
+                    continue
+                pg, vg, spg = stage_line(w, stC, s_g)
+                for b in GLOBE_B:
+                    gi = place_globe(w, pg, vg, b)
+                    r_ = run_to_rest(w, stC)
+                    g = V.glance(r_, 5)
+                    rest = V.track_array(r_)[-1, 1:3]
+                    row = {"s_w": s_w, "b_w": b_w, "s_g": s_g, "b": b, "turn": g["turn_deg"] if g else None,
+                           "status": r_.status, "rest": rest.tolist(), "off_mm": (rest[1] - T.REST_TARGET[1]) * 1000,
+                           "short_mm": (T.RECORD_RECT[0] - rest[0] - T.R) * 1000, "feet_on_table": gi["on_table"]}
+                    note(stage="globe try", **row)
+                    if (g is not None and -25.0 <= g["turn_deg"] <= -15.0 and r_.status == "rest"
+                            and gi["on_table"]):
+                        cands.append(dict(row, p=pg.tolist(), v=vg.tolist(), wp=p.tolist(), wv=v.tolist()))
+    if not cands:
+        raise SystemExit("no weights and globe placement turns the ball into the well within the spec's ranges")
+    best = min(cands, key=lambda r: abs(r["off_mm"]))
+    with MV.heavy("v6 bake 3/5: the globe refined and the felt (MuJoCo)", enabled=use_lock):
+        place_weights(w, np.array(best["wp"]), np.array(best["wv"]), best["b_w"])
         d = V.restore(w, stB)
-        rec = V.run(w, d, 40.0, stop_at=lambda d_: V.ball_s(w, d_) >= 1.80)
-        note(stage="past weights", status=rec.status, t=d.time + T.T_RELEASE)
+        V.run(w, d, 40.0, stop_at=lambda d_: V.ball_s(w, d_) >= best["s_w"] + 0.22)
         stC = V.snapshot(w, d)
-        best = None
-        for s_g in GLOBE_STATIONS:
-            p, v, sp = stage_line(w, stC, s_g)
-            for b in GLOBE_B:
-                place_globe(w, p, v, b)
-                r_ = run_to_rest(w, stC)
-                g = V.glance(r_, 5)
-                rest = V.track_array(r_)[-1, 1:3]
-                row = {"s_g": s_g, "b": b, "turn": g["turn_deg"] if g else None, "status": r_.status,
-                       "rest": rest.tolist(), "off_mm": (rest[1] - T.REST_TARGET[1]) * 1000,
-                       "short_mm": (T.RECORD_RECT[0] - rest[0] - T.R) * 1000}
-                note(stage="globe try", **row)
-                ok = g is not None and -25.0 <= g["turn_deg"] <= -15.0 and r_.status == "rest"
-                if ok and (best is None or abs(row["off_mm"]) < abs(best["off_mm"])):
-                    best = dict(row, p=p.tolist(), v=v.tolist())
-        if best is None:
-            raise SystemExit("no globe placement turns the ball 15-25 degrees right and brings it to rest")
         p, v = np.array(best["p"]), np.array(best["v"])
 
         def off_of(b):
-            place_globe(w, p, v, b)
+            gi_ = place_globe(w, p, v, b)
             r_ = run_to_rest(w, stC)
             g = V.glance(r_, 5)
-            if g is None or not (-25.0 <= g["turn_deg"] <= -15.0) or r_.status != "rest":
+            if g is None or not (-25.0 <= g["turn_deg"] <= -15.0) or r_.status != "rest" or not gi_["on_table"]:
                 return 1e3 if b > best["b"] else -1e3
             return (V.track_array(r_)[-1, 2] - T.REST_TARGET[1]) * 1000
-        b_gl, off, hist = V.search(off_of, max(0.5, best["b"] - 0.08), min(0.97, best["b"] + 0.08), 0.0, 1.0, n=10)
+        b_gl, off, hist = V.search(off_of, max(0.5, best["b"] - 0.02), min(0.995, best["b"] + 0.02), 0.0, 1.0, n=8)
+        if abs(off) > abs(best["off_mm"]):                 # the refinement did no better: keep the grid's point
+            b_gl, off = best["b"], best["off_mm"]
         gi = place_globe(w, p, v, b_gl)
-        note(stage="globe", off_mm=off, hist=hist, s_g=best["s_g"], **gi, placed=w.placed["globe"])
+        note(stage="globe", off_mm=off, hist=hist, s_g=best["s_g"], s_w=best["s_w"], b_w=best["b_w"], **gi,
+             placed=w.placed["globe"], weights=w.placed["weights"])
         dD = data_at(w, stC, lambda d_: d_.xpos[w.ball][0] >= T.LIP_X - 0.02)
         stD = V.snapshot(w, dD)
         felt = w.gid["felt"]
@@ -309,7 +361,9 @@ def main():
         note(stage="felt", mu_r=mu_f, short_mm=short, hist=hist)
 
     with MV.heavy("v6 bake 4/5: the close passes (MuJoCo)", enabled=use_lock):
-        A = V.track_array(run_to_rest(w, stC))
+        d = V.new_data(w)
+        w.place_galley(d, galley["s1"], galley["n_row"])
+        A = V.track_array(V.run(w, d, T.DURATION))
         note(stage="close passes", **lay_close_passes(w, A))
 
     with MV.heavy("v6 bake 5/5: the end-to-end bake from f0 (MuJoCo)", enabled=use_lock):
