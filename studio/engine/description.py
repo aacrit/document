@@ -329,9 +329,11 @@ def sources_page(slug: str, site: str = SITE) -> str:
 INCOMPLETE = ("This description is incomplete: what does not fit here is left out. Full credits and notes for every "
               "shot are on the film's sources page: {url}")
 
-# Over the cap for any reason, lines are cut in this order until the text fits (each from the end of its list): the
-# gaps, the map notes, plain sources, 4.0 credits, the unnamed speakers, the voices, pre-4.0 credits, the marks key.
-# The title, the INCOMPLETE header, the sources-page line and the "Correct something" line are never cut.
+# Over the cap for any reason, lines are cut in this order (each section from the end of its list): the gaps, the map
+# notes, plain sources, 4.0 credits, the unnamed speakers, the voices, pre-4.0 credits, the marks key; compose gives
+# the room in the reverse order, so a section is cut only when every section after it in this order is already out.
+# The title (cut only when nothing else is left), the INCOMPLETE header, the sources-page line and the "Correct
+# something" line always stay.
 TRIM_ORDER = ("gaps", "map_notes", "plain", "uri", "unnamed", "voices", "full", "marks")
 TRIM_NAMES = {"gaps": "gap line(s)", "map_notes": "map note(s)", "plain": "plain source(s)", "uri": "4.0 credit(s)",
               "unnamed": "unnamed speaker line(s)", "voices": "voice line(s)", "full": "pre-4.0 credit(s)",
@@ -406,39 +408,10 @@ def compose(src: dict, film: dict | None = None, *, site: str = SITE) -> dict:
     listed = bool(_s(film.get("slug")))
     by = {t: [i for i, e in enumerate(entries) if e["tier"] == t] for t in ("full", "uri", "plain")}
 
-    def fit(keep: set, data_notes: bool) -> tuple[str, set]:
-        """The text for this selection, cut to the cap when it is over (TRIM_ORDER), with the INCOMPLETE header."""
-        text = block(keep, data_notes)
-        if len(text) <= MAX_CHARS:
-            return text, keep
-        st["header"] = True
-        keep = set(keep)
-        size = {"gaps": len(gap_lines), "map_notes": len(map_notes(keep, data_notes)), "unnamed": len(n["unnamed"]),
-                "voices": len(voices), "marks": len(marks)}
-        for sec in TRIM_ORDER:
-            if sec in by:                            # source entries: from the end of the film, within the tier
-                for i in reversed(by[sec]):
-                    if len(text) <= MAX_CHARS:
-                        break
-                    if i in keep:
-                        keep.discard(i)
-                        st["cut"][sec] = st["cut"].get(sec, 0) + 1
-                        text = block(keep, data_notes)
-                continue
-            while len(text) > MAX_CHARS and st["cut"][sec] < size[sec]:
-                st["cut"][sec] += 1
-                text = block(keep, data_notes)
-        if len(text) > MAX_CHARS:                    # only the title is left to give: cut it, never the fixed lines
-            over = len(text) - MAX_CHARS
-            joined = "\n".join(st["top"])
-            st["top"] = [joined[:max(0, len(joined) - over)].rstrip()]
-            text = block(keep, data_notes)
-        return text[:MAX_CHARS], keep
-
     def report(text: str, keep: set) -> dict:
         omitted = [e for i, e in enumerate(entries) if e["tier"] == "full" and i not in keep]
         left = [e for i, e in enumerate(entries) if e["tier"] == "uri" and i not in keep]
-        trimmed = {k: v for k, v in st["cut"].items() if v}      # incl. entries cut by fit ("plain", "uri", "full")
+        trimmed = {k: v for k, v in st["cut"].items() if v}
         dropped = [e for i, e in enumerate(entries) if e["tier"] == "plain" and i not in keep]
         unserved = bool(left or omitted) and not listed
         problems = []
@@ -459,30 +432,66 @@ def compose(src: dict, film: dict | None = None, *, site: str = SITE) -> dict:
                 "sources_page": page, "external_publish_ready": not problems, "problems": problems}
 
     every = set(range(len(entries)))
-    if not entries or len(block(every)) <= MAX_CHARS:
-        return report(*fit(every, True))
+    if len(block(every)) <= MAX_CHARS:
+        return report(block(every), every)
     keep = set(by["full"])
-    if by["full"] and len(block(keep, data_notes=False)) > MAX_CHARS:
-        # the pre-4.0 credits alone do not fit: say so at the top, then keep as many of them as fit, whole, in film
-        # order (one that does not fit is skipped; a shorter one after it may still fit); the sources-page line stays
-        st["header"] = True
-        keep = set()
-        for i in by["full"]:
-            if len(block(keep | {i}, data_notes=False)) <= MAX_CHARS:
-                keep.add(i)
-    whole = not st["header"]
-    for i in by["uri"]:                              # 4.0 works, whole, in film order, until the next does not fit
-        if len(block(keep | {i}, data_notes=False)) > MAX_CHARS:
-            whole = False
-            break
-        keep.add(i)
-    notes_on = len(block(keep)) <= MAX_CHARS         # then the data notes of maps left out, when there is room
-    if whole:                                        # then plain entries, while there is room
-        for i in by["plain"]:
-            if len(block(keep | {i}, data_notes=notes_on)) > MAX_CHARS:
+    if len(block(keep, data_notes=False)) <= MAX_CHARS:
+        # every pre-4.0 credit fits with every section whole: 4.0 credits, then map data notes, then plain sources
+        # take the room left, and the rest is left to the sources page (CC BY 4.0 3(a)(2)): no header, nothing cut
+        whole = True
+        for i in by["uri"]:                          # 4.0 works, whole, in film order, until the next does not fit
+            if len(block(keep | {i}, data_notes=False)) > MAX_CHARS:
+                whole = False
                 break
             keep.add(i)
-    return report(*fit(keep, notes_on))
+        notes_on = len(block(keep)) <= MAX_CHARS     # then the data notes of maps left out, when there is room
+        if whole:                                    # then plain entries, while there is room
+            for i in by["plain"]:
+                if len(block(keep | {i}, data_notes=notes_on)) > MAX_CHARS:
+                    break
+                keep.add(i)
+        return report(block(keep, data_notes=notes_on), keep)
+
+    # Over the cap for any reason: the INCOMPLETE header, and the room given in priority order, the reverse of
+    # TRIM_ORDER. Start from a block with every lower section emptied and no source entry, then add back: the pre-4.0
+    # credits (as many as fit, whole, in film order; one that does not fit is skipped), the voices, the unnamed
+    # speakers, the 4.0 credits, the plain sources, the map notes, the gaps, each while it still fits. A section
+    # comes back from its first line on (a cut is always from the end of its list).
+    st["header"] = True
+    c = st["cut"]
+    size = {"gaps": len(gap_lines), "map_notes": len(map_notes(set(), False)), "unnamed": len(n["unnamed"]),
+            "voices": len(voices), "marks": len(marks)}
+    for sec in ("gaps", "map_notes", "unnamed", "voices"):
+        c[sec] = size[sec]
+    keep = set()
+
+    def fits() -> bool:
+        return len(block(keep, data_notes=False)) <= MAX_CHARS
+
+    while not fits() and c["marks"] < size["marks"]:   # the floor itself is over: the marks key, then the title
+        c["marks"] += 1
+    if not fits():
+        over = len(block(keep, data_notes=False)) - MAX_CHARS
+        joined = "\n".join(st["top"])
+        st["top"] = [joined[:max(0, len(joined) - over)].rstrip()]
+
+    def add_entries(tier: str) -> None:
+        for i in by[tier]:
+            keep.add(i)
+            if not fits():
+                keep.discard(i)
+
+    def add_lines(sec: str) -> None:
+        while c[sec] > 0:
+            c[sec] -= 1
+            if not fits():
+                c[sec] += 1
+                return
+
+    add_entries("full")
+    for step in ("voices", "unnamed", "uri", "plain", "map_notes", "gaps"):
+        add_entries(step) if step in by else add_lines(step)
+    return report(block(keep, data_notes=False)[:MAX_CHARS], keep)
 
 
 def description_text(src: dict, film: dict | None = None, *, site: str = SITE) -> str:

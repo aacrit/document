@@ -305,7 +305,7 @@ def test_pre_4_0_credits_that_cannot_fit_write_the_best_description_that_fits():
     assert [e["line"] for e in kept] == [ln for ln in lines if ln.startswith("Licensed photograph ")]   # film order
     for e in kept:                                                              # what is printed is printed whole
         assert "By Photographer" in e["line"] and "https://creativecommons.org/licenses/" in e["line"]
-    assert "Public domain still" not in t                                       # no plain entry while a credit is out
+    assert r["trimmed"].get("gaps") == 2                                       # the gaps gave their room first
     assert r["external_publish_ready"] is False
     assert r["problems"] and all(e["name"] in r["problems"][0] for e in r["omitted"]) and "before 4.0" in r["problems"][0]
     assert D.release_problem(src, FILM) is None                                 # the site release is never refused for it
@@ -427,14 +427,14 @@ def _fixed_lines_kept(t):
 
 def test_an_overflow_from_map_notes_is_cut_to_fit_with_the_header():
     src = dict(SRC, shots=SRC["shots"] + [
-        {"id": f"M{i}", "ledger_id": f"MAP-{i}", "mark": {"class": "DRAWN"}, "title": f"Map {i}",
-         "licence": "public domain", "notes": [f"Note {i} on this map, a sentence of some length to fill the cap."]}
-        for i in range(200)])
+        {"id": "M1", "ledger_id": "MAP-N", "mark": {"class": "DRAWN"}, "title": "Map",
+         "licence": "public domain", "notes": [f"Note {i} on this map, a sentence of some length to fill the cap."
+                                               for i in range(200)]}])
     r = D.compose(src, FILM)
     lines = _fixed_lines_kept(r["text"])
     assert r["incomplete"] and r["trimmed"].get("map_notes") and not r["omitted"]
     assert r["trimmed"].get("gaps") == 2                                        # the gaps go first, then the notes
-    assert "Gaps in the record" not in lines and "Map 0: Note 0 on this map" in r["text"]   # cut from the end
+    assert "Gaps in the record" not in lines and "Map: Note 0 on this map" in r["text"]   # cut from the end
     assert r["external_publish_ready"] is False and "map note(s)" in r["problems"][0]
 
 
@@ -466,3 +466,29 @@ def test_a_string_notes_in_sources_json_is_never_printed_letter_by_letter():
     src = dict(SRC, shots=[dict(SRC["shots"][0], notes="Crop above the caption bar.")])
     n = D.notes(src)
     assert n["map_notes"] == [] and "Crop above" not in D.description_text(src, FILM)
+
+
+def _probe(n_pre, n_gaps, title=None, gap_len=200):
+    """The reviewer's probes: a pre-4.0 overflow and a long gaps list together."""
+    src = dict(SRC, shortfalls=[], shots=[_photo(i, "CC BY 2.0", title(i) if title else None) for i in range(n_pre)],
+               gaps=[{"says": f"Gap {i}: " + "g" * gap_len, "searched": "Searched: Commons."} for i in range(n_gaps)])
+    return src
+
+
+def test_the_cut_order_is_honoured_60_pre_4_0_credits_and_30_gaps():
+    src = _probe(60, 30)
+    r = D.compose(src, FILM)
+    alone = D.compose(dict(src, gaps=[]), FILM)                               # the same film with no gaps at all
+    assert len(r["text"]) <= D.MAX_CHARS and r["incomplete"] and r["omitted"]
+    assert len(r["omitted"]) == len(alone["omitted"])                          # the gaps took no credit's room
+    assert r["trimmed"]["gaps"] == 30 and "Gaps in the record" not in r["text"]   # cut first, wholly
+
+
+def test_the_cut_order_is_honoured_15_pre_4_0_credits_and_3_gaps():
+    src = _probe(15, 3, title=lambda i: f"Photograph {i}", gap_len=1500)
+    r = D.compose(src, FILM)
+    assert len(r["text"]) <= D.MAX_CHARS and r["incomplete"]
+    assert r["omitted"] == []                                                  # every credit kept: the gaps gave way
+    assert all(f"Photograph {i}." in r["text"] for i in range(15))
+    assert 0 < r["trimmed"]["gaps"] <= 3 and "Gap 0: " in r["text"]           # cut from the end, the first kept
+    assert "map note(s)" not in r["problems"][0] and "gap line(s)" in r["problems"][0]
