@@ -8561,25 +8561,15 @@ def title_sources_fields(s: dict) -> dict:
         "provenance": [dict({k: x.get(k) for k in keep}, credit=TS.plain(x.get("credit"))) for x in TS.provenance_items(prov)]}}
 
 
-def retire_description(path: Path) -> Path | None:
-    """An earlier render's description.txt, renamed description.stale.txt so it never sits beside a new sources.json
-    as if it described it. Returns the new path, or None when there was none."""
-    if not path.exists():
-        return None
-    stale = path.with_name("description.stale.txt")
-    path.replace(stale)
-    return stale
-
-
-def description_overflow(plan: dict, journal: Journal) -> str | None:
-    """Why this plan's description block cannot be written (its pre-4.0 credits do not fit the cap), or None. Read
-    from the sources data the render will write, so a final render is refused before its frames, not after."""
-    try:
-        doc = sources_doc(plan, journal, {})
-        DSC.description_text(doc, DSC.film_entry(DSC.REPO_FILMS, doc.get("slug") or ""))
-    except DSC.AttributionOverflow as e:
-        return str(e)
-    return None
+def description_fit(plan: dict, journal: Journal) -> dict:
+    """What this plan's description block will leave out, read from the sources data the render will write, before
+    any frame: the pre-4.0 credits that do not fit the cap (``omitted``), and whether the description is ready for an
+    outside platform. Never a refusal (GRAMMAR A56): description.txt is only for external publication, and the site's
+    Sources page carries every credit; ``python -m studio.engine.description --check-external`` is that gate."""
+    doc = sources_doc(plan, journal, {})
+    r = DSC.compose(doc, DSC.film_entry(DSC.REPO_FILMS, doc.get("slug") or ""))
+    return {"fits": not r["omitted"], "external_publish_ready": r["external_publish_ready"], "chars": len(r["text"]),
+            "max_chars": DSC.MAX_CHARS, "omitted": [e["name"] for e in r["omitted"]], "problems": r["problems"]}
 
 
 def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
@@ -8966,12 +8956,10 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         fill_refusals = card_fill_lints(journal, plan)
         if fill_refusals:
             raise Refused(f"filled cards (pre-flight): {'; '.join(fill_refusals)} (E15: a card's text is drawn whole or refused)")
-        if not check:              # A56: the description block, from this plan, before any frame (never at the end)
-            desc_why = description_overflow(plan, journal)
-            journal.lint("description-fits", desc_why is None, stage="assembly", phase="preflight", grammar="A56",
-                         severity="warn" if advisory else "block", evidence={"why": desc_why})
-            if desc_why and not advisory:
-                raise Refused(f"description (pre-flight): {desc_why} (GRAMMAR A56)")
+        if not check:              # A56: the description block, from this plan, before any frame: a warning, never a refusal
+            desc = description_fit(plan, journal)
+            journal.lint("description-fits", desc["fits"], stage="assembly", phase="preflight", grammar="A56",
+                         severity="warn", evidence=desc)
         for i in pending:
             key_shot(i)
         todo.sort()
@@ -9220,13 +9208,10 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         if not span:
             doc = sources_doc(plan, journal, extra)
             sources_path.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
-            if not check:                   # A56: the description block, from the same data (description.py)
-                try:
-                    journal.artifact("assembly", DSC.write_description(sources_path, DSC.REPO_FILMS), role="description")
-                except DSC.AttributionOverflow as e:      # only a draft gets here: the pre-flight refuses a final render
-                    stale = retire_description(sources_path.with_name("description.txt"))
-                    journal.lint("description-fits", False, stage="assembly", severity="warn", grammar="A56",
-                                 evidence={"why": str(e), "stale": str(stale) if stale else None})
+            if not check:                   # A56: the description block and its sidecar, from the same data (description.py)
+                desc_path = DSC.write_description(sources_path, DSC.REPO_FILMS)
+                journal.artifact("assembly", desc_path, role="description")
+                journal.artifact("assembly", DSC.sidecar_path(desc_path), role="description-attribution")
         for i in in_span:
             journal.artifact("motion", segs[i], unit=ids[i], role="check-segment" if check else "segment")
         journal.artifact("assembly", master, role="check-master" if check else "master")
@@ -9294,15 +9279,23 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
             raise Refused(f"a shortfall card's numbers come from the render's own measurement and {why}: render the film")
         fill_cards(plan, values, journal)
     doc = sources_doc(plan, journal, extra)
-    # release step [a]: the description must be publishable with this film (A56), checked before either file is written
-    why = DSC.release_problem(doc, DSC.film_entry(DSC.REPO_FILMS, doc.get("slug") or ""))
+    # release step [a]: the description must not lean on a sources page the site does not serve (A56), checked before
+    # either file is written; its length never refuses (the Sources page carries every credit; --check-external gates
+    # an outside platform)
+    film_entry = DSC.film_entry(DSC.REPO_FILMS, doc.get("slug") or "")
+    why = DSC.release_problem(doc, film_entry)
     journal.lint("description-release", why is None, stage="assembly", phase="sources-only", grammar="A56",
                  evidence={"why": why})
     if why:
         raise Refused(f"description: {why} (GRAMMAR A56)")
     path.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
     journal.artifact("assembly", path, role="sources")
-    journal.artifact("assembly", DSC.write_description(path, DSC.REPO_FILMS), role="description")
+    desc_path = DSC.write_description(path, DSC.REPO_FILMS)
+    journal.artifact("assembly", desc_path, role="description")
+    journal.artifact("assembly", DSC.sidecar_path(desc_path), role="description-attribution")
+    external = DSC.external_problems(doc, film_entry)
+    journal.lint("description-external", not external, stage="assembly", phase="sources-only", grammar="A56",
+                 severity="warn", evidence={"problems": external})
     return {"sources": str(path), "frames": plan["frames"], "duration_s": plan["duration_s"], "master_sha256": extra["master_sha256"]}
 
 

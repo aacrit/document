@@ -89,24 +89,47 @@ def test_sources_only_refuses_a_description_it_cannot_publish_before_writing_eit
     assert (out / "sources.json").read_bytes() == before and not (out / "description.txt").exists()
 
 
-def test_the_pre_flight_reads_the_description_from_the_plans_own_sources_data(monkeypatch):
-    crowded = {"slug": "fixture", "title": "F", "readings": [], "shots": [
+def _crowded_doc(n=40, slug="fixture"):
+    return {"slug": slug, "title": "F", "readings": [], "shots": [
         {"id": f"S{i}", "ledger_id": f"CB-{i}", "mark": {"class": "ARCHIVE"}, "title": "y" * 200, "licence": "CC BY 2.0",
-         "creator": f"P{i}", "item_url": f"https://c.org/{i}"} for i in range(40)]}
+         "creator": f"P{i}", "item_url": f"https://c.org/{i}"} for i in range(n)]}
+
+
+def test_the_pre_flight_reads_the_description_from_the_plans_own_sources_data_and_never_refuses(monkeypatch):
+    crowded = _crowded_doc()
     monkeypatch.setattr(R, "sources_doc", lambda plan, journal, extra: crowded)
-    why = R.description_overflow({}, Journal(film="pre"))
-    assert why and "CB-0" in why and "before 4.0" in why
+    fit = R.description_fit({}, Journal(film="pre"))                           # a report, never a Refused
+    assert fit["fits"] is False and fit["external_publish_ready"] is False
+    assert "CB-39 (" + "y" * 200 + ")" in fit["omitted"] and fit["chars"] <= fit["max_chars"]
+    assert fit["problems"] and "before 4.0" in fit["problems"][0]
     monkeypatch.setattr(R, "sources_doc", lambda plan, journal, extra: dict(crowded, shots=crowded["shots"][:2]))
-    assert R.description_overflow({}, Journal(film="pre")) is None
+    fit = R.description_fit({}, Journal(film="pre"))
+    assert fit["fits"] is True and fit["omitted"] == []
 
 
-def test_a_draft_that_cannot_write_its_description_retires_the_old_one(tmp_path):
-    old = tmp_path / "description.txt"
-    old.write_text("an earlier render's description\n", encoding="utf-8")
-    stale = R.retire_description(old)
-    assert stale == tmp_path / "description.stale.txt" and not old.exists()
-    assert stale.read_text(encoding="utf-8") == "an earlier render's description\n"
-    assert R.retire_description(old) is None                    # nothing to retire
+def test_the_pre_flight_lint_is_a_warning_in_the_render():
+    src = Path(R.__file__).read_text(encoding="utf-8")
+    at = src.index('journal.lint("description-fits"')
+    call = src[at:src.index(")", src.index("evidence=", at))]
+    assert 'severity="warn"' in call and "advisory" not in call
+    assert 'raise Refused(f"description (pre-flight)' not in src              # the render never refuses on it
+
+
+def test_sources_only_writes_an_overflowing_description_and_its_sidecar_without_refusing(film, rendered, tmp_path,
+                                                                                          monkeypatch):
+    out = _copy_render(rendered, tmp_path / "overflow")
+    crowded = _crowded_doc(slug="partition-of-india")                           # listed in films.json: its page is served
+    real = R.sources_doc
+    monkeypatch.setattr(R, "sources_doc", lambda plan, journal, extra: dict(real(plan, journal, extra), **crowded))
+    j = Journal(film="overflow", out_dir=out)
+    R.sources_only(film, out, journal=j)
+    text = (out / "description.txt").read_text(encoding="utf-8")
+    assert "This description is incomplete" in text
+    side = json.loads((out / "description.attribution.json").read_text(encoding="utf-8"))
+    assert side["external_publish_ready"] is False and side["omitted"]
+    ev = [json.loads(x) for x in j.path.read_text(encoding="utf-8").splitlines()]
+    ext = [e for e in ev if e.get("rule") == "description-external"]
+    assert ext and ext[0]["status"] == "fail" and ext[0]["severity"] == "warn"
 
 
 def test_cli_sources_only(film, rendered, tmp_path):
