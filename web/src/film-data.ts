@@ -4,6 +4,8 @@
 // about a film is derived here, never typed, so the pages cannot drift from
 // the film. Pure functions only: no DOM, no fetch (tests/film-data.test.ts).
 
+import CC from "./cc-licences.json";
+
 export const MARK_CLASSES = ["ARCHIVE", "RECONSTRUCTED", "AI-GENERATED", "DRAWN", "CARD"] as const;
 export type MarkClass = (typeof MARK_CLASSES)[number];
 
@@ -49,6 +51,15 @@ export interface Shot {
   notes: string[];
   source_line: string | null;
   licence_note: string | null;
+  /** A drawn map's data, each source by name, with its https link and its licence (CC BY asks for both). */
+  data_sources: DataSource[];
+}
+
+export interface DataSource {
+  name: string;
+  /** https only; anything else is dropped and the name prints unlinked. */
+  url: string | null;
+  licence: string | null;
 }
 
 export interface MarkSpan {
@@ -212,7 +223,75 @@ function parseShot(x: unknown, i: number, fps: number): Shot {
     notes: Array.isArray(x.notes) ? x.notes.map(str).filter((t): t is string => t !== null) : [],
     source_line: str(x.source_line),
     licence_note: str(x.licence_note),
+    data_sources: parseDataSources(x.data_sources),
   };
+}
+
+/** A map's data_sources: the name without its parenthetical ("GeoNames (CC BY 4.0)" -> "GeoNames", as
+ * studio/engine/description.py map_attribution prints it), an https url or none, and the licence. */
+export function parseDataSources(x: unknown): DataSource[] {
+  if (!Array.isArray(x)) return [];
+  const out: DataSource[] = [];
+  for (const d of x) {
+    if (!isObj(d)) continue;
+    const id = str(d.id);
+    if (!id) continue;
+    const name = id.replace(/\s*\([^)]*\)/g, "").trim() || id.trim();
+    out.push({ name, url: safeUrl(d.url), licence: str(d.licence) });
+  }
+  return out;
+}
+
+// The Creative Commons licences linked to a deed: the same table studio/engine/description.py reads.
+const CC_KINDS = new Set<string>(CC.kinds);
+const CC_VERSIONS = new Set<string>(CC.versions);
+const CC_PORTED = new Set<string>(CC.ported_versions);
+const CC_IGO = new Set<string>(CC.igo_versions);
+const CC_ID = /\bCC[- ]?(BY(?:[- ](?:NC|ND|SA)){0,2})[- ]?(\d\.\d)(?:[- ](IGO|[A-Za-z]{2})\b)?/gi;
+const CC_SPELLED =
+  /\bCreative\s+Commons\s+Attribution((?:[- ]?(?:Share[- ]?Alike|Non[- ]?Commercial|No[- ]?Deriv(?:s|atives)))*)(?:\s+Licen[cs]e)?\s+(\d\.\d)/gi;
+const CC_ZERO = /\bCC[- ]?0(?:[- ]1\.0)?\b|\bCreative\s+Commons\s+Zero\b/gi;
+const ZERO_DEED = "https://creativecommons.org/publicdomain/zero/1.0/";
+
+function ccDeed(kind: string, version: string, jurisdiction: string | null): string | null {
+  if (!CC_KINDS.has(kind) || !CC_VERSIONS.has(version)) return null;
+  if (jurisdiction && !(jurisdiction === "IGO" ? CC_IGO : CC_PORTED).has(version)) return null; // 4.0 was never ported
+  return `https://creativecommons.org/licenses/${kind}/${version}/${jurisdiction ? `${jurisdiction.toLowerCase()}/` : ""}`;
+}
+
+/** The Creative Commons deed a licence id names ("CC-BY-4.0", "CC BY-SA 3.0", "CC BY 3.0 US", "CC0", or the
+ * spelled-out "Creative Commons Attribution-ShareAlike 3.0"), or null. Built here from the id, never taken from a
+ * file, so it is always https://creativecommons.org/. */
+export function licenceDeed(id: string | null): string | null {
+  if (!id) return null;
+  const t = id.trim();
+  const m = licenceSpans(t)[0];
+  if (!m || m.start !== 0) return null;
+  // the id itself, or the id followed only by a qualifier CC prints after it ("Unported", "Generic", "International")
+  return m.end === t.length || /^\s+(Unported|Generic|International)$/i.test(t.slice(m.end)) ? m.deed : null;
+}
+
+/** Every Creative Commons licence named inside a text, with where it sits and its deed; for linking ids in prose.
+ * An id CC never published (an unknown kind or version, a 4.0 "port") is not linked. */
+export function licenceSpans(text: string): { start: number; end: number; deed: string }[] {
+  const out: { start: number; end: number; deed: string }[] = [];
+  for (const m of text.matchAll(CC_ID)) {
+    const start = m.index ?? 0;
+    const jur = m[3] && m[3] === m[3].toUpperCase() ? m[3] : null; // "CC BY 2.0 by newandrew": no port
+    const end = start + m[0].length - (m[3] && !jur ? m[3].length + 1 : 0);
+    const deed = ccDeed(m[1].toLowerCase().replace(/ /g, "-"), m[2], jur);
+    if (deed) out.push({ start, end, deed });
+  }
+  for (const m of text.matchAll(CC_SPELLED)) {
+    const codes = (m[1].match(/Share[- ]?Alike|Non[- ]?Commercial|No[- ]?Deriv(?:s|atives)/gi) ?? []).map((w) =>
+      /^share/i.test(w) ? "sa" : /^non/i.test(w) ? "nc" : "nd",
+    );
+    const deed = ccDeed(["by", ...codes].join("-"), m[2], null);
+    if (deed) out.push({ start: m.index ?? 0, end: (m.index ?? 0) + m[0].length, deed });
+  }
+  for (const m of text.matchAll(CC_ZERO)) out.push({ start: m.index ?? 0, end: (m.index ?? 0) + m[0].length, deed: ZERO_DEED });
+  out.sort((x, y) => x.start - y.start);
+  return out.filter((x, i) => i === 0 || x.start >= out[i - 1].end);
 }
 
 /** The black floor applied to a still (A46), or null: an opt-out or no floor shows nothing was changed. */
@@ -637,6 +716,8 @@ export interface FilmNotes {
   gaps: SourceGap[];
   statements: string[];
   mapNotes: string[];
+  /** Each drawn map's data sources, linked where the file gives an https url. */
+  mapData: { map: string; sources: DataSource[] }[];
   licences: string[];
 }
 
@@ -687,14 +768,16 @@ export function filmNotes(
     return at ? `${u.name}: ${at}` : u.name;
   });
   const mapNotes: string[] = [];
+  const mapData: FilmNotes["mapData"] = [];
   const byLicence = new Map<string, number>();
   for (const s of data.shots) {
     const name = s.title ?? s.id;
+    if (s.data_sources.length && !mapData.some((m) => m.map === name)) mapData.push({ map: name, sources: s.data_sources });
     for (const n of s.notes) {
       const t = `${name}: ${n}`;
       if (!mapNotes.includes(t)) mapNotes.push(t);
     }
-    if (s.source_line) {
+    if (s.source_line && !s.data_sources.length) {     // a map that names its data is credited in mapData, linked
       const t = `${name}: ${s.source_line}`;
       if (!mapNotes.includes(t)) mapNotes.push(t);
     }
@@ -710,6 +793,7 @@ export function filmNotes(
     gaps: sourceGaps(data).map(({ says, searched }) => ({ says, searched })),
     statements: [...data.statements],
     mapNotes,
+    mapData,
     licences,
   };
 }

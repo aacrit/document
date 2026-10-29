@@ -12,13 +12,11 @@ import {
   chapterAt,
   chapters as chaptersOf,
   formatTime,
-  itemLinkLabel,
   pct,
   readingFlag,
   readingSource,
   secondsByMark,
   seekTime,
-  shotTreatment,
   shotWhat,
   sideLabel,
   type Balance,
@@ -29,6 +27,7 @@ import {
   type Shot,
 } from "./film-data";
 import { notesNodes } from "./notes";
+import { sourceRows } from "./shot-rows";
 import { byId, el, filmPath, loadSources, markPlate, numerals, slugOf } from "./site";
 import { countSourceOpens, sendEvent } from "./telemetry";
 
@@ -71,19 +70,7 @@ function shotEntry(shot: Shot): HTMLLIElement {
   if (shot.kind === "archive_video" && shot.in_s !== null && shot.out_s !== null) {
     what += `, from ${formatTime(shot.in_s)} to ${formatTime(shot.out_s)} of the archive's copy`;
   }
-  const item = shot.item_url
-    ? el("a", { class: "source", href: shot.item_url, rel: "noreferrer", "data-item": "" }, itemLinkLabel(shot))
-    : null;
-  const rows: [string, Node | string | null][] = isCard
-    ? [["What", numerals(what)]]
-    : [
-        ["What", numerals(what)],
-        ["Archive", shot.archive],
-        ["Item", item],
-        ["Licence", shot.licence],
-        ["Credit", shot.credit && !/^https?:/.test(shot.credit) ? numerals(shot.credit) : null],
-        ["Treatment", shotTreatment(shot)],
-      ];
+  const rows: [string, Node | string | null][] = isCard ? [["What", numerals(what)]] : [["What", numerals(what)], ...sourceRows(shot)];
   return el(
     "li",
     { id: shot.id, class: "entry", "data-class": shot.mark.class },

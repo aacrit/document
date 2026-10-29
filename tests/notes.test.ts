@@ -65,6 +65,7 @@ const notes = (over: Partial<FilmNotes> = {}): FilmNotes => ({
   gaps: [],
   statements: [],
   mapNotes: [],
+  mapData: [],
   licences: [],
   ...over,
 });
@@ -88,6 +89,43 @@ describe("notes on this film", () => {
     const text = nodes.map((n) => n.textContent).join("\n");
     expect(text.split(EVIL).length - 1).toBe(7);          // every value lands verbatim, as text (the gap holds two)
     expect(all.filter((n) => n.tag === "li")).toHaveLength(6);
+  });
+
+  it("links a licence id to its deed and a data source to its https url, and nothing hostile to anything", async () => {
+    const { notesNodes } = await import("../web/src/notes");
+    const nodes = notesNodes(
+      notes({
+        mapData: [
+          {
+            map: EVIL,
+            sources: [
+              { name: "GeoNames", url: "https://www.geonames.org/", licence: "CC BY 4.0" },
+              { name: EVIL, url: `https://example.org/${EVIL}`, licence: EVIL },
+              { name: "Plain http", url: "http://example.org/", licence: null },
+              { name: "Script", url: "javascript:alert(1)", licence: null },
+            ],
+          },
+        ],
+        licences: ["CC-BY-4.0 (contains GeoNames data (CC BY 4.0)): 1 shot", "CC0: 3 shots", "public domain: 38 shots", EVIL],
+      }) as never,
+    ) as unknown as FakeNode[];
+    const all = nodes.flatMap((n) => n.all());
+    expect(all.some((n) => n.tag === "img")).toBe(false);
+    expect(all.every((n) => !("onerror" in n.attrs) && !("src" in n.attrs))).toBe(true);
+    const links = all.filter((n) => n.tag === "a");
+    expect(links.map((a) => [a.textContent, a.attrs.href])).toEqual([
+      ["GeoNames", "https://www.geonames.org/"],
+      ["CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/"],
+      [EVIL, "https://example.org/%22%3E%3Cimg%20src=x%20onerror=alert(1)%3E"],
+      ["CC-BY-4.0", "https://creativecommons.org/licenses/by/4.0/"],
+      ["CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/"],
+      ["CC0", "https://creativecommons.org/publicdomain/zero/1.0/"],
+    ]);
+    expect(links.every((a) => a.attrs.href.startsWith("https://") && a.attrs.rel.split(" ").includes("noopener"))).toBe(true);
+    const text = nodes.map((n) => n.textContent).join("\n");
+    expect(text).toContain("Plain http");                         // a refused url leaves the name, unlinked
+    expect(text).toContain("public domain: 38 shots");
+    expect(text.split(EVIL).length - 1).toBe(4);                  // map, name, licence, and the licence line: as text
   });
 
   it("omits an empty list and says so in one sentence when every list is empty", async () => {

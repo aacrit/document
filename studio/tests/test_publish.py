@@ -78,6 +78,37 @@ def test_sources_only_refuses_without_a_master_or_with_a_stale_one(film, rendere
         R.sources_only(film, out)
 
 
+def test_sources_only_refuses_a_description_it_cannot_publish_before_writing_either_file(film, rendered, tmp_path,
+                                                                                          monkeypatch):
+    from studio.engine import description as DSC
+    out = _copy_render(rendered, tmp_path / "unpublishable")
+    before = (out / "sources.json").read_bytes()
+    monkeypatch.setattr(DSC, "release_problem", lambda doc, film: "fixture is not in films.json")
+    with pytest.raises(R.Refused, match="description: fixture is not in films.json"):
+        R.sources_only(film, out)
+    assert (out / "sources.json").read_bytes() == before and not (out / "description.txt").exists()
+
+
+def test_the_pre_flight_reads_the_description_from_the_plans_own_sources_data(monkeypatch):
+    crowded = {"slug": "fixture", "title": "F", "readings": [], "shots": [
+        {"id": f"S{i}", "ledger_id": f"CB-{i}", "mark": {"class": "ARCHIVE"}, "title": "y" * 200, "licence": "CC BY 2.0",
+         "creator": f"P{i}", "item_url": f"https://c.org/{i}"} for i in range(40)]}
+    monkeypatch.setattr(R, "sources_doc", lambda plan, journal, extra: crowded)
+    why = R.description_overflow({}, Journal(film="pre"))
+    assert why and "CB-0" in why and "before 4.0" in why
+    monkeypatch.setattr(R, "sources_doc", lambda plan, journal, extra: dict(crowded, shots=crowded["shots"][:2]))
+    assert R.description_overflow({}, Journal(film="pre")) is None
+
+
+def test_a_draft_that_cannot_write_its_description_retires_the_old_one(tmp_path):
+    old = tmp_path / "description.txt"
+    old.write_text("an earlier render's description\n", encoding="utf-8")
+    stale = R.retire_description(old)
+    assert stale == tmp_path / "description.stale.txt" and not old.exists()
+    assert stale.read_text(encoding="utf-8") == "an earlier render's description\n"
+    assert R.retire_description(old) is None                    # nothing to retire
+
+
 def test_cli_sources_only(film, rendered, tmp_path):
     out = _copy_render(rendered, tmp_path / "cli")
     assert R.main([str(film), "--out", str(out), "--sources-only"]) == 0

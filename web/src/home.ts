@@ -11,7 +11,7 @@
 import "./app";
 import { aiSentence, creditsLine, formatTime, posterCredit, trailerNote, voiceSentence } from "./film-data";
 import { tapPlay } from "./player";
-import { byId, loadSources, mediaUrl, numerals, slugOf } from "./site";
+import { byId, loadSources, mediaUrl, numerals, slugOf, withDeeds } from "./site";
 import { sendEvent } from "./telemetry";
 
 // The marquee film, from the page (the build writes it from films.json).
@@ -41,7 +41,7 @@ function setupFromSources(): void {
         img.alt = data.poster.description ?? data.poster.title;
         img.src = mediaUrl(SLUG, "poster.jpg");
         img.hidden = false;
-        byId("poster-credit").replaceChildren(numerals(posterCredit(data.poster)));
+        byId("poster-credit").replaceChildren(withDeeds(posterCredit(data.poster)));
         byId<HTMLVideoElement>("trailer-video").poster = mediaUrl(SLUG, "poster.jpg");
       }
     })

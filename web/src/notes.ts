@@ -2,7 +2,7 @@
 // film's sources.json (film-data.ts filmNotes). Every value is set as DOM text
 // through el() and numerals(), never as markup: the strings come from a file.
 import type { FilmNotes } from "./film-data";
-import { el, numerals } from "./site";
+import { dataSourcesNode, el, numerals, withDeeds } from "./site";
 
 export const NO_NOTES = "This film states no notes beyond its sources.";
 
@@ -32,8 +32,15 @@ export function notesNodes(n: FilmNotes): HTMLElement[] {
       ]),
     );
   }
-  if (n.mapNotes.length) out.push(block("Notes on the maps", n.mapNotes.map((t) => numerals(t))));
-  if (n.licences.length) out.push(block("Licences", n.licences.map((t) => numerals(t))));
+  if (n.mapNotes.length || n.mapData.length) {
+    const data = n.mapData.map((m) => {
+      const f = document.createDocumentFragment();
+      f.append(`${m.map}: Data: `, dataSourcesNode(m.sources));
+      return f;
+    });
+    out.push(block("Notes on the maps", [...n.mapNotes.map((t) => withDeeds(t)), ...data]));
+  }
+  if (n.licences.length) out.push(block("Licences", n.licences.map((t) => withDeeds(t))));
   if (!out.length) out.push(el("p", { class: "muted" }, NO_NOTES));
   return out;
 }
