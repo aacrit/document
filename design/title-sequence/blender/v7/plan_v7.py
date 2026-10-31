@@ -179,8 +179,11 @@ def board_dirs(b, theta_deg):
 
 @lru_cache(maxsize=None)
 def rest_angle(bid) -> float:
-    """The angle at which the board's top edge touches the ball (it lies on the ball before its rise)."""
+    """The angle at which the board's top edge touches the ball (it lies on the ball before its rise). The film's
+    record, on its taller stand, rests level (0 degrees) on the stand like a lectern's lid."""
     b = board(bid)
+    if b.get("tail"):
+        return 0.0
     h = RECORDS[bid]["size"][1]
     P0, *_ = hinge_basis(b)
     lo, hi = -89.0, 10.0
@@ -351,9 +354,44 @@ def keys_tail():
     return k
 
 
+def _pchip_slopes(h, d):
+    """Fritsch-Carlson slopes (scipy's PchipInterpolator scheme): weighted harmonic mean inside, 0 at a sign
+    change; the ends by the shape-preserving three-point formula."""
+    n = len(d) + 1
+    m = np.zeros((n,) + d.shape[1:])
+    if n == 2:
+        m[0] = m[1] = d[0]
+        return m
+    w1 = (2 * h[1:] + h[:-1]).reshape((-1,) + (1,) * (d.ndim - 1))
+    w2 = (h[1:] + 2 * h[:-1]).reshape((-1,) + (1,) * (d.ndim - 1))
+    same = (np.sign(d[:-1]) == np.sign(d[1:])) & (d[:-1] != 0) & (d[1:] != 0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        hm = (w1 + w2) / (w1 / d[:-1] + w2 / d[1:])
+    m[1:-1] = np.where(same, hm, 0.0)
+
+    def end(h0, h1, d0, d1):
+        s = ((2 * h0 + h1) * d0 - h0 * d1) / (h0 + h1)
+        s = np.where(np.sign(s) != np.sign(d0), 0.0, s)
+        return np.where((np.sign(d0) != np.sign(d1)) & (np.abs(s) > np.abs(3 * d0)), 3 * d0, s)
+    m[0] = end(h[0], h[1], d[0], d[1])
+    m[-1] = end(h[-1], h[-2], d[-1], d[-2])
+    return m
+
+
 def _pchip(x, y, xi):
-    from scipy.interpolate import PchipInterpolator
-    return PchipInterpolator(np.asarray(x, float), np.asarray(y, float), axis=0)(xi)
+    """Monotone piecewise cubic Hermite interpolation along axis 0 (numpy only: CI has no scipy)."""
+    x = np.asarray(x, float)
+    y = np.asarray(y, float)
+    xi = np.atleast_1d(np.asarray(xi, float))
+    h = np.diff(x)
+    sh = (-1,) + (1,) * (y.ndim - 1)
+    d = np.diff(y, axis=0) / h.reshape(sh)
+    m = _pchip_slopes(h, d)
+    k = np.clip(np.searchsorted(x, xi, side="right") - 1, 0, len(x) - 2)
+    t = ((xi - x[k]) / h[k]).reshape(sh)
+    hk = h[k].reshape(sh)
+    h00, h10, h01, h11 = 2 * t ** 3 - 3 * t ** 2 + 1, t ** 3 - 2 * t ** 2 + t, -2 * t ** 3 + 3 * t ** 2, t ** 3 - t ** 2
+    return h00 * y[k] + h10 * hk * m[k] + h01 * y[k + 1] + h11 * hk * m[k + 1]
 
 
 def _interp_keys(keys, frames):
