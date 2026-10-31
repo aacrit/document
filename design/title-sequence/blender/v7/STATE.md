@@ -30,6 +30,13 @@ Updated 2026-10-31 by the v7 builder. Working notes for the ticket, not law.
 ## Machine
 - D: guard: every step refuses if D: would drop to 12 GB or less (render_v7.d_guard). D: was 17 GB free at 12:15.
 
+## Progress 12:25
+- Commit 001275f: scene, driver, Foley, assembly, tests (17 pass). Smoke render OK (0.08 s/frame at 427x240 32 spp).
+- Foley events for the music director: D:/document-media/title-sequence/v7/foley-events-v7.json; the theme passes
+  the guard (nearest 107 ms).
+- The film's record now rests level (0 deg) on its 0.22 m stand.
+- Meter and frames 0-59 at 512 spp queued behind HEAVY.lock (Apollo 13 draft1). Gate running.
+
 ## Next
 smoke -> meter -> day-1 still -> frames (480p) -> assemble (lockup, marks, Foley, theme, mix, encode, sheet,
 acceptance.json). The theme lands at D:/document-media/title-sequence/theme-v7/the-record-stands-theme-RW.wav.
