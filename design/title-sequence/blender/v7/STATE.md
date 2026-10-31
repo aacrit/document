@@ -37,6 +37,19 @@ Updated 2026-10-31 by the v7 builder. Working notes for the ticket, not law.
 - The film's record now rests level (0 deg) on its 0.22 m stand.
 - Meter and frames 0-59 at 512 spp queued behind HEAVY.lock (Apollo 13 draft1). Gate running.
 
-## Next
-smoke -> meter -> day-1 still -> frames (480p) -> assemble (lockup, marks, Foley, theme, mix, encode, sheet,
-acceptance.json). The theme lands at D:/document-media/title-sequence/theme-v7/the-record-stands-theme-RW.wav.
+## Delivered 14:20
+- D:/document-media/title-sequence/v7/review/v7-review-480p.mp4 (3.6 MB, 1260 frames, 42.04 s; theme pass 3
+  sha256 46cb89bf...; -22.0 LUFS, -3.04 dBTP), v7-review-480p-sheet.png, acceptance.json, day1-still-f170.png.
+- Render: fix batch 11.5 min under one lock hold (meter, 1020 frames at 512 spp at 0.48-0.62 s/frame, still).
+- Exposure metered on the brighter of the Atlas and chart reads (EV -0.88; the chart is 0.88 EV brighter).
+- Pass: A3 A4 A5 A6 B1 B2 B3 B4 (A7 1.38) B6 C4 D1-D5. Fail: A1 measured (translation flow cannot read zoom or
+  slow arrival; analytic 0.304 passes), A2 measured 18.25 at f125 (the Atlas panel swinging, not the camera; pan
+  13.7 analytic), C1 1.3% (lamp specular on varnish and brass), C2 min 0.111 (flights dim under the chart's meter).
+  C1 vs C2 is a trade-off of one fixed exposure across the Atlas, the chart and the globe.
+- The bare-globe still was invalid (camera keyed at one frame, so the motion blur smeared) and was deleted.
+
+## Next (for the 1440p final)
+- Decide C1/C2: soften the varnish coat and brass specular, or a lamp/albedo balance, then re-meter.
+- Brass hinge, card-on-brass and brass sweep recordings (CC0, pinned) in place of the stand-ins.
+- FILL at 1440p: 1.92 at the reads with D 2.031; the final needs D <= 1.69 m or a 1080p delivery basis.
+- Bare-globe judgement still: key the camera on every frame (or motion blur off) and re-render.

@@ -327,17 +327,31 @@ def measure_picture(lock, TT):
             per.append({"f": i, "flow_med": med, "flow_p90": p90, "tiles": nt})
         prev = g
     out["frames"] = per
-    # A1: every 1.0 s window of 0-1018, median flow >= 0.3 px/frame
+    # A1: every 1.0 s window of 0-1018, median flow >= 0.3 px/frame. Slow drift (under a pixel a frame) is measured
+    # over a span of K frames inside the window and divided by K: a one-frame phase-correlation peak is pulled toward
+    # the integer pixel and reads a 0.8 px/frame drift as nearly static.
+    K = 10
     wins = []
     for f0 in range(1, 1019 - 29, 30):
-        if f0 <= P.CUT < f0 + 30:
-            vals = [r["flow_med"] for r in per if f0 <= r["f"] < f0 + 30 and r["f"] != P.CUT]
-        else:
-            vals = [r["flow_med"] for r in per if f0 <= r["f"] < f0 + 30]
-        wins.append((f0, float(np.median(vals))))
+        vals = []
+        for a in range(f0, f0 + 30 - K, 5):
+            b = a + K
+            if a < P.CUT <= b:
+                continue
+            med, _, nt = flow(gray(a, lock), gray(b, lock))
+            if nt:
+                vals.append(med / K)
+        span = float(np.median(vals)) if vals else 0.0
+        one = float(np.median([r["flow_med"] for r in per if f0 <= r["f"] < f0 + 30 and r["f"] != P.CUT]))
+        # each measure fails in the other's regime: the span one at speed (shifts past half a tile, and the
+        # camera-parented lamp's light pattern, fixed in frame, wins the correlation), the one-frame one under a
+        # pixel; the window takes the larger
+        wins.append((f0, max(span, one)))
     out["A1"] = {"min_window_median_px": round(min(w[1] for w in wins), 3), "floor": 0.3,
                  "static_windows": [w[0] for w in wins if w[1] < 0.3], "pass": min(w[1] for w in wins) >= 0.3,
-                 "basis": "measured: 96 px tile phase correlation, median over textured tiles, 1 s windows"}
+                 "windows": [[f, round(v, 3)] for f, v in wins],
+                 "basis": f"measured: 96 px tile phase correlation over {K}-frame spans / {K}, median over textured "
+                          "tiles, 1 s windows"}
     p90 = [(r["f"], r["flow_p90"]) for r in per if r["f"] < P.POSE_FROM and r["f"] != P.CUT]
     out["A2"] = {"max_p90_px_per_frame": round(max(v for _, v in p90), 2), "cap": 18.0,
                  "over": [f for f, v in p90 if v > 18.0], "pass": max(v for _, v in p90) <= 18.0,
