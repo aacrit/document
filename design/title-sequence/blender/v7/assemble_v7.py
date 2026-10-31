@@ -199,16 +199,22 @@ def mix(foley_only):
     return x, rep, theme
 
 
-def onsets(x, sr=FV.SR, rise_db=9.0, floor_db=-50.0, min_gap_s=0.06):
-    """Music attacks: 5 ms frames, a rise of rise_db over the frame 15 ms before, over floor_db."""
-    hop = sr // 200
-    nfr = len(x) // hop
-    e = 20 * np.log10(np.sqrt(np.mean(x[:nfr * hop].reshape(nfr, hop) ** 2, axis=1)) + 1e-12)
+def onsets(x, sr=FV.SR, z_min=2.5, min_gap_s=0.05):
+    """Music attacks as the music director's audit counts them: spectral flux (log magnitude, half-wave rectified,
+    2048-point frames every 5.3 ms), z-scored over the cue, local peaks over z_min at least min_gap_s apart."""
+    n, hop = 2048, 256
+    nfr = 1 + (len(x) - n) // hop
+    idx = np.arange(n)[None, :] + hop * np.arange(nfr)[:, None]
+    S = np.log1p(1000 * np.abs(np.fft.rfft(x[idx] * np.hanning(n), axis=1)))
+    flux = np.maximum(np.diff(S, axis=0), 0).sum(1)
+    z = (flux - flux.mean()) / (flux.std() + 1e-12)
     out = []
-    for i in range(3, nfr):
-        if e[i] - e[i - 3] > rise_db and e[i] > floor_db and (not out or (i * hop - out[-1]) > min_gap_s * sr):
-            out.append(i * hop)
-    return np.array(out) / sr
+    for i in range(1, len(z) - 1):
+        if z[i] > z_min and z[i] >= z[i - 1] and z[i] >= z[i + 1]:
+            t = (i + 1) * hop / sr + n / (2 * sr)
+            if not out or t - out[-1] >= min_gap_s:
+                out.append(t)
+    return np.array(out)
 
 
 def foley_guard(theme, frep):
@@ -227,6 +233,38 @@ def foley_guard(theme, frep):
             "theme_onsets": len(on)}
 
 
+MD = Path("C:/Users/aacri/document-work/series-title")
+
+
+def notes_guard():
+    """The music director's note-level guard (compose_v7.py --notes-only --foley-events), saved by the build."""
+    p = WORK / "guard-notes-pass3.txt"
+    if not p.exists():
+        return None
+    import ast
+    out = {}
+    for ln in p.read_text(encoding="utf-8").splitlines():
+        if ln.startswith("guard: "):
+            out["guard"] = ast.literal_eval(ln[7:])
+        if ln.startswith("exact repeat: "):
+            out["exact_repeat"] = ast.literal_eval(ln[14:])
+    out["pass"] = bool(out.get("guard")) and out["guard"]["min_ms"] >= 80
+    return out
+
+
+def d4_audit():
+    """D4 from the music director's newest audit: the engine's loop measure and the longest exact note repeat."""
+    auds = sorted(MD.glob("v7/audit-v7-pass*.json"))
+    if not auds:
+        return {"pass": None}
+    a = json.loads(auds[-1].read_text(encoding="utf-8"))
+    loop = a.get("self_repetition_engine", {}).get("loop")
+    rep = a.get("exact_repeat_notes", {}).get("exact_repeat_s")
+    return {"audit": str(auds[-1]), "engine_loop": loop, "exact_repeat_s": rep,
+            "near_identical_bars": a.get("bar_matrix", {}).get("near_identical"),
+            "pass": loop is None and rep == 0.0}
+
+
 # ------------------------------------------------------------------------------------------------ measured picture
 
 
@@ -238,8 +276,15 @@ def phase_shift(a, b):
     r = np.fft.irfft2(R, s=a.shape)
     i, j = np.unravel_index(np.argmax(r), r.shape)
     h, w = a.shape
-    dy = i if i <= h // 2 else i - h
-    dx = j if j <= w // 2 else j - w
+
+    def sub(c_m, c_0, c_p):
+        """Parabolic sub-pixel offset of a correlation peak (an integer peak reads sub-pixel drift as 0)."""
+        den = c_m - 2 * c_0 + c_p
+        return 0.0 if abs(den) < 1e-12 else 0.5 * (c_m - c_p) / den
+    fy = sub(r[(i - 1) % h, j], r[i, j], r[(i + 1) % h, j])
+    fx = sub(r[i, (j - 1) % w], r[i, j], r[i, (j + 1) % w])
+    dy = (i if i <= h // 2 else i - h) + fy
+    dx = (j if j <= w // 2 else j - w) + fx
     return math.hypot(dx, dy), float(r.max())
 
 
@@ -337,10 +382,19 @@ def marks_check(lock, M, TT):
     rows = {}
     for i, cls in ((12, "DRAWN"), (500, "DRAWN"), (P.POSE_FROM + 5, "DRAWN"), (P.FRAMES + 60, "CARD")):
         a = marked(clean_frame(i, lock), i, M, fonts)
-        big = np.asarray(Image.fromarray(a).resize((1920, 1080), Image.LANCZOS))
-        rows[i] = {"cls": cls, "glyph_shows": bool(TT.glyph_shows(big, cls))}
-    return {"frames": rows, "labels": [m["label"] for m in MARKS], "pass": all(r["glyph_shows"] for r in rows.values()),
-            "basis": "burned for the review with motion.mark_frame; glyph read back by titles.glyph_shows at 1080p"}
+        burned = int((a != clean_frame(i, lock)).any(-1).sum())
+        # the engine draws the mark at the delivery size: the frame upscaled to 1080p, marked there, read back there
+        big = Image.fromarray(clean_frame(i, lock)).resize((1920, 1080), Image.LANCZOS)
+        m1080 = np.asarray(M.mark_frame(big, i / P.FPS, MARKS, fonts).convert("RGB"))
+        st = M.mark_state(i / P.FPS, MARKS)
+        rows[i] = {"cls": cls, "state_cls": st["cls"] if st else None, "burned_px_480": burned,
+                   "glyph_shows_1080": bool(TT.glyph_shows(m1080, cls))}
+    return {"frames": rows, "labels": [m["label"] for m in MARKS],
+            "pass": all(r["glyph_shows_1080"] and r["state_cls"] == r["cls"] and r["burned_px_480"] > 0
+                        for r in rows.values()),
+            "basis": "the mark timeline through motion.mark_state; the glyph drawn by motion.mark_frame at 1080p and "
+                     "read back by titles.glyph_shows (its 1080p reader cannot read a 480p burn upscaled); the review "
+                     "carries the same marks burned at 480p"}
 
 
 def grain(lock):
@@ -351,8 +405,8 @@ def grain(lock):
     px, _ = P.project(np.array([pans[0]["centre"]]), cam)
     x, y = (int(v) for v in px[0])
     patch = a[max(0, y - 32):y + 32, max(0, x - 32):x + 32]
-    hp = patch - np.asarray(Image.fromarray(patch).filter(__import__("PIL.ImageFilter").ImageFilter.BoxBlur(4)),
-                            np.float32)
+    from scipy.ndimage import uniform_filter
+    hp = patch - uniform_filter(patch, size=9, mode="nearest")
     return {"frame": 95, "patch_centre_px": [x, y], "patch_mean": round(float(patch.mean()), 2),
             "highpass_std_8bit": round(float(hp.std()), 3)}
 
@@ -411,12 +465,12 @@ def main():
         "D1": {"bars": 18, "bar_s": 2.0, "rises_on_bars": [b["rise"] for b in P.BOARDS], "cut": P.CUT,
                "pose": P.POSE_FROM, "pass": all(b["rise"] in P.BAR_STARTS for b in P.BOARDS) and
                P.CUT in P.BAR_STARTS and P.POSE_FROM in P.BAR_STARTS},
-        "D2": gd,
+        "D2": {**gd, "notes_guard": notes_guard()},
         "D3": {"lufs": mrep["lufs"], "target": LUFS_TARGET, "true_peak_dbtp": mrep["true_peak_dbtp"],
                "tp_ceiling": TP_CEIL, "room_rms_dbfs": mrep["room_rms_dbfs"],
                "pass": (theme is not None and mrep["lufs"] is not None and abs(mrep["lufs"] - LUFS_TARGET) <= 0.5
                         and mrep["true_peak_dbtp"] <= TP_CEIL and mrep["room_rms_dbfs"] <= -72.0 + 0.1)},
-        "D4": {"status": "the music director's audit (through-composition) owns it", "pass": None},
+        "D4": {**d4_audit(), "status": "from the music director's audit (audit-v7-pass*.json) and the note check"},
         "D5": {"status": "theme onset nearest frame 1019",
                "nearest_onset_ms": (round(1000 * float(np.min(np.abs(onsets(theme) - P.POSE_FROM / P.FPS))), 1)
                                     if theme is not None else None)},

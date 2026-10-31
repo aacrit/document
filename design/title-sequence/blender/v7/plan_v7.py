@@ -499,6 +499,11 @@ def hold_mix(frame: float) -> float:
     return smoothstep((frame - RAMP_FROM + 1) / (POSE_FROM - RAMP_FROM))
 
 
+def haze_scale(frame: float) -> float:
+    """The haze clears over the close-in's last two bars (959 to 1018): at the pose the frame is the scan alone."""
+    return 1.0 - smoothstep((frame - 959) / (1018 - 959))
+
+
 def dust_scale(frame: float) -> float:
     """Dust settles out before the pose (nothing new under the pose): full to 989, gone by 1018."""
     return 1.0 - smoothstep((frame - 989) / (1018 - 989))

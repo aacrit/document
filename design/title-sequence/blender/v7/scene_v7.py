@@ -128,12 +128,14 @@ def scan_material(name, base, mr, coat):
     nt.links.new(tb.outputs["Color"], b.inputs["Base Color"])
     nt.links.new(sep.outputs["Green"], b.inputs["Roughness"])
     nt.links.new(sep.outputs["Blue"], b.inputs["Metallic"])
+    gm = K.get("globe_material", {})
+    b.inputs["Specular IOR Level"].default_value = gm.get("specular", 0.5)
     if coat > 0:
         b.inputs["Coat Weight"].default_value = coat
-        mul = _n(nt, "ShaderNodeMath", Value_001=0.45)
+        mul = _n(nt, "ShaderNodeMath")
         mul.operation = "MULTIPLY"
         nt.links.new(sep.outputs["Green"], mul.inputs[0])
-        mul.inputs[1].default_value = 0.45
+        mul.inputs[1].default_value = gm.get("coat_rough_factor", 0.45)
         nt.links.new(mul.outputs[0], b.inputs["Coat Roughness"])
     return m
 
@@ -144,7 +146,8 @@ def globe():
     c = np.array(K["ball_centre_native"])
     s = K["R"] / K["ball_radius_native"]
     Rg = np.array(K["R_geo_to_native"])
-    tex = {"sphere": (G.SPHERE_TEX, G.SPHERE_RM, 0.35), "ring": (G.RING_TEX, G.RING_RM, 0.0)}
+    tex = {"sphere": (G.SPHERE_TEX, G.SPHERE_RM, K.get("globe_material", {}).get("coat", 0.35)),
+           "ring": (G.RING_TEX, G.RING_RM, 0.0)}
     obs = []
     for name in ("sphere", "ring"):
         P = parts[name]["P"]
@@ -355,6 +358,15 @@ def haze():
     nt.links.new(vs.outputs[0], nt.nodes["Material Output"].inputs["Volume"])
     ob.data.materials.append(m)
     ob.visible_shadow = False
+    # the haze clears through the close-in so nothing lit stands between the lens and the record at the pose (A7)
+    base = vs.inputs["Density"].default_value
+    prev = None
+    for f, row in enumerate(PLAN["frames"]):
+        k = row.get("haze", 1.0)
+        if k != prev or f == K["frames"] - 1:
+            vs.inputs["Density"].default_value = base * k
+            vs.inputs["Density"].keyframe_insert("default_value", frame=f)
+            prev = k
     return ob
 
 
@@ -495,7 +507,9 @@ def main():
     dust()
     info = {"build_s": round(time.time() - t0, 1), "images": sorted(IMAGES)}
     if A["meter"]:
-        mt = meter(sc, int(A["meter"]))
+        rows = [meter(sc, int(v)) for v in A["meter"].split(",")]
+        mt = min(rows, key=lambda r: r["ev"])          # the brightest record sets the one fixed exposure
+        mt = {**mt, "by_frame": rows}
         print("V7-METER " + json.dumps(mt), flush=True)
         ev = mt["ev"]
         for m in bpy.data.materials:

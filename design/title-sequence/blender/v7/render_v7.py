@@ -147,7 +147,8 @@ def build_plan() -> dict:
     for f in range(P.FRAMES):
         cam = P.camera_at(f)
         row = {"cam": {"E": list(cam["E"]), "focus": cam["focus"], "fstop": cam["fstop"]},
-               "panels": {}, "show": {}, "hold_mix": P.hold_mix(f), "dust_scale": P.dust_scale(f)}
+               "panels": {}, "show": {}, "hold_mix": P.hold_mix(f), "dust_scale": P.dust_scale(f),
+               "haze": P.haze_scale(f)}
         bx = _basis(cam)
         row["cam"].update({"x": bx[0], "y": bx[1], "z": bx[2]})
         for b in P.BOARDS:
@@ -169,14 +170,76 @@ def build_plan() -> dict:
 # ------------------------------------------------------------------------------------------------ Blender under the lock
 
 
-def blender(purpose, extra, need_gb, log_name):
+NEXT = Path("C:/Users/aacri/document-work/HEAVY.next")
+SLOT = {"held": False}
+
+
+def _next_is_ours():
+    try:
+        return f"pid={os.getpid()}" in NEXT.read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+
+@__import__("contextlib").contextmanager
+def gpu_slot(purpose, poll_s=2.0):
+    """The coordinator's next-slot protocol (2026-10-31): HEAVY.next names this process ("owner=title-v7
+    pid=<winpid>") while it waits, so the other builders yield; the lock itself is unchanged (machine_v6's rules:
+    D: clean, disks and RAM checked, the process tree capped at 8 GB, a dead pid's lock cleared, a live one never
+    overwritten, taken atomically with this pid, released only if still ours). HEAVY.next is deleted the moment the
+    lock is taken."""
     import machine_v6 as MV
+    MV.check_disks()
+    if MV.free_ram_gb() < MV.MIN_FREE_RAM_GB:
+        raise SystemExit(f"refused: free RAM {MV.free_ram_gb():.1f} GB")
+    MV.cap_memory()
+    NEXT.write_text(f"owner=title-v7 pid={os.getpid()}\n", encoding="utf-8")
+    try:
+        while True:
+            if MV.LOCK.exists():
+                try:
+                    held = MV.parse_lock(MV.LOCK.read_text(encoding="utf-8"))
+                except OSError:
+                    held = {}
+                pid = held.get("pid")
+                if pid is not None and str(pid).isdigit() and not MV.pid_alive(int(pid)):
+                    log("stale lock cleared", pid=pid)
+                    MV.LOCK.unlink(missing_ok=True)
+                else:
+                    time.sleep(poll_s)
+                continue
+            try:
+                fd = os.open(str(MV.LOCK), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                continue
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(MV.lock_text(f"title v7 (t/title-v7): {purpose}", os.getpid()))
+            break
+    finally:
+        if _next_is_ours():
+            NEXT.unlink(missing_ok=True)
+    log("lock taken", purpose=purpose, pid=os.getpid())
+    SLOT["held"] = True
+    try:
+        yield
+    finally:
+        SLOT["held"] = False
+        try:
+            if MV.LOCK.exists() and str(MV.parse_lock(MV.LOCK.read_text(encoding="utf-8")).get("pid")) == str(os.getpid()):
+                MV.LOCK.unlink()
+                log("lock released", pid=os.getpid())
+        except OSError as e:
+            log("lock release failed", error=str(e))
+
+
+def blender(purpose, extra, need_gb, log_name, plan_path=None):
     d_guard(need_gb, purpose)
     TMP.mkdir(parents=True, exist_ok=True)
     cmd = [BLENDER, "-b", "-noaudio", "--factory-startup", "--python", str(HERE / "scene_v7.py"), "--",
-           "--plan", str(WORK / "plan.json")] + extra
+           "--plan", str(plan_path or (WORK / "plan.json"))] + extra
     env = dict(os.environ, TEMP=str(TMP), TMP=str(TMP))
-    with MV.heavy(f"title v7 (t/title-v7): {purpose}"):
+    ctx = __import__("contextlib").nullcontext() if SLOT["held"] else gpu_slot(purpose)
+    with ctx:
         t0 = time.time()
         p = subprocess.run(cmd, capture_output=True, text=True, env=env, encoding="utf-8", errors="replace")
         wall = round(time.time() - t0, 1)
@@ -212,9 +275,13 @@ def step_smoke():
 def step_meter():
     out = WORK / "meter"
     out.mkdir(parents=True, exist_ok=True)
-    info = blender("meter at the Atlas read (f170)", ["--meter", "170", "--outdir", str(out)], 0.1, "meter.log")
+    # Departure: the spec meters on the Atlas read (f170); the 1931 chart's white paper (f690) then clips (C1, 13%
+    # of its read's pixels). The one fixed exposure is metered on both reads and the brighter sets it.
+    info = blender("meter at the Atlas and chart reads (f170, f690)", ["--meter", "170,690", "--outdir", str(out)],
+                   0.1, "meter.log")
     m = info["meter"]
-    (WORK / "exposure.json").write_text(json.dumps({**m, "rule": "max(R,G,B) p99.5 at f170 to 0.85 display"},
+    (WORK / "exposure.json").write_text(json.dumps({**m, "rule": "max(R,G,B) p99.5 to 0.85 display on the brighter "
+                                                    "of the Atlas read (f170) and the chart read (f690)"},
                                                    indent=1), encoding="utf-8")
     log("meter", **m)
 
@@ -229,6 +296,33 @@ def step_still():
                                                    "--exposure", f"{exposure():.5f}", "--outdir", str(WORK)],
                    0.1, "still.log")
     log("still", out=str(out), **{k: info[k] for k in ("frames_rendered", "s", "wall_s", "samples")})
+
+
+def step_globe_still():
+    """Fable's abandon test, as a picture: the bare globe (no board) at the read distance, 1.35 m from the ball over
+    the central Mediterranean (36N 15E), 35 degrees down, under the camera's own lamp; 2560x1440."""
+    plan = json.loads((WORK / "plan.json").read_text(encoding="utf-8"))
+    f = 170
+    E, T = P.orbit(36.0, 15.0, 90.0, 35.0, P.READ_D)
+    cam = {"E": E, "T": T, "up": P.unit(E), "fstop": 5.6}
+    cam["focus"] = float(np.linalg.norm(T - E))
+    bx = _basis(cam)
+    plan["frames"][f]["cam"] = {"E": list(E), "focus": cam["focus"], "fstop": 5.6, "x": bx[0], "y": bx[1], "z": bx[2]}
+    for k in plan["frames"][f]["show"]:
+        plan["frames"][f]["show"][k] = False
+    alt = P.camera_at(f)
+    gp = WORK / "plan-globe-still.json"
+    gp.write_text(json.dumps(plan, default=float), encoding="utf-8")
+    out = REVIEW / "day1-globe-1.35m.png"
+    fill = P.fill_at(P.READ_D, P.DENSITY)
+    info = blender("day-1 globe still at 1.35 m, 2560x1440",
+                   ["--frames", str(f), "--still", str(out), "--res", "2560x1440", "--samples",
+                    arg("--samples", "1024"), "--min_samples", "256", "--threshold", "0.005",
+                   "--exposure", f"{exposure():.5f}", "--outdir", str(TMP)], 0.1, "globe-still.log",
+                   plan_path=gp)
+    log("globe still", out=str(out), fill_1080=round(fill, 3), fill_1440=round(fill * 2560 / 1920, 3),
+        **{k: info[k] for k in ("frames_rendered", "s", "wall_s", "samples")})
+    del alt
 
 
 def unique_frames():
@@ -276,6 +370,18 @@ def main():
         step_still()
     elif step == "frames":
         step_frames()
+    elif step == "all":
+        # one lock hold for every GPU job of the review, in order: meter, the 480p frames, the day-1 still
+        with gpu_slot("480p review: meter, frames, day-1 still"):
+            if not (WORK / "exposure.json").exists():
+                step_meter()
+            step_frames()
+            if not (REVIEW / "day1-still-f170.png").exists():
+                step_still()
+            if not (REVIEW / "day1-globe-1.35m.png").exists():
+                step_globe_still()
+    elif step == "globe-still":
+        step_globe_still()
     elif step == "assemble":
         import assemble_v7 as AS
         AS.main()
