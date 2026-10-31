@@ -1,0 +1,15 @@
+{"note": "native = (lat, lon) in the scan's own frame (z up), read on register/crop-*.jpg; geo = modern lat, lon",
+ "picks": [
+  {"name": "Cape Guardafui", "geo": [11.8, 51.3], "native": [23.75, 8.75], "crop": "africa (705, 315)"},
+  {"name": "Cape of Good Hope", "geo": [-34.4, 18.5], "native": [-19.6, -25.0], "crop": "africa (300, 835)"},
+  {"name": "Ceylon, Dondra Head", "geo": [5.9, 80.6], "native": [12.2, 37.2], "crop": "india (72, 378)"},
+  {"name": "Bermuda", "geo": [32.3, -64.8], "native": [32.79, -122.74], "crop": "geo-ny (370, 300) on pass-1 frame"},
+  {"name": "Cape Horn", "geo": [-55.98, -67.27], "native": [-52.89, -95.07], "crop": "geo-horn (210, 215) on pass-1 frame"}
+ ],
+ "checks": [
+  {"name": "Gibraltar", "geo": [36.0, -5.6]},
+  {"name": "Atlas place", "geo": [36.0, 20.0]},
+  {"name": "Ino place", "geo": [36.0, 138.0]},
+  {"name": "Admiralty place", "geo": [8.0, 168.0]},
+  {"name": "New York", "geo": [40.7, -74.0]}
+ ]}
