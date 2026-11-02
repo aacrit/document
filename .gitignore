@@ -52,3 +52,6 @@ web/f/
 # Title-sequence style-frame media: copies of PD/CC0 scans for the mocks, never committed (R-08)
 design/title-sequence/_media/
 design/title-sequence/frames/shots/
+
+# Film renders (master, work, stems, journals) stay on disk, never in git (R-08)
+films/*/out/
