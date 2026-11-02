@@ -1,7 +1,7 @@
 """Render a screenplay v2 into a 1080p24 master film.
 
     python -m studio.engine.render <film dir> [--out <dir>] [--res 1080|720]
-                                   [--from SHOT | --until S | --shots A..B] [--workers N] [--burn-subtitles]
+                                   [--from SHOT | --until S | --shots A..B] [--workers N] [--burn-subtitles] [--stems]
 
 Reads ``<film dir>/screenplay.json`` (films/GRAMMAR.md section 12) and the
 ledgers it cites (top-level ``ledgers``: name -> path, or {"path", "media"};
@@ -6406,7 +6406,8 @@ def title_audio_rendered(journal: Journal, plan: dict, master: Path, *, span: di
 
 
 def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
-              work: Path | None = None, stems: dict | None = None) -> tuple[np.ndarray, dict]:
+              work: Path | None = None, stems: dict | None = None,
+              bus_capture: dict | None = None) -> tuple[np.ndarray, dict]:
     """The programme mix, in two passes (A15 refined, E14). Pass 1 levels,
     cleans and peak-controls every line at A15's fixed voice ceiling and
     mixes. If the master's true-peak limiter would then do more than catch
@@ -6429,7 +6430,14 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
 
     A29 take (S4): a take cue is the film's whole score in one stem, placed
     whole at 0 with no shaping, levelling or fades (the duck still applies);
-    ``stems`` then receives its reading by span (score.take_analysis)."""
+    ``stems`` then receives its reading by span (score.take_analysis).
+
+    ``bus_capture``, when given (``--stems``), receives the four programme
+    buses (``voice``, ``clips``, ``music_ducked``, ``amb``: they sum, sample
+    for sample, to the returned mix), ``music_preduck``, the ``duck`` curve
+    and ``lines``: every voice placement of the final pass (_placed_lines),
+    which sum to ``voice``. It changes no return value and nothing when it is
+    None."""
     std = plan.get("score_standard") or dict(SC.STANDARD)
     n = int(round(plan["frames"] / fps_of(plan) * AUDIO_RATE))
     voice, music, amb, clips = (np.zeros(n, np.float32) for _ in range(4))
@@ -6646,8 +6654,184 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
     if t_off:
         raise Refused(f"title-audio-level (A40): {'; '.join(t_off)}")
     mix = (voice + clips + music * duck + amb).astype(np.float32)
-    lifted = voice_ceiling_pass(mix, parts, clips, music, amb, placed, journal, draft=draft, work=work, duck=duck)
+    final: dict | None = {} if bus_capture is not None else None
+    lifted = voice_ceiling_pass(mix, parts, clips, music, amb, placed, journal, draft=draft, work=work, duck=duck,
+                                capture=final)
+    if bus_capture is not None:
+        # voice_ceiling_pass only ever re-places the voice bus (clips, music, duck and amb are pass 1's, held fixed).
+        # The voice bus and every line are taken from the pass that made the returned mix: pass 1's when it kept the
+        # mix, else the last pass's own placements (``final``), so the lines sum to voice and the buses to the mix.
+        last = final.get("got") if lifted is not None else None
+        bus_capture.update(voice=voice if lifted is None else final["voice"], clips=clips, music_preduck=music,
+                           music_ducked=(music * duck).astype(np.float32), amb=amb, duck=duck,
+                           lines=_placed_lines(parts, placed, last, n))
     return (mix if lifted is None else lifted), placed
+
+
+def _placed_lines(parts: list[dict], placed: dict, got: dict | None, n: int) -> list[dict]:
+    """``--stems``: every voice part exactly as it went into the final voice
+    bus (``_place``'s own trim and gain): from pass 1 (``parts``) when ``got``
+    is None, else from the last voice-ceiling pass's placements. Narration
+    and readings are their processed takes (gate, EQ, level, peak control,
+    mood offset); archival spans and archival files are their own sound at
+    their one static gain, edges included. Each carries the sample it starts
+    on, so the lines placed back at their starts sum to the voice bus."""
+    out = []
+    for k, p in enumerate(parts):
+        x, db = (got[k]["x"], got[k]["db"]) if got is not None else (
+            p["x"], p["total"] if p["kind"] == "archival" else p["db"])
+        i = int(round(p["at_s"] * AUDIO_RATE))
+        if i >= n:
+            continue
+        y = (x[: n - i] * (10 ** (db / 20))).astype(np.float32)             # _place's arithmetic, exactly
+        line = placed["lines"][p["i"]] if "i" in p else {}
+        out.append({"id": p["id"], "start_sample": i, "start_s": i / AUDIO_RATE,
+                    "kind": line.get("kind") or ("archival" if p["kind"].startswith("archival") else "reading"),
+                    "gain_db": float(db), "audio": y})
+    return out
+
+
+# Windows device names: a file named one of these (with any extension) opens the device, not a file
+_WIN_RESERVED = frozenset({"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
+                           *(f"LPT{i}" for i in range(1, 10))})
+STEM_NAME_MAX = 64                  # a line file's name, before its suffix (MAX_PATH leaves the out folder the rest)
+STEM_WAV_HEADER_BYTES = 4096        # a float WAV's header, with room to spare, per file
+STEM_BUSES = (("voice.wav", "voice"), ("clips.wav", "clips"), ("music_preduck.wav", "music_preduck"),
+              ("music_ducked.wav", "music_ducked"), ("amb.wav", "amb"), ("duck.wav", "duck"))
+
+
+def stem_file_name(line_id: str, used: set[str]) -> str:
+    """A line id from the screenplay (untrusted) as a file name under
+    stems/lines: only ``[A-Za-z0-9_.-]``, never all dots, never a Windows
+    device name (CON, NUL, COM1 ...: prefixed ``_``), at most STEM_NAME_MAX
+    characters, and unique against ``used`` without regard to case (NTFS is
+    case-insensitive: ``N1`` and ``n1`` are one file). ``used`` holds
+    casefolded names and is updated."""
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", str(line_id))
+    if safe.strip(".") == "":           # empty, or only dots ("..") names no file
+        safe = "line"
+    safe = safe[:STEM_NAME_MAX].rstrip(". ") or "line"     # Windows drops trailing dots, so they never end a name
+    if safe.split(".")[0].upper() in _WIN_RESERVED:
+        safe = "_" + safe[: STEM_NAME_MAX - 1]
+    name, i = safe, 1
+    while name.casefold() in used:
+        i += 1
+        tail = f"_{i}"
+        name = safe[: STEM_NAME_MAX - len(tail)] + tail
+    used.add(name.casefold())
+    return name
+
+
+def stem_bytes(bus: dict) -> int:
+    """What ``write_stem_files`` puts on disk, to within the JSON: every bus and
+    line as float32 samples plus a header each."""
+    arrays = [bus[k] for _, k in STEM_BUSES] + [ln["audio"] for ln in bus.get("lines") or []]
+    return sum(4 * len(a) + STEM_WAV_HEADER_BYTES for a in arrays)
+
+
+def stems_post_gain(loud: dict) -> tuple[float, dict | None]:
+    """The programme gain from work/mix.wav to mix-norm.wav, as loudnorm applied
+    it, and the master limiter's part in it (None when it did not run).
+    Without the limiter, mix-norm is mix x one linear gain (TARGET_LUFS - the
+    measured input_i, which loudnorm's linear mode applies). With it,
+    mix-norm = limit(mix x pre_gain) x post_gain, the second gain measured on
+    the limited file, so the total is their sum in dB and is exact only where
+    the limiter did not act."""
+    if not loud.get("normalised"):
+        return 0.0, None                                   # a silent programme: mix-norm is mix, copied
+    lim = loud.get("limiter")
+    if not lim:
+        return TARGET_LUFS - float(loud["input_i"]), None
+    second = TARGET_LUFS - float(lim["attempts"][-1]["measured"]["input_i"])
+    pre = float(lim["pre_gain_db"])
+    return pre + second, {"applied": True, "ceiling_dbtp": lim["ceiling_dbtp"], "pre_gain_db": round(pre, 4),
+                          "post_gain_db": round(second, 4), "file": lim["file"],
+                          "max_reduction_db": lim.get("max_reduction_db"), "acted_s": lim.get("acted_s")}
+
+
+def write_stem_files(run_dir: Path, bus: dict, loud: dict, journal: Journal, *, min_free_gb: float = MIN_FREE_GB,
+                     disk_usage=shutil.disk_usage) -> Path:
+    """``--stems`` (loom Phase 2a): the four programme buses, the duck curve
+    and every voice line's processed audio, under ``run_dir/stems`` (never
+    off the render's own out folder, since ``run_dir`` always follows
+    ``out``). A stems folder from an earlier render (one holding stems.json)
+    is removed once the disk floor is checked, so no stale line survives; a
+    stems folder without stems.json is refused and left untouched. Each file is float32 WAV at AUDIO_RATE; the buses
+    are full programme length, frame-aligned to the master and start at
+    sample 0 (``bus_capture``'s arrays, from build_mix). The ``duck`` curve
+    is a mono WAV (its own JSON would be one float per sample). Each line
+    file is the line as placed in the final voice bus, starting on its
+    ``start_sample``; archival spans and files are lines too
+    (``kind: archival``). ``stems.json`` is the manifest: what sums to
+    what, the programme gain after the mix and the master limiter, if it ran
+    (reconstructing mix-norm.wav from the stems is valid only when
+    ``limiter`` is null), and the sha256 of every file and of work/mix.wav.
+    Refused before any file is written when the stems would take the out
+    drive under ``min_free_gb``. Every file is journaled as an artifact."""
+    import soundfile as sf
+    stems_dir = run_dir / "stems"
+    lines_dir = stems_dir / "lines"
+    if stems_dir.exists() and not (stems_dir / "stems.json").is_file():
+        raise Refused(f"--stems: {stems_dir} exists but holds no stems.json, so it is not an earlier render's stems; "
+                      "it is left untouched (move or remove it, then render again)")
+    # the floor is checked before anything is removed, so a refused run keeps the earlier stems
+    need = stem_bytes(bus)
+    free = disk_usage(_existing(run_dir)).free
+    if free - need < min_free_gb * 1024 ** 3:
+        raise Refused(f"--stems: the stems need {need / 1024 ** 3:.2f} GB and the out drive has {free / 1024 ** 3:.2f} GB "
+                      f"free; writing them would leave it under the {min_free_gb:g} GB floor")
+    if stems_dir.exists():
+        shutil.rmtree(stems_dir)                            # an earlier render's stems never mix with these
+    lines_dir.mkdir(parents=True, exist_ok=True)
+    gain_db, limiter = stems_post_gain(loud)
+    mix_wav = run_dir / "work" / "mix.wav"
+    lines = bus.get("lines") or []
+    manifest = {"sample_rate": AUDIO_RATE, "length_samples": len(bus["voice"]),
+                "duration_s": round(len(bus["voice"]) / AUDIO_RATE, 6),
+                "sums": {"mix": "voice + clips + music_ducked + amb = work/mix.wav, sample for sample",
+                         "music": "music_preduck * duck = music_ducked",
+                         "voice": "every lines/ file placed at its start_sample sums to voice"},
+                "mix": {"file": "work/mix.wav", "sha256": sha256_file(mix_wav)} if mix_wav.is_file() else None,
+                "post_gain_db": round(gain_db, 4), "post_gain_linear": round(10 ** (gain_db / 20), 8),
+                "limiter": limiter,
+                "mix_norm_from_stems": (
+                    "valid: mix-norm.wav = work/mix.wav x post_gain_linear" if limiter is None else
+                    "not valid: the master limiter ran, so mix-norm.wav = limit(work/mix.wav x limiter.pre_gain_db) x "
+                    "limiter.post_gain_db; post_gain_db is their sum, exact only where the limiter did not act"),
+                "lines": {"count": len(lines), "kinds": sorted({ln["kind"] for ln in lines}),
+                          "note": "every voice placement: narration and readings as processed, archival spans and "
+                                  "archival files (kind archival) at their own sound and static gain"},
+                "files": {}}
+
+    def put(rel: str, x: np.ndarray) -> None:
+        p = stems_dir / rel
+        sf.write(str(p), np.ascontiguousarray(x, dtype=np.float32), AUDIO_RATE, subtype="FLOAT")
+        manifest["files"][rel] = sha256_file(p)
+        journal.artifact("assembly", p, unit="stems", role=f"stems/{rel}")
+
+    for rel, key in STEM_BUSES:
+        put(rel, bus[key])
+    index, used = [], set()
+    for ln in lines:
+        rel = f"lines/{stem_file_name(ln['id'], used)}.wav"
+        put(rel, ln["audio"])
+        at = int(ln["start_sample"]) if "start_sample" in ln else int(round(ln["start_s"] * AUDIO_RATE))
+        index.append({"id": ln["id"], "start_sample": at, "start_s": round(ln["start_s"], 6),
+                      "kind": ln["kind"], "gain_db": round(ln["gain_db"], 3), "file": rel})
+    idx_path = lines_dir / "index.json"
+    idx_path.write_text(json.dumps(index, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    manifest["files"]["lines/index.json"] = sha256_file(idx_path)
+    journal.artifact("assembly", idx_path, unit="stems", role="stems/lines/index.json")
+    manifest_path = stems_dir / "stems.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    journal.artifact("assembly", manifest_path, unit="stems", role="stems/stems.json")
+    journal.decision("assembly", f"--stems: {len(lines)} lines plus the four buses and the duck curve "
+                     f"written to {stems_dir}",
+                     "loom Phase 2a: a movable mix needs the buses and every processed line, not only their sum",
+                     unit="stems", evidence={"dir": str(stems_dir), "lines": len(lines), "bytes": need,
+                                              "post_gain_db": manifest["post_gain_db"],
+                                              "limiter": limiter is not None})
+    return manifest_path
 
 
 def narrator_eq_lints(journal: Journal, plan: dict, eq: dict | None, eq_lines: dict, draft: bool) -> list[str]:
@@ -6773,11 +6957,12 @@ def _held_gain(db: float, tp: float | None, ceiling: float) -> float:
 
 
 def _mix_at(parts: list[dict], ceiling: float, n: int, clips: np.ndarray, music: np.ndarray,
-            amb: np.ndarray, duck: np.ndarray | None = None) -> tuple[np.ndarray, dict]:
+            amb: np.ndarray, duck: np.ndarray | None = None, bus: dict | None = None) -> tuple[np.ndarray, dict]:
     """E14: place every voice part again under ``ceiling``: synthetic lines
     peak-controlled (A13) from their levelled take, archival spans and
     archival files at one static gain held to it (A26; never limited).
-    Returns the mix and, per part, what was placed."""
+    Returns the mix and, per part, what was placed; ``bus``, when given,
+    receives the voice bus this pass built (``--stems``)."""
     voice = np.zeros(n, np.float32)
     got = {}
     for k, p in enumerate(parts):
@@ -6793,13 +6978,15 @@ def _mix_at(parts: list[dict], ceiling: float, n: int, clips: np.ndarray, music:
         else:
             got[k] = {"x": p["x"], "db": p["db"]}
         _place(voice, got[k]["x"], p["at_s"], got[k]["db"])
+    if bus is not None:
+        bus["voice"] = voice
     # A29: pass 1's duck (its lines' spans and the film's hold) when given; pass 2 only re-peaks the same lines
     return (voice + clips + music * (duck_gain(voice) if duck is None else duck) + amb).astype(np.float32), got
 
 
 def voice_ceiling_pass(mix: np.ndarray, parts: list[dict], clips: np.ndarray, music: np.ndarray, amb: np.ndarray,
                        placed: dict, journal: Journal, *, draft: bool = False, work: Path | None = None,
-                       duck: np.ndarray | None = None) -> np.ndarray | None:
+                       duck: np.ndarray | None = None, capture: dict | None = None) -> np.ndarray | None:
     """A15 refined (E14): measure pass 1's mix (its integrated loudness, so
     the lift to TARGET_LUFS) and, when that gain would push its true peak past
     TARGET_TP, run the loudness pass on a trial copy. Only when that master's
@@ -6813,7 +7000,9 @@ def voice_ceiling_pass(mix: np.ndarray, parts: list[dict], clips: np.ndarray, mu
     it). A mix that passes is returned as None (kept, sample for sample).
     Journals one ``voice-ceiling`` decision: the lift, each pass's ceiling,
     pass 1's limiter and each line's change. A bad take at the final ceiling
-    (A13) is refused, a warning under --draft."""
+    (A13) is refused, a warning under --draft. ``capture``, when given
+    (``--stems``) and a pass after the first made the mix, receives that last
+    pass's voice bus (``voice``) and its placements (``got``, per part)."""
     m = _measure(mix)
     if not math.isfinite(m["input_i"]) or m["input_i"] < -70:
         journal.decision("assembly", f"voice ceiling kept at {VOICE_TP:g} dBTP: silent programme",
@@ -6842,7 +7031,7 @@ def voice_ceiling_pass(mix: np.ndarray, parts: list[dict], clips: np.ndarray, mu
         return None
     passes = [{"pass": 1, "ceiling_dbtp": VOICE_TP, "input_i": m["input_i"], "lift_db": lift}]
     while True:
-        out, got = _mix_at(parts, ceiling, len(mix), clips, music, amb, duck)
+        out, got = _mix_at(parts, ceiling, len(mix), clips, music, amb, duck, bus=capture)
         mn = _measure(out)
         lift_n = round(TARGET_LUFS - mn["input_i"], 2)
         nxt, nraw, nbound = derived_voice_ceiling(lift_n)
@@ -6896,6 +7085,8 @@ def voice_ceiling_pass(mix: np.ndarray, parts: list[dict], clips: np.ndarray, mu
                      + "; synthetic lines peak-controlled to it again (A13), archival lines' static gain held to it (A26, "
                      f"never limited); the final mix is {last['input_i']:.2f} LUFS, a {last['lift_db']:+.2f} dB lift",
                      unit="voice-ceiling", evidence=ev)
+    if capture is not None:
+        capture["got"] = got                    # the last pass's placements; its voice bus is in capture["voice"]
     if bad and not draft:
         raise Refused(f"voice-peak-control (A13, A15 refined): bad takes at the derived voice ceiling {ceiling:g} dBTP, "
                       f"re-render them instead of crushing them: {'; '.join(bad)}")
@@ -8796,7 +8987,8 @@ class _Direct:
 def render(film: Path | str, out: Path | str | None = None, *, height: int = 1080, from_shot: str | None = None,
            workers: int = DEFAULT_WORKERS, burn_subtitles: bool = False, min_free_gb: float = MIN_FREE_GB,
            encode_preset: str = "slow", draft: bool = False, fit_voices_opt: bool = False, audio_only: bool = False,
-           until_s: float | None = None, shots: str | tuple | None = None, journal: Journal | None = None) -> dict:
+           until_s: float | None = None, shots: str | tuple | None = None, journal: Journal | None = None,
+           write_stems: bool = False) -> dict:
     film = Path(film).resolve()
     out = Path(out).resolve() if out else film / "out"
     W, H = frame_size(height)
@@ -8969,9 +9161,10 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         journal.stage("assembly", "start")
         work = run_dir / "work"
         work.mkdir(parents=True, exist_ok=True)
+        bus_capture: dict | None = {} if write_stems else None
         with journal.unit("assembly", "mix", size={"driver": "seconds", "value": round(plan["duration_s"], 3)}) as u:
             stems: dict = {}
-            mix, placed = build_mix(plan, film, journal, draft=draft, work=work, stems=stems)
+            mix, placed = build_mix(plan, film, journal, draft=draft, work=work, stems=stems, bus_capture=bus_capture)
             import soundfile as sf
             sf.write(str(work / "mix.wav"), mix, AUDIO_RATE, subtype="FLOAT")
             u.extra.update(placed=placed)
@@ -9009,6 +9202,10 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         if loud.get("limiter"):
             journal.artifact("assembly", loud["limiter"]["file"], unit="loudness", role="mix-limited")
         journal.artifact("assembly", work / "mix-norm.wav", unit="loudness", role="mix-normalised")
+        if write_stems:
+            # --stems (loom Phase 2a): additive only, after the loudness pass so the manifest can carry the
+            # programme gain after the mix the buses reproduce, and whether the master limiter ran.
+            write_stem_files(run_dir, bus_capture, loud, journal, min_free_gb=min_free_gb)
         # Pre-flight, before any frame: a final master's loudness is linear, and its limiter only catches peaks (GRAMMAR 8.5).
         refusals = loudness_lints(journal, loud, draft=draft)
         refusals += title_mastered_lints(journal, placed, loud, draft=draft)
@@ -9352,6 +9549,10 @@ def main(argv=None) -> int:
                     help="run the pre-flight and the sound (mix, levelling, loudness) only: no frames, no master")
     ap.add_argument("--sources-only", action="store_true",
                     help="rewrite sources.json beside an existing master.mp4 from the screenplay, without rendering frames")
+    ap.add_argument("--stems", action="store_true",
+                    help="also write the four programme buses, the duck curve and every voice line as placed in the "
+                         "final mix (narration, readings, archival) under <out>/stems, with stems.json saying "
+                         "what sums to what (journaled; off by default, no effect on the master)")
     a = ap.parse_args(argv)
     if a.sources_only:
         try:
@@ -9363,7 +9564,8 @@ def main(argv=None) -> int:
         return 0
     try:
         s = render(a.film, a.out, height=a.res, from_shot=a.from_shot, workers=a.workers, burn_subtitles=a.burn_subtitles,
-                   draft=a.draft, fit_voices_opt=a.fit_voices, audio_only=a.audio_only, until_s=a.until_s, shots=a.shots)
+                   draft=a.draft, fit_voices_opt=a.fit_voices, audio_only=a.audio_only, until_s=a.until_s, shots=a.shots,
+                   write_stems=a.stems)
     except Refused as e:
         print(f"render: refused: {e}", file=sys.stderr)
         return 2
