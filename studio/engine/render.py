@@ -6754,8 +6754,9 @@ def write_stem_files(run_dir: Path, bus: dict, loud: dict, journal: Journal, *, 
     """``--stems`` (loom Phase 2a): the four programme buses, the duck curve
     and every voice line's processed audio, under ``run_dir/stems`` (never
     off the render's own out folder, since ``run_dir`` always follows
-    ``out``). A stems folder from an earlier render is removed first, so no
-    stale line survives. Each file is float32 WAV at AUDIO_RATE; the buses
+    ``out``). A stems folder from an earlier render (one holding stems.json)
+    is removed once the disk floor is checked, so no stale line survives; a
+    stems folder without stems.json is refused and left untouched. Each file is float32 WAV at AUDIO_RATE; the buses
     are full programme length, frame-aligned to the master and start at
     sample 0 (``bus_capture``'s arrays, from build_mix). The ``duck`` curve
     is a mono WAV (its own JSON would be one float per sample). Each line
@@ -6770,13 +6771,17 @@ def write_stem_files(run_dir: Path, bus: dict, loud: dict, journal: Journal, *, 
     import soundfile as sf
     stems_dir = run_dir / "stems"
     lines_dir = stems_dir / "lines"
-    if stems_dir.exists():
-        shutil.rmtree(stems_dir)                            # stale stems from an earlier render never mix with these
+    if stems_dir.exists() and not (stems_dir / "stems.json").is_file():
+        raise Refused(f"--stems: {stems_dir} exists but holds no stems.json, so it is not an earlier render's stems; "
+                      "it is left untouched (move or remove it, then render again)")
+    # the floor is checked before anything is removed, so a refused run keeps the earlier stems
     need = stem_bytes(bus)
     free = disk_usage(_existing(run_dir)).free
     if free - need < min_free_gb * 1024 ** 3:
         raise Refused(f"--stems: the stems need {need / 1024 ** 3:.2f} GB and the out drive has {free / 1024 ** 3:.2f} GB "
                       f"free; writing them would leave it under the {min_free_gb:g} GB floor")
+    if stems_dir.exists():
+        shutil.rmtree(stems_dir)                            # an earlier render's stems never mix with these
     lines_dir.mkdir(parents=True, exist_ok=True)
     gain_db, limiter = stems_post_gain(loud)
     mix_wav = run_dir / "work" / "mix.wav"

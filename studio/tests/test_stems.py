@@ -365,14 +365,49 @@ def test_write_stem_files_names_are_unique_without_case_and_never_a_device(tmp_p
         assert np.array_equal(_read(tmp_path / "stems" / row["file"]), np.full(5 + s, s + 1, np.float32)), row["id"]
 
 
+def _earlier_stems(run_dir: Path) -> Path:
+    """A stems folder as an earlier --stems render leaves it: stems.json and a line."""
+    R.write_stem_files(run_dir, _bus([{"id": "OLD", "start_s": 0.0}]), {"gain_db": 0.0},
+                       J.Journal(film="stems-earlier", out_dir=run_dir), min_free_gb=0)
+    stale = run_dir / "stems" / "lines" / "OLD.wav"
+    assert stale.is_file() and (run_dir / "stems" / "stems.json").is_file()
+    return stale
+
+
 def test_write_stem_files_clears_stale_stems(tmp_path):
-    stale = tmp_path / "stems" / "lines" / "OLD.wav"
-    stale.parent.mkdir(parents=True)
-    _wav(stale, np.zeros(10))
+    stale = _earlier_stems(tmp_path)
     R.write_stem_files(tmp_path, _bus([{"id": "L1", "start_s": 0.0}]), {"gain_db": 0.0},
                        J.Journal(film="stems-stale", out_dir=tmp_path), min_free_gb=0)
     assert not stale.exists()
     assert sorted(p.name for p in (tmp_path / "stems" / "lines").iterdir()) == ["L1.wav", "index.json"]
+
+
+def test_write_stem_files_refuses_a_stems_folder_without_a_manifest(tmp_path):
+    """<out>/stems without stems.json is not an earlier render's stems: refused, and nothing in it is deleted."""
+    mine = tmp_path / "stems" / "notes.txt"
+    mine.parent.mkdir(parents=True)
+    mine.write_text("not stems", encoding="utf-8")
+    with pytest.raises(R.Refused, match=r"holds no stems\.json.*left untouched"):
+        R.write_stem_files(tmp_path, _bus([{"id": "L1", "start_s": 0.0}]), {"gain_db": 0.0},
+                           J.Journal(film="stems-foreign", out_dir=tmp_path), min_free_gb=0)
+    assert mine.read_text(encoding="utf-8") == "not stems"
+    assert sorted(p.name for p in (tmp_path / "stems").iterdir()) == ["notes.txt"]
+
+
+def test_write_stem_files_refused_for_disk_keeps_the_earlier_stems(tmp_path):
+    """The free-space check runs before anything is removed: a refused run leaves the earlier stems as they were."""
+    stale = _earlier_stems(tmp_path)
+    before = {p.relative_to(tmp_path).as_posix(): p.read_bytes() for p in (tmp_path / "stems").rglob("*") if p.is_file()}
+
+    class Full:
+        free = 0
+
+    with pytest.raises(R.Refused, match=r"GB floor"):
+        R.write_stem_files(tmp_path, _bus([{"id": "L1", "start_s": 0.0}]), {"gain_db": 0.0},
+                           J.Journal(film="stems-full", out_dir=tmp_path), min_free_gb=10, disk_usage=lambda p: Full)
+    assert stale.is_file()
+    after = {p.relative_to(tmp_path).as_posix(): p.read_bytes() for p in (tmp_path / "stems").rglob("*") if p.is_file()}
+    assert after == before
 
 
 def test_write_stem_files_refuses_past_the_free_disk_floor(tmp_path):
