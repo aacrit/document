@@ -1,5 +1,5 @@
 {
- "_note": "Seven shots copied verbatim from Market Street release sources.json (D:/document-media/market-street-render/r-2026-11-01-release, 2026-11-01): the ride on film, two held frames of it, a magazine page, a photograph, the 1899 Sanborn map sheet and a newspaper front page.",
+ "_note": "Eight shots copied verbatim from Market Street release sources.json (D:/document-media/market-street-render/r-2026-11-01-release, 2026-11-01): the ride on film, two held frames of it, a magazine page, a photograph, the 1899 Sanborn map sheet, the Mayor's proclamation and a newspaper front page.",
  "v": 2,
  "slug": "market-street",
  "title": "Market Street",
@@ -377,6 +377,65 @@
     "min0_5": 0,
     "applied": false,
     "why": "p2 19 is at or under 24"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  },
+  {
+   "id": "2.5",
+   "part": "ch-3",
+   "kind": "archive_still",
+   "start_s": 585.75,
+   "end_s": 605.125,
+   "start_frame": 14058,
+   "end_frame": 14523,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Library of Congress 1906",
+    "label": "Archive · 1906"
+   },
+   "ledger": "stills",
+   "ledger_id": "MS-D02",
+   "title": "Proclamation by the Mayor, 18 April 1906",
+   "archive": "Library of Congress, Rare Book and Special Collections Division (Printed Ephemera Collection, Portfolio 2, Folder 25)",
+   "item_url": "https://www.loc.gov/item/2020780062/",
+   "date": "1906-04-18",
+   "creator": "E. E. Schmitz, Mayor",
+   "credit": null,
+   "licence": "public domain",
+   "basis": "General Printed Ephemera Collection rights note (not item-specific): \"With a few exceptions, the Library is not aware of any U.S. copyright protection (see Title 17, U.S.C.) or any other restrictions in the materials in the Printed Ephemera Collection.\" (The item is also a government proclamation dated 1906, long out of copyright.)",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 1.0629,
+    "image": [
+     1969,
+     2893
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 6,
+    "p2": 18,
+    "min0_5": 6,
+    "applied": false,
+    "why": "p2 18 is at or under 24"
    },
    "neutralise_cast": null,
    "test_fixture": false,

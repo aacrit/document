@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { entryWhat, filmFootage, parseSources, shotWhat, stillKind, type FilmSources, type Shot } from "../web/src/film-data";
+import { entryWhat, filmFootage, itemLinkLabel, parseSources, secondsByMark, shotWhat, stillKind, type FilmSources, type Shot } from "../web/src/film-data";
 import { asFake, installFakeDocument } from "./helpers/fake-dom";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -107,5 +107,58 @@ describe("what a still is", () => {
       expect(node.textContent).not.toMatch(/[!—]/);
     }
     expect(asFake(whatNode(still({ title: EVIL, date: EVIL }), footage)).textContent).toBe(`Photograph, ${EVIL}, held 8 s`);
+  });
+});
+
+describe("printed matter that is not titled by its page", () => {
+  it("prints Printed page for the Mayor's proclamation of 18 April 1906, a broadside", () => {
+    const d = film();
+    const proclamation = shot(d, "2.5");
+    expect(proclamation.title).toBe("Proclamation by the Mayor, 18 April 1906");
+    expect(stillKind(proclamation, filmFootage(d.shots))).toBe("page");
+    expect(shotWhat(proclamation, filmFootage(d.shots))).toBe("Printed page, 1906-04-18, held 19 s");
+    // a title whose head names a broadside counts too
+    expect(stillKind(still({ title: "Broadside of the Citizens' Committee, 20 April 1906" }))).toBe("page");
+  });
+
+  it("keeps Photograph for a picture of people with a proclamation or a broadside in it", () => {
+    expect(stillKind(still({ title: "Crowd reading a proclamation on Market Street, 1906" }))).toBe("photograph");
+    expect(stillKind(still({ title: "Men beside a broadside, 1906" }))).toBe("photograph");
+    expect(stillKind(still({ title: "Proclamations posted on a wall: the corner of Market and Kearny, 1906" }))).toBe("photograph");
+  });
+});
+
+describe("the item link names what the item is", () => {
+  it("says map, page, film or photograph from the same kind as the What row", () => {
+    const d = film();
+    const footage = filmFootage(d.shots);
+    expect(itemLinkLabel(shot(d, "2.4"), footage)).toBe("The map at the Library of Congress");
+    expect(itemLinkLabel(shot(d, "2.5"), footage)).toBe("The page at the Library of Congress");
+    expect(itemLinkLabel(shot(d, "2.10"), footage)).toBe("The page at the Library of Congress");
+    expect(itemLinkLabel(shot(d, "2.2"), footage)).toBe("The page at the Internet Archive");
+    // a held frame links to the film it was held from
+    expect(itemLinkLabel(shot(d, "2.1a"), footage)).toBe("The film at the Internet Archive");
+    expect(itemLinkLabel(shot(d, "2.3"), footage)).toBe("The photograph at the Library of Congress");
+    expect(itemLinkLabel(shot(d, "1.1"), footage)).toBe("The film at the Internet Archive");
+  });
+
+  it("lands a hostile title as text in the item link, whatever kind it reads as", async () => {
+    const { sourceRows } = await import("../web/src/shot-rows");
+    const footage = filmFootage(film().shots);
+    for (const over of [{ title: `Map of ${EVIL}` }, { title: `Proclamation ${EVIL}` }, { title: EVIL, ledger_id: "MS-F01-X" }]) {
+      const item = sourceRows(still(over), footage).find(([k]) => k === "Item")![1];
+      const nodes = asFake(item).all();
+      expect(nodes.some((n) => n.tag === "img")).toBe(false);
+      expect(nodes.filter((n) => n.tag !== "#text").map((n) => n.tag)).toEqual(["a"]);
+      expect(asFake(item).textContent).toMatch(/^The (map|page|film) at the Library of Congress$/);
+    }
+  });
+});
+
+describe("the seconds by mark", () => {
+  it("counts maps, pages, held frames and photographs together as ARCHIVE stills, never as photographs", () => {
+    const rows = secondsByMark(film().shots);
+    expect(rows.map((r) => r.label)).toContain("ARCHIVE stills");
+    expect(rows.map((r) => r.label).join(" ")).not.toMatch(/photograph/i);
   });
 });
