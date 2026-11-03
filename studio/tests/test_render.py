@@ -79,7 +79,7 @@ def test_every_lint_t1_enforces_ran_and_passed(rendered):
                  "meta-text", "lower-third-format", "no-em-dash", "licence-allowlist", "no-bodies",
                  "still-zoom-limit", "cross-class-dip", "overlay-format", "clip-hold-rendered", "telecine-declared",
                  "loudnorm-linear", "mark-class-valid", "clip-in-out", "still-hold",
-                 "card-fits", "card-drawn", "dip-black-hold", "lower-third-time",
+                 "card-fits", "card-drawn", "card-numerals-mono", "dip-black-hold", "lower-third-time",
                  "tour-path", "tour-fills", "tour-softness", "tour-people", "tour-fill-exception"):
         found = lints(evs, rule)
         assert found, rule
@@ -813,7 +813,7 @@ def test_an_unknown_field_order_blocks_inverse_telecine(tmp_path):
 
 def test_the_cache_key_holds_ffmpeg_and_the_fonts(plan):
     tk = R.tools_key()
-    assert tk["ffmpeg"].startswith("ffmpeg version") and len(tk["fonts"]) == 7 and all(tk["fonts"].values())
+    assert tk["ffmpeg"].startswith("ffmpeg version") and len(tk["fonts"]) == 8 and all(tk["fonts"].values())
     a = R.shot_key(plan, 2, {}, tk)
     b = R.shot_key(plan, 2, {}, dict(tk, ffmpeg="ffmpeg version 0"))
     c = R.shot_key(plan, 2, {}, dict(tk, fonts=dict(tk["fonts"], display="0" * 16)))
