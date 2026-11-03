@@ -3,7 +3,7 @@
 // year and source; and the balance of whose words the film holds. All of it
 // is generated from the film's sources.json.
 import "./app";
-import { balanceNodes, showReadings } from "./balance";
+import { balanceNodes } from "./balance";
 import {
   MARK_CLASSES,
   computeBalance,
@@ -24,7 +24,7 @@ import {
 } from "./film-data";
 import { notesIntro, notesNodes } from "./notes";
 import { sourceRows } from "./shot-rows";
-import { byId, el, filmPath, loadSources, markPlate, numerals, slugOf } from "./site";
+import { byId, el, filmPath, loadSources, markPlate, numerals, showReadings, slugOf } from "./site";
 import { countSourceOpens, sendEvent } from "./telemetry";
 
 const root = byId("sources-page");

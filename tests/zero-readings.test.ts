@@ -129,7 +129,7 @@ describe("the readings' lede, link, heading and list", () => {
   });
 
   it("are shown when the film has readings and stay hidden when it has none", async () => {
-    const { showReadings } = await import("../web/src/balance");
+    const { showReadings } = await import("../web/src/site");
     const nodes = () => [{ hidden: true }, { hidden: true }];
     const none = nodes();
     showReadings(none, parseSources(zero()));

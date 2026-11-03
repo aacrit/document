@@ -23,13 +23,14 @@ import {
   silentRecord,
   stepChapter,
   transcript,
+  transcriptLede,
   type Chapter,
   type FilmSources,
   type MarkClass,
 } from "./film-data";
 import { enterFullscreen, exitFullscreen, fullscreenPath, playFromTap, playsFullscreen, restoreInline, type FsOrientation, type FullscreenPath } from "./fullscreen";
 import { cssTimeMs } from "./fullscreen";
-import { byId, el, filmPath, loadSources, mediaUrl, numerals, slugOf, withDeeds } from "./site";
+import { byId, el, filmPath, loadSources, mediaUrl, numerals, showReadings, slugOf, withDeeds } from "./site";
 import { countCompletionOnce, reportCoreSuccess } from "./telemetry";
 
 /** An element the film page has below the player, absent in the home page's theatre. */
@@ -275,7 +276,8 @@ function renderTranscript(d: FilmSources): void {
   if (!list) return;
   const entries = transcript(d);
   const lede = maybe("transcript-lede");
-  if (lede && d.narration.length) lede.textContent = "Everything spoken, word for word: the narration and the readings, each with its speaker.";
+  const said = transcriptLede(d);
+  if (lede && said) lede.textContent = said;
   list.replaceChildren(
     ...entries.map((e) =>
       el(
@@ -290,6 +292,8 @@ function renderTranscript(d: FilmSources): void {
 }
 
 function renderNotes(d: FilmSources): void {
+  // the note's words about readings, and the Sources link's, are shown only for a film that has readings
+  showReadings(document.querySelectorAll<HTMLElement>("[data-readings]"), d);
   // The sides and how each is named come from the film's own balance block (or Partition's, before films declared one).
   const said = accountsSentence(d.balance, d.readings);
   const accounts = maybe("accounts");

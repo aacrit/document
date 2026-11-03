@@ -11,7 +11,7 @@
 import "./app";
 import { aiSentence, creditsLine, formatTime, posterCredit, trailerNote, voiceSentence } from "./film-data";
 import { tapPlay } from "./player";
-import { byId, loadSources, mediaUrl, numerals, slugOf, withDeeds } from "./site";
+import { byId, loadSources, mediaUrl, numerals, showReadings, slugOf, withDeeds } from "./site";
 import { sendEvent } from "./telemetry";
 
 // The marquee film, from the page (the build writes it from films.json).
@@ -31,6 +31,8 @@ function setupFromSources(): void {
       runtime.hidden = false;
       byId("credits-line").replaceChildren(numerals(creditsLine(data)));
       byId("home-voice").textContent = voiceSentence(data.readings, data.narrator) ?? "";
+      // the marquee note speaks of this film: its words about readings show only when it has readings
+      showReadings(document.querySelectorAll<HTMLElement>("[data-readings]"), data);
       byId("home-ai").textContent = aiSentence(data.shots);
       if (data.trailer) {
         byId("trailer-note").textContent = trailerNote(data.trailer);
