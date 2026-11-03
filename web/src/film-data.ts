@@ -26,6 +26,10 @@ export interface Shot {
   start_frame: number;
   end_frame: number;
   mark: Mark;
+  /** Which of the film's ledgers the item is filed in ("stills", "sheets" for map sheets, "footage"); never printed. */
+  ledger: string | null;
+  /** The item's id in that ledger; read only to tie a held frame to its footage item, never printed. */
+  ledger_id: string | null;
   title: string | null;
   archive: string | null;
   item_url: string | null;
@@ -209,6 +213,8 @@ function parseShot(x: unknown, i: number, fps: number): Shot {
       detail: typeof mark.detail === "string" ? mark.detail : "",
       label: typeof mark.label === "string" ? mark.label : "",
     },
+    ledger: str(x.ledger),
+    ledger_id: str(x.ledger_id),
     title: str(x.title),
     archive: str(x.archive),
     item_url: safeUrl(x.item_url),
@@ -759,9 +765,28 @@ export function isQuoteCard(s: Pick<Shot, "mark" | "text">): boolean {
   return s.mark.class === "CARD" && t.length >= 2 && !NUMBERED_CARD.test(t[0]) && DATED_SOURCE.test(t[t.length - 1].trim());
 }
 
-/** A printed page held on screen (an archive still titled by its page: "Collier's, 5 May 1906, page 22"). */
+/** A title's head: the words before its first comma, colon, semicolon or bracket ("Sanborn fire insurance map"). */
+const titleHead = (t: string): string => t.split(/[,:;(]/)[0].trim();
+/** Words that make a title's head describe a scene (people or things around the item), not name the item itself. */
+const SCENE_WORDS = /\b(?:with|showing|being|beside|on|at|reading|read|studying|posted|pinned|held|holding)\b/i;
+/** A page reference outside brackets: "page 22", "p. 91" (a bracket names a source, "(The Indian Listener, ..., p. 465)"). */
+const PAGE_REF = /\b(?:page |p\. ?)\d+\b/i;
+/** A head that names a gazette by its title, every word capitalised up to "Gazette": "The Gazette of India Extraordinary". */
+const GAZETTE_HEAD = /^(?:The )?(?:[A-Z][\w'.&-]* )*Gazette\b/;
+
+/**
+ * A printed page held on screen, an archive still titled by its page ("Collier's, 5 May 1906, page 22"; "The Gazette of
+ * India Extraordinary, 31 January 1949, p. 91: ..."), the page reference outside brackets; or a gazette's issue named
+ * by its date, a head naming the gazette and a year in the clause after it ("The Gazette of India Extraordinary,
+ * Saturday 30 July 1949: ...").
+ */
 export function isPrintedPage(s: Pick<Shot, "mark" | "kind" | "title">): boolean {
-  return s.mark.class === "ARCHIVE" && s.kind === "archive_still" && /\bpage \d+\b/i.test(s.title ?? "");
+  if (s.mark.class !== "ARCHIVE" || s.kind !== "archive_still") return false;
+  const t = s.title ?? "";
+  if (PAGE_REF.test(t.replace(/\([^()]*\)/g, ""))) return true;
+  const head = titleHead(t);
+  const next = t.split(/[,:;(]/)[1] ?? "";
+  return GAZETTE_HEAD.test(head) && !SCENE_WORDS.test(head) && /\b\d{4}\b/.test(next);
 }
 
 /**
@@ -1047,13 +1072,14 @@ export function computeBalance(readings: Reading[], config: BalanceConfig | null
   };
 }
 
-/** Seconds of picture by mark, whole film, with ARCHIVE split into film and photographs. */
+/** Seconds of picture by mark, whole film, with ARCHIVE split into film and stills (photographs, maps, printed pages
+ * and frames held from film alike: "photographs" would be false for all but the first). */
 export function secondsByMark(shots: Shot[]): { key: string; label: string; seconds: number; share: number }[] {
   const total = shots.reduce((s, x) => s + (x.end_s - x.start_s), 0) || 1;
   const sum = (f: (s: Shot) => boolean) => shots.filter(f).reduce((a, s) => a + (s.end_s - s.start_s), 0);
   const rows = [
     { key: "archive-film", label: "ARCHIVE film", seconds: sum((s) => s.mark.class === "ARCHIVE" && s.kind === "archive_video") },
-    { key: "archive-still", label: "ARCHIVE photographs", seconds: sum((s) => s.mark.class === "ARCHIVE" && s.kind !== "archive_video") },
+    { key: "archive-still", label: "ARCHIVE stills", seconds: sum((s) => s.mark.class === "ARCHIVE" && s.kind !== "archive_video") },
     { key: "reconstructed", label: "RECONSTRUCTED", seconds: sum((s) => s.mark.class === "RECONSTRUCTED") },
     { key: "drawn", label: "DRAWN", seconds: sum((s) => s.mark.class === "DRAWN") },
     { key: "card", label: "CARD", seconds: sum((s) => s.mark.class === "CARD") },
@@ -1064,9 +1090,12 @@ export function secondsByMark(shots: Shot[]): { key: string; label: string; seco
 
 // ---- Words for one shot (Sources) -------------------------------------------------
 
-/** "The photograph at Wikimedia Commons", "The film at the Internet Archive". */
-export function itemLinkLabel(shot: Shot): string {
-  const what = shot.kind === "archive_video" ? "The film" : shot.kind === "archive_still" ? "The photograph" : "The item";
+const ITEM_WORDS = { frame: "The film", map: "The map", page: "The page", photograph: "The photograph" } as const;
+
+/** "The photograph at Wikimedia Commons", "The map at the Library of Congress", "The film at the Internet Archive": a
+ * still's noun is its stillKind, and a frame held from a film links to that film. */
+export function itemLinkLabel(shot: Shot, footage: Footage): string {
+  const what = shot.kind === "archive_video" ? "The film" : shot.kind === "archive_still" ? ITEM_WORDS[stillKind(shot, footage)] : "The item";
   let where = shot.archive ?? "the archive";
   if (shot.item_url) {
     const host = new URL(shot.item_url).hostname;
@@ -1078,16 +1107,89 @@ export function itemLinkLabel(shot: Shot): string {
   return `${what} at ${where}`;
 }
 
-/** What a shot is, in plain words, with its length on screen. */
-export function shotWhat(shot: Shot): string {
+/** A film's footage items: each archive film's ledger id, with the archive page it links to. */
+export type Footage = ReadonlyMap<string, string | null>;
+
+/** The footage items a film shows (its archive film), by ledger id, each with its item's archive page. */
+export function filmFootage(shots: Pick<Shot, "kind" | "ledger_id" | "item_url">[]): Map<string, string | null> {
+  const items = new Map<string, string | null>();
+  for (const s of shots) if (s.kind === "archive_video" && s.ledger_id && !items.has(s.ledger_id)) items.set(s.ledger_id, s.item_url);
+  return items;
+}
+
+const MAP_WORD = /\bmaps?\b/i;
+
+/**
+ * An archive still that is itself a map, by what the file says of it (never by what the picture shows):
+ * - a drawn map's data or mark (isMapShot);
+ * - filed in the film's map-sheet ledger, "sheets" (Partition's and The Next Village's period sheets);
+ * - its mark's label names a map ("Archive · 1943 map · marks drawn"; never the detail, which names the archive);
+ * - its title's head is a plain name of a map: it opens with "Map" ("Map of the partition boundaries in the Punjab")
+ *   or ends with it ("Sanborn fire insurance map"), with no article first, at most 12 words, and no word that
+ *   describes a scene (with, showing, on, beside ...: "A map of Sylhet with flags on the villages ..." is a photograph);
+ * - its title ends on a bracket that opens with the word ("World-wide smallpox endemic areas, June 1971 (map, Source: WHO)"),
+ *   or names a map slide anywhere ("Worldwide smallpox endemic areas, 1966: a map slide (Source: WHO) ...").
+ * A map named later in a title is in the picture, not the item ("J. Donald Millar beside a Shapona display: map of
+ * West Africa, ..."), so that still stays a photograph.
+ */
+function isMapStill(s: Shot): boolean {
+  const t = s.title ?? "";
+  const head = titleHead(t);
+  const plainName =
+    /^maps?\b|\bmaps?$/i.test(head) && !/^(?:a|an|the)\b/i.test(head) && !SCENE_WORDS.test(head) && head.split(/\s+/).length <= 12;
+  return isMapShot(s) || s.ledger === "sheets" || MAP_WORD.test(s.mark.label) || plainName || /\(\s*maps?\b[^()]*\)\s*$/i.test(t) || /\bmap slides?\b/i.test(t);
+}
+
+/**
+ * A single printed sheet that is not titled by its page: an archive still whose title's head is "Proclamation" or
+ * "Broadside", alone or with who issued it ("Proclamation by the Mayor, 18 April 1906"; "Broadside of the Citizens'
+ * Committee"), and no word that describes a scene. A picture with one in it stays a photograph ("A proclamation being
+ * read aloud on Market Street, 1906"; "Proclamations posted on a wall: ...").
+ */
+function isPrintedSheet(s: Pick<Shot, "mark" | "kind" | "title">): boolean {
+  const head = titleHead(s.title ?? "");
+  return (
+    s.mark.class === "ARCHIVE" &&
+    s.kind === "archive_still" &&
+    /^(?:proclamation|broadside)(?: (?:by|of|from|issued by) .+)?$/i.test(head) &&
+    !SCENE_WORDS.test(head)
+  );
+}
+
+/**
+ * What an archive still is: "frame" when its ledger id extends a footage item the film shows ("MS-F01-PALACE-1" of
+ * "MS-F01") and it comes from that same archive item (the same item page), "map" (isMapStill), "page" (isPrintedPage,
+ * or isPrintedSheet: a proclamation or broadside), else "photograph". Without the film's footage a held frame cannot
+ * be told from a photograph, and stays one.
+ */
+export function stillKind(s: Shot, footage: Footage): "frame" | "map" | "page" | "photograph" {
+  const id = s.ledger_id ?? "";
+  if (s.mark.class === "ARCHIVE" && s.item_url && [...footage].some(([f, url]) => id.startsWith(`${f}-`) && url === s.item_url)) return "frame";
+  if (isMapStill(s)) return "map";
+  if (isPrintedPage(s) || isPrintedSheet(s)) return "page";
+  return "photograph";
+}
+
+const STILL_WORDS = { frame: "Frame of archive film", map: "Map", page: "Printed page", photograph: "Photograph" } as const;
+
+/** What a shot is, in plain words, with its length on screen; `footage` (filmFootage) tells a held frame of the film's footage. */
+export function shotWhat(shot: Shot, footage: Footage): string {
   const secs = Math.round(shot.end_s - shot.start_s);
   if (shot.kind === "archive_video") return `Film, ${secs} s`;
-  if (shot.kind === "archive_still") return `Photograph${shot.date ? `, ${shot.date}` : ""}, held ${secs} s`;
+  if (shot.kind === "archive_still") return `${STILL_WORDS[stillKind(shot, footage)]}${shot.date ? `, ${shot.date}` : ""}, held ${secs} s`;
   if (shot.kind === "black") return `Black, under a voice or in silence, ${secs} s`;
   if (shot.kind === "card") return `Text on black, ${secs} s`;
-  if (shot.kind === "drawn") return `Drawn, ${secs} s`;
+  if (shot.kind === "drawn") return isMapShot(shot) ? `Drawn map, ${secs} s` : `Drawn, ${secs} s`;
   if (shot.kind === "title_sequence") return `The series titles, drawn from period records, ${secs} s`;
   return `${secs} s`;
+}
+
+/** A Sources entry's "What" row: shotWhat, with an archive film's date and the span of the archive's copy it shows. */
+export function entryWhat(shot: Shot, footage: Footage): string {
+  if (shot.kind !== "archive_video") return shotWhat(shot, footage);
+  let what = shot.date ? `Film, ${shot.date}, ${Math.round(shot.end_s - shot.start_s)} s` : shotWhat(shot, footage);
+  if (shot.in_s !== null && shot.out_s !== null) what += `, from ${formatTime(shot.in_s)} to ${formatTime(shot.out_s)} of the archive's copy`;
+  return what;
 }
 
 /** A46's black floor in plain words; studio/tests/test_cine11_levels.py pairs each claim with the map's math. */

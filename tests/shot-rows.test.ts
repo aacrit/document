@@ -25,7 +25,7 @@ function shotWith(over: Record<string, unknown>): Shot {
 
 async function rows(shot: Shot): Promise<Map<string, FakeNode>> {
   const { sourceRows } = await import("../web/src/shot-rows");
-  return new Map(sourceRows(shot).filter(([, v]) => v !== null && v !== "").map(([k, v]) => [k, asFake(v)]));
+  return new Map(sourceRows(shot, new Map()).filter(([, v]) => v !== null && v !== "").map(([k, v]) => [k, asFake(v)]));
 }
 
 describe("a shot's provenance rows", () => {

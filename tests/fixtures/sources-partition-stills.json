@@ -1,0 +1,586 @@
+{
+ "_note": "Eight shots copied verbatim from the live https://document.voidvision.org/media/partition-of-india/sources.json (fetched 2026-11-02): a filmstrip frame, a Survey of India sheet, Gazette pages with and without a page number, Assembly debate pages and a portrait sourced to a magazine page.",
+ "v": 2,
+ "slug": "partition-of-india",
+ "title": "Not a Free Agent",
+ "fps": 24,
+ "duration_s": 2660.75,
+ "readings": [],
+ "shots": [
+  {
+   "id": "1.4",
+   "part": "ch-1",
+   "kind": "archive_still",
+   "start_s": 276.3333,
+   "end_s": 308.9167,
+   "start_frame": 6632,
+   "end_frame": 7414,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Commons 1946",
+    "label": "Archive · 1946"
+   },
+   "ledger": "stills",
+   "ledger_id": "S-102",
+   "title": "Gandhi on the way to Noakhali, 1946 (filmstrip frame no. 19)",
+   "archive": "Wikimedia Commons (scan by User:Yann)",
+   "item_url": "https://commons.wikimedia.org/wiki/File:Gandhi_on_the_way_to_Noakhali.jpg",
+   "date": "1946 (photograph); filmstrip printing circa 1950",
+   "creator": "unknown photographer; Gandhi Smarak Sangrahalaya Samiti filmstrip (Bombay, circa 1950)",
+   "credit": "unknown photographer; Gandhi Smarak Sangrahalaya Samiti filmstrip (Bombay, circa 1950); Wikimedia Commons (scan by User:Yann)",
+   "licence": "Public domain",
+   "basis": "Indian photograph published over 60 years ago: Copyright Act 1957 s.25 (60 years from publication), expired in India; accepted-risk footing as the other PD-India stills",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 0.616,
+    "image": [
+     3117,
+     2034
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 16,
+    "p2": 18,
+    "min0_5": 16,
+    "applied": false,
+    "why": "p2 18 is at or under 24"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  },
+  {
+   "id": "2.2",
+   "part": "ch-2",
+   "kind": "archive_still",
+   "start_s": 485.6667,
+   "end_s": 500.25,
+   "start_frame": 11656,
+   "end_frame": 12006,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Survey of India / AMS 1943",
+    "label": "Archive · 1943 map · marks drawn"
+   },
+   "ledger": "stills",
+   "ledger_id": "M-007",
+   "title": "Survey of India quarter-inch sheet 43 P Gurdaspur, interim edition March 1943 (1st ed. 1927, 2nd 1936), AMS reprint",
+   "archive": "Survey of India, reprinted by the US Army Map Service (Series 3919 and 4218); via Wikimedia Commons (scan: Perry-Castaneda Library)",
+   "item_url": "https://commons.wikimedia.org/wiki/File:Map_by_the_US_Army_Map_Service_-_Gurdaspur_-_-_india_253k_-_txu-pclmaps-oclc-181831961-gurdaspur-43-p-1927.jpg",
+   "date": "1943 (interim edition; first edition 1927)",
+   "creator": "Survey of India",
+   "credit": "Survey of India, sheet 43 P, interim edition 1943, AMS reprint; PCL Map Collection; via Wikimedia Commons",
+   "licence": "Public domain",
+   "basis": "Government of India work of 1943: Indian copyright of a government work runs 60 years from publication (expired 2004); the AMS reprint is a US government printing; Commons PD tag",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": "FIND",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 0.9047,
+    "image": [
+     3483,
+     5219
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 32,
+    "p2": 51,
+    "min0_5": 18,
+    "applied": true,
+    "black_in": 18,
+    "black_out": 10,
+    "white": 255,
+    "gain": 1.0338,
+    "p2_after": 44,
+    "what": "black level set: the scan's grey floor taken down to near black by one straight-line level, the same on every colour, which raises contrast and colour strength by the same small factor; the white point kept",
+    "materiality": "non-material (GRAMMAR 4.2: a level adjustment, one straight line the same on every channel; A46)"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "marks": [
+    {
+     "id": "K2",
+     "kind": "halo",
+     "name": "Gurdaspur",
+     "spelling": "record",
+     "source": {
+      "id": "GeoNames (CC BY 4.0)",
+      "licence": "CC BY 4.0",
+      "used_for": "the position of the named town (cities1000 and the IN and PK dumps)",
+      "precision_m": 500,
+      "year": 2026
+     },
+     "feature_year": 1947,
+     "precision_m": 700,
+     "enter": {
+      "preset": "whisper",
+      "at_s": 3.5,
+      "order": 0
+     },
+     "exit": {
+      "ease": "let_go",
+      "at_s": 13.9
+     }
+    },
+    {
+     "id": "K3",
+     "kind": "halo",
+     "name": "Pathankot",
+     "spelling": "record",
+     "source": {
+      "id": "GeoNames (CC BY 4.0)",
+      "licence": "CC BY 4.0",
+      "used_for": "the position of the named town (cities1000 and the IN and PK dumps)",
+      "precision_m": 500,
+      "year": 2026
+     },
+     "feature_year": 1947,
+     "precision_m": 700,
+     "enter": {
+      "preset": "whisper",
+      "at_s": 3.5,
+      "order": 1
+     },
+     "exit": {
+      "ease": "let_go",
+      "at_s": 13.9
+     }
+    },
+    {
+     "id": "K4",
+     "kind": "halo",
+     "name": "Shakargarh",
+     "spelling": "record",
+     "source": {
+      "id": "GeoNames (CC BY 4.0)",
+      "licence": "CC BY 4.0",
+      "used_for": "the position of the named town (cities1000 and the IN and PK dumps)",
+      "precision_m": 500,
+      "year": 2026
+     },
+     "feature_year": 1947,
+     "precision_m": 700,
+     "enter": {
+      "preset": "whisper",
+      "at_s": 3.5,
+      "order": 2
+     },
+     "exit": {
+      "ease": "let_go",
+      "at_s": 13.9
+     }
+    }
+   ],
+   "georef": {
+    "fit": "polyconic",
+    "projection": {
+     "name": "polyconic",
+     "lon0": 75.5,
+     "lat0": 32.5,
+     "spheroid": "everest1830"
+    },
+    "stated": "not printed on the sheet; the Survey of India's degree sheets are drawn on the polyconic, the series projection (a transverse Mercator fit is equal to 0.001 px)",
+    "rmse_px": 1.713,
+    "max_px": 3.236,
+    "m_per_px": 30.72,
+    "neatline": [
+     75,
+     32,
+     76,
+     33
+    ],
+    "drawn_precision_m": 200,
+    "verified_by": "R5b builder 2026-10-11: neatlines fitted from their own pixels, corners at their intersections; 15' ticks read where they cross the border band, within 14 px of a corner-only fit; no interior graticule is printed",
+    "control_points": 16
+   },
+   "text": null
+  },
+  {
+   "id": "2.4",
+   "part": "ch-2",
+   "kind": "archive_still",
+   "start_s": 535.875,
+   "end_s": 567.3333,
+   "start_frame": 12861,
+   "end_frame": 13616,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Gazette of India / Internet Archive 1947",
+    "label": "Archive · 1947"
+   },
+   "ledger": "stills",
+   "ledger_id": "S-130",
+   "title": "The Gazette of India Extraordinary, Sunday 17 August 1947, page 1: the Reports of the Bengal and Punjab Boundary Commissions published \"for general information\"",
+   "archive": "Internet Archive in.gazette.e.1947.58",
+   "item_url": "https://archive.org/details/in.gazette.e.1947.58",
+   "date": "1947-08-17",
+   "creator": "Government of India, Legislative Department",
+   "credit": "Government of India, Legislative Department; Internet Archive in.gazette.e.1947.58",
+   "licence": "Public domain",
+   "basis": "Gazette matter: Copyright Act 1957 s.52(1)(q) and s.28 (government work, 60 years from publication)",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 1.4953,
+    "image": [
+     1284,
+     1987
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 0,
+    "p2": 0,
+    "min0_5": 0,
+    "applied": false,
+    "why": "p2 0 is at or under 24"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  },
+  {
+   "id": "4.1",
+   "part": "ch-4",
+   "kind": "archive_still",
+   "start_s": 1127.7083,
+   "end_s": 1150.9167,
+   "start_frame": 27065,
+   "end_frame": 27622,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "CAL / Internet Archive 1949",
+    "label": "Archive · 1949"
+   },
+   "ledger": "stills",
+   "ledger_id": "S-138",
+   "title": "Constituent Assembly of India (Legislative) Debates, 11 February 1949, p. 574: minutes of the Lahore conference of March 1948",
+   "archive": "Internet Archive eparlib.nic.in.760480, leaf 61",
+   "item_url": "https://archive.org/details/eparlib.nic.in.760480",
+   "date": "1949-02-11 (the minutes are of 13-15 March 1948)",
+   "creator": "Constituent Assembly of India (Legislative); Lok Sabha Secretariat",
+   "credit": "Constituent Assembly of India (Legislative); Lok Sabha Secretariat; Internet Archive eparlib.nic.in.760480, leaf 61",
+   "licence": "Public domain",
+   "basis": "Founder ruling 2026-10-12: accepted risk, crediting the Lok Sabha Secretariat (s.28 government work over 60 years; the Secretariat permits non-commercial attributed reproduction)",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 3,
+    "image": [
+     1400,
+     2433
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 0,
+    "p2": 5,
+    "min0_5": 0,
+    "applied": false,
+    "why": "p2 5 is at or under 24"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  },
+  {
+   "id": "4.5b",
+   "part": "ch-4",
+   "kind": "archive_still",
+   "start_s": 1247.25,
+   "end_s": 1278.3333,
+   "start_frame": 29934,
+   "end_frame": 30680,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Indian Listener / Commons 1938",
+    "label": "Archive · 1938"
+   },
+   "ledger": "stills",
+   "ledger_id": "S-114",
+   "title": "Begum Aizaz Rasul, 1938 (The Indian Listener, 9 April 1938, p. 465)",
+   "archive": "The Indian Listener (Google Books scan), via Wikimedia Commons",
+   "item_url": "https://commons.wikimedia.org/wiki/File:BegumAizazRasul1938.png",
+   "date": "1938-04-09",
+   "creator": "All India Radio, The Indian Listener (no photographer credited)",
+   "credit": "All India Radio, The Indian Listener (no photographer credited); The Indian Listener (Google Books scan), via Wikimedia Commons",
+   "licence": "Public domain",
+   "basis": "PD-India-photo-1958: an Indian photograph published before 1958; The Indian Listener is All India Radio's (Government of India) journal",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": "HOLD",
+   "fill_ok": false,
+   "fill": null,
+   "fill_exception": "A 530 px halftone from a 1938 magazine, the only copy; her own face for her own question.",
+   "fill_detail": false,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 1.5429,
+    "image": [
+     530,
+     742
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 0,
+    "p2": 0,
+    "min0_5": 0,
+    "applied": false,
+    "why": "p2 0 is at or under 24"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  },
+  {
+   "id": "5.1",
+   "part": "ch-5",
+   "kind": "archive_still",
+   "start_s": 1444.9167,
+   "end_s": 1453.5417,
+   "start_frame": 34678,
+   "end_frame": 34885,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Gazette of India / Internet Archive 1949",
+    "label": "Archive · 1949"
+   },
+   "ledger": "stills",
+   "ledger_id": "S-131",
+   "title": "The Gazette of India Extraordinary, 31 January 1949, p. 91: Ordinance No. V of 1949, s. 2(1)(a)",
+   "archive": "Internet Archive in.gazette.e.1949.264",
+   "item_url": "https://archive.org/details/in.gazette.e.1949.264",
+   "date": "1949-01-31",
+   "creator": "Government of India, Ministry of Law",
+   "credit": "Government of India, Ministry of Law; Internet Archive in.gazette.e.1949.264",
+   "licence": "Public domain",
+   "basis": "Gazette matter: Copyright Act 1957 s.52(1)(q) and s.28 (government work, 60 years from publication)",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 3,
+    "image": [
+     1250,
+     1934
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 0,
+    "p2": 0,
+    "min0_5": 0,
+    "applied": false,
+    "why": "p2 0 is at or under 24"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  },
+  {
+   "id": "5.3",
+   "part": "ch-5",
+   "kind": "archive_still",
+   "start_s": 1463.5417,
+   "end_s": 1476.75,
+   "start_frame": 35125,
+   "end_frame": 35442,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Gazette of India / Internet Archive 1949",
+    "label": "Archive · 1949"
+   },
+   "ledger": "stills",
+   "ledger_id": "S-132",
+   "title": "The Gazette of India Extraordinary, 31 January 1949, p. 92: camps and the powers of police officers",
+   "archive": "Internet Archive in.gazette.e.1949.264",
+   "item_url": "https://archive.org/details/in.gazette.e.1949.264",
+   "date": "1949-01-31",
+   "creator": "Government of India, Ministry of Law",
+   "credit": "Government of India, Ministry of Law; Internet Archive in.gazette.e.1949.264",
+   "licence": "Public domain",
+   "basis": "Gazette matter: Copyright Act 1957 s.52(1)(q) and s.28 (government work, 60 years from publication)",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 3,
+    "image": [
+     1248,
+     1931
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 0,
+    "p2": 0,
+    "min0_5": 0,
+    "applied": false,
+    "why": "p2 0 is at or under 24"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  },
+  {
+   "id": "5.8",
+   "part": "ch-5",
+   "kind": "archive_still",
+   "start_s": 1576.5,
+   "end_s": 1586.8333,
+   "start_frame": 37836,
+   "end_frame": 38084,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Gazette of India / Internet Archive 1949",
+    "label": "Archive · 1949"
+   },
+   "ledger": "stills",
+   "ledger_id": "S-133",
+   "title": "The Gazette of India Extraordinary, Saturday 30 July 1949: Ordinance No. XVIII of 1949 (the Ordinance made again)",
+   "archive": "Internet Archive in.gazette.e.1949.62",
+   "item_url": "https://archive.org/details/in.gazette.e.1949.62",
+   "date": "1949-07-30",
+   "creator": "Government of India, Ministry of Law",
+   "credit": "Government of India, Ministry of Law; Internet Archive in.gazette.e.1949.62",
+   "licence": "Public domain",
+   "basis": "Gazette matter: Copyright Act 1957 s.52(1)(q) and s.28 (government work, 60 years from publication)",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 3,
+    "image": [
+     1289,
+     1909
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 0,
+    "p2": 0,
+    "min0_5": 0,
+    "applied": false,
+    "why": "p2 0 is at or under 24"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  }
+ ]
+}
