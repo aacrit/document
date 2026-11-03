@@ -2,7 +2,8 @@
 // uploads to the film's folder in R2 with --remote and sources.json last, and
 // a dry run is plain data that never runs a command.
 import { describe, expect, it } from "vitest";
-import { BUCKET, MAX_PUT_BYTES, PACKET_ROOT, UPLOAD_ORDER, captionReview, cropProblems, parseCrop, commandLine, uploadsCaptions, gopFrames, rateProblems, videoKbps, webEncodeArgs, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease, readLedgers, posterSource } from "../scripts/release-film.mjs";
+import { BUCKET, MAX_PUT_BYTES, PACKET_ROOT, UPLOAD_ORDER, captionReview, cropProblems, parseCrop, commandLine, uploadsCaptions, gopFrames, rateProblems, videoKbps, webEncodeArgs, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease, readLedgers, posterSource, localPathProblems, runCheck } from "../scripts/release-film.mjs";
+import { localPathFindings } from "../scripts/lib/local-paths.mjs";
 import { mkdtempSync, readFileSync, writeFileSync as wfs, mkdirSync as mkd } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as pjoin } from "node:path";
@@ -15,7 +16,7 @@ const plan = (argv: string[], durations = { film: 1205, trailer: 120 }) => planR
 describe("release-film", () => {
   it("runs sources-only, the web encode, the poster and packet, the captions check, the upload and the hashes, in that order", () => {
     const { steps } = plan(["r/master.mp4", "--trailer", "t/master.mp4"]);
-    expect(steps.map((s) => s.id)).toEqual(["a", "b", "b", "c", "c", "d", "e", "e", "e", "e", "e", "e", "e", "f"]);
+    expect(steps.map((s) => s.id)).toEqual(["a", "b", "b", "c", "c", "d", "e", "e", "e", "e", "e", "e", "e", "e", "f"]);
     expect(steps[0].args).toEqual(expect.arrayContaining(["-m", "studio.engine.render", "--sources-only"]));
     expect(steps[1].args).toEqual(expect.arrayContaining(webEncodeArgs(1205)));
     expect(steps[2].args).toEqual(expect.arrayContaining(["-maxrate", `${videoKbps(120)}k`]));
@@ -33,6 +34,44 @@ describe("release-film", () => {
     const firstWrite = steps.findIndex((s) => s.args?.includes("put") || s.args?.includes("delete"));
     expect(hashes).toBeGreaterThan(-1);
     expect(hashes).toBeLessThan(firstWrite);
+  });
+
+  // The live defect (Partition, 2026-11): four shots printed a drive as their archive and credit.
+  const defect = () => ({
+    slug: "partition-of-india",
+    shots: [
+      { id: "S-133", archive: "Internet Archive", credit: "Internet Archive", item_url: "https://archive.org/details/x" },
+      { id: "S-134", archive: "Lok Sabha Secretariat (eparlib), PDF on D:", credit: "Lok Sabha Secretariat (eparlib), PDF on D:", item_url: "https://eparlib.nic.in" },
+    ],
+    cues: [{ id: "M-01", tradition: "the reach (phrase c in C: C5 D5 A5)" }],
+    loudness: { limiter: { file: "D:\\document-media\\market-street-render\\work\\mix-norm-limited.wav" } },
+  });
+
+  it("names every field of sources.json that names a local drive, and nothing else", () => {
+    expect(localPathFindings(defect())).toEqual([
+      { path: ".shots[1].archive", value: "Lok Sabha Secretariat (eparlib), PDF on D:" },
+      { path: ".shots[1].credit", value: "Lok Sabha Secretariat (eparlib), PDF on D:" },
+      { path: ".loudness.limiter.file", value: "D:\\document-media\\market-street-render\\work\\mix-norm-limited.wav" },
+    ]);
+    expect(localPathFindings({ shots: [{ archive: "Internet Archive", item_url: "https://eparlib.nic.in", t: "12:30", id: "A:5.4" }] })).toEqual([]);
+    expect(localPathFindings({ "D:/x": 1 })).toEqual([{ path: '["D:/x"] (key)', value: "D:/x" }]);
+  });
+
+  it("refuses a packet whose sources.json names a local drive, before any put, naming each field", () => {
+    const { steps } = plan(["r/master.mp4", "--trailer", "t/master.mp4"]);
+    const check = steps.findIndex((s) => s.check === "local-paths");
+    const firstWrite = steps.findIndex((s) => s.args?.includes("put") || s.args?.includes("delete"));
+    expect(check).toBeGreaterThan(-1);
+    expect(check).toBeLessThan(firstWrite);
+    expect(plan(["r/master.mp4", "--no-upload"]).steps.some((s) => s.check === "local-paths")).toBe(true);
+    const dir = mkdtempSync(pjoin(tmpdir(), "release-local-"));
+    const bad = pjoin(dir, "sources.json");
+    wfs(bad, JSON.stringify(defect()));
+    expect(() => runCheck({ check: "local-paths", sources: bad })).toThrow(/3 field\(s\) name a local drive[\s\S]*\.shots\[1\]\.archive[\s\S]*\.shots\[1\]\.credit[\s\S]*\.loudness\.limiter\.file/);
+    const good = pjoin(dir, "good.json");
+    wfs(good, JSON.stringify({ shots: [defect().shots[0]], cues: defect().cues }));
+    expect(() => runCheck({ check: "local-paths", sources: good })).not.toThrow();
+    expect(localPathProblems(defect())[0]).toBe('sources.json .shots[1].archive names a local drive: "Lok Sabha Secretariat (eparlib), PDF on D:"');
   });
 
   it("derives the rate cap from the duration, so the 720p file stays under the put limit with margin", () => {

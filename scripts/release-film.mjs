@@ -6,7 +6,8 @@
 //   b. the 720p web encode               ffmpeg -> <packet>/film.mp4 (and trailer.mp4, only with --trailer)
 //   c. the poster and the packet         ffmpeg (still -> poster.jpg), python -m studio.engine.publish
 //   d. the captions                      captions-en.vtt, written by publish (studio/engine/captions.py); checked here
-//   e. the upload                        wrangler r2 object put document-media/<slug>/<file> --remote, sources.json last
+//   e. the upload                        wrangler r2 object put document-media/<slug>/<file> --remote, sources.json last;
+//                                        refused first if any field of sources.json names a local drive (lib/local-paths.mjs)
 //   f. the hashes                        sha256 of every file, checked against what sources.json records
 //
 //   node scripts/release-film.mjs <render dir>/master.mp4 [--dry-run] [--trailer <trailer master.mp4>]
@@ -36,6 +37,7 @@ import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { localPathFindings } from "./lib/local-paths.mjs";
 import { resolveBinPath } from "./lib/run-bin.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -280,6 +282,8 @@ export function planRelease(o, { python = studioPython(), ffmpeg = process.env.D
       ...(c ? ["--poster-crop", cropSpec(c)] : []), ...(o.trailer ? ["--trailer", at("trailer.mp4")] : [])] });
   steps.push({ id: "d", label: "the captions (captions-en.vtt, written by publish from the render's screenplay)", check: "captions", file: at("captions-en.vtt") });
   const files = UPLOAD_ORDER.filter((f) => (f !== "trailer.mp4" || o.trailer) && (f !== "captions-en.vtt" || uploadsCaptions(captionsReview)));
+  // sources.json is public and the site prints it: a drive path in it ("PDF on D:", Partition 2026-11) is refused before any put.
+  steps.push({ id: "e", label: "sources.json names no local drive", check: "local-paths", sources: at("sources.json") });
   steps.push({ id: "e", label: "every file under the put limit", check: "sizes", files: files.map(at) });
   // Every hash is checked against sources.json before the first put, so nothing goes up that the record does not describe.
   steps.push({ id: "e", label: "every file hashes to what sources.json records", check: "hashes", files: files.map(at), sources: at("sources.json"), slug });
@@ -329,12 +333,21 @@ export function driveProblems(paths, run = (drive) => spawnSync("fsutil", ["dirt
 const quote = (s) => (/^[\w@%+=:,./\\-]+$/.test(s) ? s : `"${String(s).replace(/"/g, '\\"')}"`);
 export const commandLine = (step) => [step.exe, ...step.args].map(quote).join(" ");
 
+/** The refusals for a packet's sources.json: one line per string that names a local drive, naming its field. */
+export function localPathProblems(doc) {
+  return localPathFindings(doc).map((f) => `sources.json ${f.path} names a local drive: ${JSON.stringify(f.value)}`);
+}
+
 export function sha256(file) {
   return createHash("sha256").update(readFileSync(file)).digest("hex");
 }
 
-function runCheck(step) {
-  if (step.check === "captions") {
+export function runCheck(step) {
+  if (step.check === "local-paths") {
+    const problems = localPathProblems(JSON.parse(readFileSync(step.sources, "utf8")));
+    if (problems.length) throw new Error(`${problems.length} field(s) name a local drive (fix the ledger or screenplay, publish again):\n  ${problems.join("\n  ")}`);
+    console.log("  no local drive in any field");
+  } else if (step.check === "captions") {
     const text = existsSync(step.file) ? readFileSync(step.file, "utf8") : "";
     const cues = (text.match(/ --> /g) ?? []).length;
     if (!text.startsWith("WEBVTT") || cues === 0) throw new Error(`${step.file} is not a WebVTT file with cues`);
@@ -419,6 +432,10 @@ function main() {
     if (step.check) {
       if (o.dryRun) {
         console.log(`  check: ${step.check}${step.file ? ` ${step.file}` : ""}`);
+        // the packet as it stands (an earlier publish): what a real run refuses if publish writes it the same way
+        if (step.check === "local-paths" && existsSync(step.sources)) {
+          for (const p of localPathProblems(JSON.parse(readFileSync(step.sources, "utf8")))) console.log(`  the packet's current ${p} (a real run refuses)`);
+        }
         continue;
       }
       try {
