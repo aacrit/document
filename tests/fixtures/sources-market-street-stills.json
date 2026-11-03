@@ -1,0 +1,447 @@
+{
+ "_note": "Seven shots copied verbatim from Market Street release sources.json (D:/document-media/market-street-render/r-2026-11-01-release, 2026-11-01): the ride on film, two held frames of it, a magazine page, a photograph, the 1899 Sanborn map sheet and a newspaper front page.",
+ "v": 2,
+ "slug": "market-street",
+ "title": "Market Street",
+ "fps": 24,
+ "duration_s": 1140.375,
+ "readings": [],
+ "shots": [
+  {
+   "id": "1.1",
+   "part": "ch-1",
+   "kind": "archive_video",
+   "start_s": 125,
+   "end_s": 420,
+   "start_frame": 3000,
+   "end_frame": 10080,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Prelinger Archives 1906",
+    "label": "Archive · 1906"
+   },
+   "ledger": "footage",
+   "ledger_id": "MS-F01",
+   "title": "A Trip Down Market Street (Miles Brothers, spring 1906), Prelinger 4K scan, conformed",
+   "archive": "Prelinger Archives, via Internet Archive",
+   "item_url": "https://archive.org/details/MarketStreet19064KScan20181016",
+   "date": "1906-04",
+   "creator": "Miles Brothers",
+   "credit": null,
+   "licence": "public domain",
+   "basis": "a US work published in 1906; Prelinger Archives item statement: \"Anyone may reproduce or reuse this scan. Please attribute it to its source: Prelinger Archives.\"",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": null,
+   "fill_ok": null,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": 250.75,
+   "out_s": 545.75,
+   "resampler": {
+    "method": "lanczos (ffmpeg scale)",
+    "ml_upscaler": false,
+    "scale": 1
+   },
+   "conform": {
+    "method": "repeat",
+    "filter": "fps=24",
+    "in_fps": 16,
+    "out_fps": 24,
+    "out_rate": "24",
+    "note": "frame repeat to 24 with no speed change",
+    "telecine_declared": true,
+    "pattern": {
+     "out_frames": 7080,
+     "source_frames": 4720,
+     "dropped": 0,
+     "repeated": 2360
+    }
+   },
+   "levels": null,
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  },
+  {
+   "id": "2.1a",
+   "part": "ch-2",
+   "kind": "archive_still",
+   "start_s": 424,
+   "end_s": 476.1667,
+   "start_frame": 10176,
+   "end_frame": 11428,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Prelinger Archives 1906",
+    "label": "Archive · 1906"
+   },
+   "ledger": "stills",
+   "ledger_id": "MS-F01-PALACE-1",
+   "title": "A Trip Down Market Street: a frame of the ride on Market Street near New Montgomery, held",
+   "archive": "Prelinger Archives, via Internet Archive",
+   "item_url": "https://archive.org/details/MarketStreet19064KScan20181016",
+   "date": "1906-04",
+   "creator": "Miles Brothers",
+   "credit": null,
+   "licence": "public domain",
+   "basis": "a US work published in 1906 (public domain); the scan is free to reuse, Prelinger Archives: \"Anyone may reproduce or reuse this scan. Please attribute it to its source: Prelinger Archives.\"",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 0.5818,
+    "image": [
+     3300,
+     2475
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 30,
+    "p2": 38,
+    "min0_5": 30,
+    "applied": true,
+    "black_in": 30,
+    "black_out": 10,
+    "white": 255,
+    "gain": 1.0889,
+    "p2_after": 19,
+    "what": "black level set: the scan's grey floor taken down to near black by one straight-line level, the same on every colour, which raises contrast and colour strength by the same small factor; the white point kept",
+    "materiality": "non-material (GRAMMAR 4.2: a level adjustment, one straight line the same on every channel; A46)"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  },
+  {
+   "id": "2.1b",
+   "part": "ch-2",
+   "kind": "archive_still",
+   "start_s": 476.1667,
+   "end_s": 515.2083,
+   "start_frame": 11428,
+   "end_frame": 12365,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Prelinger Archives 1906",
+    "label": "Archive · 1906"
+   },
+   "ledger": "stills",
+   "ledger_id": "MS-F01-PALACE-2",
+   "title": "A Trip Down Market Street: a second frame of the same block, held",
+   "archive": "Prelinger Archives, via Internet Archive",
+   "item_url": "https://archive.org/details/MarketStreet19064KScan20181016",
+   "date": "1906-04",
+   "creator": "Miles Brothers",
+   "credit": null,
+   "licence": "public domain",
+   "basis": "a US work published in 1906 (public domain); the scan is free to reuse, Prelinger Archives: \"Anyone may reproduce or reuse this scan. Please attribute it to its source: Prelinger Archives.\"",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 0.5818,
+    "image": [
+     3300,
+     2475
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 30,
+    "p2": 37,
+    "min0_5": 30,
+    "applied": true,
+    "black_in": 30,
+    "black_out": 10,
+    "white": 255,
+    "gain": 1.0889,
+    "p2_after": 18,
+    "what": "black level set: the scan's grey floor taken down to near black by one straight-line level, the same on every colour, which raises contrast and colour strength by the same small factor; the white point kept",
+    "materiality": "non-material (GRAMMAR 4.2: a level adjustment, one straight line the same on every channel; A46)"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  },
+  {
+   "id": "2.2",
+   "part": "ch-3",
+   "kind": "archive_still",
+   "start_s": 525.0417,
+   "end_s": 545.0417,
+   "start_frame": 12601,
+   "end_frame": 13081,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Internet Archive 1906",
+    "label": "Archive · 1906"
+   },
+   "ledger": "stills",
+   "ledger_id": "MS-P-THEATRE-184",
+   "title": "The Theatre, July 1906, page 184: \"Caruso on the Earthquake\"",
+   "archive": "Internet Archive, contributed by University of Illinois Chicago (UIC) Library (collection uic/pub_theatre-magazine/periodicals; camera-scanned, not microfilm)",
+   "item_url": "https://archive.org/details/theatre-a-monthly-review-and-magazine_1906-07_6_65",
+   "date": "1906-07",
+   "creator": "Enrico Caruso (The Theatre)",
+   "credit": null,
+   "licence": "public domain",
+   "basis": "No explicit rights/license field present in this item's metadata; the issue (July 1906) is pre-1929 and in the public domain in the United States.",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 1.2123,
+    "image": [
+     2762,
+     4000
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 4,
+    "p2": 15,
+    "min0_5": 0,
+    "applied": false,
+    "why": "p2 15 is at or under 24"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  },
+  {
+   "id": "2.3",
+   "part": "ch-3",
+   "kind": "archive_still",
+   "start_s": 545.0417,
+   "end_s": 553.0417,
+   "start_frame": 13081,
+   "end_frame": 13273,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Library of Congress 1906",
+    "label": "Archive · 1906"
+   },
+   "ledger": "stills",
+   "ledger_id": "MS-S03",
+   "title": "Looking down Sacramento Street, the morning of 18 April 1906",
+   "archive": "Library of Congress, Prints & Photographs Division",
+   "item_url": "https://www.loc.gov/item/2015650751/",
+   "date": "1906-04-18",
+   "creator": "Arnold Genthe",
+   "credit": null,
+   "licence": "public domain",
+   "basis": "No known restrictions on publication.",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 0.48,
+    "image": [
+     4000,
+     3219
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 27,
+    "p2": 31,
+    "min0_5": 27,
+    "applied": true,
+    "black_in": 27,
+    "black_out": 10,
+    "white": 255,
+    "gain": 1.0746,
+    "p2_after": 14,
+    "what": "black level set: the scan's grey floor taken down to near black by one straight-line level, the same on every colour, which raises contrast and colour strength by the same small factor; the white point kept",
+    "materiality": "non-material (GRAMMAR 4.2: a level adjustment, one straight line the same on every channel; A46)"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  },
+  {
+   "id": "2.4",
+   "part": "ch-3",
+   "kind": "archive_still",
+   "start_s": 562.5417,
+   "end_s": 576.5833,
+   "start_frame": 13501,
+   "end_frame": 13838,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Library of Congress 1899",
+    "label": "Archive · 1899"
+   },
+   "ledger": "stills",
+   "ledger_id": "MS-M01-07",
+   "title": "Sanborn fire insurance map, San Francisco vol. 1 (1899), sheet 7: Market Street at Third, Kearny and Geary",
+   "archive": "Library of Congress, Geography and Map Division, Sanborn Maps Collection",
+   "item_url": "https://www.loc.gov/item/sanborn00813_008/",
+   "date": "1899",
+   "creator": "Sanborn-Perris Map Co.",
+   "credit": null,
+   "licence": "public domain",
+   "basis": "The content of the Library of Congress online Sanborn Maps Collection is in the public domain and is free to use and reuse.",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 0.6838,
+    "image": [
+     2808,
+     4000
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 10,
+    "p2": 19,
+    "min0_5": 0,
+    "applied": false,
+    "why": "p2 19 is at or under 24"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  },
+  {
+   "id": "2.10",
+   "part": "ch-4",
+   "kind": "archive_still",
+   "start_s": 705.0833,
+   "end_s": 741.4583,
+   "start_frame": 16922,
+   "end_frame": 17795,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Library of Congress 1906",
+    "label": "Archive · 1906"
+   },
+   "ledger": "stills",
+   "ledger_id": "MS-D01",
+   "title": "The Call-Chronicle-Examiner, 19 April 1906, page 1",
+   "archive": "Library of Congress (Chronicling America / NDNP; original held by California State Library/CURIV)",
+   "item_url": "https://www.loc.gov/resource/sn82015732/1906-04-19/ed-1/?sp=1",
+   "date": "1906-04-19",
+   "creator": "The Call, The Chronicle and The Examiner (joint issue)",
+   "credit": null,
+   "licence": "public domain",
+   "basis": "The Library of Congress believes that the newspapers in Chronicling America are in the public domain or have no known copyright restrictions. Newspapers published in the United States more than 95 years ago are in the public domain in their entirety.",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [
+    "Correction: this front page says the city was placed under martial law. The report of the army's Pacific Division states that its troops acted \"in the nature of posse comitatus for the maintenance of public order\", that \"the proclamations and municipal orders of the Mayor should be strictly observed\" (page 15), and that \"the military force was to be strictly subordinate to the civil authorities\" (page 18). Source: Maj. Gen. Adolphus W. Greely, Earthquake in California, April 18, 1906, Government Printing Office, 1906, public domain: https://archive.org/details/earthquakeincal00divigoog"
+   ],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 0.7025,
+    "image": [
+     2979,
+     4000
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 0,
+    "p2": 2,
+    "min0_5": 0,
+    "applied": false,
+    "why": "p2 2 is at or under 24"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  }
+ ]
+}
