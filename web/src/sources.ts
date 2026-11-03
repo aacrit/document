@@ -19,6 +19,7 @@ import {
   sideLabel,
   type Chapter,
   type FilmSources,
+  type Footage,
   type MarkClass,
   type Shot,
 } from "./film-data";
@@ -57,7 +58,7 @@ function chapterHeading(c: Chapter, tag: "h2" | "h3", cls: string): HTMLElement 
   );
 }
 
-function shotEntry(shot: Shot, footage: ReadonlySet<string>): HTMLLIElement {
+function shotEntry(shot: Shot, footage: Footage): HTMLLIElement {
   const t = Math.floor(shot.start_s);
   const isCard = shot.mark.class === "CARD";
   const title = isCard ? cardTitle(shot) : (shot.title ?? "Untitled item");

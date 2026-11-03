@@ -1,7 +1,7 @@
 // A shot's provenance rows on the Sources page: archive, author, item, licence, data, credit and treatment. CC BY
 // asks for the title, the author, the source and the licence; every one of them is here. Values from sources.json
 // are set as DOM text or as links checked by safeUrl, never as markup (tests/shot-rows.test.ts).
-import { entryWhat, itemLinkLabel, safeUrl, shotTreatment, type Shot } from "./film-data";
+import { entryWhat, itemLinkLabel, safeUrl, shotTreatment, type Footage, type Shot } from "./film-data";
 import { dataSourcesNode, el, numerals, withDeeds } from "./site";
 
 const same = (a: string, b: string): boolean => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -27,11 +27,11 @@ export function creditNode(credit: string | null): Node | null {
 }
 
 /** An entry's "What" row: what the shot is (a map, a printed page, a frame of archive film, a photograph ...), as text. */
-export function whatNode(shot: Shot, footage: ReadonlySet<string>): Node {
+export function whatNode(shot: Shot, footage: Footage): Node {
   return numerals(entryWhat(shot, footage));
 }
 
-export function sourceRows(shot: Shot, footage: ReadonlySet<string> = new Set()): [string, Node | string | null][] {
+export function sourceRows(shot: Shot, footage: Footage): [string, Node | string | null][] {
   const url = safeUrl(shot.item_url);
   const author = authorOf(shot);
   return [
