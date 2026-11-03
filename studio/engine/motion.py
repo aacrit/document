@@ -74,6 +74,8 @@ class Fonts:
     structure_medium: str = str(_FONTSOURCE / "inter/files/inter-latin-500-normal.woff")
     data: str = str(_FONTSOURCE / "jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff")
     data_semibold: str = str(_FONTSOURCE / "jetbrains-mono/files/jetbrains-mono-latin-600-normal.woff")
+    # the numerals on a Fraunces 300 line (BRAND-KIT 7a): mono 500 read bold there
+    data_light: str = str(_FONTSOURCE / "jetbrains-mono/files/jetbrains-mono-latin-300-normal.woff")
 
 
 @lru_cache(maxsize=256)
@@ -486,7 +488,9 @@ PHONE = dict(width_px=693, min_px=7.0)
 # always alpha_composite onto a copy of the input frame.
 # --------------------------------------------------------------------------
 
-_NUM = re.compile(r"(\d[\d,.:]*\d|\d)")
+# a digit is what str.isdigit() calls one, superscripts too ("km²"): the router and the card-numerals-mono lint share it
+_DIGIT = r"[\d¹²³⁰⁴⁵⁶⁷⁸⁹]"
+_NUM = re.compile(rf"({_DIGIT}[{_DIGIT[1:-1]},.:]*{_DIGIT}|{_DIGIT})")
 
 
 def _rgba(rgb, a: float):
@@ -518,6 +522,81 @@ def _draw_mixed(d: ImageDraw.ImageDraw, xy, text: str, font, data_font, fill):
         f = data_font if num else font
         d.text((x, y), frag, font=f, fill=fill, anchor="ls")
         x += f.getlength(frag)
+
+
+# BRAND-KIT 7a (brand audit 2026-11-02): a numeral on a Fraunces 300 line is JetBrains Mono 300 at this share of the
+# line's size. Measured on the @fontsource files: Fraunces' figures stand about 0.71 em and JetBrains Mono's about 0.735 em, so 97%
+# puts both on one figure height; mono 300's stem at 97% is Fraunces 300's within a pixel at every card size, where mono
+# 500 at 94% (the structure face's numerals, BRAND-KIT 11) has a stem about a quarter heavier and read bold.
+# test_card_numerals.py holds both to the faces.
+DISPLAY_NUMERALS = dict(scale=0.97)
+
+
+def display_data_font(fonts: "Fonts", px: int) -> ImageFont.FreeTypeFont:
+    """The data face for the numerals of a Fraunces 300 line drawn at ``px``."""
+    return _font(fonts.data_light, max(1, round(px * DISPLAY_NUMERALS["scale"])))
+
+
+@lru_cache(maxsize=64)
+def font_family(path: str) -> str:
+    """The family name the font file states (its name table, typographic family first)."""
+    from fontTools.ttLib import TTFont
+    with TTFont(path, lazy=True) as f:
+        name = f["name"]
+        rec = name.getName(16, 3, 1, 0x409) or name.getName(1, 3, 1, 0x409) or name.getName(1, 1, 0, 0)
+        return str(rec) if rec is not None else Path(path).stem
+
+
+def is_data_face(path: str) -> bool:
+    """Whether the file is the house data face, JetBrains Mono (BRAND-KIT 7: every numeral)."""
+    return "JetBrains Mono" in font_family(path)
+
+
+class NumeralsOutsideMono(ValueError):
+    """A digit about to be drawn on a card in a face other than JetBrains Mono (BRAND-KIT 7)."""
+
+
+def text_spans(x: float, text: str, font, data_font, alpha: float = 1.0) -> list[dict]:
+    """A line as its drawn spans from ``x``: each fragment, its x, its face and its opacity; numeral runs take
+    ``data_font`` (when there is one). A card's layout records these and its drawer draws them and nothing else."""
+    out = []
+    runs = _runs(text) if data_font is not None else ([(text, False)] if text else [])
+    for frag, num in runs:
+        f = data_font if num else font
+        out.append({"text": frag, "x": x, "font": f, "alpha": alpha})
+        x += f.getlength(frag)
+    return out
+
+
+def numerals_outside_mono(spans) -> list[dict]:
+    """Every span that holds a digit and is not set in JetBrains Mono: {text, digits, face}."""
+    out = []
+    for s in spans:
+        if _NUM.search(s["text"]) and not is_data_face(s["font"].path):
+            out.append({"text": s["text"], "digits": _NUM.findall(s["text"]) or [s["text"]],
+                        "face": font_family(s["font"].path)})
+    return out
+
+
+def card_numeral_problems(layout: dict) -> list[dict]:
+    """``card-numerals-mono`` (BRAND-KIT 7, GRAMMAR A28(g)): the digit runs a card layout (title, chapter, statement
+    or credits) would set outside the mono face, read from the spans its drawer draws. Empty when every numeral is
+    mono."""
+    lines = list(layout.get("lines") or [])
+    for e in layout.get("elements") or []:
+        lines += e["lines"]
+    lines += layout.get("headings") or []
+    return numerals_outside_mono([s for ln in lines for s in ln.get("spans") or []])
+
+
+def _draw_spans(d: ImageDraw.ImageDraw, baseline: float, spans, rgb, alpha: float):
+    """Draw a layout's spans on ``baseline``. A digit outside the mono face is refused, never drawn."""
+    bad = numerals_outside_mono(spans)
+    if bad:
+        raise NumeralsOutsideMono(f"a card would set {', '.join(x for b in bad for x in b['digits'])!r} in "
+                                  f"{bad[0]['face']}; every numeral is JetBrains Mono (BRAND-KIT 7)")
+    for s in spans:
+        d.text((s["x"], baseline), s["text"], font=s["font"], fill=_rgba(rgb, alpha * s.get("alpha", 1.0)), anchor="ls")
 
 
 def _draw_tracked(d: ImageDraw.ImageDraw, xy, text: str, font, fill, track_em: float):
@@ -1434,22 +1513,29 @@ def _black(size) -> Image.Image:
 def chapter_card_layout(L: Layout, number: int, title: str, dates: str, fonts: Fonts) -> dict:
     """The chapter card's two lines as drawn (E15): ``<number>  <title>`` and
     the dates, each one line inside SAFE_W of the width, every glyph present,
-    or TextOverflow. ``chapter_card_frame`` draws these records."""
+    or TextOverflow. The number and every digit run of the title are
+    JetBrains Mono 300 matched to the title's Fraunces 300 (BRAND-KIT 7a); the
+    dates are mono throughout. ``chapter_card_frame`` draws the records'
+    spans and nothing else."""
     f_t = _font(fonts.display, L.px(CHAPTER["title"]))
-    f_n = _font(fonts.data, L.px(CHAPTER["title"]))
+    f_n = display_data_font(fonts, L.px(CHAPTER["title"]))
     f_d = _font(fonts.data, L.px(CHAPTER["dates"]))
     num = f"{number}"
     gap = 0.55 * f_t.size
     check_text(num, f_n, what="the chapter number")
-    check_text(title, f_t, what="the chapter title")
-    w = f_n.getlength(num) + gap + f_t.getlength(title)
+    check_text(title, f_t, f_n, what="the chapter title")
+    w = f_n.getlength(num) + gap + _measure(title, f_t, f_n)
     if w > L.w(SAFE_W) + 0.5:
         raise TextOverflow(f"the chapter line is {100 * w / L.W:.1f}% of the width; at most {SAFE_W:g}% fit on one line: "
                            f"{num}  {title!r}")
     dw = check_text(dates, f_d, max_w=L.w(SAFE_W), what="the chapter dates") if dates else 0.0
+    x = (L.W - w) / 2.0
+    spans = text_spans(x, num, f_n, None, alpha=0.8) + text_spans(x + f_n.getlength(num) + gap, title, f_t, f_n)
     return {"fonts": (f_t, f_n, f_d), "gap": gap,
-            "lines": [{"role": "title", "text": f"{num} {title}", "num": num, "title": title, "x": (L.W - w) / 2.0, "w": w},
-                      {"role": "dates", "text": dates, "x": (L.W - dw) / 2.0, "w": dw}]}
+            "lines": [{"role": "title", "text": f"{num} {title}", "num": num, "title": title, "x": x, "w": w,
+                       "spans": spans},
+                      {"role": "dates", "text": dates, "x": (L.W - dw) / 2.0, "w": dw,
+                       "spans": text_spans((L.W - dw) / 2.0, dates, f_d, None)}]}
 
 
 def chapter_card_frame(img: Image.Image, t: float, *, start: float, end: float, number: int, title: str,
@@ -1464,19 +1550,16 @@ def chapter_card_frame(img: Image.Image, t: float, *, start: float, end: float, 
     L = Layout(*base.size)
     exit_k = fade_out(t, end, CHAPTER["exit"])
     lay = chapter_card_layout(L, number, title, dates, fonts)
-    f_t, f_n, f_d = lay["fonts"]
+    f_d = lay["fonts"][2]
     head, dl = lay["lines"]
     layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
-    num, title, gap, x = head["num"], head["title"], lay["gap"], head["x"]
     by = L.h(CHAPTER["baseline"])
     p = ARRIVE.progress(t - start)
     a = clamp01(p) * exit_k
     dy = (1.0 - clamp01(p)) * L.h(CHAPTER["rise"])
     sub = Image.new("RGBA", base.size, (0, 0, 0, 0))
-    sd = ImageDraw.Draw(sub)
-    sd.text((x, by), num, font=f_n, fill=_rgba(PALETTE["bone"], a * 0.8), anchor="ls")
-    sd.text((x + f_n.getlength(num) + gap, by), title, font=f_t, fill=_rgba(PALETTE["bone"], a), anchor="ls")
+    _draw_spans(ImageDraw.Draw(sub), by, head["spans"], PALETTE["bone"], a)
     layer.alpha_composite(_shift(sub, dy))
     rp = clamp01(DRIFT.progress(t - start - 0.10)) * exit_k
     rl = L.w(CHAPTER["rule_len"]) * rp
@@ -1487,8 +1570,7 @@ def chapter_card_frame(img: Image.Image, t: float, *, start: float, end: float, 
     dp = SETTLE.progress(t - start - 0.25) if t >= start + 0.25 else 0.0
     if dp > 0:
         sub = Image.new("RGBA", base.size, (0, 0, 0, 0))
-        sd = ImageDraw.Draw(sub)
-        sd.text((dl["x"], ry + L.h(1.2) + f_d.size), dl["text"], font=f_d, fill=_rgba(PALETTE["bone"], clamp01(dp) * 0.8 * exit_k), anchor="ls")
+        _draw_spans(ImageDraw.Draw(sub), ry + L.h(1.2) + f_d.size, dl["spans"], PALETTE["bone"], clamp01(dp) * 0.8 * exit_k)
         layer.alpha_composite(_shift(sub, (1.0 - clamp01(dp)) * L.h(CHAPTER["rise"])))
     return Image.alpha_composite(base, layer)
 
@@ -1508,14 +1590,18 @@ def card_layout(L: Layout, texts, fonts: Fonts, what: str = "card") -> dict:
     is never cut or dropped.
 
     Returns ``{"scale", "top", "bottom", "elements": [{"index", "role",
-    "text", "px", "lines": [{"text", "x", "baseline", "w"}]}]}``. The drawer
-    draws these records and nothing else, so the card-drawn lint compares
-    them with the intended text. At scale 1 the arithmetic is the G2 card's,
+    "text", "px", "lines": [{"text", "x", "baseline", "w", "spans"}]}]}``.
+    The drawer draws these records' spans and nothing else, so the card-drawn
+    lint compares them with the intended text and card-numerals-mono reads
+    their faces. Numerals in the statement are JetBrains Mono 300 matched to
+    its Fraunces 300 (BRAND-KIT 7a); in the Inter lines, mono at 94% (BRAND-KIT
+    11). At scale 1 the arithmetic is the G2 card's,
     so a card that always fitted keeps its pixels."""
     texts = [str(x) for x in (texts or [])]
     for i, tx in enumerate(texts):
         px = L.px(SILENT["size"] if i == 0 else SILENT["searched"])
-        check_text(tx, _font(fonts.display if i == 0 else fonts.structure, px), _font(fonts.data, round(px * 0.94)),
+        check_text(tx, _font(fonts.display if i == 0 else fonts.structure, px),
+                   display_data_font(fonts, px) if i == 0 else _font(fonts.data, round(px * 0.94)),
                    what=f"{what}, element {i}")
     max_w = L.w(SILENT["max_w"])
     safe_top, safe_bottom = L.h(SILENT["safe_top"]), L.h(SILENT["safe_bottom"])
@@ -1525,7 +1611,7 @@ def card_layout(L: Layout, texts, fonts: Fonts, what: str = "card") -> dict:
         scale = round(1.0 - k * SILENT["scale_step"], 6)
         px1 = L.px(SILENT["size"] * scale)
         px2 = L.px(SILENT["searched"] * scale)
-        f1, f1n = _font(fonts.display, px1), _font(fonts.data, round(px1 * 0.94))
+        f1, f1n = _font(fonts.display, px1), display_data_font(fonts, px1)      # BRAND-KIT 7a
         f2, f2n = _font(fonts.structure, px2), _font(fonts.data, round(px2 * 0.94))
         gap = L.h(SILENT["gap"] * scale)
         wrapped = []
@@ -1548,7 +1634,8 @@ def card_layout(L: Layout, texts, fonts: Fonts, what: str = "card") -> dict:
                 recs = []
                 for ln in lines:
                     w = _measure(ln, f, fn)
-                    recs.append({"text": ln, "x": (L.W - w) / 2.0, "baseline": y + f.size * (0.78 + (SILENT["lh"] - 1) / 2), "w": w})
+                    recs.append({"text": ln, "x": (L.W - w) / 2.0, "baseline": y + f.size * (0.78 + (SILENT["lh"] - 1) / 2), "w": w,
+                                 "spans": text_spans((L.W - w) / 2.0, ln, f, fn)})
                     y += f.size * SILENT["lh"]
             else:
                 if lines:
@@ -1556,7 +1643,8 @@ def card_layout(L: Layout, texts, fonts: Fonts, what: str = "card") -> dict:
                 recs = []
                 for ln in lines:
                     w = _measure(ln, f, fn)
-                    recs.append({"text": ln, "x": (L.W - w) / 2.0, "baseline": y + f.size * (0.78 + 0.2), "w": w})
+                    recs.append({"text": ln, "x": (L.W - w) / 2.0, "baseline": y + f.size * (0.78 + 0.2), "w": w,
+                                 "spans": text_spans((L.W - w) / 2.0, ln, f, fn)})
                     y += f.size * 1.4
             elements.append({"index": i, "role": "statement" if i == 0 else "line", "text": tx, "px": f.size,
                              "font": f, "data_font": fn, "lines": recs})
@@ -1613,7 +1701,7 @@ def silent_card_frame(img: Image.Image, t: float, *, start: float, end: float, s
         if e["index"]:
             a *= 0.8
         for ln in e["lines"]:
-            _draw_mixed(d, (ln["x"], ln["baseline"]), ln["text"], e["font"], e["data_font"], _rgba(PALETTE["mark_text"], a))
+            _draw_spans(d, ln["baseline"], ln["spans"], PALETTE["mark_text"], a)
     return Image.alpha_composite(base, layer)
 
 
@@ -1631,11 +1719,17 @@ def draw_wordmark(d: ImageDraw.ImageDraw, x: float, baseline: float, px: int, fo
 
 def title_card_layout(L: Layout, title: str, fonts: Fonts) -> dict:
     """The title card's line as drawn (E15): one line inside SAFE_W, every glyph
-    present, or TextOverflow; the wordmark beneath is fixed."""
+    present, or TextOverflow; the wordmark beneath is fixed (its words hold no
+    numeral). Every digit run of the title ("1906", "11 September 2001") is
+    JetBrains Mono 300 matched to the title's Fraunces 300 (BRAND-KIT 7a);
+    ``title_card_frame`` draws the line's spans and nothing else."""
     f_t = _font(fonts.display, L.px(TITLE["size"]))
-    w = check_text(title, f_t, max_w=L.w(SAFE_W), what="the film title")
-    return {"font": f_t, "lines": [{"role": "title", "text": title, "x": (L.W - w) / 2.0, "w": w},
-                                   {"role": "wordmark", "text": "void document"}]}
+    f_n = display_data_font(fonts, L.px(TITLE["size"]))
+    w = check_text(title, f_t, f_n, max_w=L.w(SAFE_W), what="the film title")
+    x = (L.W - w) / 2.0
+    return {"font": f_t, "data_font": f_n,
+            "lines": [{"role": "title", "text": title, "x": x, "w": w, "spans": text_spans(x, title, f_t, f_n)},
+                      {"role": "wordmark", "text": "void document"}]}
 
 
 def title_card_frame(img: Image.Image, t: float, *, start: float, end: float, title: str, fonts: Fonts) -> Image.Image:
@@ -1648,13 +1742,11 @@ def title_card_frame(img: Image.Image, t: float, *, start: float, end: float, ti
     L = Layout(*base.size)
     exit_k = fade_out(t, end, TITLE["exit"])
     lay = title_card_layout(L, title, fonts)
-    f_t = lay["font"]
     layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
     p = ARRIVE.progress(t - start)
     sub = Image.new("RGBA", base.size, (0, 0, 0, 0))
-    sd = ImageDraw.Draw(sub)
     by = L.h(50.0)
-    sd.text((lay["lines"][0]["x"], by), title, font=f_t, fill=_rgba(PALETTE["bone"], clamp01(p) * exit_k), anchor="ls")
+    _draw_spans(ImageDraw.Draw(sub), by, lay["lines"][0]["spans"], PALETTE["bone"], clamp01(p) * exit_k)
     layer.alpha_composite(_shift(sub, (1.0 - clamp01(p)) * L.h(TITLE["rise"])))
     wp = SETTLE.progress(t - start - 0.4) if t >= start + 0.4 else 0.0
     if wp > 0:
@@ -1758,23 +1850,29 @@ def credits_wrap(L: Layout, text: str, fonts: Fonts, chars: int = 90) -> list[st
 def credits_layout(L: Layout, blocks, fonts: Fonts) -> dict:
     """Where each credit line sits on the roll, from the roll's top (px), and
     when it has fully entered the frame (s after the credits start). Every
-    line fits the column with its glyphs, or TextOverflow (E15)."""
+    line fits the column with its glyphs, or TextOverflow (E15). Each line
+    and heading records its spans (the heading mono, a line Inter with its
+    numerals in mono at 94%), which ``credits_frame`` draws and
+    card-numerals-mono reads."""
     f_h, f_l, f_n = credits_fonts(L, fonts)
     lh = f_l.size * CREDITS["lh"]
     col = L.w(CREDITS["col_w"])
     speed = L.h(CREDITS["speed"])
-    y, lines = 0.0, []
+    x = (L.W - col) / 2.0
+    y, lines, headings = 0.0, [], []
     for heading, rows in blocks:
         check_text(heading.upper(), f_h, what="a credits heading")
         if _tracked_width(heading.upper(), f_h, 0.12) > col + 0.5:
             raise TextOverflow(f"a credits heading is wider than the column: {heading!r}")
+        headings.append({"text": heading.upper(), "y": y, "spans": [{"text": heading.upper(), "x": x, "font": f_h}]})
         y += lh * 1.3
         for ln in rows:
             w = check_text(ln, f_l, f_n, max_w=col, what="a credit line")
-            lines.append({"text": ln, "y": y, "w": w, "entered_s": (y + f_l.size * 0.9 + f_l.size * 0.3) / speed})
+            lines.append({"text": ln, "y": y, "w": w, "entered_s": (y + f_l.size * 0.9 + f_l.size * 0.3) / speed,
+                          "spans": text_spans(x, ln, f_l, f_n)})
             y += lh
         y += lh * 0.8
-    return {"lines": lines, "height": y, "speed": speed,
+    return {"lines": lines, "headings": headings, "height": y, "speed": speed, "x": x,
             "last_entered_s": lines[-1]["entered_s"] if lines else 0.0}
 
 
@@ -1787,9 +1885,7 @@ def credits_frame(img: Image.Image, t: float, *, start: float, blocks, fonts: Fo
     if t < start:
         return base
     L = Layout(*base.size)
-    f_h = _font(fonts.data, L.px(CREDITS["heading"]))
-    f_l = _font(fonts.structure, L.px(CREDITS["size"]))
-    f_n = _font(fonts.data, round(L.px(CREDITS["size"]) * 0.94))
+    f_h, f_l, f_n = credits_fonts(L, fonts)          # the faces credits_layout records, so its spans are these
     lh = f_l.size * CREDITS["lh"]
     y = L.H - (t - start) * L.h(CREDITS["speed"])
     a = fade_in(t, start, CREDITS["fade_in"], ease_out_quad)
@@ -1802,7 +1898,7 @@ def credits_frame(img: Image.Image, t: float, *, start: float, blocks, fonts: Fo
         y += lh * 1.3
         for ln in lines:
             if -lh < y < L.H + lh:
-                _draw_mixed(d, (x, y + f_l.size * 0.9), ln, f_l, f_n, _rgba(PALETTE["bone"], a))
+                _draw_spans(d, y + f_l.size * 0.9, text_spans(x, ln, f_l, f_n), PALETTE["bone"], a)
             y += lh
         y += lh * 0.8
     return Image.alpha_composite(base, layer)

@@ -790,14 +790,16 @@ def card_text_check(shot: dict, W: int, H: int, fonts: M.Fonts | None = None) ->
     """E15: what a card shot draws of its ``text[]``, from the same layout the
     drawer uses. Returns ``fits`` (False with ``why`` when the text cannot be
     laid out in the card's safe area at a readable size), ``missing`` (the
-    elements not drawn word for word: index, intended, drawn) and, for a
+    elements not drawn word for word: index, intended, drawn), ``numerals``
+    (BRAND-KIT 7, GRAMMAR A28(g): the digit runs the layout would set outside
+    JetBrains Mono, read from the spans the drawer draws) and, for a
     statement card, its ``scale`` and ``lines``. Never OCR: the layout
     records are what is drawn."""
     fonts = fonts or M.Fonts()
     L = M.Layout(W, H)
     texts = [str(x) for x in (shot.get("text") or [])]
     ck = shot.get("_card") or card_kind(shot)
-    out = {"card": ck, "fits": True, "why": None, "missing": []}
+    out = {"card": ck, "fits": True, "why": None, "missing": [], "numerals": []}
 
     def norm(x):
         return " ".join(str(x).split())
@@ -830,6 +832,7 @@ def card_text_check(shot: dict, W: int, H: int, fonts: M.Fonts | None = None) ->
             out.update(fits=False, why=str(e), missing=drawn_as([]))
             return out
         out["missing"] = drawn_as([norm(r["text"]) for r in recs])
+        out["numerals"] = M.card_numeral_problems(lay)
         return out
     try:
         lay = M.card_layout(L, texts, fonts, what=f"card {shot.get('id')}")
@@ -837,17 +840,26 @@ def card_text_check(shot: dict, W: int, H: int, fonts: M.Fonts | None = None) ->
         out.update(fits=False, why=str(e), missing=drawn_as([]))
         return out
     out["missing"] = M.card_text_problems(texts, lay)
+    out["numerals"] = M.card_numeral_problems(lay)
     out["scale"] = lay["scale"]
     out["lines"] = [len(e["lines"]) for e in lay["elements"]]
     return out
 
 
+def card_numerals_evidence(card: str, numerals: list[dict]) -> dict:
+    return {"card": card, "numerals": numerals,
+            "fix": None if not numerals else "every numeral on a card is JetBrains Mono (BRAND-KIT 7 and 7a); the card's "
+                                             "layout must set its digit runs in the data face"}
+
+
 def card_lints(lint, shots: list[dict], W: int, H: int, *, rule_fits: str = "card-fits", rule_drawn: str = "card-drawn",
-               stage: str = "scout", only=None) -> None:
+               rule_numerals: str = "card-numerals-mono", stage: str = "scout", only=None) -> None:
     """E15: every card's text fits its safe area at a readable size, and every
     element of its ``text[]`` is drawn word for word (from the layout records).
     At plan time a shortfall card is checked with its placeholders as written,
-    which are longer than any fill; after the fill it is checked again."""
+    which are longer than any fill; after the fill it is checked again.
+    GRAMMAR A28(g): every digit run a card draws is set in JetBrains Mono
+    (``rule_numerals``, from the same layout spans)."""
     fonts = M.Fonts()
     for s in shots:
         if s.get("kind") not in ("card", "black") or (only is not None and s["id"] not in only):
@@ -860,6 +872,8 @@ def card_lints(lint, shots: list[dict], W: int, H: int, *, rule_fits: str = "car
              evidence={"card": c["card"], "missing": c["missing"],
                        "fix": None if not c["missing"] else "every element of text[] must be drawn; this card kind draws "
                                                             "only what its form allows (GRAMMAR 9)"})
+        lint(rule_numerals, not c["numerals"], unit=s["id"], stage=stage, grammar="A28(g), BRAND-KIT 7 and 7a",
+             evidence=card_numerals_evidence(c["card"], c["numerals"]))
 
 
 def whole_camera(shot: dict, img_size, W: int, H: int, *, preset: str = "HOLD") -> dict:
@@ -3545,8 +3559,11 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     plan["dips"] = dip_list(plan)
     plan["credits"] = credits_blocks(plan)
     try:
-        M.credits_layout(M.Layout(W, H), plan["credits"], M.Fonts())
+        credits_lay = M.credits_layout(M.Layout(W, H), plan["credits"], M.Fonts())
         lint("credits-fits", True, unit="credits", grammar="9, BRAND-KIT 11c")
+        bad = M.card_numeral_problems(credits_lay)
+        lint("card-numerals-mono", not bad, unit="credits", grammar="A28(g), BRAND-KIT 7 and 7a",
+             evidence=card_numerals_evidence("credits", bad))
     except M.TextOverflow as e:
         lint("credits-fits", False, unit="credits", grammar="9, BRAND-KIT 11c", evidence={"why": str(e)})
     if lint_fail:
@@ -6043,6 +6060,7 @@ SOUND_LINTS: dict[str, dict] = {
     "shortfall-fill": {"class": "needs full mix", "why": "E15, a card's numbers come from the mix's measurement"},
     "card-fills-fit": {"class": "needs full mix", "why": "E15, the card as filled from the mix"},
     "card-fills-drawn": {"class": "needs full mix", "why": "E15, the card as filled from the mix"},
+    "card-fills-numerals-mono": {"class": "needs full mix", "why": "A28(g), the card's numerals as filled from the mix"},
     "still-hold": {"class": "needs full mix", "why": "A39 guidance, the holds against the speech as placed"},
     "loudness": {"class": "needs full mix", "why": "8.5, the levelled master"},
     "loudnorm-linear": {"class": "needs full mix", "why": "8.5, the levelled master"},
@@ -8322,7 +8340,7 @@ def card_fill_lints(journal: Journal, plan: dict) -> list[str]:
             out.append(f"{rule} ({unit}): {evidence}")
 
     card_lints(lint, plan["shots"], plan["W"], plan["H"], rule_fits="card-fills-fit", rule_drawn="card-fills-drawn",
-               stage="assembly", only=set(fills))
+               rule_numerals="card-fills-numerals-mono", stage="assembly", only=set(fills))
     return out
 
 
@@ -8996,7 +9014,8 @@ def tools_key() -> dict:
     """What else changes a segment's pixels: the ffmpeg build and the font files."""
     f = M.Fonts()
     fonts = {}
-    for name in ("display", "display_italic", "display_regular", "structure", "structure_medium", "data", "data_semibold"):
+    for name in ("display", "display_italic", "display_regular", "structure", "structure_medium", "data", "data_semibold",
+                 "data_light"):
         path = Path(getattr(f, name))
         fonts[name] = sha256_file(path)[:16] if path.exists() else None
     return {"ffmpeg": ffmpeg_version(), "fonts": fonts}
@@ -9096,7 +9115,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         with journal.unit("scout", "preflight", size={"driver": "items", "value": 1}):
             pf = preflight(out, journal, min_free_gb=min_free_gb)
         fonts = M.Fonts()
-        missing = [p for p in (fonts.display, fonts.structure, fonts.data) if not Path(p).exists()]
+        missing = [p for p in (fonts.display, fonts.structure, fonts.data, fonts.data_light) if not Path(p).exists()]
         if missing:
             raise Refused(f"fonts not found ({missing[0]}); run npm ci in the repo")
         play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))

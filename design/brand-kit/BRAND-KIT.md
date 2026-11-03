@@ -166,6 +166,18 @@ Type sizes on cards: chapter title Fraunces 300 at 5.6% of height (60 / 40 px) w
 - Voice on film, first (GRAMMAR A0, the founding principle; founder, 2026-10-11): **show as was, not as is, and never tell.** Every word on screen and in the voice is as the time saw, knew and said it: period place names and terms (Dacca, Bombay, Ceylon), never modernised; nothing after the film's horizon (`as_of`): no "today", no "would later", no "decades later", no present-day map, border, figure or name. The narrator and every card, lower third and title give no opinion, verdict or editorial adjective ("tragic", "heroic", "brutal", "remarkable", "we believe", "must remember"); the film's view is in what it selects and how it orders it. Period voices may judge, in quotes. The film ends on one question asked from inside the time, then the brand end. [lint: hindsight-language, modern-names, never-tell, ending-question (`studio/engine/aswas.py`, lists in `studio/show-as-was.json`); site copy: `tests/show-as-was.test.ts`]
 - Voice on film: a lower third states, it never characterises ("Governor of the Punjab, 1947", never "the man who lost the Punjab"). Chapter titles are at most five words and never a verdict. No exclamation marks, no em dashes, sentence case except the mono eyebrows. Dates and counts over footage are one line, bottom right, tabular, sourced.
 
+### 7a. Numerals on a card are mono, at the display face's weight (2026-11-02, brand audit; GRAMMAR A28(g))
+
+Market Street's title card set "1906" in Fraunces, and its chapter 3 title "5:12" too: the renderer drew a card's title as one Fraunces run. Every digit run on every card (title, chapter, statement, quote, credits) is JetBrains Mono, which is tabular by construction.
+
+| Where | Numerals | Why |
+|---|---|---|
+| A Fraunces 300 line: the film title, the chapter number and title, a statement or quote | JetBrains Mono 300 at 97% of the line's size, on its baseline | Fraunces' figures stand about 0.71 em and the mono's about 0.735 em, so 97% gives one figure height; mono 300's stem there is Fraunces 300's within a pixel. Mono 500 at 94% had a stem about a quarter heavier and read bold beside it ("nothing bold", section 7) |
+| An Inter 400 line: a card's source and later lines, a credit line | JetBrains Mono 500 at 94%, unchanged (section 11) | it already sits with Inter's weight |
+| A line set wholly in mono: the chapter dates, the credits' headings, `void` | unchanged | |
+
+The chapter number keeps its 0.8 opacity. The engine lays every card line out as spans (a fragment and its face); the drawer draws those spans and nothing else, and refuses a digit outside the mono face. [lint: card-numerals-mono, card-fills-numerals-mono; tests: `studio/tests/test_card_numerals.py`]
+
 ## 8. Do and don't
 
 Do: align the lower third's left edge with the mark plate; let the picture breathe under a wash instead of a box; put the flag before the name; keep the watermark off every card; cut by default and dissolve only within a class; let a reading end on a frame, not on a graphic.
