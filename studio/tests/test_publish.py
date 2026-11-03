@@ -89,6 +89,53 @@ def test_sources_only_refuses_a_description_it_cannot_publish_before_writing_eit
     assert (out / "sources.json").read_bytes() == before and not (out / "description.txt").exists()
 
 
+def test_public_loudness_makes_every_absolute_path_relative_to_the_render_folder(tmp_path):
+    # Market Street's live sources.json printed the limiter's file as a D: path (2026-11): sources.json is public
+    run = tmp_path / "render"
+    limited = run / "work" / "mix-norm-limited.wav"
+    loud = {"normalised": True, "gain_db": 1.2,
+            "limiter": {"file": str(limited), "ceiling_dbtp": -2.0},
+            "steps": [{"what": "true-peak limiter", "why": "peaks", "evidence": {"file": str(limited)}}],
+            "elsewhere": "D:\\document-media\\other-render\\work\\mix-norm-limited.wav"}
+    pub = R.public_loudness(loud, run)
+    assert pub["limiter"]["file"] == "work/mix-norm-limited.wav"
+    assert pub["steps"][0]["evidence"]["file"] == "work/mix-norm-limited.wav"
+    assert pub["elsewhere"] == "work/mix-norm-limited.wav"          # outside the render folder: its folder and name
+    assert pub["gain_db"] == 1.2 and pub["steps"][0]["why"] == "peaks"
+    assert loud["limiter"]["file"] == str(limited)                   # a copy: the journal keeps the real path
+
+
+def test_sources_only_cleans_a_drive_path_an_earlier_render_wrote_into_loudness(film, rendered, tmp_path):
+    out = _copy_render(rendered, tmp_path / "out")
+    doc = json.loads((out / "sources.json").read_text(encoding="utf-8"))
+    limited = str(out / "work" / "mix-norm-limited.wav")
+    doc["loudness"] = dict(doc.get("loudness") or {}, limiter={"file": limited},
+                           steps=[{"what": "limiter", "evidence": {"file": limited}}])
+    (out / "sources.json").write_text(json.dumps(doc), encoding="utf-8")
+    R.sources_only(film, out)
+    after = json.loads((out / "sources.json").read_text(encoding="utf-8"))
+    assert after["loudness"]["limiter"]["file"] == "work/mix-norm-limited.wav"
+    assert after["loudness"]["steps"][0]["evidence"]["file"] == "work/mix-norm-limited.wav"
+    assert str(tmp_path) not in json.dumps(after["loudness"])
+
+
+def test_a_full_render_writes_no_absolute_path_into_loudness(rendered):
+    doc = json.loads((Path(rendered["out"]) / "sources.json").read_text(encoding="utf-8"))
+
+    def strings(v):
+        if isinstance(v, dict):
+            for x in v.values():
+                yield from strings(x)
+        elif isinstance(v, list):
+            for x in v:
+                yield from strings(x)
+        elif isinstance(v, str):
+            yield v
+
+    for s in strings(doc.get("loudness")):
+        assert not R._ABS_PATH.match(s), s
+
+
 def _crowded_doc(n=40, slug="fixture"):
     return {"slug": slug, "title": "F", "readings": [], "shots": [
         {"id": f"S{i}", "ledger_id": f"CB-{i}", "mark": {"class": "ARCHIVE"}, "title": "y" * 200, "licence": "CC BY 2.0",

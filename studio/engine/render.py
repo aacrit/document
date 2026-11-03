@@ -8861,6 +8861,36 @@ def description_fit(plan: dict, journal: Journal) -> dict:
             "problems": r["problems"]}
 
 
+_ABS_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\|/)")      # a drive path, a UNC path or a POSIX absolute path
+
+
+def public_loudness(loud, run_dir: Path):
+    """The loudness record as sources.json carries it: every absolute path in it (the limiter's ``file``, a step's
+    ``evidence.file``) made relative to the render folder ("work/mix-norm-limited.wav"), or, for a path outside it,
+    its folder and name. sources.json is public, and a drive path names the machine, never anything a viewer can
+    open (Market Street's printed "D:/document-media/.../work/mix-norm-limited.wav", 2026-11). Applied where
+    sources.json is written (a render and --sources-only, which keeps an earlier render's record), so a record
+    written before this rule is cleaned on its next rewrite. Pure: returns a copy."""
+    root = Path(run_dir).resolve()
+
+    def rel(s: str) -> str:
+        try:
+            return Path(s).resolve().relative_to(root).as_posix()
+        except (ValueError, OSError):
+            return "/".join(re.split(r"[\\/]+", s.rstrip("\\/"))[-2:])
+
+    def walk(v):
+        if isinstance(v, dict):
+            return {k: walk(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return [walk(x) for x in v]
+        if isinstance(v, str) and _ABS_PATH.match(v):
+            return rel(v)
+        return v
+
+    return walk(loud)
+
+
 def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
     shots = []
     for s in plan["shots"]:
@@ -9500,7 +9530,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         # One write: a check render writes its own partial sources file and never the full one (T1d);
         # a full render also records the master's sha256, which ties sources.json to its film (T7).
         # A span (--shots) writes no sources file at all: its timeline is the film's, cut, and it is never published.
-        extra = {"loudness": loud, "master": master.name, "master_sha256": sha256_file(master)}
+        extra = {"loudness": public_loudness(loud, run_dir), "master": master.name, "master_sha256": sha256_file(master)}
         if check:
             extra.update(partial=True, until_s=until_s)
         if not span:
@@ -9565,7 +9595,8 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
     extra: dict = {}
     path = out / "sources.json"
     prev = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    extra.update({k: prev[k] for k in ("loudness",) if k in prev})
+    if "loudness" in prev:                  # an earlier render's record, with any absolute path made relative
+        extra["loudness"] = public_loudness(prev["loudness"], out)
     extra.update(master="master.mp4", master_sha256=sha256_file(master))
     if plan_has_placeholders(plan):
         fills = prev.get("card_fills")
