@@ -6,6 +6,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { LOCAL_PATH } from "../scripts/lib/local-paths.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (f: string) => readFileSync(path.join(root, f), "utf8");
@@ -52,6 +53,19 @@ describe("the public pages", () => {
     for (const page of pages) expect(visible(read(page)), page).not.toMatch(banned);
     for (const page of pages) expect(read(page), page).not.toMatch(/href="\/studio/);
     for (const f of clientScripts) expect(stringLiterals(read(`web/src/${f}`)), f).not.toMatch(banned);
+    // A drive letter names the machine a film was made on ("PDF on D:", Partition's sources.json, 2026-11): not in
+    // the text, not in an attribute (the whole page is swept), not in what a script writes.
+    for (const page of pages) expect(visible(read(page)), page).not.toMatch(LOCAL_PATH);
+    for (const page of pages) expect(read(page), page).not.toMatch(LOCAL_PATH);
+    for (const f of clientScripts) expect(stringLiterals(read(`web/src/${f}`)), f).not.toMatch(LOCAL_PATH);
+  });
+
+  it("the drive-letter pattern catches a drive, bare or with a path, and not ids, times, labels, keys or URLs", () => {
+    const drives = ["Lok Sabha Secretariat (eparlib), PDF on D:", "D:/document-media/x.pdf", "C:\\Users\\x", "(D:/document-media/title-sequence/provenance.json)", "kept on D:, in a folder", "d:\\work\\mix.wav", "on D:."];
+    for (const s of drives) expect(s, s).toMatch(LOCAL_PATH);
+    // music cue text writes keys this way (the five unreleased films' cues and credits)
+    const not = ["A:5.4", "12:30", "Note: x", "https://archive.org/details/x", "file:///x", "00:01:02.500 --> 00:01:04.000", "the reach (phrase c in C: C5 D5 A5)", "the ground moves to E: E minor", "C# to D: the first D major"];
+    for (const s of not) expect(s, s).not.toMatch(LOCAL_PATH);
   });
 
   it("amber only on sourced things: safelight classes sit only on credits and source links", () => {
