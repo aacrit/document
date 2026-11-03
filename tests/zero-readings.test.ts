@@ -77,6 +77,7 @@ describe("the balance panel of a film with no readings", () => {
     expect(u).toBe("Balance figures are not available for this cut.");
     const j = trailer();
     j.readings.forEach((r: Record<string, unknown>) => Object.assign(r, { dur_s: 10, gender: "m" }));
+    j.balance = { sides: ["britain", "india", "pakistan", "bangladesh", "sikh"] };
     const d = parseSources(j);
     const b = computeBalance(d.readings, d.balance);
     expect(b).not.toBeNull();

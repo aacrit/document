@@ -3,7 +3,9 @@
 // imagery rule. Partition's pages must stay exactly what they were before
 // they were generated (tests/fixtures/partition-pages/: the hand-written
 // pages as main held them at 4fb7669), save that the film and sources pages now
-// open their note with the film's content note, as the home page does).
+// open their note with the film's content note, as the home page does, and the
+// sources page marks its readings' lede, link, heading and list to be shown only
+// once the film's readings are counted, with a notes intro filled from the notes).
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

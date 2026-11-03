@@ -5,6 +5,8 @@ export class FakeNode {
   children: FakeNode[] = [];
   parent: FakeNode | null = null;
   attrs: Record<string, string> = {};
+  /** Inline styles a renderer sets (the balance bars' widths), kept apart from attributes. */
+  style: Record<string, string> = {};
   constructor(
     public tag: string,
     public text = "",
