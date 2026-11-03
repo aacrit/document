@@ -107,10 +107,7 @@ def poster_record(ledger: Path, poster_id: str, poster: Path, rule: dict | None 
         raise Refused(f"{poster_id} {problem}")
     if not item.get("licence"):
         raise Refused(f"{poster_id} has no licence in the ledger")
-    seen = item.get("seen")
-    if crop and isinstance(seen, str) and seen.strip():
-        seen = seen.strip()
-        seen = f"{seen}{'' if seen[-1] in '.!?' else '.'} Cropped to 16:9."
+    seen = item.get("seen")    # the ledger's own words: the home page's alt text; the crop is stated in `crop`, not here
     return {
         "ledger_id": poster_id,
         "title": item.get("title"),

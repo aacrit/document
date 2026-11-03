@@ -281,12 +281,12 @@ def test_a_poster_crop_is_parsed_and_must_be_16_by_9():
             P.parse_crop(bad)
 
 
-def test_the_poster_record_states_its_crop_and_its_description_says_so(tmp_path):
+def test_the_poster_record_states_its_crop_and_keeps_the_ledger_description(tmp_path):
     poster = tmp_path / "poster.jpg"
     poster.write_bytes(b"x")
     rec = P.poster_record(_ledger(tmp_path), "S-020", poster, crop=P.parse_crop("3200x1800+100+120"))
     assert rec["crop"] == {"w": 3200, "h": 1800, "x": 100, "y": 120, "aspect": "16:9"}
-    assert rec["description"] == "A crowd before the Red Fort. Cropped to 16:9."
+    assert rec["description"] == "A crowd before the Red Fort."   # the alt text: the crop lives in `crop` only
     plain = P.poster_record(_ledger(tmp_path), "S-020", poster)
     assert "crop" not in plain and plain["description"] == "A crowd before the Red Fort."
     # a still the ledger does not describe gets no description made of the crop alone (its alt text is then its title)

@@ -161,7 +161,7 @@ export interface FilmSources {
   statements: string[];
   /** The house's dated notes on the film (sources.json film_notes), each kept only when its date is a real day. */
   houseNotes: HouseNote[];
-  /** The period recordings the film plays: its music cues whose role is "palette" (never the score's own cues). */
+  /** The recordings the film plays: its music cues whose role is "palette" (never the score's own cues). */
   recordings: Recording[];
 }
 
@@ -172,7 +172,7 @@ export interface HouseNote {
   source: string | null;
 }
 
-/** A period recording the film plays, as its cue records it; a field the cue leaves out is null. */
+/** A recording the film plays, as its cue records it; a field the cue leaves out is null. */
 export interface Recording {
   id: string;
   performer: string | null;
@@ -206,7 +206,14 @@ export function parseHouseNotes(x: unknown): HouseNote[] {
   return out;
 }
 
-/** sources.json cues: the music cues whose role is "palette", the period recordings; one that names nothing is dropped. */
+/** sources.json cues: the music cues whose role is "palette", the recordings; one that names nothing is dropped. */
+/** A cue's tradition without a leading lower-case category word and colon ("opera: ..."); null stays null. */
+export function stripCategory(t: string | null): string | null {
+  if (t === null) return null;
+  const out = t.replace(/^[a-z][a-z -]{0,24}:\s+/, "");
+  return out || t;
+}
+
 export function parseRecordings(x: unknown): Recording[] {
   if (!Array.isArray(x)) return [];
   return x
@@ -215,7 +222,8 @@ export function parseRecordings(x: unknown): Recording[] {
     .map((c, i) => ({
       id: str(c.id) ?? `cue ${i + 1}`,
       performer: str(c.performer),
-      what: str(c.tradition),
+      // the cue's tradition without the house's own category prefix ("opera: Bizet, Carmen ..." reads "Bizet, Carmen ...")
+      what: stripCategory(str(c.tradition)),
       source: str(c.source),
       licence: str(c.licence),
     }))
@@ -789,7 +797,7 @@ export interface FilmNotes {
   /** The house's dated notes (sources.json film_notes), printed first in their own block. */
   dated: HouseNote[];
   voices: string[];
-  /** The period recordings the film plays (its palette cues). */
+  /** The recordings the film plays (its palette cues). */
   recordings: Recording[];
   unnamed: string[];
   gaps: SourceGap[];

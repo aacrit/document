@@ -47,7 +47,7 @@ export function notesIntro(n: FilmNotes): string {
   if (n.pictureNotes.length) parts.push("the notes on the pictures");
   if (n.licences.length) parts.push("the licences");
   const said = parts.length ? `What the picture does not say: ${listed(parts)}.` : "What the picture does not say.";
-  return n.recordings.length ? `${said} It also lists the period recordings the film plays.` : said;
+  return n.recordings.length ? `${said} It also lists the recordings the film plays.` : said;
 }
 
 /** The section's body: one block per list sources.json fills, or one muted sentence when it fills none. */

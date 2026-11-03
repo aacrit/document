@@ -169,7 +169,7 @@ describe("notes on this film", () => {
     expect(muted?.textContent).toBe("Notes we keep on this film, outside the picture, each dated the day we wrote it.");
   });
 
-  it("prints each period recording under Recordings: performer, what it is, source and licence", async () => {
+  it("prints each recording under Recordings: performer, what it is, source and licence", async () => {
     const { notesNodes } = await import("../web/src/notes");
     const nodes = notesNodes(
       notes({

@@ -104,9 +104,9 @@ def meta_text_problems(text: str, role: str) -> list[dict]:
 # "Act" plus a roman numeral or a one- or two-digit number ("Act II", "Act 3"; not "the Act, 1949" or "Act, 1935").
 RECORD_LABELS = ("Victor", "Columbia", "Edison", "Gramophone", "HMV", "Odeon", "Zonophone")
 _LABEL = re.compile(r"(?<!\bof )\b(?:" + "|".join(RECORD_LABELS) + r")\b"
-                    r"(?! (?:University|College|River|County|Broadcasting|Pictures)\b)")
+                    r"(?! (?:University|College|River|County|Broadcasting|Pictures)\b)", re.IGNORECASE)
 _YEAR = re.compile(r"\b1[89]\d\d\b|\b20\d\d\b")
-_ACT = re.compile(r"\bAct (?:[IVX]+|\d{1,2})\b")
+_ACT = re.compile(r"\bAct (?:[IVX]+|\d{1,2})\b", re.IGNORECASE)   # "Carmen, ACT II" and "act 2" are the same title
 
 
 def record_title_problem(role: str) -> str | None:

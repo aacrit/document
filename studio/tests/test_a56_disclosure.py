@@ -309,3 +309,12 @@ def test_an_attribution_card_in_the_credits_is_the_attribution_not_provenance(fi
     _edit(film, lambda p: p["parts"][2]["shots"][0].update(text=["Read by a computer voice."]))
     with pytest.raises(R.Refused, match=r"meta-text \(S9\.text\[0\]\)"):
         _plan(film, "a56-credits-voice")
+
+
+def test_record_title_rule_ignores_case():
+    """Review of #88: "VICTOR 1905", "Carmen, ACT II" and "Carmen, act 2" are the same titles in another case."""
+    from studio.engine import disclosure as DS
+    for role in ("VICTOR 1905", "Carmen, ACT II", "Carmen, act 2", "victor, 1905"):
+        assert DS.record_title_problem(role), role
+    for role in ("Tenor, Metropolitan Opera", "1905"):
+        assert DS.record_title_problem(role) is None, role

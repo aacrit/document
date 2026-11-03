@@ -643,7 +643,7 @@ describe("attribution links (CC BY asks for the licence by its URI, and the data
 
 // Market Street's brand audit (founder, 2026-11-02): the house's dated notes (sources.json film_notes) and the
 // period recordings (cues whose role is "palette") reach "Notes on this film".
-describe("the house's notes and the period recordings", () => {
+describe("the house's notes and the recordings", () => {
   const ms = () => JSON.parse(readFileSync(path.join(root, "tests/fixtures/sources-market-street-notes.json"), "utf8"));
 
   it("reads Market Street's film note with its date and source", () => {
@@ -661,7 +661,7 @@ describe("the house's notes and the period recordings", () => {
       {
         id: "N1-caruso",
         performer: "Enrico Caruso, tenor, with piano (Victor 85049, matrix C-2341, take 1, recorded 27 February 1905)",
-        what: 'opera: Bizet, Carmen, Act II, "Il fior che avevi a me tu dato" (the Flower Song), sung in Italian',
+        what: 'Bizet, Carmen, Act II, "Il fior che avevi a me tu dato" (the Flower Song), sung in Italian',
         source: "Library of Congress, National Jukebox, jukebox-121360 (Recorded Sound Section transfer of the 12-in. disc)",
         licence: "public domain (a US sound recording published before 1923: Music Modernization Act; LoC rights note)",
       },
@@ -699,4 +699,15 @@ describe("a film without dated notes or palette cues is unchanged", () => {
       expect([d.houseNotes, d.recordings, filmNotes(d).dated, filmNotes(d).recordings]).toEqual([[], [], [], []]);
     });
   }
+});
+
+describe("stripCategory: the Recordings What row drops the house's category word", () => {
+  it("drops a leading lower-case category and colon, and leaves everything else", async () => {
+    const { stripCategory } = await import("../web/src/film-data");
+    expect(stripCategory("opera: Bizet, Carmen")).toBe("Bizet, Carmen");
+    expect(stripCategory("folk song: The Water Is Wide")).toBe("The Water Is Wide");
+    expect(stripCategory("Bizet, Carmen: Act II")).toBe("Bizet, Carmen: Act II");
+    expect(stripCategory("opera:")).toBe("opera:");
+    expect(stripCategory(null)).toBeNull();
+  });
 });
