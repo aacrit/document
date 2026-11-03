@@ -10,7 +10,11 @@
 //   f. the hashes                        sha256 of every file, checked against what sources.json records
 //
 //   node scripts/release-film.mjs <render dir>/master.mp4 [--dry-run] [--trailer <trailer master.mp4>]
-//       [--film-dir <dir with screenplay.json>] [--poster-id S-020] [--out <packet dir>] [--no-upload]
+//       [--film-dir <dir with screenplay.json>] [--poster-id S-020] [--poster-crop WxH+X+Y] [--out <packet dir>] [--no-upload]
+//
+// --poster-crop cuts the still to 16:9 (within 1%) before its 1920-wide scale
+// (crop=W:H:X:Y,scale=1920:-1); a crop outside the still is refused. publish
+// records it in the poster's record, whose description then says so.
 //
 // The trailer is optional. Without --trailer, sources.json declares none, the
 // site hides its Trailer button, and the contract reports the trailer n/a.
@@ -150,8 +154,41 @@ export function probeDuration(file, ffmpeg = process.env.DOCUMENT_FFMPEG || "ffm
   return r.status === 0 && d > 0 ? d : null;
 }
 
+/**
+ * --poster-crop WxH+X+Y as { w, h, x, y }: applied in ffmpeg before the scale (crop=W:H:X:Y,scale=1920:-1), so a
+ * still that is not 16:9 becomes a 16:9 poster. Throws unless it is well formed, non-empty and 16:9 within 1%
+ * (studio/engine/publish.py parse_crop is the same rule). Whether it fits the still is cropProblems'.
+ */
+export function parseCrop(spec) {
+  const m = /^(\d+)x(\d+)\+(\d+)\+(\d+)$/.exec(String(spec ?? ""));
+  if (!m) throw new Error(`poster crop ${JSON.stringify(spec)} is not WxH+X+Y (for example 3200x1800+100+120)`);
+  const [w, h, x, y] = m.slice(1).map(Number);
+  if (!w || !h) throw new Error(`poster crop ${spec} is empty`);
+  if (Math.abs(w / h / (16 / 9) - 1) > 0.01) throw new Error(`poster crop ${spec} is ${(w / h).toFixed(4)}:1, not 16:9 within 1%`);
+  return { w, h, x, y };
+}
+
+const cropSpec = (c) => `${c.w}x${c.h}+${c.x}+${c.y}`;
+
+/** What is wrong with a crop for a still of `size` ({ w, h } as ffprobe reads it, or null when it could not). */
+export function cropProblems(crop, size) {
+  if (!crop) return [];
+  if (!size) return ["could not read the still's size, so the poster crop cannot be checked against it"];
+  if (crop.x + crop.w > size.w || crop.y + crop.h > size.h) return [`poster crop ${cropSpec(crop)} lies outside the still (${size.w}x${size.h})`];
+  return [];
+}
+
+/** A still's pixel size by ffprobe, or null when it cannot be read. */
+export function probeSize(file, ffmpeg = process.env.DOCUMENT_FFMPEG || "ffmpeg") {
+  if (!file || !existsSync(file)) return null;
+  const probe = path.join(path.dirname(ffmpeg), path.basename(ffmpeg).replace(/ffmpeg/i, "ffprobe"));
+  const r = spawnSync(probe, ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", file], { encoding: "utf8", shell: false });
+  const m = /^(\d+)x(\d+)/.exec(String(r.stdout ?? "").trim());
+  return r.status === 0 && m ? { w: Number(m[1]), h: Number(m[2]) } : null;
+}
+
 export function parseArgs(argv) {
-  const o = { master: null, dryRun: false, upload: true, trailer: null, filmDir: null, posterId: "S-020", out: null, slug: null, threads: 4 };
+  const o = { master: null, dryRun: false, upload: true, trailer: null, filmDir: null, posterId: "S-020", posterCrop: null, out: null, slug: null, threads: 4 };
   const value = (i, flag) => {
     if (i + 1 >= argv.length) throw new Error(`${flag} needs a value`);
     return argv[i + 1];
@@ -163,6 +200,7 @@ export function parseArgs(argv) {
     else if (a === "--trailer") o.trailer = value(i++, a);
     else if (a === "--film-dir") o.filmDir = value(i++, a);
     else if (a === "--poster-id") o.posterId = value(i++, a);
+    else if (a === "--poster-crop") o.posterCrop = parseCrop(value(i++, a));
     else if (a === "--out") o.out = value(i++, a);
     else if (a === "--slug") o.slug = value(i++, a);
     else if (a === "--threads") o.threads = Number(value(i++, a));
@@ -170,7 +208,7 @@ export function parseArgs(argv) {
     else if (!o.master) o.master = a;
     else throw new Error(`unexpected argument ${a}`);
   }
-  if (!o.master) throw new Error("usage: node scripts/release-film.mjs <render dir>/master.mp4 [--dry-run] [--trailer <file>] [--film-dir <dir>] [--poster-id S-020] [--out <dir>] [--no-upload]");
+  if (!o.master) throw new Error("usage: node scripts/release-film.mjs <render dir>/master.mp4 [--dry-run] [--trailer <file>] [--film-dir <dir>] [--poster-id S-020] [--poster-crop WxH+X+Y] [--out <dir>] [--no-upload]");
   if (!Number.isInteger(o.threads) || o.threads < 1 || o.threads > 8) throw new Error("--threads must be 1 to 8 (the machine governor)");
   return o;
 }
@@ -210,7 +248,12 @@ export function posterSource(ledgers, posterId) {
 }
 
 /** Every step of the release, in order, as plain data: { id, label, exe, args, cwd } or { id, label, check }. */
-export function planRelease(o, { python = studioPython(), ffmpeg = process.env.DOCUMENT_FFMPEG || "ffmpeg", wrangler = null, ledgers, poster, durations = {}, rates = {}, captionsReview } = {}) {
+export function planRelease(o, { python = studioPython(), ffmpeg = process.env.DOCUMENT_FFMPEG || "ffmpeg", wrangler = null, ledgers, poster, durations = {}, rates = {}, captionsReview, stillSize } = {}) {
+  // a crop outside the still is refused here; a size not known (a dry run before the still is found) is main's to refuse
+  if (o.posterCrop && stillSize) {
+    const bad = cropProblems(o.posterCrop, stillSize);
+    if (bad.length) throw new Error(bad.join("; "));
+  }
   const master = path.resolve(o.master);
   const renderDir = path.dirname(master);
   const filmDir = path.resolve(o.filmDir ?? path.join(os.homedir(), "document-work", "episode-v2"));
@@ -227,11 +270,14 @@ export function planRelease(o, { python = studioPython(), ffmpeg = process.env.D
   const encode = (input, file, d, r) => ({ exe: ffmpeg, cwd: repoRoot, args: ["-v", "error", "-y", "-i", input, ...webEncodeArgs(d ?? null, d == null ? null : (r ?? "24")), "-threads", String(o.threads), at(file)] });
   steps.push({ id: "b", label: "the 720p web encode of the film", ...encode(master, "film.mp4", durations.film, rates.film) });
   if (o.trailer) steps.push({ id: "b", label: "the 720p web encode of the trailer", ...encode(path.resolve(o.trailer), "trailer.mp4", durations.trailer, rates.trailer) });
-  steps.push({ id: "c", label: `the poster (${o.posterId}, 1920 wide)`, exe: ffmpeg, cwd: repoRoot,
-    args: ["-v", "error", "-y", "-i", stillPath, "-vf", "scale=1920:-1:flags=lanczos", "-q:v", "3", at("poster.jpg")] });
+  const c = o.posterCrop;
+  const posterVf = `${c ? `crop=${c.w}:${c.h}:${c.x}:${c.y},` : ""}scale=1920:-1:flags=lanczos`;
+  steps.push({ id: "c", label: `the poster (${o.posterId}, ${c ? `cropped ${cropSpec(c)}, ` : ""}1920 wide)`, exe: ffmpeg, cwd: repoRoot,
+    args: ["-v", "error", "-y", "-i", stillPath, "-vf", posterVf, "-q:v", "3", at("poster.jpg")] });
   steps.push({ id: "c", label: "the web packet (publish.py: sources.json with web and poster, captions)", exe: python, cwd: repoRoot,
     args: ["-m", "studio.engine.publish", renderDir, "--film", at("film.mp4"), "--poster", at("poster.jpg"),
-      "--poster-id", o.posterId, "--stills-ledger", ledgerPath, "--out", out, "--screenplay", path.join(filmDir, "screenplay.json"), ...(o.trailer ? ["--trailer", at("trailer.mp4")] : [])] });
+      "--poster-id", o.posterId, "--stills-ledger", ledgerPath, "--out", out, "--screenplay", path.join(filmDir, "screenplay.json"),
+      ...(c ? ["--poster-crop", cropSpec(c)] : []), ...(o.trailer ? ["--trailer", at("trailer.mp4")] : [])] });
   steps.push({ id: "d", label: "the captions (captions-en.vtt, written by publish from the render's screenplay)", check: "captions", file: at("captions-en.vtt") });
   const files = UPLOAD_ORDER.filter((f) => (f !== "trailer.mp4" || o.trailer) && (f !== "captions-en.vtt" || uploadsCaptions(captionsReview)));
   steps.push({ id: "e", label: "every file under the put limit", check: "sizes", files: files.map(at) });
@@ -334,7 +380,14 @@ function main() {
     process.exit(2);
   }
   const captionsReview = captionReview(JSON.parse(readFileSync(path.join(repoRoot, "films.json"), "utf8")), o.slug ?? ledgers?.slug ?? "partition-of-india");
-  const plan = planRelease(o, { ledgers, poster, durations, rates: badRates.length ? {} : rates, captionsReview });
+  const stillSize = o.posterCrop ? probeSize(poster) : null;
+  const badCrop = cropProblems(o.posterCrop, stillSize);
+  if (badCrop.length && (!o.dryRun || stillSize)) {
+    for (const p of badCrop) console.error(`release-film: ${p}`);
+    process.exit(2);
+  }
+  const plan = planRelease(o, { ledgers, poster, durations, rates: badRates.length ? {} : rates, captionsReview, stillSize });
+  if (badCrop.length) console.log(`release-film: ${badCrop.join("; ")} (a real run refuses)`);
 
   if (!o.dryRun) {
     const problems = [];

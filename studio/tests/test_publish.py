@@ -266,3 +266,46 @@ def test_the_narration_and_the_narrators_credit_are_recorded_for_the_site(tmp_pa
     assert doc["narrator"] == {"credit": "Narrated by a computer voice", "engine": "orpheus", "voice": "tara"}
     no_narr = R.sources_doc(_plan(tmp_path, lines[1:2]), Journal(film="none"), {})
     assert no_narr["narration"] == [] and no_narr["narrator"] is None                            # no narration: no narrator credited
+
+
+# ---- the poster's crop (Market Street, 2026-11-02: --poster-crop 3200x1800+100+120) ----------------------------------
+
+def test_a_poster_crop_is_parsed_and_must_be_16_by_9():
+    assert P.parse_crop("3200x1800+100+120") == {"w": 3200, "h": 1800, "x": 100, "y": 120}
+    assert P.parse_crop("1918x1080+0+0")["w"] == 1918              # 0.1% off 16:9: within 1%
+    for bad in ("3200x1800", "3200x1800+100", "3200x1800-1+0", "0x0+0+0", "3200 x 1800+1+1", "a", "",
+                "1800x1800+0+0",                                    # square
+                "1940x1080+0+0",                                    # 1940/1080 is 1.04% off 16:9
+                '"><img src=x onerror=alert(1)>'):
+        with pytest.raises(R.Refused, match="poster crop"):
+            P.parse_crop(bad)
+
+
+def test_the_poster_record_states_its_crop_and_its_description_says_so(tmp_path):
+    poster = tmp_path / "poster.jpg"
+    poster.write_bytes(b"x")
+    rec = P.poster_record(_ledger(tmp_path), "S-020", poster, crop=P.parse_crop("3200x1800+100+120"))
+    assert rec["crop"] == {"w": 3200, "h": 1800, "x": 100, "y": 120, "aspect": "16:9"}
+    assert rec["description"] == "A crowd before the Red Fort. Cropped to 16:9."
+    plain = P.poster_record(_ledger(tmp_path), "S-020", poster)
+    assert "crop" not in plain and plain["description"] == "A crowd before the Red Fort."
+    # a still the ledger does not describe gets no description made of the crop alone (its alt text is then its title)
+    assert P.poster_record(_ledger(tmp_path), "S-102", poster, crop=P.parse_crop("1920x1080+0+0"))["description"] is None
+
+
+def test_the_cli_passes_the_crop_to_the_packet_and_refuses_a_bad_one(monkeypatch, tmp_path, capsys):
+    seen = {}
+
+    def fake(render_dir, **k):
+        seen.update(k)
+        return {"sources": "s", "captions": "c", "web": {"film_sha256": "a", "film_duration_s": 1}, "poster": {"sha256": "b"},
+                "trailer": None}
+
+    monkeypatch.setattr(P, "packet", fake)
+    base = [str(tmp_path), "--film", "f.mp4", "--poster", "p.jpg", "--poster-id", "S-020", "--stills-ledger", "l.json",
+            "--out", str(tmp_path / "o")]
+    assert P.main(base + ["--poster-crop", "3200x1800+100+120"]) == 0
+    assert seen["poster_crop"] == {"w": 3200, "h": 1800, "x": 100, "y": 120}
+    assert P.main(base) == 0 and seen["poster_crop"] is None
+    assert P.main(base + ["--poster-crop", "1800x1800+0+0"]) == 2
+    assert "poster crop" in capsys.readouterr().err

@@ -22,7 +22,11 @@ scripts/release-film.mjs runs this step and the upload.
 
     python -m studio.engine.publish <render dir> --film <web encode.mp4> --poster <poster.jpg>
         --poster-id S-020 --stills-ledger <stills-ledger.json> --out <packet dir> [--screenplay <file or dir>]
-        [--trailer <trailer web encode.mp4>]
+        [--trailer <trailer web encode.mp4>] [--poster-crop WxH+X+Y]
+
+With ``--poster-crop`` (the crop release-film.mjs applied to the still before
+its scale, 16:9 within 1%), the poster record carries ``crop`` ({w, h, x, y,
+aspect: "16:9"}) and its description ends "Cropped to 16:9."
 """
 
 from __future__ import annotations
@@ -64,13 +68,34 @@ def edge_hashes(path: Path, key: str, n: int = EDGE_BYTES) -> dict:
     return {f"{key}_size": size, f"{key}_head": head, f"{key}_tail": tail}
 
 
-def poster_record(ledger: Path, poster_id: str, poster: Path, rule: dict | None = None) -> dict:
+CROP_RE = re.compile(r"^(\d+)x(\d+)\+(\d+)\+(\d+)$")
+CROP_ASPECT = 16 / 9
+CROP_TOLERANCE = 0.01          # a crop within 1% of 16:9
+
+
+def parse_crop(spec: str) -> dict:
+    """``WxH+X+Y`` (scripts/release-film.mjs --poster-crop, applied before the scale) as {w, h, x, y}; refused unless
+    it is well formed, non-empty and 16:9 within 1%. Whether it lies inside the still is checked where the still's
+    size is known (release-film.mjs, before ffmpeg runs)."""
+    m = CROP_RE.match(str(spec or ""))
+    if not m:
+        raise Refused(f"poster crop {spec!r} is not WxH+X+Y (for example 3200x1800+100+120)")
+    w, h, x, y = (int(g) for g in m.groups())
+    if w == 0 or h == 0:
+        raise Refused(f"poster crop {spec!r} is empty")
+    if abs((w / h) / CROP_ASPECT - 1) > CROP_TOLERANCE:
+        raise Refused(f"poster crop {spec!r} is {w / h:.4f}:1, not 16:9 within 1%")
+    return {"w": w, "h": h, "x": x, "y": y}
+
+
+def poster_record(ledger: Path, poster_id: str, poster: Path, rule: dict | None = None, *, crop: dict | None = None) -> dict:
     """The poster's record. GRAMMAR A21 (E3): the still must pass the film's
     imagery rule on the same content flags as a shot (``rule``, as the
     render's sources.json states it); with no rule, the default, which is
     the Partition poster rule: shows_bodies (or the older
     shows_violence_or_bodies) stated false, so a still nobody has checked is
-    never a poster."""
+    never a poster. With ``crop`` (parse_crop), the record states it and the
+    still's description says the poster is cropped to 16:9."""
     data = json.loads(ledger.read_text(encoding="utf-8"))
     items = data.get("items", data) if isinstance(data, dict) else data
     item = next((x for x in items if isinstance(x, dict) and x.get("id") == poster_id), None)
@@ -82,6 +107,10 @@ def poster_record(ledger: Path, poster_id: str, poster: Path, rule: dict | None 
         raise Refused(f"{poster_id} {problem}")
     if not item.get("licence"):
         raise Refused(f"{poster_id} has no licence in the ledger")
+    seen = item.get("seen")
+    if crop and isinstance(seen, str) and seen.strip():
+        seen = seen.strip()
+        seen = f"{seen}{'' if seen[-1] in '.!?' else '.'} Cropped to 16:9."
     return {
         "ledger_id": poster_id,
         "title": item.get("title"),
@@ -90,7 +119,8 @@ def poster_record(ledger: Path, poster_id: str, poster: Path, rule: dict | None 
         "archive": item.get("archive"),
         "licence": item.get("licence"),
         "item_url": item.get("item_url"),
-        "description": item.get("seen"),
+        "description": seen,
+        **({"crop": {**{k: crop[k] for k in ("w", "h", "x", "y")}, "aspect": "16:9"}} if crop else {}),
         "file": "poster.jpg",
         "sha256": sha256_file(poster),
     }
@@ -112,7 +142,7 @@ def poster_rule(doc: dict, screenplay: Path | None) -> dict | None:
 
 
 def packet(render_dir: Path, *, film: Path, poster: Path, poster_id: str, stills_ledger: Path, out: Path,
-           screenplay: Path | None = None, trailer: Path | None = None) -> dict:
+           screenplay: Path | None = None, trailer: Path | None = None, poster_crop: dict | None = None) -> dict:
     render_dir, out = Path(render_dir), Path(out)
     doc = json.loads((render_dir / "sources.json").read_text(encoding="utf-8"))
     if not doc.get("master_sha256"):
@@ -131,7 +161,7 @@ def packet(render_dir: Path, *, film: Path, poster: Path, poster_id: str, stills
             raise Refused(f"the web encode's {what} runs {d:.3f} s and the film {doc['duration_s']} s: more than one frame apart")
     doc["web"] = {"film": "film.mp4", "film_sha256": sha256_file(film), "film_duration_s": round(web_dur, 4),
                   **edge_hashes(film, "film_sha256")}
-    doc["poster"] = poster_record(stills_ledger, poster_id, poster, poster_rule(doc, screenplay))
+    doc["poster"] = poster_record(stills_ledger, poster_id, poster, poster_rule(doc, screenplay), crop=poster_crop)
     doc.pop("trailer", None)
     if trailer is not None:
         tp = probe_video(trailer)
@@ -155,10 +185,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, required=True, help="where sources.json and captions-en.vtt are written")
     ap.add_argument("--trailer", type=Path, default=None, help="the trailer's web encode; omitted, sources.json declares no trailer")
     ap.add_argument("--screenplay", type=Path, default=None, help="the screenplay the render used (default: the render folder's fitted one)")
+    ap.add_argument("--poster-crop", default=None, metavar="WxH+X+Y",
+                    help="the crop release-film.mjs applied to the still before the scale; recorded in the poster's record")
     a = ap.parse_args(argv)
     try:
+        crop = parse_crop(a.poster_crop) if a.poster_crop is not None else None
         r = packet(a.render_dir, film=a.film, poster=a.poster, poster_id=a.poster_id, stills_ledger=a.stills_ledger,
-                   out=a.out, screenplay=a.screenplay, trailer=a.trailer)
+                   out=a.out, screenplay=a.screenplay, trailer=a.trailer, poster_crop=crop)
     except (Refused, C.CaptionError, OSError, KeyError, ValueError) as e:
         print(f"publish: refused: {e}", file=sys.stderr)
         return 2
