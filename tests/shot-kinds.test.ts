@@ -38,7 +38,7 @@ describe("what a still is", () => {
   });
 
   it("prints Map for a drawn map's data or mark (isMapShot), a map-sheet ledger item, and a mark that names a map", () => {
-    expect(shotWhat(still({ data_sources: [{ name: "Natural Earth", url: "https://www.naturalearthdata.com/", licence: "public domain" }] }))).toBe("Map, 1906-04-18, held 8 s");
+    expect(shotWhat(still({ data_sources: [{ id: "Natural Earth", url: "https://www.naturalearthdata.com/", licence: "public domain" }] }))).toBe("Map, 1906-04-18, held 8 s");
     // Smallpox's CIA sheets ("West Africa (countries, roads ...)") sit in the house's map-sheet ledger, "sheets"
     expect(shotWhat(still({ ledger: "sheets", title: "West Africa (countries, roads and caravan routes, railways), US Central Intelligence Agency, 1963" }))).toMatch(/^Map, /);
     // Partition's Survey of India sheet 43 P is filed with the stills, but its mark says "1943 map"

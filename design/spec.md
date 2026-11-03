@@ -95,7 +95,7 @@ Chapter titles, planned times and the numbers come from `films/partition-of-indi
 - the mark exactly as on screen;
 - the time (or the ledger id before a cut);
 - the item title (Fraunces);
-- kind and year, plus duration in the archive;
+- kind and year, plus duration in the archive. An archive still says what it is, only as far as its file shows it: "Frame of archive film" (held from a film the archive holds and this film shows), "Map" (a drawn map's data, a map sheet, a mark that names a map, or a title that opens by naming one), "Printed page" (titled by its page, a newspaper's front page included), else "Photograph". A drawn map reads "Drawn map";
 - archive, item link (safelight), licence;
 - for RECONSTRUCTED, the alterations from GRAMMAR's closed list;
 - for AI-GENERATED, the prompt, model, seed and the no-people check result;

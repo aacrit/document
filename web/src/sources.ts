@@ -14,8 +14,8 @@ import {
   formatTime,
   readingFlag,
   readingSource,
+  filmFootage,
   seekTime,
-  shotWhat,
   sideLabel,
   type Chapter,
   type FilmSources,
@@ -23,7 +23,7 @@ import {
   type Shot,
 } from "./film-data";
 import { notesIntro, notesNodes } from "./notes";
-import { sourceRows } from "./shot-rows";
+import { sourceRows, whatNode } from "./shot-rows";
 import { byId, el, filmPath, loadSources, markPlate, numerals, showReadings, slugOf } from "./site";
 import { countSourceOpens, sendEvent } from "./telemetry";
 
@@ -57,16 +57,12 @@ function chapterHeading(c: Chapter, tag: "h2" | "h3", cls: string): HTMLElement 
   );
 }
 
-function shotEntry(shot: Shot): HTMLLIElement {
+function shotEntry(shot: Shot, footage: ReadonlySet<string>): HTMLLIElement {
   const t = Math.floor(shot.start_s);
   const isCard = shot.mark.class === "CARD";
   const title = isCard ? cardTitle(shot) : (shot.title ?? "Untitled item");
-  let what = shotWhat(shot);
-  if (shot.kind === "archive_video" && shot.date) what = `Film, ${shot.date}, ${Math.round(shot.end_s - shot.start_s)} s`;
-  if (shot.kind === "archive_video" && shot.in_s !== null && shot.out_s !== null) {
-    what += `, from ${formatTime(shot.in_s)} to ${formatTime(shot.out_s)} of the archive's copy`;
-  }
-  const rows: [string, Node | string | null][] = isCard ? [["What", numerals(what)]] : [["What", numerals(what)], ...sourceRows(shot)];
+  const what = whatNode(shot, footage);
+  const rows: [string, Node | string | null][] = isCard ? [["What", what]] : [["What", what], ...sourceRows(shot)];
   return el(
     "li",
     { id: shot.id, class: "entry", "data-class": shot.mark.class },
@@ -85,11 +81,12 @@ function shotEntry(shot: Shot): HTMLLIElement {
 function renderEntries(d: FilmSources, list: Chapter[]): void {
   const box = byId("entries");
   box.replaceChildren();
+  const footage = filmFootage(d.shots);
   for (const c of list) {
     const shots = d.shots.filter((s) => chapterAt(list, s.start_s)?.id === c.id);
     if (!shots.length) continue;
     box.append(
-      el("section", { class: "chapter-block", "data-chapter": c.id }, chapterHeading(c, "h2", "sec"), el("ol", { class: "entries" }, ...shots.map(shotEntry))),
+      el("section", { class: "chapter-block", "data-chapter": c.id }, chapterHeading(c, "h2", "sec"), el("ol", { class: "entries" }, ...shots.map((s) => shotEntry(s, footage)))),
     );
   }
 }
