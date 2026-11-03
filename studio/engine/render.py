@@ -54,6 +54,7 @@ enters the repo (R-08); outputs land outside it unless ``--out`` says so.
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import json
 import math
@@ -3467,6 +3468,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     shortfalls = shortfall_lints(lint, play, shots, settings)
     # A56: what the record lacks, and who the record names only by role, are stated in the sources data
     gaps = gap_lints(lint, play, shots)
+    film_notes = film_note_lints(lint, play)       # the house's dated notes, outside the horizon (founder, 2026-11-02)
     unnamed_speakers = descriptor_lints(lint, speakers)
     if lint_fail:
         raise Refused("lint failed: " + "; ".join(lint_fail))
@@ -3534,7 +3536,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         # A31: the mark key's classes, from the whole film (kept by --until), the series titles' own classes with them (A40)
         # A21, A25 and E2's sides: what the sources page states about the film's own rules
         "imagery_rule": rule, "settings": settings, "settings_stated": settings_stated, "shortfalls": shortfalls,
-        "gaps": gaps, "unnamed_speakers": unnamed_speakers,
+        "gaps": gaps, "unnamed_speakers": unnamed_speakers, "film_notes": film_notes,
         "score_standard": score_std, "score_standard_stated": score_stated,
         "balance": play.get("balance"), "sides": film_sides(play),
         "clip_integrity": clip_integrity,
@@ -3860,6 +3862,52 @@ def descriptor_lints(lint, speakers: dict) -> list[dict]:
         if speaker_is_descriptor(sp):
             out.append({"speaker": sid, "name": sp.get("name"), "role": sp.get("role"),
                         "basis": None if reads else sp.get("descriptor_basis")})
+    return out
+
+
+FILM_NOTE_KEYS = {"text", "noted", "source"}
+ISO_DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def film_note_lints(lint, play: dict) -> list[dict]:
+    """film-note (blocking; founder, 2026-11-02, Market Street's brand audit): the house's own notes about the film,
+    dated and outside its horizon, are the screenplay's top-level ``film_notes``, each {text, noted, source}: text
+    a non-empty string, printed as written (no placeholder); noted the day the house wrote it (YYYY-MM-DD); source
+    a non-empty string or null. Unknown keys are refused. They are never in the frame (aswas reads only the parts),
+    so A0's horizon does not bind them; the Sources page prints each with its date under "Notes on this film".
+    Returns the notes, for sources.json (source null when left out)."""
+    declared = play.get("film_notes")
+    declared = declared if declared is not None else []
+    if not isinstance(declared, list):
+        lint("film-note", False, unit="film_notes", grammar="A0, A56", evidence={"why": "film_notes must be a list"})
+        return []
+    out = []
+    for k, n in enumerate(declared):
+        probs = []
+        if not isinstance(n, dict):
+            probs.append("a film note is {text, noted, source}")
+            n = {}
+        text, noted, source = n.get("text"), n.get("noted"), n.get("source")
+        if not isinstance(text, str) or not text.strip():
+            probs.append("text is the note itself, a non-empty string")
+        elif POL.has_placeholder(text):
+            probs.append("a film note holds no placeholder: it is printed as written")
+        day = None
+        if isinstance(noted, str) and ISO_DAY_RE.match(noted):
+            try:
+                day = datetime.date.fromisoformat(noted)
+            except ValueError:
+                day = None
+        if day is None:
+            probs.append("noted is the day the house wrote the note, an ISO date (YYYY-MM-DD)")
+        if source is not None and (not isinstance(source, str) or not source.strip()):
+            probs.append("source is a non-empty string, or null")
+        unknown = sorted(set(n) - FILM_NOTE_KEYS)
+        if unknown:
+            probs.append(f"unknown keys {unknown}: a film note is text, noted and source")
+        lint("film-note", not probs, unit=f"film_notes[{k}]", grammar="A0, A56", evidence={"note": n, "problems": probs})
+        if not probs:
+            out.append({"text": text, "noted": noted, "source": source})
     return out
 
 
@@ -8866,6 +8914,8 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             # A56: what the record lacks, and the speakers the screen does not name (the record names them only by
             # role), stated here for the Sources page's "Notes on this film" and the description block
             "gaps": plan.get("gaps") or [],
+            # the house's dated notes about the film, outside its horizon, for "Notes on this film" (founder, 2026-11-02)
+            "film_notes": plan.get("film_notes") or [],
             "unnamed_speakers": [dict(u, lines=[{"id": ln["id"], "start_s": ln.get("start_s")} for ln in plan["lines"]
                                                 if ln.get("speaker") == u["speaker"]])
                                  for u in plan.get("unnamed_speakers") or []],
