@@ -234,3 +234,17 @@ def test_the_plan_journals_card_numerals_mono_and_refuses_the_old_title(tmp_path
     monkeypatch.setattr(M, "title_card_layout", _old_title_layout)
     with pytest.raises(R.Refused, match=r"card-numerals-mono \(S1\)"):
         R.build_plan(film, W=640, H=360, burn_subtitles=False, journal=J.Journal(film="numerals-old"))
+
+
+@pytest.mark.parametrize("text", ["An area of 1 000 km\u00b2 searched", "Footnote\u00b9 in 1974", "x\u00b3 and 10\u00b2"])
+# Latin-1 superscripts only: a glyph neither face carries (U+2074) is refused as undrawable, which is right
+def test_superscript_digits_are_routed_to_mono_and_the_lint_agrees(text):
+    """Review of #89: str.isdigit() counts superscripts, \d does not. The router (_NUM) and the lint must share one
+    predicate, or a card with "km\u00b2" refuses with no way to fix it but rewording."""
+    lay = M.card_layout(L1080, [text], FONTS)
+    assert M.card_numeral_problems(lay) == []
+    spans = lay["elements"][0]["lines"][0]["spans"]
+    for s in spans:
+        if any(ch.isdigit() for ch in s["text"]):
+            assert M.is_data_face(s["font"].path), (s["text"], s["font"].path)
+    assert M.card_drawn_text(lay) == [" ".join(text.split())]

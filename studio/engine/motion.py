@@ -488,7 +488,9 @@ PHONE = dict(width_px=693, min_px=7.0)
 # always alpha_composite onto a copy of the input frame.
 # --------------------------------------------------------------------------
 
-_NUM = re.compile(r"(\d[\d,.:]*\d|\d)")
+# a digit is what str.isdigit() calls one, superscripts too ("km²"): the router and the card-numerals-mono lint share it
+_DIGIT = r"[\d¹²³⁰⁴⁵⁶⁷⁸⁹]"
+_NUM = re.compile(rf"({_DIGIT}[{_DIGIT[1:-1]},.:]*{_DIGIT}|{_DIGIT})")
 
 
 def _rgba(rgb, a: float):
@@ -523,7 +525,7 @@ def _draw_mixed(d: ImageDraw.ImageDraw, xy, text: str, font, data_font, fill):
 
 
 # BRAND-KIT 7a (brand audit 2026-11-02): a numeral on a Fraunces 300 line is JetBrains Mono 300 at this share of the
-# line's size. Measured on the @fontsource files: Fraunces' figures stand 0.73 em and JetBrains Mono's 0.75 em, so 97%
+# line's size. Measured on the @fontsource files: Fraunces' figures stand about 0.71 em and JetBrains Mono's about 0.735 em, so 97%
 # puts both on one figure height; mono 300's stem at 97% is Fraunces 300's within a pixel at every card size, where mono
 # 500 at 94% (the structure face's numerals, BRAND-KIT 11) has a stem about a quarter heavier and read bold.
 # test_card_numerals.py holds both to the faces.
@@ -570,7 +572,7 @@ def numerals_outside_mono(spans) -> list[dict]:
     """Every span that holds a digit and is not set in JetBrains Mono: {text, digits, face}."""
     out = []
     for s in spans:
-        if any(ch.isdigit() for ch in s["text"]) and not is_data_face(s["font"].path):
+        if _NUM.search(s["text"]) and not is_data_face(s["font"].path):
             out.append({"text": s["text"], "digits": _NUM.findall(s["text"]) or [s["text"]],
                         "face": font_family(s["font"].path)})
     return out

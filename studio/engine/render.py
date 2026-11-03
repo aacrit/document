@@ -9065,7 +9065,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         with journal.unit("scout", "preflight", size={"driver": "items", "value": 1}):
             pf = preflight(out, journal, min_free_gb=min_free_gb)
         fonts = M.Fonts()
-        missing = [p for p in (fonts.display, fonts.structure, fonts.data) if not Path(p).exists()]
+        missing = [p for p in (fonts.display, fonts.structure, fonts.data, fonts.data_light) if not Path(p).exists()]
         if missing:
             raise Refused(f"fonts not found ({missing[0]}); run npm ci in the repo")
         play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))

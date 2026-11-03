@@ -172,7 +172,7 @@ Market Street's title card set "1906" in Fraunces, and its chapter 3 title "5:12
 
 | Where | Numerals | Why |
 |---|---|---|
-| A Fraunces 300 line: the film title, the chapter number and title, a statement or quote | JetBrains Mono 300 at 97% of the line's size, on its baseline | Fraunces' figures stand 0.73 em and the mono's 0.75 em, so 97% gives one figure height; mono 300's stem there is Fraunces 300's within a pixel. Mono 500 at 94% had a stem about a quarter heavier and read bold beside it ("nothing bold", section 7) |
+| A Fraunces 300 line: the film title, the chapter number and title, a statement or quote | JetBrains Mono 300 at 97% of the line's size, on its baseline | Fraunces' figures stand about 0.71 em and the mono's about 0.735 em, so 97% gives one figure height; mono 300's stem there is Fraunces 300's within a pixel. Mono 500 at 94% had a stem about a quarter heavier and read bold beside it ("nothing bold", section 7) |
 | An Inter 400 line: a card's source and later lines, a credit line | JetBrains Mono 500 at 94%, unchanged (section 11) | it already sits with Inter's weight |
 | A line set wholly in mono: the chapter dates, the credits' headings, `void` | unchanged | |
 
