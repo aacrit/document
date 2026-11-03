@@ -156,7 +156,7 @@ def render_roots(idx: Index, section: str) -> set[tuple[str, str]]:
 
 def _rules(fn: ast.AST) -> set[str]:
     """The literal rule names a function journals: journal.lint("x", ...) or lint("x", ...), pacing_review(j, "x"),
-    and card_lints' rule_fits / rule_drawn."""
+    and card_lints' rule_fits / rule_drawn / rule_numerals."""
     out = set()
     for n in ast.walk(fn):
         if not isinstance(n, ast.Call):
@@ -167,7 +167,7 @@ def _rules(fn: ast.AST) -> set[str]:
         elif name == "pacing_review" and len(n.args) > 1 and isinstance(n.args[1], ast.Constant):
             out.add(n.args[1].value)
         for k in n.keywords:
-            if k.arg in ("rule_fits", "rule_drawn") and isinstance(k.value, ast.Constant):
+            if k.arg in ("rule_fits", "rule_drawn", "rule_numerals") and isinstance(k.value, ast.Constant):
                 out.add(k.value.value)
     return out
 
