@@ -3,7 +3,7 @@
  "slug": "zero-readings",
  "title": "A film with no readings",
  "fps": 24,
- "duration_s": 40,
+ "duration_s": 44,
  "balance": {
   "sides": [
    { "id": "army", "label": "The army's account", "phrase": "the army" },
@@ -13,14 +13,14 @@
  "readings": [],
  "shots": [
   {
-   "id": "S01", "part": "title", "kind": "card", "start_s": 0, "end_s": 6,
+   "id": "S01", "part": "ch-1", "kind": "card", "start_s": 0, "end_s": 6,
    "mark": { "class": "CARD", "detail": "" },
    "text": ["1  The fire", "18 to 21 April 1906"]
   },
   {
    "id": "S02", "part": "ch-1", "kind": "archive_still", "start_s": 6, "end_s": 18,
    "mark": { "class": "ARCHIVE", "detail": "" },
-   "title": "The Call, 19 April 1906, front page",
+   "title": "The Call, 19 April 1906, page 1",
    "archive": "Library of Congress", "licence": "public domain",
    "notes": ["The paper printed a correction to this page on 21 April 1906."]
   },
@@ -37,6 +37,11 @@
    "id": "S04", "part": "ch-1", "kind": "archive_video", "start_s": 28, "end_s": 40,
    "mark": { "class": "ARCHIVE", "detail": "" },
    "title": "Market Street after the fire", "archive": "Internet Archive", "licence": "public domain"
+  },
+  {
+   "id": "S05", "part": "ch-1", "kind": "card", "start_s": 40, "end_s": 44,
+   "mark": { "class": "CARD", "detail": "" },
+   "text": ["I went to bed feeling very contented.", "Enrico Caruso, The Theatre, July 1906"]
   }
  ]
 }
