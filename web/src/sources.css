@@ -58,3 +58,6 @@ h2.sec .dates, .readings .rch .dates { font-size: 15px; }
 .notes .note-block ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; font-size: 14px; }
 .notes .note-block li { padding-left: 10px; border-left: 2px solid var(--color-border); overflow-wrap: anywhere; }
 .notes .num { font-variant-numeric: tabular-nums; }
+.notes .recording { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; }
+.notes .recording dt { color: var(--color-cream-muted); }
+.notes .recording dd { margin: 0; }

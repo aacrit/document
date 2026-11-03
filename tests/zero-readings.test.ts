@@ -244,12 +244,20 @@ describe("the notes of a film whose pictures are not all maps", () => {
   it("introduces the notes by what they hold, true in every state", async () => {
     const { notesIntro } = await import("../web/src/notes");
     expect(notesIntro(filmNotes(parseSources(zero())))).toBe("What the picture does not say: the notes on the maps, the notes on the pictures and the licences.");
-    const empty = { voices: [], unnamed: [], gaps: [], statements: [], mapNotes: [], mapData: [], pictureNotes: [], licences: [] };
+    const empty = { dated: [], voices: [], recordings: [], unnamed: [], gaps: [], statements: [], mapNotes: [], mapData: [], pictureNotes: [], licences: [] };
     expect(notesIntro(empty)).toBe("What the picture does not say.");
     expect(notesIntro({ ...empty, voices: ["v"], unnamed: ["u"], gaps: [{ says: "g", searched: "" }], mapNotes: ["m"], licences: ["l"] })).toBe(
       "What the picture does not say: the voices, the speakers the record names only by role, the gaps in the record, the notes on the maps and the licences.",
     );
     expect(notesIntro({ ...empty, pictureNotes: ["p"] })).toBe("What the picture does not say: the notes on the pictures.");
+    // the house's dated notes (film_notes) and the period recordings (palette cues), only when there are some
+    const note = { text: "t", noted: "2026-11-02", source: null };
+    const rec = { id: "N1", performer: "p", what: null, source: null, licence: null };
+    expect(notesIntro({ ...empty, dated: [note], licences: ["l"] })).toBe("What the picture does not say: our dated notes on the film and the licences.");
+    expect(notesIntro({ ...empty, recordings: [rec] })).toBe("What the picture does not say. It also lists the period recordings the film plays.");
+    expect(notesIntro({ ...empty, dated: [note], recordings: [rec] })).toBe(
+      "What the picture does not say: our dated notes on the film. It also lists the period recordings the film plays.",
+    );
     expect(read("web/templates/sources.html")).toContain('<p class="muted" id="notes-intro">What the picture does not say.</p>');
     expect(read("web/src/sources.ts")).toMatch(/byId\("notes-intro"\)\.textContent = notesIntro\(notes\)/);
   });

@@ -60,6 +60,8 @@ afterAll(() => {
 
 const EVIL = '"><img src=x onerror=alert(1)>';
 const notes = (over: Partial<FilmNotes> = {}): FilmNotes => ({
+  dated: [],
+  recordings: [],
   voices: [],
   unnamed: [],
   gaps: [],
@@ -138,5 +140,83 @@ describe("notes on this film", () => {
     expect(one).toHaveLength(1);
     expect(one[0].textContent).toContain("Gaps in the record");
     expect(one[0].textContent).toContain("Women speak 4% of the readings.");
+  });
+
+  it("prints the house's dated notes first, in their own block, each with its date and source", async () => {
+    const { notesNodes } = await import("../web/src/notes");
+    const nodes = notesNodes(
+      notes({
+        dated: [
+          { text: "The dead were counted at 478 by the city in 1907.", noted: "2026-11-02", source: "The city's count of 1907." },
+          { text: "A note with no source.", noted: "2026-11-03", source: null },
+        ],
+        licences: ["public domain: 3 shots"],
+      }),
+    ) as unknown as FakeNode[];
+    expect(nodes).toHaveLength(2);
+    const [block] = nodes;
+    expect(block.children[0].tag).toBe("h3");
+    expect(block.children[0].textContent).toBe("Our dated notes");
+    const items = block.all().filter((n) => n.tag === "li");
+    expect(items.map((li) => li.textContent)).toEqual([
+      "Noted 2026-11-02: The dead were counted at 478 by the city in 1907. Source: The city's count of 1907.",
+      "Noted 2026-11-03: A note with no source.",
+    ]);
+    // every numeral sits in the data face (tabular-nums), the dates included
+    const nums = block.all().filter((n) => n.attrs.class === "num").map((n) => n.textContent);
+    expect(nums).toEqual(expect.arrayContaining(["2026-11-02", "478", "1907", "2026-11-03"]));
+    const muted = block.all().find((n) => n.tag === "p");
+    expect(muted?.textContent).toBe("Notes we keep on this film, outside the picture, each dated the day we wrote it.");
+  });
+
+  it("prints each period recording under Recordings: performer, what it is, source and licence", async () => {
+    const { notesNodes } = await import("../web/src/notes");
+    const nodes = notesNodes(
+      notes({
+        recordings: [
+          {
+            id: "N1-caruso",
+            performer: "Enrico Caruso, tenor, with piano (Victor 85049, recorded 27 February 1905)",
+            what: "opera: Bizet, Carmen, Act II",
+            source: "Library of Congress, National Jukebox, jukebox-121360",
+            licence: "public domain",
+          },
+          { id: "N2", performer: null, what: "a march", source: null, licence: "CC0" },
+        ],
+      }),
+    ) as unknown as FakeNode[];
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].children[0].textContent).toBe("Recordings");
+    const items = nodes[0].all().filter((n) => n.tag === "li");
+    expect(items).toHaveLength(2);
+    const rows = (li: FakeNode) => {
+      const out: [string, string][] = [];
+      const kids = li.all().filter((n) => n.tag === "dt" || n.tag === "dd");
+      for (let i = 0; i < kids.length; i += 2) out.push([kids[i].textContent, kids[i + 1].textContent]);
+      return out;
+    };
+    expect(rows(items[0])).toEqual([
+      ["Performer", "Enrico Caruso, tenor, with piano (Victor 85049, recorded 27 February 1905)"],
+      ["What", "opera: Bizet, Carmen, Act II"],
+      ["Source", "Library of Congress, National Jukebox, jukebox-121360"],
+      ["Licence", "public domain"],
+    ]);
+    expect(rows(items[1])).toEqual([["What", "a march"], ["Licence", "CC0"]]);       // an absent field is left out
+    expect(nodes[0].all().find((n) => n.tag === "a")?.attrs.href).toBe("https://creativecommons.org/publicdomain/zero/1.0/");
+  });
+
+  it("renders a hostile value in a dated note or a recording as text, never as an element", async () => {
+    const { notesNodes } = await import("../web/src/notes");
+    const nodes = notesNodes(
+      notes({
+        dated: [{ text: EVIL, noted: "2026-11-02", source: EVIL }],
+        recordings: [{ id: EVIL, performer: EVIL, what: EVIL, source: EVIL, licence: EVIL }],
+      }) as never,
+    ) as unknown as FakeNode[];
+    const all = nodes.flatMap((n) => n.all());
+    expect(all.some((n) => n.tag === "img")).toBe(false);
+    expect(all.every((n) => !("onerror" in n.attrs) && !("src" in n.attrs))).toBe(true);
+    const text = nodes.map((n) => n.textContent).join("\n");
+    expect(text.split(EVIL).length - 1).toBe(6);          // text, source, performer, what, source, licence: verbatim
   });
 });
