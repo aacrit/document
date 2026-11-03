@@ -12,6 +12,8 @@ export type MarkClass = (typeof MARK_CLASSES)[number];
 export interface Mark {
   class: MarkClass;
   detail: string;
+  /** The mark as the engine labels it ("DRAWN from map data"); empty in a sources.json written without one. */
+  label: string;
 }
 
 export interface Shot {
@@ -202,7 +204,11 @@ function parseShot(x: unknown, i: number, fps: number): Shot {
     end_s,
     start_frame: num(x.start_frame) ?? Math.round(start_s * fps),
     end_frame: num(x.end_frame) ?? Math.round(end_s * fps),
-    mark: { class: markClass(mark.class, `shot ${id}`), detail: typeof mark.detail === "string" ? mark.detail : "" },
+    mark: {
+      class: markClass(mark.class, `shot ${id}`),
+      detail: typeof mark.detail === "string" ? mark.detail : "",
+      label: typeof mark.label === "string" ? mark.label : "",
+    },
     title: str(x.title),
     archive: str(x.archive),
     item_url: safeUrl(x.item_url),
@@ -734,7 +740,45 @@ const clockOf = (s: number | null): string => (s === null ? "" : formatTime(s));
 
 /** A drawn map, as studio/engine/description.py is_map reads one: it names its data, or its mark says it is drawn from map data. */
 export function isMapShot(s: Pick<Shot, "data_sources" | "source_line" | "mark">): boolean {
-  return s.data_sources.length > 0 || (s.source_line ?? "").startsWith("Data:") || s.mark.detail === "from map data";
+  return (
+    s.data_sources.length > 0 ||
+    (s.source_line ?? "").startsWith("Data:") ||
+    s.mark.detail === "from map data" ||
+    s.mark.label.endsWith("from map data")
+  );
+}
+
+/** A chapter card's number, set two spaces before its title ("2  Tuesday night"). */
+const NUMBERED_CARD = /^\d+ {2}/;
+/** A quote's source line, dated (GRAMMAR: a quote card's last element is its source, which is dated): "Enrico Caruso, The Theatre, July 1906". */
+const DATED_SOURCE = /, .*\b\d{4}\.?$/;
+
+/** A card that quotes someone: its words, then its dated source; never a chapter, title or statement card. */
+export function isQuoteCard(s: Pick<Shot, "mark" | "text">): boolean {
+  const t = s.text ?? [];
+  return s.mark.class === "CARD" && t.length >= 2 && !NUMBERED_CARD.test(t[0]) && DATED_SOURCE.test(t[t.length - 1].trim());
+}
+
+/** A printed page held on screen (an archive still titled by its page: "Collier's, 5 May 1906, page 22"). */
+export function isPrintedPage(s: Pick<Shot, "mark" | "kind" | "title">): boolean {
+  return s.mark.class === "ARCHIVE" && s.kind === "archive_still" && /\bpage \d+\b/i.test(s.title ?? "");
+}
+
+/**
+ * Where a film with no readings quotes its witnesses, said only as far as its shots show it: on quote cards, and
+ * printed pages beside them. null when it has no quote card (a printed page alone says nothing of witnesses).
+ */
+export function witnessSentence(shots: Shot[]): string | null {
+  if (!shots.some(isQuoteCard)) return null;
+  return shots.some(isPrintedPage) ? "Its witnesses are quoted on cards and printed pages." : "Its witnesses are quoted on cards.";
+}
+
+/** The transcript's lede, by what is spoken in it; null when nothing is. */
+export function transcriptLede(d: Pick<FilmSources, "readings" | "narration">): string | null {
+  if (d.readings.length && d.narration.length) return "Everything spoken, word for word: the narration and the readings, each with its speaker.";
+  if (d.readings.length) return "The readings, word for word, each with its speaker.";
+  if (d.narration.length) return "Everything spoken, word for word: the narration.";
+  return null;
 }
 
 /**

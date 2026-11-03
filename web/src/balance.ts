@@ -1,16 +1,11 @@
 // "Whose words, and how long" on the Sources page: only figures computed from the film's own readings, or plain
-// sentences. A film with no readings (its witnesses quoted on cards and printed pages) says so and names its sides.
-// Every value from sources.json is set as DOM text through el() and numerals(), never as markup.
-import { PARTITION_BALANCE, filmNotes, pct, secondsByMark, type Balance, type BalanceConfig, type FilmSources } from "./film-data";
+// sentences. A film with no readings says so, says where its witnesses are quoted as far as its shots show it, and
+// names its sides. Every value from sources.json is set as DOM text through el() and numerals(), never as markup.
+import { PARTITION_BALANCE, filmNotes, pct, secondsByMark, witnessSentence, type Balance, type BalanceConfig, type FilmSources } from "./film-data";
 import { el, numerals } from "./site";
 
-export const NO_READINGS = "This film has no readings. Its witnesses are quoted on cards and printed pages, never read aloud.";
+export const NO_READINGS = "This film has no readings.";
 export const NOT_AVAILABLE = "Balance figures are not available for this cut.";
-
-/** The readings' lede, link, heading and list ([data-readings], hidden in the page) are shown only when the film has readings. */
-export function showReadings(nodes: Iterable<Pick<HTMLElement, "hidden">>, d: Pick<FilmSources, "readings">): void {
-  for (const n of nodes) n.hidden = d.readings.length === 0;
-}
 
 function bar(share: number, kind: "band" | "floor" | "none", c: BalanceConfig): HTMLElement {
   const fill = el("i");
@@ -45,7 +40,8 @@ function marksNode(d: FilmSources): HTMLElement {
 export function balanceNodes(d: FilmSources, b: Balance | null): HTMLElement[] {
   const out: HTMLElement[] = [];
   if (d.readings.length === 0) {
-    out.push(small(NO_READINGS));
+    const witnesses = witnessSentence(d.shots);
+    out.push(small(witnesses ? `${NO_READINGS} ${witnesses}` : NO_READINGS));
     if (d.balance?.sides.length) out.push(small(`This film's sides: ${d.balance.sides.map((s) => s.label).join("; ")}.`));
     const gaps = gapsNode(d);
     if (gaps) out.push(gaps);
