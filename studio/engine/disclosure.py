@@ -97,10 +97,35 @@ def meta_text_problems(text: str, role: str) -> list[dict]:
     return out
 
 
+# Market Street's brand audit (founder, 2026-11-02): "Carmen, Act II, Victor, 1905" stood under "Enrico Caruso" as
+# his role. A role line naming a record label with a year, or an act of a work, is a record's or a work's title,
+# never a role; the recording's credit lives in the sources data. Conservative on purpose: a label word that is a
+# place or an institution ("District of Columbia", "Columbia University") is not a label, and "Act" counts only as
+# "Act" plus a roman numeral or a one- or two-digit number ("Act II", "Act 3"; not "the Act, 1949" or "Act, 1935").
+RECORD_LABELS = ("Victor", "Columbia", "Edison", "Gramophone", "HMV", "Odeon", "Zonophone")
+_LABEL = re.compile(r"(?<!\bof )\b(?:" + "|".join(RECORD_LABELS) + r")\b"
+                    r"(?! (?:University|College|River|County|Broadcasting|Pictures)\b)")
+_YEAR = re.compile(r"\b1[89]\d\d\b|\b20\d\d\b")
+_ACT = re.compile(r"\bAct (?:[IVX]+|\d{1,2})\b")
+
+
+def record_title_problem(role: str) -> str | None:
+    """Why a lower third's role line reads as a record or a work's title, or None."""
+    t = " ".join(str(role or "").split())
+    label, year, act = _LABEL.search(t), _YEAR.search(t), _ACT.search(t)
+    if not (act or (label and year)):
+        return None
+    why = (f"an act of a work ({act.group(0)!r})" if act else
+           f"a record label with a year ({label.group(0)!r}, {year.group(0)!r})")
+    return (f"line 2 {role!r} is a record or a work's title, not a role: it names {why}. Line 2 is the speaker's "
+            "role (\"Tenor, Metropolitan Opera\"); the recording's label, year and work are stated in the sources data")
+
+
 def lower_third_problems(lines) -> list[str]:
     """A56: a lower third is NAME plus role (a speaker), or a place plus its
     date: two non-empty lines. A third line is a provenance line, refused; the
-    source lives in the sources data."""
+    source lives in the sources data. A role line that is a record or a
+    work's title (``record_title_problem``) is refused too."""
     ln = [str(x) for x in (lines or [])]
     out = []
     if len(ln) > 2:
@@ -108,6 +133,8 @@ def lower_third_problems(lines) -> list[str]:
                    "and whether it is an original recording or read by a computer voice, is stated in the sources data")
     if len(ln) < 2 or not all(x.strip() for x in ln[:2]):
         out.append("a lower third is two non-empty lines: the name, then the role (or the place, then its date)")
+    elif (why := record_title_problem(ln[1])) is not None:
+        out.append(why)
     return out
 
 
