@@ -10,6 +10,23 @@ function block(heading: string, items: Node[]): HTMLElement {
   return el("div", { class: "note-block" }, el("h3", {}, heading), el("ul", {}, ...items.map((n) => el("li", {}, n))));
 }
 
+/** "a, b and c" */
+function listed(parts: string[]): string {
+  return parts.length < 2 ? parts.join("") : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+/** The section's intro, naming only the blocks notesNodes draws, so it is true for every film. */
+export function notesIntro(n: FilmNotes): string {
+  const parts: string[] = [];
+  if (n.voices.length) parts.push("the voices");
+  if (n.unnamed.length) parts.push("the speakers the record names only by role");
+  if (n.gaps.length || n.statements.length) parts.push("the gaps in the record");
+  if (n.mapNotes.length || n.mapData.length) parts.push("the notes on the maps");
+  if (n.pictureNotes.length) parts.push("the notes on the pictures");
+  if (n.licences.length) parts.push("the licences");
+  return parts.length ? `What the picture does not say: ${listed(parts)}.` : "What the picture does not say.";
+}
+
 /** The section's body: one block per list sources.json fills, or one muted sentence when it fills none. */
 export function notesNodes(n: FilmNotes): HTMLElement[] {
   const out: HTMLElement[] = [];
@@ -40,6 +57,7 @@ export function notesNodes(n: FilmNotes): HTMLElement[] {
     });
     out.push(block("Notes on the maps", [...n.mapNotes.map((t) => withDeeds(t)), ...data]));
   }
+  if (n.pictureNotes.length) out.push(block("Notes on the pictures", n.pictureNotes.map((t) => withDeeds(t))));
   if (n.licences.length) out.push(block("Licences", n.licences.map((t) => withDeeds(t))));
   if (!out.length) out.push(el("p", { class: "muted" }, NO_NOTES));
   return out;

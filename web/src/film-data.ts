@@ -718,6 +718,8 @@ export interface FilmNotes {
   mapNotes: string[];
   /** Each drawn map's data sources, linked where the file gives an https url. */
   mapData: { map: string; sources: DataSource[] }[];
+  /** The notes and source lines of every shot that is not a map (a newspaper page, a photograph), after its title. */
+  pictureNotes: string[];
   licences: string[];
 }
 
@@ -730,11 +732,16 @@ export function voiceName(engine: string | null, voice: string | null): string {
 
 const clockOf = (s: number | null): string => (s === null ? "" : formatTime(s));
 
+/** A drawn map, as studio/engine/description.py is_map reads one: it names its data, or its mark says it is drawn from map data. */
+export function isMapShot(s: Pick<Shot, "data_sources" | "source_line" | "mark">): boolean {
+  return s.data_sources.length > 0 || (s.source_line ?? "").startsWith("Data:") || s.mark.detail === "from map data";
+}
+
 /**
  * The disclosures the picture no longer shows (A56), from the same fields of
  * sources.json the description block prints (studio/engine/description.py
  * notes()): the voices, the speakers named only by role, the gaps, the
- * shortfall statements, the map notes and the licences. Nothing is invented:
+ * shortfall statements, the map notes, the other pictures' notes and the licences. Nothing is invented:
  * an empty list means sources.json states none.
  */
 export function filmNotes(
@@ -768,18 +775,20 @@ export function filmNotes(
     return at ? `${u.name}: ${at}` : u.name;
   });
   const mapNotes: string[] = [];
+  const pictureNotes: string[] = [];
   const mapData: FilmNotes["mapData"] = [];
   const byLicence = new Map<string, number>();
   for (const s of data.shots) {
     const name = s.title ?? s.id;
     if (s.data_sources.length && !mapData.some((m) => m.map === name)) mapData.push({ map: name, sources: s.data_sources });
+    const into = isMapShot(s) ? mapNotes : pictureNotes;   // a newspaper page's note is not a note on a map
     for (const n of s.notes) {
       const t = `${name}: ${n}`;
-      if (!mapNotes.includes(t)) mapNotes.push(t);
+      if (!into.includes(t)) into.push(t);
     }
     if (s.source_line && !s.data_sources.length) {     // a map that names its data is credited in mapData, linked
       const t = `${name}: ${s.source_line}`;
-      if (!mapNotes.includes(t)) mapNotes.push(t);
+      if (!into.includes(t)) into.push(t);
     }
     if (s.mark.class === "CARD" || !s.licence) continue;
     const t = s.licence_note ? `${s.licence} (${s.licence_note})` : s.licence;
@@ -794,6 +803,7 @@ export function filmNotes(
     statements: [...data.statements],
     mapNotes,
     mapData,
+    pictureNotes,
     licences,
   };
 }
