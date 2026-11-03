@@ -172,6 +172,7 @@ describe("release-film", () => {
     // As shipped: Real World's are planned, so its release puts no captions up.
     const shipped = JSON.parse(readFileSync(new URL("../films.json", import.meta.url), "utf8"));
     expect(captionReview(shipped, "real-world")).toBe("planned");
+    expect(captionReview(shipped, "market-street")).toBe("planned");
     expect(captionReview(shipped, "partition-of-india")).toBe("reviewed");
     expect(captionReview(shipped, "smallpox-eradication")).toBe("in_review");
   });
