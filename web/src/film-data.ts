@@ -1053,13 +1053,14 @@ export function computeBalance(readings: Reading[], config: BalanceConfig | null
   };
 }
 
-/** Seconds of picture by mark, whole film, with ARCHIVE split into film and photographs. */
+/** Seconds of picture by mark, whole film, with ARCHIVE split into film and stills (photographs, maps, printed pages
+ * and frames held from film alike: "photographs" would be false for all but the first). */
 export function secondsByMark(shots: Shot[]): { key: string; label: string; seconds: number; share: number }[] {
   const total = shots.reduce((s, x) => s + (x.end_s - x.start_s), 0) || 1;
   const sum = (f: (s: Shot) => boolean) => shots.filter(f).reduce((a, s) => a + (s.end_s - s.start_s), 0);
   const rows = [
     { key: "archive-film", label: "ARCHIVE film", seconds: sum((s) => s.mark.class === "ARCHIVE" && s.kind === "archive_video") },
-    { key: "archive-still", label: "ARCHIVE photographs", seconds: sum((s) => s.mark.class === "ARCHIVE" && s.kind !== "archive_video") },
+    { key: "archive-still", label: "ARCHIVE stills", seconds: sum((s) => s.mark.class === "ARCHIVE" && s.kind !== "archive_video") },
     { key: "reconstructed", label: "RECONSTRUCTED", seconds: sum((s) => s.mark.class === "RECONSTRUCTED") },
     { key: "drawn", label: "DRAWN", seconds: sum((s) => s.mark.class === "DRAWN") },
     { key: "card", label: "CARD", seconds: sum((s) => s.mark.class === "CARD") },
@@ -1070,9 +1071,12 @@ export function secondsByMark(shots: Shot[]): { key: string; label: string; seco
 
 // ---- Words for one shot (Sources) -------------------------------------------------
 
-/** "The photograph at Wikimedia Commons", "The film at the Internet Archive". */
-export function itemLinkLabel(shot: Shot): string {
-  const what = shot.kind === "archive_video" ? "The film" : shot.kind === "archive_still" ? "The photograph" : "The item";
+const ITEM_WORDS = { frame: "The film", map: "The map", page: "The page", photograph: "The photograph" } as const;
+
+/** "The photograph at Wikimedia Commons", "The map at the Library of Congress", "The film at the Internet Archive": a
+ * still's noun is its stillKind, and a frame held from a film links to that film. */
+export function itemLinkLabel(shot: Shot, footage: ReadonlySet<string> = new Set()): string {
+  const what = shot.kind === "archive_video" ? "The film" : shot.kind === "archive_still" ? ITEM_WORDS[stillKind(shot, footage)] : "The item";
   let where = shot.archive ?? "the archive";
   if (shot.item_url) {
     const host = new URL(shot.item_url).hostname;
@@ -1117,15 +1121,27 @@ function isMapStill(s: Shot): boolean {
 }
 
 /**
+ * A single printed sheet that is not titled by its page: an archive still whose title's head (as isMapStill reads it)
+ * opens with the word "Proclamation" or "Broadside" ("Proclamation by the Mayor, 18 April 1906"). Only the opening
+ * word counts, singular, so a picture with one in it stays a photograph ("Crowd reading a proclamation, ...",
+ * "Proclamations posted on a wall: ...").
+ */
+function isPrintedSheet(s: Pick<Shot, "mark" | "kind" | "title">): boolean {
+  const head = (s.title ?? "").split(/[,:;(]/)[0].trim();
+  return s.mark.class === "ARCHIVE" && s.kind === "archive_still" && /^(?:the |a )?(?:proclamation|broadside)\b/i.test(head);
+}
+
+/**
  * What an archive still is: "frame" when its ledger id extends a footage item the film shows ("MS-F01-PALACE-1" of
- * "MS-F01"), "map" (isMapStill), "page" (isPrintedPage: titled by its page, a newspaper's front page included), else
- * "photograph". Without the film's footage a held frame cannot be told from a photograph, and stays one.
+ * "MS-F01"), "map" (isMapStill), "page" (isPrintedPage: titled by its page, a newspaper's front page included; or
+ * isPrintedSheet: a proclamation or broadside), else "photograph". Without the film's footage a held frame cannot be
+ * told from a photograph, and stays one.
  */
 export function stillKind(s: Shot, footage: ReadonlySet<string> = new Set()): "frame" | "map" | "page" | "photograph" {
   const id = s.ledger_id ?? "";
   if (s.mark.class === "ARCHIVE" && [...footage].some((f) => id.startsWith(`${f}-`))) return "frame";
   if (isMapStill(s)) return "map";
-  if (isPrintedPage(s)) return "page";
+  if (isPrintedPage(s) || isPrintedSheet(s)) return "page";
   return "photograph";
 }
 

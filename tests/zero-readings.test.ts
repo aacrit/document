@@ -36,7 +36,7 @@ describe("the balance panel of a film with no readings", () => {
     expect(t).toContain("This film has no readings. Its witnesses are quoted on cards and printed pages.");
     expect(t).not.toContain("not available");
     expect(t).toContain("This film's sides: The army's account; Civilians' and reporters' accounts.");
-    expect(t).toContain("Seconds by mark, whole film: ARCHIVE film 12 s (27.3%), ARCHIVE photographs 12 s (27.3%), DRAWN 10 s (22.7%), CARD 10 s (22.7%), AI-GENERATED 0 s (0.0%).");
+    expect(t).toContain("Seconds by mark, whole film: ARCHIVE film 12 s (27.3%), ARCHIVE stills 12 s (27.3%), DRAWN 10 s (22.7%), CARD 10 s (22.7%), AI-GENERATED 0 s (0.0%).");
     for (const line of t.split("\n")) expect(line).not.toMatch(/[!—]/);
     // every numeral sits in the data face
     const nums = all(nodes).filter((n) => n.tag === "span" && n.attrs.class === "num");

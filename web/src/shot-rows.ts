@@ -31,13 +31,13 @@ export function whatNode(shot: Shot, footage: ReadonlySet<string>): Node {
   return numerals(entryWhat(shot, footage));
 }
 
-export function sourceRows(shot: Shot): [string, Node | string | null][] {
+export function sourceRows(shot: Shot, footage: ReadonlySet<string> = new Set()): [string, Node | string | null][] {
   const url = safeUrl(shot.item_url);
   const author = authorOf(shot);
   return [
     ["Archive", shot.archive],
     ["By", author ? numerals(author) : null],
-    ["Item", url ? el("a", { class: "source", href: url, rel: "noopener noreferrer", "data-item": "" }, itemLinkLabel(shot)) : null],
+    ["Item", url ? el("a", { class: "source", href: url, rel: "noopener noreferrer", "data-item": "" }, itemLinkLabel(shot, footage)) : null],
     ["Licence", shot.licence ? withDeeds(shot.licence) : null],
     ["Data", shot.data_sources.length ? dataSourcesNode(shot.data_sources) : null],
     ["Credit", creditNode(shot.credit)],

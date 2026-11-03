@@ -62,7 +62,7 @@ function shotEntry(shot: Shot, footage: ReadonlySet<string>): HTMLLIElement {
   const isCard = shot.mark.class === "CARD";
   const title = isCard ? cardTitle(shot) : (shot.title ?? "Untitled item");
   const what = whatNode(shot, footage);
-  const rows: [string, Node | string | null][] = isCard ? [["What", what]] : [["What", what], ...sourceRows(shot)];
+  const rows: [string, Node | string | null][] = isCard ? [["What", what]] : [["What", what], ...sourceRows(shot, footage)];
   return el(
     "li",
     { id: shot.id, class: "entry", "data-class": shot.mark.class },
