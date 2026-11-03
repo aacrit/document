@@ -159,6 +159,75 @@ export interface FilmSources {
   unnamedSpeakers: { name: string; lines: { id: string; start_s: number | null }[] }[];
   /** A56: each declared shortfall's statement, filled from the cut; an unfilled statement is never kept. */
   statements: string[];
+  /** The house's dated notes on the film (sources.json film_notes), each kept only when its date is a real day. */
+  houseNotes: HouseNote[];
+  /** The recordings the film plays: its music cues whose role is "palette" (never the score's own cues). */
+  recordings: Recording[];
+}
+
+/** One of the house's dated notes on a film: what we noted, the day we noted it (YYYY-MM-DD) and its source. */
+export interface HouseNote {
+  text: string;
+  noted: string;
+  source: string | null;
+}
+
+/** A recording the film plays, as its cue records it; a field the cue leaves out is null. */
+export interface Recording {
+  id: string;
+  performer: string | null;
+  /** What it is: the cue's tradition ("opera: Bizet, Carmen, Act II, ..."). */
+  what: string | null;
+  source: string | null;
+  licence: string | null;
+}
+
+const NOTE_KEYS = new Set(["text", "noted", "source"]);
+
+/** A calendar day written YYYY-MM-DD that exists (no 30 February). */
+function isIsoDay(x: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(x)) return false;
+  const d = new Date(`${x}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === x;
+}
+
+/** sources.json film_notes: a malformed note (no text, no real date, a key the engine never writes) is dropped, never printed wrong. */
+export function parseHouseNotes(x: unknown): HouseNote[] {
+  if (!Array.isArray(x)) return [];
+  const out: HouseNote[] = [];
+  for (const n of x) {
+    if (!isObj(n) || Object.keys(n).some((k) => !NOTE_KEYS.has(k))) continue;
+    const text = str(n.text);
+    const noted = str(n.noted);
+    if (!text || !noted || !isIsoDay(noted)) continue;
+    if (n.source !== undefined && n.source !== null && typeof n.source !== "string") continue;
+    out.push({ text, noted, source: str(n.source) });
+  }
+  return out;
+}
+
+/** A cue's tradition without a leading lower-case category word and colon ("opera: ..."); null stays null. */
+export function stripCategory(t: string | null): string | null {
+  if (t === null) return null;
+  const out = t.replace(/^[a-z][a-z -]{0,24}:\s+/, "");
+  return out || t;
+}
+
+/** sources.json cues: the music cues whose role is "palette", the recordings; one that names nothing is dropped. */
+export function parseRecordings(x: unknown): Recording[] {
+  if (!Array.isArray(x)) return [];
+  return x
+    .filter(isObj)
+    .filter((c) => c.kind === "music" && c.role === "palette")
+    .map((c, i) => ({
+      id: str(c.id) ?? `cue ${i + 1}`,
+      performer: str(c.performer),
+      // the cue's tradition without the house's own category prefix ("opera: Bizet, Carmen ..." reads "Bizet, Carmen ...")
+      what: stripCategory(str(c.tradition)),
+      source: str(c.source),
+      licence: str(c.licence),
+    }))
+    .filter((r) => r.performer || r.what || r.source || r.licence);
 }
 
 export interface SourceGap {
@@ -424,6 +493,8 @@ export function parseSources(json: unknown): FilmSources {
       }))
       .filter((u) => u.name),
     statements: (Array.isArray(json.shortfalls) ? json.shortfalls : []).filter(isObj).map(statementText).filter((t): t is string => t !== null),
+    houseNotes: parseHouseNotes(json.film_notes),
+    recordings: parseRecordings(json.cues),
   };
 }
 
@@ -723,7 +794,11 @@ export function silentRecord(data: Pick<FilmSources, "gaps" | "shots">): (Source
 // ---- Notes on this film (A56): what the picture no longer says ----------------
 
 export interface FilmNotes {
+  /** The house's dated notes (sources.json film_notes), printed first in their own block. */
+  dated: HouseNote[];
   voices: string[];
+  /** The recordings the film plays (its palette cues). */
+  recordings: Recording[];
   unnamed: string[];
   gaps: SourceGap[];
   statements: string[];
@@ -814,7 +889,8 @@ export function transcriptLede(d: Pick<FilmSources, "readings" | "narration">): 
  * an empty list means sources.json states none.
  */
 export function filmNotes(
-  data: Pick<FilmSources, "readings" | "narratorVoice" | "unnamedSpeakers" | "gaps" | "shots" | "statements">,
+  data: Pick<FilmSources, "readings" | "narratorVoice" | "unnamedSpeakers" | "gaps" | "shots" | "statements"> &
+    Partial<Pick<FilmSources, "houseNotes" | "recordings">>,
 ): FilmNotes {
   const voices: string[] = [];
   const nv = data.narratorVoice;
@@ -866,7 +942,9 @@ export function filmNotes(
   // each licence the film's pictures carry, with how many shots carry it (every shot's own is listed above)
   const licences = [...byLicence].map(([t, n]) => `${t}: ${n} ${n === 1 ? "shot" : "shots"}`);
   return {
+    dated: [...(data.houseNotes ?? [])],
     voices,
+    recordings: [...(data.recordings ?? [])],
     unnamed,
     gaps: sourceGaps(data).map(({ says, searched }) => ({ says, searched })),
     statements: [...data.statements],

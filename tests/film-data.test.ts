@@ -640,3 +640,74 @@ describe("attribution links (CC BY asks for the licence by its URI, and the data
     expect(n.mapNotes.some((t) => t.includes("Data: Natural Earth; GeoNames"))).toBe(false);
   });
 });
+
+// Market Street's brand audit (founder, 2026-11-02): the house's dated notes (sources.json film_notes) and the
+// recordings (cues whose role is "palette") reach "Notes on this film".
+describe("the house's notes and the recordings", () => {
+  const ms = () => JSON.parse(readFileSync(path.join(root, "tests/fixtures/sources-market-street-notes.json"), "utf8"));
+
+  it("reads Market Street's film note with its date and source", () => {
+    const d = parseSources(ms());
+    expect(d.houseNotes).toHaveLength(1);
+    expect(d.houseNotes[0].noted).toBe("2026-11-02");
+    expect(d.houseNotes[0].text).toMatch(/^The dead were counted at 478 by the city in 1907/);
+    expect(d.houseNotes[0].source).toMatch(/Greely/);
+    expect(filmNotes(d).dated).toEqual(d.houseNotes);
+  });
+
+  it("prints only the palette recording, the 1905 Victor record, never the underscore, motif or title cues", () => {
+    const d = parseSources(ms());
+    expect(d.recordings).toEqual([
+      {
+        id: "N1-caruso",
+        performer: "Enrico Caruso, tenor, with piano (Victor 85049, matrix C-2341, take 1, recorded 27 February 1905)",
+        what: 'Bizet, Carmen, Act II, "Il fior che avevi a me tu dato" (the Flower Song), sung in Italian',
+        source: "Library of Congress, National Jukebox, jukebox-121360 (Recorded Sound Section transfer of the 12-in. disc)",
+        licence: "public domain (a US sound recording published before 1923: Music Modernization Act; LoC rights note)",
+      },
+    ]);
+    expect(filmNotes(d).recordings).toEqual(d.recordings);
+  });
+
+  it("drops a malformed note rather than print a wrong date, and a recording that names nothing", () => {
+    const j = ms();
+    j.film_notes = [
+      { text: "", noted: "2026-11-02", source: null },
+      { text: "Undated.", source: null },
+      { text: "Bad day.", noted: "2026-02-30", source: null },
+      { text: "Not ISO.", noted: "2 November 2026", source: null },
+      { text: "Extra key.", noted: "2026-11-02", source: null, date: "1906" },
+      "a string",
+      { text: "Kept, no source.", noted: "2026-11-01" },
+    ];
+    j.cues = [...j.cues, { id: "N2", kind: "music", role: "palette" }, { id: "N3", kind: "ambience", role: "palette", performer: "x" }];
+    const d = parseSources(j);
+    expect(d.houseNotes).toEqual([{ text: "Kept, no source.", noted: "2026-11-01", source: null }]);
+    expect(d.recordings.map((r) => r.id)).toEqual(["N1-caruso"]);
+    const none = ms();
+    delete none.film_notes;
+    delete none.cues;
+    const e = parseSources(none);
+    expect([e.houseNotes, e.recordings, filmNotes(e).dated, filmNotes(e).recordings]).toEqual([[], [], [], []]);
+  });
+});
+
+describe("a film without dated notes or palette cues is unchanged", () => {
+  for (const f of ["sources-partition-stills.json", "sources-smallpox-stills.json", "sources-zero-readings.json", "sources-market-street-stills.json", "sources-trailer.json"]) {
+    it(f, () => {
+      const d = parseSources(JSON.parse(readFileSync(path.join(root, "tests/fixtures", f), "utf8")));
+      expect([d.houseNotes, d.recordings, filmNotes(d).dated, filmNotes(d).recordings]).toEqual([[], [], [], []]);
+    });
+  }
+});
+
+describe("stripCategory: the Recordings What row drops the house's category word", () => {
+  it("drops a leading lower-case category and colon, and leaves everything else", async () => {
+    const { stripCategory } = await import("../web/src/film-data");
+    expect(stripCategory("opera: Bizet, Carmen")).toBe("Bizet, Carmen");
+    expect(stripCategory("folk song: The Water Is Wide")).toBe("The Water Is Wide");
+    expect(stripCategory("Bizet, Carmen: Act II")).toBe("Bizet, Carmen: Act II");
+    expect(stripCategory("opera:")).toBe("opera:");
+    expect(stripCategory(null)).toBeNull();
+  });
+});

@@ -9,7 +9,9 @@
 .filters button[aria-pressed="true"] { background: var(--color-surface-raised); border-color: var(--color-cream-faint); }
 .filters button .num { color: var(--color-cream-muted); }
 .filters .f-archive { --h: var(--mark-archive); } .filters .f-reconstructed { --h: var(--mark-reconstructed); } .filters .f-generated, .filters .f-drawn { --h: var(--mark-generated); } .filters .f-card { --h: var(--mark-reconstructed); }
-.layout { display: grid; gap: 40px; }
+.layout { display: grid; gap: 40px; grid-template-columns: minmax(0, 1fr); }
+/* a grid column never grows past the screen for one long word or URL in a note (Market Street's sources at 375 px) */
+.layout > * { min-width: 0; }
 .entries { list-style: none; margin: 0; padding: 0; }
 .entry { display: grid; gap: 8px; padding: 22px 0; border-top: 1px solid var(--color-border); }
 .ehead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -58,3 +60,6 @@ h2.sec .dates, .readings .rch .dates { font-size: 15px; }
 .notes .note-block ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; font-size: 14px; }
 .notes .note-block li { padding-left: 10px; border-left: 2px solid var(--color-border); overflow-wrap: anywhere; }
 .notes .num { font-variant-numeric: tabular-nums; }
+.notes .recording { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; }
+.notes .recording dt { color: var(--color-cream-muted); }
+.notes .recording dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
