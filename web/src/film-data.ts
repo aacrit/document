@@ -12,6 +12,8 @@ export type MarkClass = (typeof MARK_CLASSES)[number];
 export interface Mark {
   class: MarkClass;
   detail: string;
+  /** The mark as the engine labels it ("DRAWN from map data"); empty in a sources.json written without one. */
+  label: string;
 }
 
 export interface Shot {
@@ -202,7 +204,11 @@ function parseShot(x: unknown, i: number, fps: number): Shot {
     end_s,
     start_frame: num(x.start_frame) ?? Math.round(start_s * fps),
     end_frame: num(x.end_frame) ?? Math.round(end_s * fps),
-    mark: { class: markClass(mark.class, `shot ${id}`), detail: typeof mark.detail === "string" ? mark.detail : "" },
+    mark: {
+      class: markClass(mark.class, `shot ${id}`),
+      detail: typeof mark.detail === "string" ? mark.detail : "",
+      label: typeof mark.label === "string" ? mark.label : "",
+    },
     title: str(x.title),
     archive: str(x.archive),
     item_url: safeUrl(x.item_url),
@@ -718,6 +724,8 @@ export interface FilmNotes {
   mapNotes: string[];
   /** Each drawn map's data sources, linked where the file gives an https url. */
   mapData: { map: string; sources: DataSource[] }[];
+  /** The notes and source lines of every shot that is not a map (a newspaper page, a photograph), after its title. */
+  pictureNotes: string[];
   licences: string[];
 }
 
@@ -730,11 +738,54 @@ export function voiceName(engine: string | null, voice: string | null): string {
 
 const clockOf = (s: number | null): string => (s === null ? "" : formatTime(s));
 
+/** A drawn map, as studio/engine/description.py is_map reads one: it names its data, or its mark says it is drawn from map data. */
+export function isMapShot(s: Pick<Shot, "data_sources" | "source_line" | "mark">): boolean {
+  return (
+    s.data_sources.length > 0 ||
+    (s.source_line ?? "").startsWith("Data:") ||
+    s.mark.detail === "from map data" ||
+    s.mark.label.endsWith("from map data")
+  );
+}
+
+/** A chapter card's number, set two spaces before its title ("2  Tuesday night"). */
+const NUMBERED_CARD = /^\d+ {2}/;
+/** A quote's source line, dated (GRAMMAR: a quote card's last element is its source, which is dated): "Enrico Caruso, The Theatre, July 1906". */
+const DATED_SOURCE = /, .*\b\d{4}\.?$/;
+
+/** A card that quotes someone: its words, then its dated source; never a chapter, title or statement card. */
+export function isQuoteCard(s: Pick<Shot, "mark" | "text">): boolean {
+  const t = s.text ?? [];
+  return s.mark.class === "CARD" && t.length >= 2 && !NUMBERED_CARD.test(t[0]) && DATED_SOURCE.test(t[t.length - 1].trim());
+}
+
+/** A printed page held on screen (an archive still titled by its page: "Collier's, 5 May 1906, page 22"). */
+export function isPrintedPage(s: Pick<Shot, "mark" | "kind" | "title">): boolean {
+  return s.mark.class === "ARCHIVE" && s.kind === "archive_still" && /\bpage \d+\b/i.test(s.title ?? "");
+}
+
+/**
+ * Where a film with no readings quotes its witnesses, said only as far as its shots show it: on quote cards, and
+ * printed pages beside them. null when it has no quote card (a printed page alone says nothing of witnesses).
+ */
+export function witnessSentence(shots: Shot[]): string | null {
+  if (!shots.some(isQuoteCard)) return null;
+  return shots.some(isPrintedPage) ? "Its witnesses are quoted on cards and printed pages." : "Its witnesses are quoted on cards.";
+}
+
+/** The transcript's lede, by what is spoken in it; null when nothing is. */
+export function transcriptLede(d: Pick<FilmSources, "readings" | "narration">): string | null {
+  if (d.readings.length && d.narration.length) return "Everything spoken, word for word: the narration and the readings, each with its speaker.";
+  if (d.readings.length) return "The readings, word for word, each with its speaker.";
+  if (d.narration.length) return "Everything spoken, word for word: the narration.";
+  return null;
+}
+
 /**
  * The disclosures the picture no longer shows (A56), from the same fields of
  * sources.json the description block prints (studio/engine/description.py
  * notes()): the voices, the speakers named only by role, the gaps, the
- * shortfall statements, the map notes and the licences. Nothing is invented:
+ * shortfall statements, the map notes, the other pictures' notes and the licences. Nothing is invented:
  * an empty list means sources.json states none.
  */
 export function filmNotes(
@@ -768,18 +819,20 @@ export function filmNotes(
     return at ? `${u.name}: ${at}` : u.name;
   });
   const mapNotes: string[] = [];
+  const pictureNotes: string[] = [];
   const mapData: FilmNotes["mapData"] = [];
   const byLicence = new Map<string, number>();
   for (const s of data.shots) {
     const name = s.title ?? s.id;
     if (s.data_sources.length && !mapData.some((m) => m.map === name)) mapData.push({ map: name, sources: s.data_sources });
+    const into = isMapShot(s) ? mapNotes : pictureNotes;   // a newspaper page's note is not a note on a map
     for (const n of s.notes) {
       const t = `${name}: ${n}`;
-      if (!mapNotes.includes(t)) mapNotes.push(t);
+      if (!into.includes(t)) into.push(t);
     }
     if (s.source_line && !s.data_sources.length) {     // a map that names its data is credited in mapData, linked
       const t = `${name}: ${s.source_line}`;
-      if (!mapNotes.includes(t)) mapNotes.push(t);
+      if (!into.includes(t)) into.push(t);
     }
     if (s.mark.class === "CARD" || !s.licence) continue;
     const t = s.licence_note ? `${s.licence} (${s.licence_note})` : s.licence;
@@ -794,6 +847,7 @@ export function filmNotes(
     statements: [...data.statements],
     mapNotes,
     mapData,
+    pictureNotes,
     licences,
   };
 }

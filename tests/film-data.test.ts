@@ -69,7 +69,7 @@ describe("parseSources", () => {
 
   it("keeps a card's text and nulls a card's missing source fields", () => {
     const s03 = film.shots.find((s) => s.id === "S03")!;
-    expect(s03.mark).toEqual({ class: "CARD", detail: "" });
+    expect(s03.mark).toEqual({ class: "CARD", detail: "", label: "" });   // no label in this file: an empty one
     expect(s03.text).toEqual(["The Partition of India · Trailer", "void document"]);
     expect(s03.item_url).toBeNull();
     expect(s03.title).toBeNull();

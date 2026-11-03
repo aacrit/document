@@ -66,6 +66,7 @@ const notes = (over: Partial<FilmNotes> = {}): FilmNotes => ({
   statements: [],
   mapNotes: [],
   mapData: [],
+  pictureNotes: [],
   licences: [],
   ...over,
 });

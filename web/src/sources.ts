@@ -3,32 +3,28 @@
 // year and source; and the balance of whose words the film holds. All of it
 // is generated from the film's sources.json.
 import "./app";
+import { balanceNodes } from "./balance";
 import {
   MARK_CLASSES,
-  PARTITION_BALANCE,
   computeBalance,
   cardTitle,
   filmNotes,
   chapterAt,
   chapters as chaptersOf,
   formatTime,
-  pct,
   readingFlag,
   readingSource,
-  secondsByMark,
   seekTime,
   shotWhat,
   sideLabel,
-  type Balance,
-  type BalanceConfig,
   type Chapter,
   type FilmSources,
   type MarkClass,
   type Shot,
 } from "./film-data";
-import { notesNodes } from "./notes";
+import { notesIntro, notesNodes } from "./notes";
 import { sourceRows } from "./shot-rows";
-import { byId, el, filmPath, loadSources, markPlate, numerals, slugOf } from "./site";
+import { byId, el, filmPath, loadSources, markPlate, numerals, showReadings, slugOf } from "./site";
 import { countSourceOpens, sendEvent } from "./telemetry";
 
 const root = byId("sources-page");
@@ -129,19 +125,6 @@ function renderReadings(d: FilmSources, list: Chapter[]): void {
       ),
     );
   }
-  if (!d.readings.length) ol.append(el("li", {}, el("p", { class: "muted" }, "This film has no readings.")));
-}
-
-function bar(share: number, kind: "band" | "floor" | "none", c: BalanceConfig): HTMLElement {
-  const fill = el("i");
-  fill.style.width = `${Math.min(100, share * 100)}%`;
-  if (kind === "none") return el("span", { class: "bar", "aria-hidden": "true" }, fill);
-  const marker = el("b", { class: kind });
-  if (kind === "band") {
-    marker.style.left = `${c.band.min * 100}%`;
-    marker.style.width = `${(c.band.max - c.band.min) * 100}%`;
-  } else marker.style.left = `${c.women_floor * 100}%`;
-  return el("span", { class: "bar", "aria-hidden": "true" }, fill, marker);
 }
 
 /** The film's imagery rule, stated in plain words beside the balance, when its sources.json carries one. */
@@ -157,73 +140,9 @@ function renderImagery(d: FilmSources): void {
   );
 }
 
-/** "Whose words, and how long": only figures computed from this film's readings, or one plain sentence. */
-function renderBalance(d: FilmSources, b: Balance | null): void {
-  const box = byId("balance");
-  const c = d.balance ?? PARTITION_BALANCE;
-  if (!b) {
-    box.append(el("p", { class: "muted small" }, "Balance figures are not available for this cut."));
-    return;
-  }
-  const s = (n: number) => `${Math.round(n)} s`;
-  box.append(
-    el(
-      "p",
-      { class: "muted small" },
-      numerals(
-        `Seconds of readings by side: words read by a computer voice, and any archival recording; the narrator is not counted. All ${s(b.total_s)} are listed under Readings. Each side should hold ${pct(c.band.min).replace(".0", "")} to ${pct(c.band.max).replace(".0", "")}.`,
-      ),
-    ),
-  );
-  const table = el("div", { class: "btable" });
-  for (const side of b.sides) {
-    table.append(el("span", {}, side.label), bar(side.share, "band", c), el("span", { class: "num small" }, `${s(side.seconds)} · ${pct(side.share)}`));
-  }
-  box.append(table);
-  if (c.named_speakers_min !== null) {
-    const short = b.speakersShort.map((x) => `${x.label} ${x.count}`).join(", ");
-    box.append(
-      el(
-        "p",
-        { class: "muted small" },
-        numerals(`Each side heard should have at least ${c.named_speakers_min} named speakers.${short ? ` Fewer here: ${short}.` : ""}`),
-      ),
-    );
-  }
-  if (b.roles) {
-    const roles = el("div", { class: "btable" });
-    for (const role of b.roles) {
-      roles.append(el("span", {}, role.label), bar(role.share, "none", c), el("span", { class: "num small" }, `${s(role.seconds)} · ${pct(role.share)}`));
-    }
-    box.append(el("p", { class: "muted small" }, "Seconds of readings by role."), roles);
-  }
-  box.append(
-    el(
-      "div",
-      { class: "btable" },
-      el("span", {}, "Women"),
-      bar(b.women.share, "floor", c),
-      el("span", { class: "num small" }, `${s(b.women.seconds)} · ${pct(b.women.share)}`),
-    ),
-  );
-  const names = b.women.names.map((w) => `${w.name} ${s(w.seconds)}`).join(", ");
-  box.append(
-    el(
-      "p",
-      { class: "muted small" },
-      numerals(`Floor ${pct(c.women_floor).replace(".0", "")}.${names ? ` ${names}.` : ""}${b.women.share < c.women_floor ? " Short of the floor." : ""}`),
-    ),
-  );
-  // A56: what the record lacks is stated in the sources data, under Notes on this film
-  const gaps = filmNotes(d).gaps;
-  if (gaps.length) {
-    box.append(el("div", { class: "short" }, ...gaps.map((g) => el("p", {}, g.says)), el("p", { class: "muted small" }, el("a", { href: "#notes" }, "Gaps in the record"))));
-  }
-  const marks = secondsByMark(d.shots)
-    .filter((m) => m.seconds > 0 || m.key === "generated")
-    .map((m) => `${m.label} ${Math.round(m.seconds)} s (${pct(m.share)})`)
-    .join(", ");
-  box.append(el("p", { class: "muted small" }, numerals(`Seconds by mark, whole film: ${marks}.`)));
+/** "Whose words, and how long" (balance.ts): figures computed from this film's readings, or plain sentences. */
+function renderBalance(d: FilmSources): void {
+  byId("balance").append(...balanceNodes(d, computeBalance(d.readings, d.balance)));
 }
 
 function setupFilters(d: FilmSources): void {
@@ -255,8 +174,12 @@ loadSources(SLUG)
     renderEntries(d, list);
     renderReadings(d, list);
     renderImagery(d);
-    renderBalance(d, computeBalance(d.readings, d.balance));
-    byId("notes-body").replaceChildren(...notesNodes(filmNotes(d)));
+    renderBalance(d);
+    // the readings' lede, link, heading and list stay hidden for a film with none (its witnesses are on cards and pages)
+    showReadings(root.querySelectorAll<HTMLElement>("[data-readings]"), d);
+    const notes = filmNotes(d);
+    byId("notes-intro").textContent = notesIntro(notes);
+    byId("notes-body").replaceChildren(...notesNodes(notes));
     setupFilters(d);
     let target: HTMLElement | null = null;
     try {

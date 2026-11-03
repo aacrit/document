@@ -3,7 +3,11 @@
 // imagery rule. Partition's pages must stay exactly what they were before
 // they were generated (tests/fixtures/partition-pages/: the hand-written
 // pages as main held them at 4fb7669), save that the film and sources pages now
-// open their note with the film's content note, as the home page does).
+// open their note with the film's content note, as the home page does, and the
+// pages mark their words about readings (the notes' and ledes' sentences, the
+// links, the readings heading and list) to be shown only once the film's readings
+// are counted, the sources page's description and notes intro and the transcript's
+// lede are true for a film with none).
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -230,7 +234,7 @@ describe("the generated pages", () => {
     }
     // The home page says the marquee film's note once, as before.
     const m = marqueeFilm(live);
-    expect(p["index.html"]).toContain(`<p class="note">${numHtml(m.content_note)} Every reading is word for word`);
+    expect(p["index.html"]).toContain(`<p class="note">${numHtml(m.content_note)} <span data-readings hidden>Every reading is word for word`);
     expect(numHtml("It concerns 11 September 2001.")).toBe('It concerns <span class="num">11</span> September <span class="num">2001</span>.');
     // A film with no content note says nothing in its place, and its note starts as it did.
     const r = clone(live);
