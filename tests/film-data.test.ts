@@ -642,7 +642,7 @@ describe("attribution links (CC BY asks for the licence by its URI, and the data
 });
 
 // Market Street's brand audit (founder, 2026-11-02): the house's dated notes (sources.json film_notes) and the
-// period recordings (cues whose role is "palette") reach "Notes on this film".
+// recordings (cues whose role is "palette") reach "Notes on this film".
 describe("the house's notes and the recordings", () => {
   const ms = () => JSON.parse(readFileSync(path.join(root, "tests/fixtures/sources-market-street-notes.json"), "utf8"));
 

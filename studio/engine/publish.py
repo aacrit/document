@@ -26,7 +26,7 @@ scripts/release-film.mjs runs this step and the upload.
 
 With ``--poster-crop`` (the crop release-film.mjs applied to the still before
 its scale, 16:9 within 1%), the poster record carries ``crop`` ({w, h, x, y,
-aspect: "16:9"}) and its description ends "Cropped to 16:9."
+aspect: "16:9"}) and its description stays the ledger's own words (the crop is stated in `crop`)
 """
 
 from __future__ import annotations

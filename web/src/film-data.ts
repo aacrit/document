@@ -206,7 +206,6 @@ export function parseHouseNotes(x: unknown): HouseNote[] {
   return out;
 }
 
-/** sources.json cues: the music cues whose role is "palette", the recordings; one that names nothing is dropped. */
 /** A cue's tradition without a leading lower-case category word and colon ("opera: ..."); null stays null. */
 export function stripCategory(t: string | null): string | null {
   if (t === null) return null;
@@ -214,6 +213,7 @@ export function stripCategory(t: string | null): string | null {
   return out || t;
 }
 
+/** sources.json cues: the music cues whose role is "palette", the recordings; one that names nothing is dropped. */
 export function parseRecordings(x: unknown): Recording[] {
   if (!Array.isArray(x)) return [];
   return x
