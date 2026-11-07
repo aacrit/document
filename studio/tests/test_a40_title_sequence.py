@@ -388,8 +388,8 @@ def test_a40_the_mit_sound_credit_reaches_sources_json_the_credits_and_the_descr
     assert any("MIT licence" in ln for ln in series)
     assert not any("Fall theme" in ln for ln in series)
     t = D.description_text(doc, {"slug": "fixture", "title": "Fixture film"})
-    assert ("Aachen Impulse Response Database, lecture room. By RWTH Aachen University, Institute of "
-            "Communication Systems. MIT licence. " + AIR_SOUND["source_page"]) in t
+    assert ("Aachen Impulse Response Database, lecture room. By " + AIR_SOUND["holder"] + ". MIT licence. "
+            + AIR_SOUND["source_page"]) in t
     assert "Fall theme" not in t
 
 
