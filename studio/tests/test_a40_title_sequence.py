@@ -361,7 +361,7 @@ def test_a40_mit_is_allowed_for_a_sound_input_but_refused_for_a_picture_input(tm
 
 # Shaped like the real v11 ledger's sound entries (D:/document-media/title-sequence/v11/provenance-v11.json): the
 # house IR names its holder and no creator; the studio's own theme stems are CC BY 4.0 with no holder.
-AIR_SOUND = {"id": "AIR-1.4-lecture", "holder": "RWTH Aachen University, Institute of Communication Systems",
+AIR_SOUND = {"id": "AIR-1.4-lecture", "holder": "Institute of Communication Systems and Data Processing (IND), RWTH Aachen University",
              "title": "Aachen Impulse Response database, lecture room (the house IR)",
              "file": "D:/document-media/house-room/AIR_1_4/air_binaural_lecture_1_1_2.mat", "sha256": "5" * 64,
              "source_page": "https://www.iks.rwth-aachen.de/en/research/tools-downloads/databases/aachen-impulse-response-database/",

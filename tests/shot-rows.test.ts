@@ -74,13 +74,13 @@ describe("a shot's provenance rows", () => {
         kind: "title_sequence",
         title_sequence: {
           provenance: [{ id: "T-13", title: "A tabulator", holder: "A museum", credit: "A photographer", licence: "CC BY 2.0", source_page: "https://example.org/t13" }],
-          sound: [{ id: "AIR-1.4-lecture", title: "Aachen Impulse Response database, lecture room (the house IR)", holder: "RWTH Aachen University, Institute of Communication Systems", creator: null, credit: "", licence: "MIT", source_page: page }],
+          sound: [{ id: "AIR-1.4-lecture", title: "Aachen Impulse Response database, lecture room (the house IR)", holder: "Institute of Communication Systems and Data Processing (IND), RWTH Aachen University", creator: null, credit: "", licence: "MIT", source_page: page }],
         },
       }),
     );
     expect(r.get("Drawn from")?.textContent).toBe("A tabulator, by A photographer, CC BY 2.0");
     const sound = r.get("Sound")!;
-    expect(sound.textContent).toBe("Aachen Impulse Response database, lecture room (the house IR), by RWTH Aachen University, Institute of Communication Systems, MIT licence");
+    expect(sound.textContent).toBe("Aachen Impulse Response database, lecture room (the house IR), by Institute of Communication Systems and Data Processing (IND), RWTH Aachen University, MIT licence");
     const links = sound.all().filter((n) => n.tag === "a").map((a) => a.attrs.href);
     expect(links).toEqual([page, "https://opensource.org/license/mit"]);
     expect((await rows(shotWith({}))).has("Sound")).toBe(false); // any other shot: no rows

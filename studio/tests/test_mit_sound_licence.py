@@ -47,7 +47,7 @@ def test_one_mit_pattern_is_shared():
 PICTURE_OK = {"id": "T-01", "title": "A clay tablet", "licence": "CC0", "ai": False,
               "source_page": "https://example.org/t01", "licence_evidence": "read 2026-10-16", "sha256": "0" * 64}
 # Shaped like the real v11 entry: a holder, no creator, the .mat file the mix reads, the holder's licence file
-AIR = {"id": "AIR-1.4-lecture", "holder": "RWTH Aachen University, Institute of Communication Systems",
+AIR = {"id": "AIR-1.4-lecture", "holder": "Institute of Communication Systems and Data Processing (IND), RWTH Aachen University",
        "title": "Aachen Impulse Response database, lecture room (the house IR)",
        "file": "D:/document-media/house-room/AIR_1_4/air_binaural_lecture_1_1_2.mat", "sha256": "4" * 64,
        "source_page": "https://www.iks.rwth-aachen.de/en/research/tools-downloads/databases/aachen-impulse-response-database/",
@@ -111,7 +111,7 @@ TITLE_SHOT = {"id": "TS1", "kind": "title_sequence", "ledger_id": "TS-v11", "mar
               "title_sequence": {"provenance": [], "sound": [EXPORTED]}}
 SRC = {"title": "Fixture film", "slug": "fixture", "shots": [TITLE_SHOT]}
 LINE = ("Aachen Impulse Response database, lecture room (the house IR). "
-        "By RWTH Aachen University, Institute of Communication Systems. MIT licence. " + AIR["source_page"])
+        "By Institute of Communication Systems and Data Processing (IND), RWTH Aachen University. MIT licence. " + AIR["source_page"])
 
 
 def test_mit_carries_the_same_obligation_as_cc_by():
