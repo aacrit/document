@@ -89,6 +89,13 @@ describe("a shot's provenance rows", () => {
     const pd = await rows(shotWith({ kind: "title_sequence", title_sequence: { provenance: [{ id: "R-1", title: "Record of temple workers, Umma", holder: "Walters Art Museum 48.1767", licence: "CC0" }] } }));
     expect(pd.get("Drawn from")?.textContent).toBe("Record of temple workers, Umma, Walters Art Museum 48.1767, CC0");
     expect(pd.get("Drawn from")?.textContent).not.toMatch(/, by /);
+    // A file page's doubled author (live Partition and Real World T-15, T-17, T-17b, T-19) is said once.
+    const dbl = await rows(shotWith({ kind: "title_sequence", title_sequence: { provenance: [
+      { id: "T-15", title: "Lumiere cinematographe, front and rear", credit: "Unknown authorUnknown author", holder: "NPGallery", licence: "Public domain" },
+      { id: "T-17b", title: "Underwood Standard Typewriter No. 5, colour advertisement", credit: "AnonymousUnknown author", holder: "Commons", licence: "Public domain" },
+    ] } }));
+    expect(dbl.get("Drawn from")?.textContent).toBe(
+      "Lumiere cinematographe, front and rear, Unknown author, Public domainUnderwood Standard Typewriter No. 5, colour advertisement, Anonymous, Public domain");
   });
 
   it("sets a hostile title input as text, its non-https page unlinked", async () => {

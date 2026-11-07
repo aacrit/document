@@ -586,11 +586,20 @@ def _provenance_problems(it: dict, *, kind: str, play: dict | None) -> list[str]
     return out
 
 
+# A file page's attribution can carry its author twice, run together once the markup is gone ("Unknown authorUnknown
+# author"), or a named "Anonymous" beside the generic "Unknown author" (publish.py's _creator has the same fix for stills).
+_DOUBLED = re.compile(r"(.{4,}?)\1")   # run together, no space: "Walla Walla" is a name
+_ANON_UNKNOWN = re.compile(r"(Anonymous)\s*Unknown author", re.I)
+
+
 def plain(text) -> str:
-    """A ledger's credit as words: the HTML a file page's attribution carries (links, bdi) taken out."""
+    """A ledger's credit as words: the HTML a file page's attribution carries (links, bdi) taken out, and an author
+    printed twice by that markup said once."""
     import html
     t = re.sub(r"<[^>]+>", "", str(text or ""))
-    return " ".join(html.unescape(t).split())
+    t = " ".join(html.unescape(t).split())
+    m = _DOUBLED.fullmatch(t) or _ANON_UNKNOWN.fullmatch(t)
+    return m.group(1) if m else t
 
 
 # --------------------------------------------------------------------------

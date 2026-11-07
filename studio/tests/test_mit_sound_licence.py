@@ -141,3 +141,12 @@ def test_a_picture_file_is_never_audio_whatever_media_says():
     assert TS.is_audio({"file": "x.jpg", "media": "audio"}) is False
     assert TS.is_audio({"file": "D:/rooms/air.mat"}) is True
     assert TS.is_audio({"media": "audio"}) is True
+
+
+def test_a_doubled_author_is_said_once():
+    from studio.engine import titles as TS
+    assert TS.plain("<bdi>Unknown author</bdi><bdi>Unknown author</bdi>") == "Unknown author"
+    assert TS.plain("AnonymousUnknown author") == "Anonymous"
+    assert TS.plain("Adam Schuster") == "Adam Schuster"
+    assert TS.plain("Photo: Jane Doe") == "Photo: Jane Doe"
+    assert TS.plain("Walla Walla") == "Walla Walla"

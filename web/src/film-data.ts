@@ -70,8 +70,8 @@ export interface TitleInput {
   title: string;
   /** Sound only: the credit, else the holder, else the creator: whoever the licence asks the film to name ("by"). */
   by: string | null;
-  /** Records only: where the record is held (its credit line, else its holder), printed as the archive, never as "by":
-   * a museum and its accession number are not the maker. */
+  /** Records only: the record's own credit line, else its holder, else its creator, printed after the title without
+   * "by" (a museum and its accession number are not the maker; a credit line may name a maker, and says so itself). */
   archive: string | null;
   licence: string | null;
   /** https only; anything else is dropped and the title prints unlinked. */
@@ -328,6 +328,16 @@ function parseShot(x: unknown, i: number, fps: number): Shot {
   };
 }
 
+/** An author a file page's markup printed twice, said once ("Unknown authorUnknown author" -> "Unknown author",
+ * "AnonymousUnknown author" -> "Anonymous"), as studio/engine/titles.py plain() does when it writes sources.json. */
+export function undoubled(s: string | null): string | null {
+  if (!s) return s;
+  const doubled = /^(.{4,}?)\1$/.exec(s); // run together, no space: "Walla Walla" is a name
+  if (doubled) return doubled[1];
+  const anon = /^(Anonymous)\s*Unknown author$/i.exec(s);
+  return anon ? anon[1] : s;
+}
+
 /** The series titles' inputs (title_sequence.provenance or .sound): each with a title, its licence and an https page;
  * a sound input names whoever it is credited to ("by": the credit, else the holder, else the creator), a record names
  * where it is held (its credit, else its holder) as the archive. Anything without a title is dropped. */
@@ -338,8 +348,8 @@ export function parseTitleInputs(x: unknown, kind: "record" | "sound" = "sound")
     if (!isObj(d)) continue;
     const title = str(d.title);
     if (!title) continue;
-    const by = kind === "sound" ? (str(d.credit) ?? str(d.holder) ?? str(d.creator)) : null;
-    const archive = kind === "record" ? (str(d.credit) ?? str(d.holder)) : null;
+    const by = kind === "sound" ? undoubled(str(d.credit) ?? str(d.holder) ?? str(d.creator)) : null;
+    const archive = kind === "record" ? undoubled(str(d.credit) ?? str(d.holder) ?? str(d.creator)) : null;
     out.push({ title, by, archive, licence: str(d.licence), url: safeUrl(d.source_page) });
   }
   return out;
