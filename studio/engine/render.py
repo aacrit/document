@@ -215,6 +215,11 @@ LICENCE_OK = re.compile(r"^(public domain|cc0( 1\.0)?|cc[- ]?by([- ][1-4]\.0)?)$
 # screenplay declares ``share_alike: {decision: "<its docs/DECISIONS.md entry>"}``, so the licence is scoped per film,
 # and the film's sources page carries the ShareAlike attribution. Every such asset is journaled as a decision.
 LICENCE_SHARE_ALIKE = re.compile(r"^cc[- ]?by[- ]?sa([- ][1-4]\.0)?$", re.I)
+# MIT (founder ruling 2026-11-07, prompted by the RWTH Aachen room impulse response, AIR database, MIT, used in the
+# title Foley mix): allowed only for a sound or other non-picture input, credited the same way as CC BY
+# (description.py); a picture input under MIT is refused, same as any licence off the house allowlist above.
+LICENCE_MIT = re.compile(r"^mit$", re.I)
+NON_PICTURE_KINDS = ("sound", "non_picture")
 
 
 def share_alike_declared(play: dict | None) -> tuple[bool, list[str]]:
@@ -231,13 +236,17 @@ def share_alike_declared(play: dict | None) -> tuple[bool, list[str]]:
     return True, []
 
 
-def licence_allowed(lic: str, play: dict | None = None) -> tuple[bool, bool]:
-    """(allowed, share_alike): the house allowlist, or CC BY-SA in a film that declares it (share_alike_declared)."""
+def licence_allowed(lic: str, play: dict | None = None, *, kind: str = "picture") -> tuple[bool, bool]:
+    """(allowed, share_alike): the house allowlist, CC BY-SA in a film that declares it (share_alike_declared), or
+    MIT when ``kind`` is "sound" or "non_picture" (founder ruling 2026-11-07). A picture input (the default
+    ``kind``) is never allowed under MIT."""
     lic = str(lic or "").strip()
     if LICENCE_OK.match(lic):
         return True, False
     if LICENCE_SHARE_ALIKE.match(lic):
         return share_alike_declared(play)[0], True
+    if kind in NON_PICTURE_KINDS and LICENCE_MIT.match(lic):
+        return True, False
     return False, False
 PRESETS = {                         # GRAMMAR 7.2, zoom relative to the largest 16:9 window
     "HOLD": ({"z": 1.0}, {"z": 1.0}),
@@ -2488,12 +2497,14 @@ def credits_blocks(plan: dict) -> list:
                                                                                   m.get("licence")) if b)))
     blocks = [("Shots", shots)]
     titles = [s for s in plan["shots"] if TS.is_title(s)]
-    if titles:                  # A40: the series titles, drawn from period records; every CC BY input is attributed
+    if titles:                  # A40: the series titles, drawn from period records; every CC BY (and MIT: sound
+                                 # only, founder ruling 2026-11-07) input is attributed
         prov, _, _ = TS.provenance(titles[0].get("_item") or {})
         items = TS.provenance_items(prov)
+        sound_items = TS.provenance_sound_items(prov)
         series = wrap(f"{TS.SERIES}: drawn from {len(items)} period records, no AI; every record on the "
                       "sources page")
-        for x in items:
+        for x in items + sound_items:
             if (TS.licence_rank(x.get("licence")) or 0) >= 2:
                 series += wrap(", ".join(b for b in [TS.plain(x.get("title")), TS.plain(x.get("credit") or x.get("holder")),
                                                      str(x.get("licence") or "")] if b))

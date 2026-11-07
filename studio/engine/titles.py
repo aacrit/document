@@ -51,8 +51,12 @@ THEME_ROLE = "main_title"           # the main-title theme cue (score.py): over 
 PLACE_AFTER = "cold_open"           # the hook
 CHAPTER = "chapter"                 # Part 1 and on
 # Licences from the least to the most demanding: the master's own licence is at least as demanding as any input's.
+# MIT ranks beside CC BY (founder ruling 2026-11-07): it asks for the same credit, so it is attributed wherever a
+# CC BY input is (render.credits_blocks' Series titles block); it never reaches here as a picture input's own
+# licence, since R.licence_allowed refuses MIT for a picture (kind="picture", the default).
 _RANK = ((re.compile(r"^public domain$", re.I), 0), (re.compile(r"^cc0( 1\.0)?$", re.I), 1),
-         (re.compile(r"^cc[- ]?by[- ]?sa([- ][1-4]\.0)?$", re.I), 3), (re.compile(r"^cc[- ]?by([- ][1-4]\.0)?$", re.I), 2))
+         (re.compile(r"^cc[- ]?by[- ]?sa([- ][1-4]\.0)?$", re.I), 3), (re.compile(r"^cc[- ]?by([- ][1-4]\.0)?$", re.I), 2),
+         (re.compile(r"^mit$", re.I), 2))
 
 
 def licence_rank(lic: str) -> int | None:
@@ -522,6 +526,31 @@ def provenance_items(prov: dict | None) -> list[dict]:
     return list((prov or {}).get("items") or [])
 
 
+def provenance_sound_items(prov: dict | None) -> list[dict]:
+    """The title's non-picture inputs: its ledger's ``sound`` list (Foley, room tone, the room IR used to mix it).
+    Held to the same provenance bar as provenance_items (sourced, sha256-pinned, not AI), but to the sound licence
+    allowlist, which also allows MIT (founder ruling 2026-11-07, the RWTH Aachen AIR database)."""
+    return list((prov or {}).get("sound") or [])
+
+
+def _provenance_problems(it: dict, *, kind: str, play: dict | None) -> list[str]:
+    """What is wrong with one provenance item (picture or sound): its licence against the engine's allowlist for
+    ``kind``, that it is not AI, sourced, evidenced and sha256-pinned."""
+    from studio.engine import render as R      # the engine's probes and licence rules (render imports this module)
+    out = []
+    if not R.licence_allowed(str(it.get("licence") or ""), play, kind=kind)[0]:
+        out.append(f"{it.get('id')}: licence {it.get('licence')!r} is not allowed")
+    if it.get("ai") is not False:
+        out.append(f"{it.get('id')}: ai must be stated false")
+    if not (it.get("source_page") or it.get("source_url")):
+        out.append(f"{it.get('id')}: no source page")
+    if not (it.get("licence_evidence") or it.get("basis")):
+        out.append(f"{it.get('id')}: no licence evidence or basis")
+    if not it.get("sha256"):
+        out.append(f"{it.get('id')}: no sha256 of the file used")
+    return out
+
+
 def plain(text) -> str:
     """A ledger's credit as words: the HTML a file page's attribution carries (links, bdi) taken out."""
     import html
@@ -675,26 +704,23 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
         journal.decision("scout", f"{sid}: the series titles play their own sound", "A40 standalone audio (founder "
                          "2026-10-26): no film cue under the title or its lockup card; the score starts after them",
                          unit=sid, evidence={"span_s": [round(t0, 3), round(end_s, 3)], "take_handover": handover})
-        # Provenance: the title's assets ledger, every input open-licensed, sourced and not AI
+        # Provenance: the title's assets ledger, every input open-licensed, sourced and not AI. Picture inputs hold
+        # the house allowlist (R.licence_allowed, kind="picture", the default); sound inputs (the Foley, room tone
+        # and room IR mixed for the title's own track) also allow MIT (founder ruling 2026-11-07).
         prov, prov_path, why = provenance(item)
         problems = [why] if why else []
         pitems = provenance_items(prov)
+        sitems = provenance_sound_items(prov)
         if prov is not None and not pitems:
             problems.append("the provenance ledger lists no items")
         for it in pitems:
-            if not R.licence_allowed(str(it.get("licence") or ""), play)[0]:
-                problems.append(f"{it.get('id')}: licence {it.get('licence')!r} is not allowed")
-            if it.get("ai") is not False:
-                problems.append(f"{it.get('id')}: ai must be stated false")
-            if not (it.get("source_page") or it.get("source_url")):
-                problems.append(f"{it.get('id')}: no source page")
-            if not (it.get("licence_evidence") or it.get("basis")):
-                problems.append(f"{it.get('id')}: no licence evidence or basis")
-            if not it.get("sha256"):
-                problems.append(f"{it.get('id')}: no sha256 of the file used")
+            problems += _provenance_problems(it, kind="picture", play=play)
+        for it in sitems:
+            problems += _provenance_problems(it, kind="sound", play=play)
         lint("title-provenance", not problems, unit=sid, grammar="A40, 1.2, 11.1",
-             evidence={"provenance": prov_path, "items": len(pitems), "problems": problems[:20],
-                       "licences": sorted({str(it.get("licence")) for it in pitems})})
+             evidence={"provenance": prov_path, "items": len(pitems), "sound_items": len(sitems),
+                       "problems": problems[:20],
+                       "licences": sorted({str(it.get("licence")) for it in pitems + sitems})})
         need = max([licence_rank(it.get("licence")) or 0 for it in pitems] or [0])
         have = licence_rank(item.get("licence"))
         lic_ok = have is not None and have >= need
@@ -704,7 +730,7 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
                        "fix": None if lic_ok else "the master's licence is at least as demanding as its inputs' "
                                                   "(CC BY when any input is CC BY)"})
         ai_bits = [] if item.get("ai") is False else ["the master's ai is not stated false"]
-        ai_bits += [f"{it.get('id')} is AI" for it in pitems if it.get("ai") is not False]
+        ai_bits += [f"{it.get('id')} is AI" for it in pitems + sitems if it.get("ai") is not False]
         if "AI-GENERATED" in classes(item):
             ai_bits.append("the master marks an AI-GENERATED stretch")
         lint("title-no-ai", not ai_bits, unit=sid, grammar="A40, 2.6, A31",
