@@ -29,6 +29,7 @@ import numpy as np
 from PIL import Image
 
 from studio.engine import cadence as CAD
+from studio.engine import description as DSC
 from studio.engine import motion as M
 from studio.engine import viewxf as VX
 
@@ -56,7 +57,7 @@ CHAPTER = "chapter"                 # Part 1 and on
 # licence, since R.licence_allowed refuses MIT for a picture (kind="picture", the default).
 _RANK = ((re.compile(r"^public domain$", re.I), 0), (re.compile(r"^cc0( 1\.0)?$", re.I), 1),
          (re.compile(r"^cc[- ]?by[- ]?sa([- ][1-4]\.0)?$", re.I), 3), (re.compile(r"^cc[- ]?by([- ][1-4]\.0)?$", re.I), 2),
-         (re.compile(r"^mit$", re.I), 2))
+         (DSC.MIT, 2))
 
 
 def licence_rank(lic: str) -> int | None:
@@ -533,13 +534,41 @@ def provenance_sound_items(prov: dict | None) -> list[dict]:
     return list((prov or {}).get("sound") or [])
 
 
+# What shows a sound-list entry is sound: an audio file (a .mat is the AIR database's own impulse-response format)
+# or the ledger stating ``media: "audio"``. MIT is admitted for sound only, so an MIT entry needs this proof.
+AUDIO_SUFFIXES = (".wav", ".flac", ".aif", ".aiff", ".mp3", ".mat")
+
+
+def is_audio(it: dict) -> bool:
+    if str(it.get("media") or "").strip().lower() == "audio":
+        return True
+    f = str(it.get("file") or "").strip().replace("\\", "/")
+    return bool(f) and Path(f).suffix.lower() in AUDIO_SUFFIXES
+
+
+def credited_sound_items(prov: dict | None) -> list[dict]:
+    """The sound inputs the title owes a credit (founder ruling 2026-11-07, MIT credited like CC BY): a licence
+    that asks for attribution (CC BY, CC BY-SA, MIT) held by someone named who is not the studio. The studio's own
+    theme stems (CC BY 4.0, no holder, composed here) are left out, so they never print in another film's credits."""
+    out = []
+    for x in provenance_sound_items(prov):
+        who = [DSC._s(x.get(k)) for k in ("credit", "holder", "creator", "uploader") if DSC._s(x.get(k))]
+        if (licence_rank(x.get("licence")) or 0) >= 2 and any(not DSC.names_studio_only(w) for w in who):
+            out.append(x)
+    return out
+
+
 def _provenance_problems(it: dict, *, kind: str, play: dict | None) -> list[str]:
     """What is wrong with one provenance item (picture or sound): its licence against the engine's allowlist for
-    ``kind``, that it is not AI, sourced, evidenced and sha256-pinned."""
+    ``kind`` (an MIT sound entry must show it is audio), that it is not AI, sourced, evidenced and sha256-pinned."""
     from studio.engine import render as R      # the engine's probes and licence rules (render imports this module)
     out = []
-    if not R.licence_allowed(str(it.get("licence") or ""), play, kind=kind)[0]:
+    lic = str(it.get("licence") or "")
+    if not R.licence_allowed(lic, play, kind=kind)[0]:
         out.append(f"{it.get('id')}: licence {it.get('licence')!r} is not allowed")
+    elif kind != "picture" and DSC.names_mit(lic) and not is_audio(it):
+        out.append(f"{it.get('id')}: licence 'MIT' is allowed only for sound, and nothing shows this is sound "
+                   f"(an audio file, {', '.join(AUDIO_SUFFIXES)}, or media: \"audio\")")
     if it.get("ai") is not False:
         out.append(f"{it.get('id')}: ai must be stated false")
     if not (it.get("source_page") or it.get("source_url")):

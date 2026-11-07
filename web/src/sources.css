@@ -21,6 +21,7 @@
 .entry dl, .readings dl { margin: 0; display: grid; grid-template-columns: 90px 1fr; gap: 5px 14px; font-size: 14px; }
 .entry dt, .readings dt { color: var(--color-cream-muted); font-size: 12px; padding-top: 2px; }
 .entry dd, .readings dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.entry .title-inputs { margin: 0; padding-left: 1.1em; display: grid; gap: 3px; }
 .correct-this { justify-self: start; font-size: 13px; color: var(--color-cream-muted); min-height: 44px; display: inline-flex; align-items: center; }
 .readings { list-style: none; margin: 0; padding: 0; }
 .readings li { padding: 20px 0; border-top: 1px solid var(--color-border); display: grid; gap: 10px; }

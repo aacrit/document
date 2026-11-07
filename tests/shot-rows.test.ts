@@ -67,6 +67,34 @@ describe("a shot's provenance rows", () => {
     expect(links.map((a) => [a.textContent, a.attrs.href])).toEqual([["CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/"]]);
   });
 
+  it("lists the series titles' records and their third-party sound, the MIT room IR by its holder", async () => {
+    const page = "https://www.iks.rwth-aachen.de/en/research/tools-downloads/databases/aachen-impulse-response-database/";
+    const r = await rows(
+      shotWith({
+        kind: "title_sequence",
+        title_sequence: {
+          provenance: [{ id: "T-13", title: "A tabulator", holder: "A museum", credit: "A photographer", licence: "CC BY 2.0", source_page: "https://example.org/t13" }],
+          sound: [{ id: "AIR-1.4-lecture", title: "Aachen Impulse Response database, lecture room (the house IR)", holder: "RWTH Aachen University, Institute of Communication Systems", creator: null, credit: "", licence: "MIT", source_page: page }],
+        },
+      }),
+    );
+    expect(r.get("Drawn from")?.textContent).toBe("A tabulator, by A photographer, CC BY 2.0");
+    const sound = r.get("Sound")!;
+    expect(sound.textContent).toBe("Aachen Impulse Response database, lecture room (the house IR), by RWTH Aachen University, Institute of Communication Systems, MIT licence");
+    const links = sound.all().filter((n) => n.tag === "a").map((a) => a.attrs.href);
+    expect(links).toEqual([page, "https://opensource.org/license/mit"]);
+    expect((await rows(shotWith({}))).has("Sound")).toBe(false); // any other shot: no rows
+  });
+
+  it("sets a hostile title input as text, its non-https page unlinked", async () => {
+    const r = await rows(
+      shotWith({ kind: "title_sequence", title_sequence: { sound: [{ id: EVIL, title: EVIL, holder: EVIL, licence: EVIL, source_page: `javascript:${EVIL}` }] } }),
+    );
+    const all = r.get("Sound")!.all();
+    expect(all.some((n) => n.tag === "img" || n.tag === "a")).toBe(false);
+    expect(r.get("Sound")!.textContent).toBe(`${EVIL}, by ${EVIL}, ${EVIL}`);
+  });
+
   it("sets a hostile creator, credit, archive and licence as text", async () => {
     const r = await rows(shotWith({ creator: EVIL, credit: `${EVIL} CC BY 4.0`, archive: `${EVIL}x`, licence: EVIL }));
     const all = [...r.values()].flatMap((n) => n.all());

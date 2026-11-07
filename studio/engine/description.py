@@ -115,14 +115,20 @@ def names_cc_by(text) -> bool:
 # MIT (founder ruling 2026-11-07, prompted by the RWTH Aachen room impulse response used in the title Foley mix):
 # allowed only for a sound or other non-picture input (studio.engine.render.licence_allowed), but credited here the
 # same way as CC BY: the copyright holder, plus "MIT licence" where CC BY prints its licence and deed URI.
-_MIT = re.compile(r"(?i)^mit\b")
+# The one MIT pattern the engine reads (render.LICENCE_MIT and titles' licence rank are this object): the bare id.
+MIT = re.compile(r"^mit$", re.I)
 
 
 def names_mit(text) -> bool:
-    return bool(_MIT.match(_s(text)))
+    return bool(MIT.match(_s(text)))
 
 
 _STUDIO_ONLY = re.compile(r"(?i)^void document(?: studio)?\.?$")
+
+
+def names_studio_only(text) -> bool:
+    """A name that is only the studio's own (void document, void document studio)."""
+    return bool(_STUDIO_ONLY.match(_s(text)))
 
 
 def studio_owned(s: dict) -> bool:
@@ -237,6 +243,27 @@ def statement_text(sf: dict) -> str | None:
     return None
 
 
+def title_sound_items(shot: dict) -> list[dict]:
+    """A series title's credited sound inputs as sources.json carries them (render.title_sources_fields:
+    ``title_sequence.sound``, third-party CC BY or MIT inputs only), each shaped like a shot entry so it is credited
+    the same way (founder ruling 2026-11-07): its title, its holder, its licence and its source page."""
+    ts = shot.get("title_sequence") if isinstance(shot, dict) else None
+    out = []
+    for x in (ts.get("sound") if isinstance(ts, dict) else None) or []:
+        if isinstance(x, dict) and _s(x.get("id")):
+            out.append({"ledger_id": _s(x.get("id")), "title": x.get("title"), "holder": x.get("holder"),
+                        "creator": x.get("creator"), "credit": x.get("credit"), "licence": x.get("licence"),
+                        "item_url": x.get("source_page"), "mark": {"class": "SOUND"}})
+    return out
+
+
+def _credited_items(src: dict):
+    """Every shot, each series title followed by its credited sound inputs."""
+    for s in src.get("shots") or []:
+        yield s
+        yield from title_sound_items(s)
+
+
 def notes(src: dict) -> dict:
     """The disclosures the picture no longer shows, from sources.json: the
     fields the description block and the Sources page's "Notes on this film"
@@ -271,7 +298,7 @@ def notes(src: dict) -> dict:
         at = ", ".join(f"{ln.get('id')} ({clock(ln.get('start_s'))})" for ln in u.get("lines") or [] if isinstance(ln, dict))
         unnamed.append(_s(u.get("name")) + (f": {at}" if at else ""))
     entries, seen = [], set()
-    for s in src.get("shots") or []:
+    for s in _credited_items(src):
         if not isinstance(s, dict) or not s.get("ledger_id") or (s.get("mark") or {}).get("class") == "CARD":
             continue
         if s["ledger_id"] in seen:
@@ -286,8 +313,9 @@ def notes(src: dict) -> dict:
         mit = names_mit(lic) and not cc_by
         archive = _s(s.get("archive"))
         author = ""
-        if (cc_by or mit) and not is_map(s) and not credit and _s(s.get("creator")) not in ("", archive):
-            author = f"By {_s(s.get('creator'))}"
+        who = _s(s.get("creator")) or _s(s.get("holder"))     # a title's sound input names its holder, no creator
+        if (cc_by or mit) and not is_map(s) and not credit and who not in ("", archive):
+            author = f"By {who}"
         if archive.lower().startswith("wikimedia commons") and _on_commons(s.get("item_url")):
             archive = ""                             # the item's own link already says where it is
         uri = licence_uri(lic) if cc_by else None

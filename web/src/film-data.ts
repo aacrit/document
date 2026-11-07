@@ -59,6 +59,20 @@ export interface Shot {
   licence_note: string | null;
   /** A drawn map's data, each source by name, with its https link and its licence (CC BY asks for both). */
   data_sources: DataSource[];
+  /** A40: the series titles' period records (title_sequence.provenance); empty for any other shot. */
+  title_records?: TitleInput[];
+  /** A40: the series titles' third-party sound inputs owed a credit, CC BY or MIT (title_sequence.sound). */
+  title_sound?: TitleInput[];
+}
+
+/** One input to the series titles, as sources.json names it: its title, who holds it, its licence and its page. */
+export interface TitleInput {
+  title: string;
+  /** The holder, else the creator, else the credit: whoever the licence asks the film to name. */
+  by: string | null;
+  licence: string | null;
+  /** https only; anything else is dropped and the title prints unlinked. */
+  url: string | null;
 }
 
 export interface DataSource {
@@ -305,7 +319,24 @@ function parseShot(x: unknown, i: number, fps: number): Shot {
     source_line: str(x.source_line),
     licence_note: str(x.licence_note),
     data_sources: parseDataSources(x.data_sources),
+    ...(isObj(x.title_sequence)
+      ? { title_records: parseTitleInputs(x.title_sequence.provenance), title_sound: parseTitleInputs(x.title_sequence.sound) }
+      : {}),
   };
+}
+
+/** The series titles' inputs (title_sequence.provenance or .sound): each with a title, whoever it is credited to
+ * (the credit, else the holder, else the creator), its licence and an https page; anything without a title is dropped. */
+export function parseTitleInputs(x: unknown): TitleInput[] {
+  if (!Array.isArray(x)) return [];
+  const out: TitleInput[] = [];
+  for (const d of x) {
+    if (!isObj(d)) continue;
+    const title = str(d.title);
+    if (!title) continue;
+    out.push({ title, by: str(d.credit) ?? str(d.holder) ?? str(d.creator), licence: str(d.licence), url: safeUrl(d.source_page) });
+  }
+  return out;
 }
 
 /** A map's data_sources: the name without its parenthetical ("GeoNames (CC BY 4.0)" -> "GeoNames", as
