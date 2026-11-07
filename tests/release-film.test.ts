@@ -212,6 +212,8 @@ describe("release-film", () => {
     const shipped = JSON.parse(readFileSync(new URL("../films.json", import.meta.url), "utf8"));
     expect(captionReview(shipped, "real-world")).toBe("planned");
     expect(captionReview(shipped, "market-street")).toBe("planned");
+    expect(captionReview(shipped, "endurance")).toBe("planned");
+    expect(captionReview(shipped, "houston-weve-had-a-problem")).toBe("planned");
     expect(captionReview(shipped, "partition-of-india")).toBe("reviewed");
     expect(captionReview(shipped, "smallpox-eradication")).toBe("in_review");
   });
