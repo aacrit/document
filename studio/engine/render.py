@@ -4286,7 +4286,7 @@ class Pictures:
             f = OV.framing_at(cam, t_local, s["_dur"])
             return M.fit_still(fr, self.L, z=f["z"], cx=f["x"], cy=f["y"], clamp=cam["clamp"])
         out = Image.new("RGB", (self.plan["W"], self.plan["H"]), M.PALETTE["letterbox"])
-        out.paste(fr, ((self.plan["W"] - r.vw) // 2, (self.plan["H"] - r.vh) // 2))
+        out.paste(fr, ((self.plan["W"] - fr.width) // 2, (self.plan["H"] - fr.height) // 2))
         return out
 
     def title(self, s: dict, t_local: float) -> Image.Image:
