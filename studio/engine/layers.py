@@ -51,10 +51,10 @@ OVERLAY_CODEC = {"codec": "prores_ks", "profile": "4444", "profile_id": 4, "pix_
                  "alpha_bits": 16, "alpha": "straight", "name": "ProRes 4444 with alpha"}
 # Size estimates for the disk floor, in bits a pixel a frame. A plate is at ProRes 422 HQ's
 # nominal rate (220 Mb/s at 1920x1080 and 29.97 fps, Apple's white paper: 3.54) with a
-# margin. The overlay is mostly transparent: a frame showing only the glyph measured about
-# 0.05 on the fixture and a frame with a lower third's or an overlay's wash about 0.6, so
-# frames carrying a wash are estimated at ProRes 4444's nominal rate (330 Mb/s: 5.3) and
-# the rest at 0.5, ten times what was measured.
+# margin. The overlay is mostly transparent: on the fixture film at 1080p (2026-11-07) it
+# measured 0.21 a pixel on average over all its frames (the plates 0.71, on synthetic
+# pictures with long flat cards; archival grain sits nearer the nominal rate). Frames carrying a lower third, an overlay or a subtitle are estimated at ProRes
+# 4444's nominal rate (330 Mb/s: 5.3) and the rest at 0.5, over twice the measured average.
 PLATE_BPP = 4.0
 OVERLAY_BPP_BUSY = 5.3
 OVERLAY_BPP_QUIET = 0.5
