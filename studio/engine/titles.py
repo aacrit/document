@@ -539,10 +539,16 @@ def provenance_sound_items(prov: dict | None) -> list[dict]:
 AUDIO_SUFFIXES = (".wav", ".flac", ".aif", ".aiff", ".mp3", ".mat")
 
 
+NOT_AUDIO_SUFFIXES = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp", ".gif", ".bmp", ".exr", ".svg",
+                      ".mp4", ".mov", ".mkv", ".avi", ".webm")
+
+
 def is_audio(it: dict) -> bool:
+    f = str(it.get("file") or "").strip().replace("\\", "/")
+    if f and Path(f).suffix.lower() in NOT_AUDIO_SUFFIXES:
+        return False                       # a picture or a video is never sound, whatever `media` says
     if str(it.get("media") or "").strip().lower() == "audio":
         return True
-    f = str(it.get("file") or "").strip().replace("\\", "/")
     return bool(f) and Path(f).suffix.lower() in AUDIO_SUFFIXES
 
 

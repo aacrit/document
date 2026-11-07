@@ -68,8 +68,11 @@ export interface Shot {
 /** One input to the series titles, as sources.json names it: its title, who holds it, its licence and its page. */
 export interface TitleInput {
   title: string;
-  /** The holder, else the creator, else the credit: whoever the licence asks the film to name. */
+  /** Sound only: the credit, else the holder, else the creator: whoever the licence asks the film to name ("by"). */
   by: string | null;
+  /** Records only: where the record is held (its credit line, else its holder), printed as the archive, never as "by":
+   * a museum and its accession number are not the maker. */
+  archive: string | null;
   licence: string | null;
   /** https only; anything else is dropped and the title prints unlinked. */
   url: string | null;
@@ -320,21 +323,24 @@ function parseShot(x: unknown, i: number, fps: number): Shot {
     licence_note: str(x.licence_note),
     data_sources: parseDataSources(x.data_sources),
     ...(isObj(x.title_sequence)
-      ? { title_records: parseTitleInputs(x.title_sequence.provenance), title_sound: parseTitleInputs(x.title_sequence.sound) }
+      ? { title_records: parseTitleInputs(x.title_sequence.provenance, "record"), title_sound: parseTitleInputs(x.title_sequence.sound, "sound") }
       : {}),
   };
 }
 
-/** The series titles' inputs (title_sequence.provenance or .sound): each with a title, whoever it is credited to
- * (the credit, else the holder, else the creator), its licence and an https page; anything without a title is dropped. */
-export function parseTitleInputs(x: unknown): TitleInput[] {
+/** The series titles' inputs (title_sequence.provenance or .sound): each with a title, its licence and an https page;
+ * a sound input names whoever it is credited to ("by": the credit, else the holder, else the creator), a record names
+ * where it is held (its credit, else its holder) as the archive. Anything without a title is dropped. */
+export function parseTitleInputs(x: unknown, kind: "record" | "sound" = "sound"): TitleInput[] {
   if (!Array.isArray(x)) return [];
   const out: TitleInput[] = [];
   for (const d of x) {
     if (!isObj(d)) continue;
     const title = str(d.title);
     if (!title) continue;
-    out.push({ title, by: str(d.credit) ?? str(d.holder) ?? str(d.creator), licence: str(d.licence), url: safeUrl(d.source_page) });
+    const by = kind === "sound" ? (str(d.credit) ?? str(d.holder) ?? str(d.creator)) : null;
+    const archive = kind === "record" ? (str(d.credit) ?? str(d.holder)) : null;
+    out.push({ title, by, archive, licence: str(d.licence), url: safeUrl(d.source_page) });
   }
   return out;
 }

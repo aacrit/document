@@ -54,6 +54,8 @@ export function titleInputsNode(inputs: TitleInput[] | undefined): Node | null {
         x.url ? el("a", { class: "source", href: x.url, rel: "noopener noreferrer" }, numerals(x.title)) : numerals(x.title),
         x.by ? ", by " : "",
         x.by ? numerals(x.by) : "",
+        x.archive ? ", " : "",
+        x.archive ? numerals(x.archive) : "",
         x.licence ? ", " : "",
         x.licence ? licenceNode(x.licence) : "",
       ),

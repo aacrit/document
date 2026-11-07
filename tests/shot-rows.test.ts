@@ -74,16 +74,21 @@ describe("a shot's provenance rows", () => {
         kind: "title_sequence",
         title_sequence: {
           provenance: [{ id: "T-13", title: "A tabulator", holder: "A museum", credit: "A photographer", licence: "CC BY 2.0", source_page: "https://example.org/t13" }],
-          sound: [{ id: "AIR-1.4-lecture", title: "Aachen Impulse Response database, lecture room (the house IR)", holder: "Institute of Communication Systems and Data Processing (IND), RWTH Aachen University", creator: null, credit: "", licence: "MIT", source_page: page }],
+          sound: [{ id: "AIR-1.4-lecture", title: "Aachen Impulse Response Database, lecture room", holder: "Institute of Communication Systems and Data Processing (IND), RWTH Aachen University", creator: null, credit: "", licence: "MIT", source_page: page }],
         },
       }),
     );
-    expect(r.get("Drawn from")?.textContent).toBe("A tabulator, by A photographer, CC BY 2.0");
+    // A record names where it is held as the archive, never "by" (a museum and its number are not the maker).
+    expect(r.get("Drawn from")?.textContent).toBe("A tabulator, A photographer, CC BY 2.0");
     const sound = r.get("Sound")!;
-    expect(sound.textContent).toBe("Aachen Impulse Response database, lecture room (the house IR), by Institute of Communication Systems and Data Processing (IND), RWTH Aachen University, MIT licence");
+    expect(sound.textContent).toBe("Aachen Impulse Response Database, lecture room, by Institute of Communication Systems and Data Processing (IND), RWTH Aachen University, MIT licence");
     const links = sound.all().filter((n) => n.tag === "a").map((a) => a.attrs.href);
     expect(links).toEqual([page, "https://opensource.org/license/mit"]);
     expect((await rows(shotWith({}))).has("Sound")).toBe(false); // any other shot: no rows
+    // A public-domain record shaped like the live ones: holder only, printed as the archive.
+    const pd = await rows(shotWith({ kind: "title_sequence", title_sequence: { provenance: [{ id: "R-1", title: "Record of temple workers, Umma", holder: "Walters Art Museum 48.1767", licence: "CC0" }] } }));
+    expect(pd.get("Drawn from")?.textContent).toBe("Record of temple workers, Umma, Walters Art Museum 48.1767, CC0");
+    expect(pd.get("Drawn from")?.textContent).not.toMatch(/, by /);
   });
 
   it("sets a hostile title input as text, its non-https page unlinked", async () => {

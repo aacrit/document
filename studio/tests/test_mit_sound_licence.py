@@ -48,7 +48,7 @@ PICTURE_OK = {"id": "T-01", "title": "A clay tablet", "licence": "CC0", "ai": Fa
               "source_page": "https://example.org/t01", "licence_evidence": "read 2026-10-16", "sha256": "0" * 64}
 # Shaped like the real v11 entry: a holder, no creator, the .mat file the mix reads, the holder's licence file
 AIR = {"id": "AIR-1.4-lecture", "holder": "Institute of Communication Systems and Data Processing (IND), RWTH Aachen University",
-       "title": "Aachen Impulse Response database, lecture room (the house IR)",
+       "title": "Aachen Impulse Response Database, lecture room",
        "file": "D:/document-media/house-room/AIR_1_4/air_binaural_lecture_1_1_2.mat", "sha256": "4" * 64,
        "source_page": "https://www.iks.rwth-aachen.de/en/research/tools-downloads/databases/aachen-impulse-response-database/",
        "licence": "MIT", "licence_evidence": "D:/document-media/house-room/AIR_1_4/license.txt (sha256 576e14bf...)",
@@ -110,7 +110,7 @@ TITLE_SHOT = {"id": "TS1", "kind": "title_sequence", "ledger_id": "TS-v11", "mar
               "title": "void document, series titles", "creator": "void document studio", "licence": "CC BY 4.0",
               "title_sequence": {"provenance": [], "sound": [EXPORTED]}}
 SRC = {"title": "Fixture film", "slug": "fixture", "shots": [TITLE_SHOT]}
-LINE = ("Aachen Impulse Response database, lecture room (the house IR). "
+LINE = ("Aachen Impulse Response Database, lecture room. "
         "By Institute of Communication Systems and Data Processing (IND), RWTH Aachen University. MIT licence. " + AIR["source_page"])
 
 
@@ -134,3 +134,10 @@ def test_the_credit_line_appears_in_the_description_and_names_the_holder_and_mit
 def test_studio_owned_mit_work_owes_no_attribution():
     title = {"ledger_id": "TS-v11", "licence": "MIT", "creator": "void document studio", "credit": "void document studio"}
     assert not D.obligated(title)
+
+
+def test_a_picture_file_is_never_audio_whatever_media_says():
+    from studio.engine import titles as TS
+    assert TS.is_audio({"file": "x.jpg", "media": "audio"}) is False
+    assert TS.is_audio({"file": "D:/rooms/air.mat"}) is True
+    assert TS.is_audio({"media": "audio"}) is True
