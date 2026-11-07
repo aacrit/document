@@ -56,13 +56,15 @@ const rawFilms = () => yamlParse(read("contract.yaml")).films;
 const partition = () => clone(registry.films.find((f: Film) => f.slug === "partition-of-india"));
 
 describe("films.json", () => {
-  it("as shipped: Partition, The Next Village, Real World and Market Street all live, Partition on the marquee", () => {
+  it("as shipped: Partition, The Next Village, Real World, Market Street, Endurance, Houston, We've Had a Problem all live, Partition on the marquee", () => {
     expect(registryProblems(live)).toEqual([]);
     expect(listedFilms(live).map((f: Film) => [f.slug, f.status, f.order])).toEqual([
       ["partition-of-india", "live", 1],
       ["smallpox-eradication", "live", 2],
       ["real-world", "live", 3],
       ["market-street", "live", 4],
+      ["endurance", "live", 5],
+      ["houston-weve-had-a-problem", "live", 6],
     ]);
     expect(marqueeFilm(live).slug).toBe("partition-of-india");
     const nv = live.films.find((f: Film) => f.slug === "smallpox-eradication");
@@ -139,6 +141,68 @@ describe("films.json", () => {
     expect(p["f/market-street/sources/index.html"]).toBeDefined();
     expect(p["f/market-street/correct/index.html"]).toBeDefined();
     expect(p["index.html"]).toContain('<li><a href="/f/market-street/"><span class="t">Market Street</span>');
+    expect(marqueeFilm(live).slug).toBe("partition-of-india");
+  });
+
+  it("as shipped: Endurance carries the founder-approved copy (2026-11-02) word for word, and no caption track it has not reviewed", () => {
+    const f = live.films.find((x: Film) => x.slug === "endurance");
+    expect(f).toMatchObject({
+      title: "Endurance",
+      dates: "1914 to 1916",
+      status: "live",
+      order: 5,
+      logline: "twenty-eight men, a ship held in the ice, and the days counted from South Georgia",
+      synopsis:
+        "In December 1914 the Endurance enters the pack ice of the Weddell Sea with Ernest Shackleton and twenty-seven men who mean to cross the continent on foot. The ice holds her from January 1915. In October it crushes her, and the men camp on the floe, three hundred and forty-six miles from the nearest land they know of, with two pounds of personal gear each. The floe carries them north past land they cannot reach, until it splits under the camp on 9 April 1916 and the boats are launched for Elephant Island. Six men sail the decked boat eight hundred miles for South Georgia; twenty-two wait under two upturned boats, and the film returns to them. The record is Frank Hurley's photographs and colour plates, the diaries read with their dates, and a recording of Shackleton's voice from 1910. It ends on 30 August 1916.",
+      content_note:
+        "It tells of a ship crushed by ice, of dogs and a cat shot, and of an amputation.",
+      shows:
+        "This film shows the ship held, heeled and crushed in Hurley's photographs, the camps on the floe and the men under the boats on Elephant Island, and the pages of McNish's journal. It shows no bodies, no wounds and no animal killed: the shooting of the dogs and the operation on Blackborow's toes are in words only. There is no photograph of the boat journey, the crossing of South Georgia or the rescue; they are told over the expedition's maps and the diarists' words.",
+      legend: {"reconstructed": "none in this film", "drawn": "none in this film"},
+      poster: "poster.jpg",
+      screenplay_path: "~/document-work/endurance/screenplay.json",
+    });
+    // Only the Partition pilot may fall back on its own balance figures.
+    expect(f.balance_fallback).toBeUndefined();
+    expect(f.languages.captions).toEqual([{ lang: "en", name: "English", kind: "captions", review: "planned" }]);
+    expect(publishedTracks(f)).toEqual([]);
+    const p = sitePages(live, templates);
+    expect(p["f/endurance/index.html"]).not.toContain("/media/endurance/captions-en.vtt");
+    expect(p["f/endurance/index.html"]).toContain("English captions are planned.");
+    expect(p["f/endurance/sources/index.html"]).toBeDefined();
+    expect(p["f/endurance/correct/index.html"]).toBeDefined();
+    expect(p["index.html"]).toContain("<a href=\"/f/endurance/\">");
+    expect(marqueeFilm(live).slug).toBe("partition-of-india");
+  });
+
+  it("as shipped: Houston, We've Had a Problem carries the founder-approved copy (2026-11-02) word for word, and no caption track it has not reviewed", () => {
+    const f = live.films.find((x: Film) => x.slug === "houston-weve-had-a-problem");
+    expect(f).toMatchObject({
+      title: "Houston, We've Had a Problem",
+      dates: "13 to 17 April 1970",
+      status: "live",
+      order: 6,
+      logline: "four days in April 1970, as they were heard on the loops between the spacecraft and the room in Houston",
+      synopsis:
+        "On the evening of 13 April 1970, fifty-five hours into the flight, the crew of Apollo 13 end a television tour of their lunar module with a good night. Minutes later they report a problem. The film keeps to the recordings made during the flight, the air-to-ground loop, the flight director's loop and Apollo Control's commentary, with NASA's photographs of the control room, the crew's own film and frames, and pages of the 1970 transcription: the handover to Glynn Lunney's team, the burns, the pass behind the Moon, the canister built from what was aboard, the cold, the service module seen with one side gone, the entry, and the recovery ship on 17 April. A narrator gives the time and what was decided; the loops carry the rest.",
+      content_note:
+        "It concerns a failure aboard a spacecraft with three men far from Earth, and their return. It plays the air-to-ground and control room recordings made during the flight.",
+      shows:
+        "This film shows the control room in NASA's photographs, the crew in the lunar module on their own 16 mm film and in their own frames, the far side of the Moon as they photographed it, the service module after it was cast off, and pages of the 1970 transcription. There is no film of the control room in it: the room is seen in photographs. No one in it is hurt. It ends on 17 April 1970 and does not say what caused the failure.",
+      legend: {"reconstructed": "none in this film", "drawn": "none in this film"},
+      poster: "poster.jpg",
+      screenplay_path: "~/document-work/apollo13/screenplay.json",
+    });
+    // Only the Partition pilot may fall back on its own balance figures.
+    expect(f.balance_fallback).toBeUndefined();
+    expect(f.languages.captions).toEqual([{ lang: "en", name: "English", kind: "captions", review: "planned" }]);
+    expect(publishedTracks(f)).toEqual([]);
+    const p = sitePages(live, templates);
+    expect(p["f/houston-weve-had-a-problem/index.html"]).not.toContain("/media/houston-weve-had-a-problem/captions-en.vtt");
+    expect(p["f/houston-weve-had-a-problem/index.html"]).toContain("English captions are planned.");
+    expect(p["f/houston-weve-had-a-problem/sources/index.html"]).toBeDefined();
+    expect(p["f/houston-weve-had-a-problem/correct/index.html"]).toBeDefined();
+    expect(p["index.html"]).toContain("<a href=\"/f/houston-weve-had-a-problem/\">");
     expect(marqueeFilm(live).slug).toBe("partition-of-india");
   });
 
@@ -358,11 +422,15 @@ describe("the contract, expanded from films.json", () => {
   const forFilm = (slug: string) => contract.checks.filter((c: { film?: string }) => c.film === slug);
 
   it("gives Partition every check it had, and The Next Village, Real World and Market Street a live film's checks", () => {
-    expect(contract.checks).toHaveLength(87 + 19);
+    expect(contract.checks).toHaveLength(87 + 19 * 3);
     const ms = forFilm("market-street");
     expect(ms).toHaveLength(19);
     expect(ms.find((c: { type: string }) => c.type === "json_has")).toMatchObject({ path: "/media/market-street/sources.json", field: "balance.sides", requires: "deployed" });
     expect(ms.some((c: { path?: string }) => /captions-/.test(c.path ?? ""))).toBe(false);
+    expect(forFilm("endurance")).toHaveLength(19);
+    expect(forFilm("endurance").find((c: { type: string }) => c.type === "json_has")).toMatchObject({ path: "/media/endurance/sources.json", field: "balance.sides", requires: "deployed" });
+    expect(forFilm("houston-weve-had-a-problem")).toHaveLength(19);
+    expect(forFilm("houston-weve-had-a-problem").find((c: { type: string }) => c.type === "json_has")).toMatchObject({ path: "/media/houston-weve-had-a-problem/sources.json", field: "balance.sides", requires: "deployed" });
     const rw = forFilm("real-world");
     expect(rw).toHaveLength(19);
     expect(rw.find((c: { type: string }) => c.type === "json_has")).toMatchObject({ path: "/media/real-world/sources.json", field: "balance.sides", requires: "deployed" });

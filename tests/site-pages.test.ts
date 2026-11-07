@@ -16,7 +16,7 @@ const pages = readdirSync(path.join(root, "web"), { recursive: true, encoding: "
   .filter((f) => f.endsWith(".html") && !f.startsWith("web/templates/"));
 const filmPages = (slug: string) => [`web/f/${slug}/index.html`, `web/f/${slug}/sources/index.html`, `web/f/${slug}/correct/index.html`];
 // The home page and each live film's three pages (films.json): Partition, The Next Village, Real World and Market Street.
-const PUBLIC = ["web/index.html", ...filmPages("partition-of-india"), ...filmPages("smallpox-eradication"), ...filmPages("real-world"), ...filmPages("market-street")];
+const PUBLIC = ["web/index.html", ...filmPages("partition-of-india"), ...filmPages("smallpox-eradication"), ...filmPages("real-world"), ...filmPages("market-street"), ...filmPages("endurance"), ...filmPages("houston-weve-had-a-problem")];
 const visible = (html: string) =>
   html
     .replace(/<script[\s\S]*?<\/script>/g, " ")
