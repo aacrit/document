@@ -1,7 +1,7 @@
 // A shot's provenance rows on the Sources page: archive, author, item, licence, data, credit and treatment. CC BY
 // asks for the title, the author, the source and the licence; every one of them is here. Values from sources.json
 // are set as DOM text or as links checked by safeUrl, never as markup (tests/shot-rows.test.ts).
-import { entryWhat, itemLinkLabel, safeUrl, shotTreatment, type Footage, type Shot } from "./film-data";
+import { entryWhat, itemLinkLabel, safeUrl, shotTreatment, type Footage, type Shot, type TitleInput } from "./film-data";
 import { dataSourcesNode, el, numerals, withDeeds } from "./site";
 
 const same = (a: string, b: string): boolean => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -31,6 +31,38 @@ export function whatNode(shot: Shot, footage: Footage): Node {
   return numerals(entryWhat(shot, footage));
 }
 
+/** The MIT licence's text, linked where a CC licence links its deed (founder ruling 2026-11-07: MIT, for sound only,
+ * is credited the same way as CC BY). */
+export const MIT_URI = "https://opensource.org/license/mit";
+
+/** A licence as a node: "MIT" linked to its text as "MIT licence", any CC id linked to its deed, else text. */
+export function licenceNode(licence: string): Node {
+  if (/^mit$/i.test(licence.trim())) return el("a", { href: MIT_URI, rel: "license noopener noreferrer" }, "MIT licence");
+  return withDeeds(licence);
+}
+
+/** The series titles' inputs, one line each: the title (linked to its https page), whom it is by, its licence. */
+export function titleInputsNode(inputs: TitleInput[] | undefined): Node | null {
+  if (!inputs?.length) return null;
+  return el(
+    "ul",
+    { class: "title-inputs" },
+    ...inputs.map((x) =>
+      el(
+        "li",
+        {},
+        x.url ? el("a", { class: "source", href: x.url, rel: "noopener noreferrer" }, numerals(x.title)) : numerals(x.title),
+        x.by ? ", by " : "",
+        x.by ? numerals(x.by) : "",
+        x.archive ? ", " : "",
+        x.archive ? numerals(x.archive) : "",
+        x.licence ? ", " : "",
+        x.licence ? licenceNode(x.licence) : "",
+      ),
+    ),
+  );
+}
+
 export function sourceRows(shot: Shot, footage: Footage): [string, Node | string | null][] {
   const url = safeUrl(shot.item_url);
   const author = authorOf(shot);
@@ -41,6 +73,8 @@ export function sourceRows(shot: Shot, footage: Footage): [string, Node | string
     ["Licence", shot.licence ? withDeeds(shot.licence) : null],
     ["Data", shot.data_sources.length ? dataSourcesNode(shot.data_sources) : null],
     ["Credit", creditNode(shot.credit)],
+    ["Drawn from", titleInputsNode(shot.title_records)],
+    ["Sound", titleInputsNode(shot.title_sound)],
     ["Treatment", shotTreatment(shot)],
   ];
 }

@@ -215,6 +215,11 @@ LICENCE_OK = re.compile(r"^(public domain|cc0( 1\.0)?|cc[- ]?by([- ][1-4]\.0)?)$
 # screenplay declares ``share_alike: {decision: "<its docs/DECISIONS.md entry>"}``, so the licence is scoped per film,
 # and the film's sources page carries the ShareAlike attribution. Every such asset is journaled as a decision.
 LICENCE_SHARE_ALIKE = re.compile(r"^cc[- ]?by[- ]?sa([- ][1-4]\.0)?$", re.I)
+# MIT (founder ruling 2026-11-07, prompted by the RWTH Aachen room impulse response, AIR database, MIT, used in the
+# title Foley mix): allowed only for a sound or other non-picture input, credited the same way as CC BY
+# (description.py); a picture input under MIT is refused, same as any licence off the house allowlist above.
+LICENCE_MIT = DSC.MIT                # the one MIT pattern (description.py), shared with its credit and titles' rank
+NON_PICTURE_KINDS = ("sound", "non_picture")
 
 
 def share_alike_declared(play: dict | None) -> tuple[bool, list[str]]:
@@ -231,13 +236,17 @@ def share_alike_declared(play: dict | None) -> tuple[bool, list[str]]:
     return True, []
 
 
-def licence_allowed(lic: str, play: dict | None = None) -> tuple[bool, bool]:
-    """(allowed, share_alike): the house allowlist, or CC BY-SA in a film that declares it (share_alike_declared)."""
+def licence_allowed(lic: str, play: dict | None = None, *, kind: str = "picture") -> tuple[bool, bool]:
+    """(allowed, share_alike): the house allowlist, CC BY-SA in a film that declares it (share_alike_declared), or
+    MIT when ``kind`` is "sound" or "non_picture" (founder ruling 2026-11-07). A picture input (the default
+    ``kind``) is never allowed under MIT."""
     lic = str(lic or "").strip()
     if LICENCE_OK.match(lic):
         return True, False
     if LICENCE_SHARE_ALIKE.match(lic):
         return share_alike_declared(play)[0], True
+    if kind in NON_PICTURE_KINDS and LICENCE_MIT.match(lic):
+        return True, False
     return False, False
 PRESETS = {                         # GRAMMAR 7.2, zoom relative to the largest 16:9 window
     "HOLD": ({"z": 1.0}, {"z": 1.0}),
@@ -2488,15 +2497,18 @@ def credits_blocks(plan: dict) -> list:
                                                                                   m.get("licence")) if b)))
     blocks = [("Shots", shots)]
     titles = [s for s in plan["shots"] if TS.is_title(s)]
-    if titles:                  # A40: the series titles, drawn from period records; every CC BY input is attributed
+    if titles:                  # A40: the series titles, drawn from period records; every CC BY picture input is
+                                 # attributed, and every third-party CC BY or MIT sound input (founder ruling
+                                 # 2026-11-07); the studio's own theme stems in the shared ledger are not
         prov, _, _ = TS.provenance(titles[0].get("_item") or {})
         items = TS.provenance_items(prov)
         series = wrap(f"{TS.SERIES}: drawn from {len(items)} period records, no AI; every record on the "
                       "sources page")
-        for x in items:
-            if (TS.licence_rank(x.get("licence")) or 0) >= 2:
-                series += wrap(", ".join(b for b in [TS.plain(x.get("title")), TS.plain(x.get("credit") or x.get("holder")),
-                                                     str(x.get("licence") or "")] if b))
+        for x in [x for x in items if (TS.licence_rank(x.get("licence")) or 0) >= 2] + TS.credited_sound_items(prov):
+            lic = str(x.get("licence") or "")
+            who = x.get("credit") or x.get("holder") or x.get("creator") or x.get("uploader")
+            series += wrap(", ".join(b for b in [TS.plain(x.get("title")), TS.plain(who),
+                                                 "MIT licence" if DSC.names_mit(lic) else lic] if b))
         blocks.append(("Series titles", series))
     if recordings:
         blocks.append(("Recordings", recordings))
@@ -8819,7 +8831,13 @@ def title_sources_fields(s: dict) -> dict:
         "series": TS.SERIES, "master": it.get("id"), "version": it.get("version"), "record": it.get("record"),
         "burned_marks": it.get("burned") is True, "marks": TS.timeline(it), "ai": False,
         "made_with": it.get("generator"),
-        "provenance": [dict({k: x.get(k) for k in keep}, credit=TS.plain(x.get("credit"))) for x in TS.provenance_items(prov)]}}
+        "provenance": [dict({k: x.get(k) for k in keep}, credit=TS.plain(x.get("credit"))) for x in TS.provenance_items(prov)],
+        # the third-party sound inputs owed a credit (CC BY, MIT: founder ruling 2026-11-07), by their holder;
+        # description.py and the Sources page credit them, the studio's own theme stems are not listed
+        "sound": [{"id": x.get("id"), "title": x.get("title"), "holder": x.get("holder"),
+                   "creator": x.get("creator") or x.get("uploader"), "licence": x.get("licence"),
+                   "source_page": x.get("source_page"), "credit": TS.plain(x.get("credit"))}
+                  for x in TS.credited_sound_items(prov)]}}
 
 
 def public_notes(item: dict | None) -> list[str]:

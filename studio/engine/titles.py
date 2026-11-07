@@ -29,6 +29,7 @@ import numpy as np
 from PIL import Image
 
 from studio.engine import cadence as CAD
+from studio.engine import description as DSC
 from studio.engine import motion as M
 from studio.engine import viewxf as VX
 
@@ -51,8 +52,12 @@ THEME_ROLE = "main_title"           # the main-title theme cue (score.py): over 
 PLACE_AFTER = "cold_open"           # the hook
 CHAPTER = "chapter"                 # Part 1 and on
 # Licences from the least to the most demanding: the master's own licence is at least as demanding as any input's.
+# MIT ranks beside CC BY (founder ruling 2026-11-07): it asks for the same credit, so it is attributed wherever a
+# CC BY input is (render.credits_blocks' Series titles block); it never reaches here as a picture input's own
+# licence, since R.licence_allowed refuses MIT for a picture (kind="picture", the default).
 _RANK = ((re.compile(r"^public domain$", re.I), 0), (re.compile(r"^cc0( 1\.0)?$", re.I), 1),
-         (re.compile(r"^cc[- ]?by[- ]?sa([- ][1-4]\.0)?$", re.I), 3), (re.compile(r"^cc[- ]?by([- ][1-4]\.0)?$", re.I), 2))
+         (re.compile(r"^cc[- ]?by[- ]?sa([- ][1-4]\.0)?$", re.I), 3), (re.compile(r"^cc[- ]?by([- ][1-4]\.0)?$", re.I), 2),
+         (DSC.MIT, 2))
 
 
 def licence_rank(lic: str) -> int | None:
@@ -522,11 +527,79 @@ def provenance_items(prov: dict | None) -> list[dict]:
     return list((prov or {}).get("items") or [])
 
 
+def provenance_sound_items(prov: dict | None) -> list[dict]:
+    """The title's non-picture inputs: its ledger's ``sound`` list (Foley, room tone, the room IR used to mix it).
+    Held to the same provenance bar as provenance_items (sourced, sha256-pinned, not AI), but to the sound licence
+    allowlist, which also allows MIT (founder ruling 2026-11-07, the RWTH Aachen AIR database)."""
+    return list((prov or {}).get("sound") or [])
+
+
+# What shows a sound-list entry is sound: an audio file (a .mat is the AIR database's own impulse-response format)
+# or the ledger stating ``media: "audio"``. MIT is admitted for sound only, so an MIT entry needs this proof.
+AUDIO_SUFFIXES = (".wav", ".flac", ".aif", ".aiff", ".mp3", ".mat")
+
+
+NOT_AUDIO_SUFFIXES = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp", ".gif", ".bmp", ".exr", ".svg",
+                      ".mp4", ".mov", ".mkv", ".avi", ".webm")
+
+
+def is_audio(it: dict) -> bool:
+    f = str(it.get("file") or "").strip().replace("\\", "/")
+    if f and Path(f).suffix.lower() in NOT_AUDIO_SUFFIXES:
+        return False                       # a picture or a video is never sound, whatever `media` says
+    if str(it.get("media") or "").strip().lower() == "audio":
+        return True
+    return bool(f) and Path(f).suffix.lower() in AUDIO_SUFFIXES
+
+
+def credited_sound_items(prov: dict | None) -> list[dict]:
+    """The sound inputs the title owes a credit (founder ruling 2026-11-07, MIT credited like CC BY): a licence
+    that asks for attribution (CC BY, CC BY-SA, MIT) held by someone named who is not the studio. The studio's own
+    theme stems (CC BY 4.0, no holder, composed here) are left out, so they never print in another film's credits."""
+    out = []
+    for x in provenance_sound_items(prov):
+        who = [DSC._s(x.get(k)) for k in ("credit", "holder", "creator", "uploader") if DSC._s(x.get(k))]
+        if (licence_rank(x.get("licence")) or 0) >= 2 and any(not DSC.names_studio_only(w) for w in who):
+            out.append(x)
+    return out
+
+
+def _provenance_problems(it: dict, *, kind: str, play: dict | None) -> list[str]:
+    """What is wrong with one provenance item (picture or sound): its licence against the engine's allowlist for
+    ``kind`` (an MIT sound entry must show it is audio), that it is not AI, sourced, evidenced and sha256-pinned."""
+    from studio.engine import render as R      # the engine's probes and licence rules (render imports this module)
+    out = []
+    lic = str(it.get("licence") or "")
+    if not R.licence_allowed(lic, play, kind=kind)[0]:
+        out.append(f"{it.get('id')}: licence {it.get('licence')!r} is not allowed")
+    elif kind != "picture" and DSC.names_mit(lic) and not is_audio(it):
+        out.append(f"{it.get('id')}: licence 'MIT' is allowed only for sound, and nothing shows this is sound "
+                   f"(an audio file, {', '.join(AUDIO_SUFFIXES)}, or media: \"audio\")")
+    if it.get("ai") is not False:
+        out.append(f"{it.get('id')}: ai must be stated false")
+    if not (it.get("source_page") or it.get("source_url")):
+        out.append(f"{it.get('id')}: no source page")
+    if not (it.get("licence_evidence") or it.get("basis")):
+        out.append(f"{it.get('id')}: no licence evidence or basis")
+    if not it.get("sha256"):
+        out.append(f"{it.get('id')}: no sha256 of the file used")
+    return out
+
+
+# A file page's attribution can carry its author twice, run together once the markup is gone ("Unknown authorUnknown
+# author"), or a named "Anonymous" beside the generic "Unknown author" (publish.py's _creator has the same fix for stills).
+_DOUBLED = re.compile(r"(.{4,}?)\1")   # run together, no space: "Walla Walla" is a name
+_ANON_UNKNOWN = re.compile(r"(Anonymous)\s*Unknown author", re.I)
+
+
 def plain(text) -> str:
-    """A ledger's credit as words: the HTML a file page's attribution carries (links, bdi) taken out."""
+    """A ledger's credit as words: the HTML a file page's attribution carries (links, bdi) taken out, and an author
+    printed twice by that markup said once."""
     import html
     t = re.sub(r"<[^>]+>", "", str(text or ""))
-    return " ".join(html.unescape(t).split())
+    t = " ".join(html.unescape(t).split())
+    m = _DOUBLED.fullmatch(t) or _ANON_UNKNOWN.fullmatch(t)
+    return m.group(1) if m else t
 
 
 # --------------------------------------------------------------------------
@@ -675,26 +748,23 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
         journal.decision("scout", f"{sid}: the series titles play their own sound", "A40 standalone audio (founder "
                          "2026-10-26): no film cue under the title or its lockup card; the score starts after them",
                          unit=sid, evidence={"span_s": [round(t0, 3), round(end_s, 3)], "take_handover": handover})
-        # Provenance: the title's assets ledger, every input open-licensed, sourced and not AI
+        # Provenance: the title's assets ledger, every input open-licensed, sourced and not AI. Picture inputs hold
+        # the house allowlist (R.licence_allowed, kind="picture", the default); sound inputs (the Foley, room tone
+        # and room IR mixed for the title's own track) also allow MIT (founder ruling 2026-11-07).
         prov, prov_path, why = provenance(item)
         problems = [why] if why else []
         pitems = provenance_items(prov)
+        sitems = provenance_sound_items(prov)
         if prov is not None and not pitems:
             problems.append("the provenance ledger lists no items")
         for it in pitems:
-            if not R.licence_allowed(str(it.get("licence") or ""), play)[0]:
-                problems.append(f"{it.get('id')}: licence {it.get('licence')!r} is not allowed")
-            if it.get("ai") is not False:
-                problems.append(f"{it.get('id')}: ai must be stated false")
-            if not (it.get("source_page") or it.get("source_url")):
-                problems.append(f"{it.get('id')}: no source page")
-            if not (it.get("licence_evidence") or it.get("basis")):
-                problems.append(f"{it.get('id')}: no licence evidence or basis")
-            if not it.get("sha256"):
-                problems.append(f"{it.get('id')}: no sha256 of the file used")
+            problems += _provenance_problems(it, kind="picture", play=play)
+        for it in sitems:
+            problems += _provenance_problems(it, kind="sound", play=play)
         lint("title-provenance", not problems, unit=sid, grammar="A40, 1.2, 11.1",
-             evidence={"provenance": prov_path, "items": len(pitems), "problems": problems[:20],
-                       "licences": sorted({str(it.get("licence")) for it in pitems})})
+             evidence={"provenance": prov_path, "items": len(pitems), "sound_items": len(sitems),
+                       "problems": problems[:20],
+                       "licences": sorted({str(it.get("licence")) for it in pitems + sitems})})
         need = max([licence_rank(it.get("licence")) or 0 for it in pitems] or [0])
         have = licence_rank(item.get("licence"))
         lic_ok = have is not None and have >= need
@@ -704,7 +774,7 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
                        "fix": None if lic_ok else "the master's licence is at least as demanding as its inputs' "
                                                   "(CC BY when any input is CC BY)"})
         ai_bits = [] if item.get("ai") is False else ["the master's ai is not stated false"]
-        ai_bits += [f"{it.get('id')} is AI" for it in pitems if it.get("ai") is not False]
+        ai_bits += [f"{it.get('id')} is AI" for it in pitems + sitems if it.get("ai") is not False]
         if "AI-GENERATED" in classes(item):
             ai_bits.append("the master marks an AI-GENERATED stretch")
         lint("title-no-ai", not ai_bits, unit=sid, grammar="A40, 2.6, A31",

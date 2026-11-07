@@ -67,6 +67,46 @@ describe("a shot's provenance rows", () => {
     expect(links.map((a) => [a.textContent, a.attrs.href])).toEqual([["CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/"]]);
   });
 
+  it("lists the series titles' records and their third-party sound, the MIT room IR by its holder", async () => {
+    const page = "https://www.iks.rwth-aachen.de/en/research/tools-downloads/databases/aachen-impulse-response-database/";
+    const r = await rows(
+      shotWith({
+        kind: "title_sequence",
+        title_sequence: {
+          provenance: [{ id: "T-13", title: "A tabulator", holder: "A museum", credit: "A photographer", licence: "CC BY 2.0", source_page: "https://example.org/t13" }],
+          sound: [{ id: "AIR-1.4-lecture", title: "Aachen Impulse Response Database, lecture room", holder: "Institute of Communication Systems and Data Processing (IND), RWTH Aachen University", creator: null, credit: "", licence: "MIT", source_page: page }],
+        },
+      }),
+    );
+    // A record names where it is held as the archive, never "by" (a museum and its number are not the maker).
+    expect(r.get("Drawn from")?.textContent).toBe("A tabulator, A photographer, CC BY 2.0");
+    const sound = r.get("Sound")!;
+    expect(sound.textContent).toBe("Aachen Impulse Response Database, lecture room, by Institute of Communication Systems and Data Processing (IND), RWTH Aachen University, MIT licence");
+    const links = sound.all().filter((n) => n.tag === "a").map((a) => a.attrs.href);
+    expect(links).toEqual([page, "https://opensource.org/license/mit"]);
+    expect((await rows(shotWith({}))).has("Sound")).toBe(false); // any other shot: no rows
+    // A public-domain record shaped like the live ones: holder only, printed as the archive.
+    const pd = await rows(shotWith({ kind: "title_sequence", title_sequence: { provenance: [{ id: "R-1", title: "Record of temple workers, Umma", holder: "Walters Art Museum 48.1767", licence: "CC0" }] } }));
+    expect(pd.get("Drawn from")?.textContent).toBe("Record of temple workers, Umma, Walters Art Museum 48.1767, CC0");
+    expect(pd.get("Drawn from")?.textContent).not.toMatch(/, by /);
+    // A file page's doubled author (live Partition and Real World T-15, T-17, T-17b, T-19) is said once.
+    const dbl = await rows(shotWith({ kind: "title_sequence", title_sequence: { provenance: [
+      { id: "T-15", title: "Lumiere cinematographe, front and rear", credit: "Unknown authorUnknown author", holder: "NPGallery", licence: "Public domain" },
+      { id: "T-17b", title: "Underwood Standard Typewriter No. 5, colour advertisement", credit: "AnonymousUnknown author", holder: "Commons", licence: "Public domain" },
+    ] } }));
+    expect(dbl.get("Drawn from")?.textContent).toBe(
+      "Lumiere cinematographe, front and rear, Unknown author, Public domainUnderwood Standard Typewriter No. 5, colour advertisement, Anonymous, Public domain");
+  });
+
+  it("sets a hostile title input as text, its non-https page unlinked", async () => {
+    const r = await rows(
+      shotWith({ kind: "title_sequence", title_sequence: { sound: [{ id: EVIL, title: EVIL, holder: EVIL, licence: EVIL, source_page: `javascript:${EVIL}` }] } }),
+    );
+    const all = r.get("Sound")!.all();
+    expect(all.some((n) => n.tag === "img" || n.tag === "a")).toBe(false);
+    expect(r.get("Sound")!.textContent).toBe(`${EVIL}, by ${EVIL}, ${EVIL}`);
+  });
+
   it("sets a hostile creator, credit, archive and licence as text", async () => {
     const r = await rows(shotWith({ creator: EVIL, credit: `${EVIL} CC BY 4.0`, archive: `${EVIL}x`, licence: EVIL }));
     const all = [...r.values()].flatMap((n) => n.all());

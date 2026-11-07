@@ -59,6 +59,23 @@ export interface Shot {
   licence_note: string | null;
   /** A drawn map's data, each source by name, with its https link and its licence (CC BY asks for both). */
   data_sources: DataSource[];
+  /** A40: the series titles' period records (title_sequence.provenance); empty for any other shot. */
+  title_records?: TitleInput[];
+  /** A40: the series titles' third-party sound inputs owed a credit, CC BY or MIT (title_sequence.sound). */
+  title_sound?: TitleInput[];
+}
+
+/** One input to the series titles, as sources.json names it: its title, who holds it, its licence and its page. */
+export interface TitleInput {
+  title: string;
+  /** Sound only: the credit, else the holder, else the creator: whoever the licence asks the film to name ("by"). */
+  by: string | null;
+  /** Records only: the record's own credit line, else its holder, else its creator, printed after the title without
+   * "by" (a museum and its accession number are not the maker; a credit line may name a maker, and says so itself). */
+  archive: string | null;
+  licence: string | null;
+  /** https only; anything else is dropped and the title prints unlinked. */
+  url: string | null;
 }
 
 export interface DataSource {
@@ -305,7 +322,37 @@ function parseShot(x: unknown, i: number, fps: number): Shot {
     source_line: str(x.source_line),
     licence_note: str(x.licence_note),
     data_sources: parseDataSources(x.data_sources),
+    ...(isObj(x.title_sequence)
+      ? { title_records: parseTitleInputs(x.title_sequence.provenance, "record"), title_sound: parseTitleInputs(x.title_sequence.sound, "sound") }
+      : {}),
   };
+}
+
+/** An author a file page's markup printed twice, said once ("Unknown authorUnknown author" -> "Unknown author",
+ * "AnonymousUnknown author" -> "Anonymous"), as studio/engine/titles.py plain() does when it writes sources.json. */
+export function undoubled(s: string | null): string | null {
+  if (!s) return s;
+  const doubled = /^(.{4,}?)\1$/.exec(s); // run together, no space: "Walla Walla" is a name
+  if (doubled) return doubled[1];
+  const anon = /^(Anonymous)\s*Unknown author$/i.exec(s);
+  return anon ? anon[1] : s;
+}
+
+/** The series titles' inputs (title_sequence.provenance or .sound): each with a title, its licence and an https page;
+ * a sound input names whoever it is credited to ("by": the credit, else the holder, else the creator), a record names
+ * where it is held (its credit, else its holder) as the archive. Anything without a title is dropped. */
+export function parseTitleInputs(x: unknown, kind: "record" | "sound" = "sound"): TitleInput[] {
+  if (!Array.isArray(x)) return [];
+  const out: TitleInput[] = [];
+  for (const d of x) {
+    if (!isObj(d)) continue;
+    const title = str(d.title);
+    if (!title) continue;
+    const by = kind === "sound" ? undoubled(str(d.credit) ?? str(d.holder) ?? str(d.creator)) : null;
+    const archive = kind === "record" ? undoubled(str(d.credit) ?? str(d.holder) ?? str(d.creator)) : null;
+    out.push({ title, by, archive, licence: str(d.licence), url: safeUrl(d.source_page) });
+  }
+  return out;
 }
 
 /** A map's data_sources: the name without its parenthetical ("GeoNames (CC BY 4.0)" -> "GeoNames", as

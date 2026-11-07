@@ -102,6 +102,7 @@ Chapter titles, planned times and the numbers come from `films/partition-of-indi
 - for DRAWN, the data source;
 - for CARD, what was searched;
 - "Correct this", which goes to Corrections with `?s=<id>`.
+- for the series title (a title_sequence shot), two more rows (founder ruling 2026-11-07): "Drawn from", the period records the title is made from (title, archive, item link), and "Sound", each credited sound input the title's own mix uses (title, ", by " its holder, licence; an MIT licence links to its text). Only third-party sound is listed: the studio's own theme and Foley stems are not credited to the studio.
 
 **Readings.** Each reading shows:
 - the quote, verbatim, with `[...]` kept;

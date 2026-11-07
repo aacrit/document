@@ -112,7 +112,23 @@ def names_cc_by(text) -> bool:
     return bool(_ATTRIBUTION.search(normalise_licence(text)))
 
 
+# MIT (founder ruling 2026-11-07, prompted by the RWTH Aachen room impulse response used in the title Foley mix):
+# allowed only for a sound or other non-picture input (studio.engine.render.licence_allowed), but credited here the
+# same way as CC BY: the copyright holder, plus "MIT licence" where CC BY prints its licence and deed URI.
+# The one MIT pattern the engine reads (render.LICENCE_MIT and titles' licence rank are this object): the bare id.
+MIT = re.compile(r"^mit$", re.I)
+
+
+def names_mit(text) -> bool:
+    return bool(MIT.match(_s(text)))
+
+
 _STUDIO_ONLY = re.compile(r"(?i)^void document(?: studio)?\.?$")
+
+
+def names_studio_only(text) -> bool:
+    """A name that is only the studio's own (void document, void document studio)."""
+    return bool(_STUDIO_ONLY.match(_s(text)))
 
 
 def studio_owned(s: dict) -> bool:
@@ -130,14 +146,15 @@ def is_map(s: dict) -> bool:
 
 
 def obligated(s: dict) -> bool:
-    """A source the film must attribute wherever it is credited: a CC BY-family licence held by someone else, data a
-    map was drawn from, or a map whose source line or licence note names a CC BY licence. CC0 and public domain ask
-    for nothing (the description still names them while there is room)."""
+    """A source the film must attribute wherever it is credited: a CC BY-family or MIT licence held by someone else
+    (MIT: a sound or other non-picture input, founder ruling 2026-11-07), data a map was drawn from, or a map
+    whose source line or licence note names a CC BY licence. CC0 and public domain ask for nothing (the
+    description still names them while there is room)."""
     if s.get("data_sources"):
         return True
     if is_map(s) and (names_cc_by(s.get("source_line")) or names_cc_by(s.get("licence_note"))):
         return True
-    return names_cc_by(s.get("licence")) and not studio_owned(s)
+    return (names_cc_by(s.get("licence")) or names_mit(s.get("licence"))) and not studio_owned(s)
 
 
 _PUBLIC = re.compile(r"(?i)\bpublic[- ]domain\b")
@@ -158,8 +175,9 @@ def attribution_versions(s: dict) -> set[str]:
     for t in texts:
         found = cc_licences(t)
         out |= {f["version"] if f["deed"] else "?" for f in found}
-        if not found and names_cc_by(t):
-            out.add("?")
+        if not found and (names_cc_by(t) or names_mit(t)):
+            out.add("?")           # MIT has no 4.0-style exception: it is always credited in full, like a CC BY
+                                    # licence never published or one not read
     return out
 
 
@@ -225,6 +243,27 @@ def statement_text(sf: dict) -> str | None:
     return None
 
 
+def title_sound_items(shot: dict) -> list[dict]:
+    """A series title's credited sound inputs as sources.json carries them (render.title_sources_fields:
+    ``title_sequence.sound``, third-party CC BY or MIT inputs only), each shaped like a shot entry so it is credited
+    the same way (founder ruling 2026-11-07): its title, its holder, its licence and its source page."""
+    ts = shot.get("title_sequence") if isinstance(shot, dict) else None
+    out = []
+    for x in (ts.get("sound") if isinstance(ts, dict) else None) or []:
+        if isinstance(x, dict) and _s(x.get("id")):
+            out.append({"ledger_id": _s(x.get("id")), "title": x.get("title"), "holder": x.get("holder"),
+                        "creator": x.get("creator"), "credit": x.get("credit"), "licence": x.get("licence"),
+                        "item_url": x.get("source_page"), "mark": {"class": "SOUND"}})
+    return out
+
+
+def _credited_items(src: dict):
+    """Every shot, each series title followed by its credited sound inputs."""
+    for s in src.get("shots") or []:
+        yield s
+        yield from title_sound_items(s)
+
+
 def notes(src: dict) -> dict:
     """The disclosures the picture no longer shows, from sources.json: the
     fields the description block and the Sources page's "Notes on this film"
@@ -259,7 +298,7 @@ def notes(src: dict) -> dict:
         at = ", ".join(f"{ln.get('id')} ({clock(ln.get('start_s'))})" for ln in u.get("lines") or [] if isinstance(ln, dict))
         unnamed.append(_s(u.get("name")) + (f": {at}" if at else ""))
     entries, seen = [], set()
-    for s in src.get("shots") or []:
+    for s in _credited_items(src):
         if not isinstance(s, dict) or not s.get("ledger_id") or (s.get("mark") or {}).get("class") == "CARD":
             continue
         if s["ledger_id"] in seen:
@@ -268,18 +307,22 @@ def notes(src: dict) -> dict:
         lic = _s(s.get("licence"))
         credit = _s(s.get("credit"))
         # CC BY asks for the title, the author, the source and the licence, the licence by its URI
-        # (a map's attribution is its data, printed by map_attribution below)
+        # (a map's attribution is its data, printed by map_attribution below). MIT (sound only) is credited the
+        # same way, holder plus "MIT licence" in place of the licence and its (CC-only) deed URI.
         cc_by = names_cc_by(lic)
+        mit = names_mit(lic) and not cc_by
         archive = _s(s.get("archive"))
         author = ""
-        if cc_by and not is_map(s) and not credit and _s(s.get("creator")) not in ("", archive):
-            author = f"By {_s(s.get('creator'))}"
+        who = _s(s.get("creator")) or _s(s.get("holder"))     # a title's sound input names its holder, no creator
+        if (cc_by or mit) and not is_map(s) and not credit and who not in ("", archive):
+            author = f"By {who}"
         if archive.lower().startswith("wikimedia commons") and _on_commons(s.get("item_url")):
             archive = ""                             # the item's own link already says where it is
         uri = licence_uri(lic) if cc_by else None
-        bits = [shot_name(s), author, archive, " ".join(x for x in (lic, uri) if x), _s(s.get("item_url"))]
+        lic_label = "MIT licence" if mit else lic
+        bits = [shot_name(s), author, archive, " ".join(x for x in (lic_label, uri) if x), _s(s.get("item_url"))]
         line = ". ".join(b for b in bits if b)
-        if credit and (re.search(r"(?i)\bBY[- ]SA\b", normalise_licence(lic)) or (cc_by and not is_map(s))):
+        if credit and (re.search(r"(?i)\bBY[- ]SA\b", normalise_licence(lic)) or ((cc_by or mit) and not is_map(s))):
             line += f". Attribution: {credit}"
         if _s(s.get("licence_note")):
             line += f" ({_s(s.get('licence_note'))})"
