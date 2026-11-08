@@ -666,7 +666,18 @@ def test_a_final_render_still_refuses_a_failing_lower_third_contrast(talk, tmp_p
     lower-third-contrast on a final (``draft=False``) render must still
     raise Refused. A deliberately failing measurement (monkeypatched, not a
     background chosen to fail by luck) isolates the blocking behaviour from
-    whether any particular background happens to clear the target."""
+    whether any particular background happens to clear the target.
+
+    ``workers=1`` is deliberate, not incidental: at ``workers=2`` or more,
+    ``render()`` renders each shot in a freshly spawned process (``spawn``
+    context, render.py's ``elif todo:`` branch, ~9500), which re-imports
+    ``studio.engine.motion`` from scratch and never sees this process's
+    monkeypatch -- the patch would be inert, and the test would pass only
+    because the fixture's own real T3 measurement happens to fail anyway
+    (reviewer finding, PR #98 round 3: inverting the mock to ``ok=True``
+    still raised, proving exactly that). ``workers=1`` takes the serial
+    path (``if todo and n == 1:``, ~9474), which calls ``render_segment``
+    directly in this process, so the monkeypatch is what actually runs."""
     film = _talk_film(tmp_path, talk)
 
     def always_fails(frame, L, lines, fonts, *, kind="speaker", flag=None):
@@ -681,7 +692,24 @@ def test_a_final_render_still_refuses_a_failing_lower_third_contrast(talk, tmp_p
     monkeypatch.setattr(R, "voice_over_black_lints", lambda *a, **k: [])
     monkeypatch.setattr(R.M, "lower_third_contrast", always_fails)
     with pytest.raises(R.Refused, match="lower-third-contrast"):
-        R.render(film, tmp_path / "out", height=HEIGHT, workers=2, min_free_gb=1, encode_preset="veryfast", draft=False)
+        R.render(film, tmp_path / "out", height=HEIGHT, workers=1, min_free_gb=1, encode_preset="veryfast", draft=False)
+
+    # Sentinel: invert the mock to a passing, distinctively-valued result. If the patch above were
+    # inert (the gap the reviewer caught), this run would still raise on the real T3 regardless of the
+    # mock; honoured, the render must complete and its own journal must carry the mock's marker value,
+    # not a real measurement -- proof the patched function is what actually ran, not a happy coincidence.
+    SENTINEL_WORST = 99.0
+
+    def always_ok(frame, L, lines, fonts, *, kind="speaker", flag=None):
+        return {"lines": [{"kind": "role", "contrast": SENTINEL_WORST, "ink": "core"}], "worst": SENTINEL_WORST,
+                "target": R.M.LT["wash_contrast"], "ok": True}
+
+    monkeypatch.setattr(R.M, "lower_third_contrast", always_ok)
+    s2 = R.render(film, tmp_path / "out2", height=HEIGHT, workers=1, min_free_gb=1, encode_preset="veryfast",
+                  draft=False)
+    evs2 = J.read(Path(s2["journal"]))
+    lt2 = next(e for e in evs2 if e.get("rule") == "lower-third-contrast")
+    assert lt2["status"] == "pass" and lt2["evidence"]["worst"]["T3"] == SENTINEL_WORST, lt2
 
 
 # --------------------------------------------------------------------------
