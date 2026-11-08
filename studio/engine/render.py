@@ -2404,7 +2404,10 @@ def reader_eq_plan(lint, journal: Journal, film: Path, play: dict) -> tuple[dict
     cast voice cannot have a declared EQ. reader-eq-declared is blocking.
     Returns ({voice: EQ or None}, how it was declared, the table's sha)."""
     table, sha = VO.load_table()
-    per, how, problems = VO.setting(play, table)
+    # Readers follow narrator (founder ruling 2026-11-08, A38 amended): the reference is the narrator's own
+    target, target_name, ref_problems = VO.reference(narrator_voice(play))
+    per, how, problems = VO.setting(play, table, target, target_name)
+    problems = ref_problems + problems
     who = VO.reader_voices(play)
     if how != "off":
         problems += [f"{lid}: read_by names no cast voice, so its reader EQ cannot be declared"
@@ -2422,7 +2425,7 @@ def reader_eq_plan(lint, journal: Journal, film: Path, play: dict) -> tuple[dict
             lint("reader-eq-measured", False, unit=k, severity="warn", grammar="A38 refined",
                  evidence={"voice": k, "takes": len(takes), "result": "not EQ'd: no take of this voice has a frame to measure"})
             continue
-        spec["eq"], ev = VO.derive(m["excess"], m["f0_hz"])
+        spec["eq"], ev = VO.derive(m["excess"], m["f0_hz"], target)
         journal.decision("scout", f"reader voice {k} measured on {m['takes']} takes of this film: EQ {spec['eq']}",
                          "A38 refined: a voice the house table does not hold is measured as the table's voices are",
                          unit=k, evidence=dict(ev, takes=m["takes"], frames=m["frames"]))
@@ -2433,6 +2436,9 @@ def reader_eq_plan(lint, journal: Journal, film: Path, play: dict) -> tuple[dict
     eqs = {k: spec["eq"] for k, spec in per.items()}
     lint("reader-eq-declared", not problems, unit="reader_eq", grammar="A38 refined",
          evidence={"declared": how, "voices": {k: dict(spec) for k, spec in per.items()}, "table_sha": sha,
+                   "reference": {"target": {"warmth_db": target["warmth_db"],
+                                            "treble_db": {str(c): x for c, x in target["treble_db"].items()}},
+                                 "from": target_name},
                    "bounds": VO.READER_EQ_BOUNDS, "problems": problems,
                    "archival": "never EQ'd: a real recording keeps its own sound"})
     return eqs, how, sha

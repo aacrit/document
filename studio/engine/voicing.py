@@ -163,6 +163,33 @@ def targets() -> dict:
     return {"warmth_db": READER_TARGET["warmth_db"], "treble_db": dict(READER_TARGET["treble_db"])}
 
 
+# Founder ruling 2026-11-08, "Readers follow narrator" (A38 amended): the readers' reference is the film's current
+# narrator's own measured spectrum after her EQ, keyed by narrator identity (the stored profile's eq_evidence in
+# studio/narrator-profile.json), so the readers move with the narrator (aoede now, the founder's voice when his
+# profile is stored) with no re-pin. An Orpheus narrator keeps the pinned Tara reference (READER_TARGET), and so does
+# any narrator that is not Kokoro and has no stored after-EQ spectrum (a test tone). A Kokoro narrator with none has
+# no reference: a problem.
+TARA_REFERENCE = "the pinned Tara reference (Tara, 81 pilot takes, after the house narrator EQ)"
+
+
+def reference(nv: dict | None) -> tuple[dict, str, list[str]]:
+    """The readers' target for a film whose narrator voice is ``nv``: (target, what it is, problems)."""
+    from studio.engine import render as R
+    eng = (nv or {}).get("engine")
+    if eng == "orpheus" or not nv:
+        return targets(), TARA_REFERENCE, []
+    stored, why = R.load_narrator_profile(nv)
+    ev = (stored or {}).get("eq_evidence") or {}
+    if ev.get("warmth_after_db") is not None and ev.get("treble_after_db"):
+        t = {"warmth_db": float(ev["warmth_after_db"]),
+             "treble_db": {c: float(ev["treble_after_db"][str(c)]) for c in TREBLE_BANDS}}
+        return t, f"the narrator {R._voice_name(stored['voice'])} after her EQ (narrator-profile.json eq_evidence)", []
+    if eng == "kokoro":
+        return targets(), TARA_REFERENCE, [f"the narrator {R._voice_name(nv)} has no stored after-EQ spectrum to "
+                                           f"match readers to ({why})"]
+    return targets(), TARA_REFERENCE, []
+
+
 def _bell(hz: float, g: float) -> dict:
     return {"type": "bell", "hz": float(hz), "gain_db": round(float(g), 1), "q": READER_BELL_Q}
 
@@ -171,15 +198,16 @@ def _shelf(hz: float, g: float) -> dict:
     return {"type": "high_shelf", "hz": float(hz), "gain_db": round(float(g), 1), "slope": READER_SHELF_SLOPE}
 
 
-def derive(ex: dict[int, float], f0_hz: float | None) -> tuple[dict, dict]:
+def derive(ex: dict[int, float], f0_hz: float | None, target: dict | None = None) -> tuple[dict, dict]:
     """A reader voice's EQ from its measured excess and median f0. The bell
     sits at f0 times WARMTH_ABOVE_F0 (to 5 Hz, inside the bounds) and its gain
     (0 to +3 dB, 0.1 dB steps) brings the voice's chest to the narrator's
     after hers; the shelf's corner (5 to 9 kHz, 250 Hz steps) and cut (0 to -6
     dB, 0.1 dB steps) bring its treble bands nearest hers (least squares),
     ties to the smaller cut and then to the corner nearest 6 kHz. No f0 (an
-    unvoiced take), no bell. Returns the EQ and the evidence."""
-    tgt = targets()
+    unvoiced take), no bell. ``target`` is the readers' reference (``reference``; the pinned Tara one when
+    None). Returns the EQ and the evidence."""
+    tgt = target or targets()
     lo_b, hi_b = READER_EQ_BOUNDS["low"], READER_EQ_BOUNDS["high"]
     bell_hz = None
     if f0_hz:
@@ -291,19 +319,27 @@ def reader_voices(play: dict) -> dict[str, str | None]:
     return out
 
 
-def setting(play: dict, table: dict) -> tuple[dict, str, list[str]]:
+def setting(play: dict, table: dict, target: dict | None = None, target_name: str | None = None)         -> tuple[dict, str, list[str]]:
     """A38 refined: the film's ``reader_eq`` resolved per reader voice. Absent
     or ``"house"``: every voice the house's (its table entry, or ``None`` to be
     measured on the film's takes); ``"off"``: none; an object: per voice name
     ``"house"``, ``"off"`` or its own {low, high} (a voice not named is the
     house's). Returns ({voice: spec}, how it was declared, problems), where a
-    spec is {"eq": eq or None, "how": ...}."""
+    spec is {"eq": eq or None, "how": ...}. With a ``target`` other than the pinned Tara one (Readers follow
+    narrator, 2026-11-08), a house voice's EQ is re-derived from its table entry's measured excess and f0 against
+    that target, by the same ``derive``."""
     v = play.get("reader_eq", "house") if isinstance(play, dict) else "house"
+    follow = target is not None and target != targets()
     voices = sorted({k for k in reader_voices(play).values() if k})
     problems, per = [], {}
 
     def house(k):
         rec = table.get(k)
+        if rec and follow and rec.get("excess_db"):
+            eq, _ = derive({int(c): float(x) for c, x in rec["excess_db"].items()}, rec.get("f0_hz"), target)
+            p = eq_problems(f"reader-eq.json {k} re-derived", eq)
+            problems.extend(p)
+            return {"eq": None if p else eq, "how": f"house table, re-derived against {target_name or 'the narrator'}"}
         if rec:
             p = eq_problems(f"reader-eq.json {k}", rec.get("eq"))
             problems.extend(p)

@@ -381,3 +381,54 @@ def test_the_requirements_are_pinned_with_hashes():
     body = [ln for ln in req.splitlines() if not ln.startswith("#")]
     blocks = " ".join(body).split("==")[1:]
     assert len(reqs) == len(blocks) == 13 and all("--hash=sha256:" in b for b in blocks)
+
+
+# --------------------------------------------------------------------------
+# Readers follow narrator (founder ruling 2026-11-08, A38 amended)
+# --------------------------------------------------------------------------
+
+from studio.engine import voicing as VO             # noqa: E402
+
+
+def test_switching_the_narrator_identity_switches_the_readers_reference(tmp_path, monkeypatch):
+    tara, how, problems = VO.reference(TARA)
+    assert tara == VO.targets() and "pinned Tara" in how and not problems          # Orpheus keeps the Tara pin
+    aoede, how, problems = VO.reference(AOEDE)
+    ev = json.loads(R.NARRATOR_PROFILE.read_text(encoding="utf-8"))["eq_evidence"]
+    assert not problems and "kokoro:af_aoede" in how
+    assert aoede == {"warmth_db": ev["warmth_after_db"], "treble_db": {c: ev["treble_after_db"][str(c)]
+                                                                        for c in VO.TREBLE_BANDS}}
+    assert aoede != tara
+    # a later narrator (the founder's own voice) with a stored after-EQ spectrum is followed with no re-pin
+    prof = json.loads(R.NARRATOR_PROFILE.read_text(encoding="utf-8"))
+    founder = {"engine": "kokoro", "voice": "af_heart", "speed": 0.88}
+    prof["variants"].append({"voice": founder, "baseline": prof["baseline"],
+                             "eq_evidence": {"warmth_after_db": 5.0, "treble_after_db": {"5000": 1.0, "6300": 2.0,
+                                                                                         "8000": 3.0}}})
+    f = tmp_path / "narrator-profile.json"
+    f.write_text(json.dumps(prof), encoding="utf-8")
+    monkeypatch.setattr(R, "NARRATOR_PROFILE", f)
+    nxt, how, _ = VO.reference(founder)
+    assert nxt == {"warmth_db": 5.0, "treble_db": {5000: 1.0, 6300: 2.0, 8000: 3.0}} and "af_heart" in how
+    none, _, problems = VO.reference(dict(AOEDE, speed=1.0))                      # a Kokoro narrator with none
+    assert problems and "no stored after-EQ spectrum" in problems[0]
+
+
+def test_a_kokoro_films_readers_derive_against_aoede():
+    table, _ = VO.load_table()
+    play = {"cast": {"voices": [dict(AOEDE, id="v-narrator"), {"id": "v-r", "engine": "kokoro", "voice": "am_eric"}]},
+            "parts": [{"lines": [{"id": "N1", "kind": "narration", "read_by": "v-narrator", "text": "x"},
+                                 {"id": "R1", "kind": "testimony", "read_by": "v-r", "text": "y"}]}]}
+    target, name, _ = VO.reference(R.narrator_voice(play))
+    per, _, problems = VO.setting(play, table, target, name)
+    rec = table["kokoro:am_eric"]
+    want, _ = VO.derive({int(c): v for c, v in rec["excess_db"].items()}, rec["f0_hz"], target)
+    assert not problems and per["kokoro:am_eric"]["eq"] == want != rec["eq"]
+    assert "re-derived against the narrator kokoro:af_aoede" in per["kokoro:am_eric"]["how"]
+    for k, r in table.items():                                                   # every reader inside A38's bounds
+        eq, _ = VO.derive({int(c): v for c, v in r["excess_db"].items()}, r["f0_hz"], target)
+        assert not VO.eq_problems(k, eq)
+    tara_play = json.loads(json.dumps(play))
+    tara_play["cast"]["voices"][0] = dict(TARA, id="v-narrator")
+    t, n, _ = VO.reference(R.narrator_voice(tara_play))
+    assert VO.setting(tara_play, table, t, n)[0]["kokoro:am_eric"] == {"eq": rec["eq"], "how": "house table"}
