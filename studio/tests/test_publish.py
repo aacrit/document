@@ -370,12 +370,27 @@ def test_sources_only_plans_as_its_master_was_rendered(film, rendered, tmp_path,
         return real(*a, **k)
     monkeypatch.setattr(R, "build_plan", spy)
     recorded = R.master_was_draft(out)
-    assert recorded is False                         # the fixture's master is a final render, read from its journal
+    assert recorded is False                         # the fixture's master is a final render, read from its file
     R.sources_only(film, out)
-    R.sources_only(film, out, draft=True)
     monkeypatch.setattr(R, "master_was_draft", lambda o: True)
+    R.sources_only(film, out)                         # a master recorded as a draft plans as one
+    monkeypatch.setattr(R, "master_was_draft", lambda o: None)
+    R.sources_only(film, out, draft=True)             # unreadable: --draft fills in
+    R.sources_only(film, out)                         # unreadable and no flag: final
+    assert seen == [False, True, True, False]
+
+
+def test_sources_only_draft_never_turns_a_final_master_into_a_draft(film, rendered, tmp_path):
+    """Review of PR #96: --draft once overwrote a final master's sources.json with draft: true (the override written,
+    not the master's value), letting a final skip the final-only checks for good. The master's recorded value wins:
+    --draft on a master recorded final is refused, naming the fix, and the file still says final."""
+    out = _copy_render(rendered, tmp_path / "out")
+    assert R.master_was_draft(out) is False
+    with pytest.raises(R.Refused, match="--draft on a final master"):
+        R.sources_only(film, out, draft=True)
+    assert json.loads((out / "sources.json").read_text(encoding="utf-8"))["draft"] is False
     R.sources_only(film, out)
-    assert seen == [False, True, True]
+    assert json.loads((out / "sources.json").read_text(encoding="utf-8"))["draft"] is False
 
 
 def test_sources_only_on_a_draft_master_stays_a_draft_however_often_it_runs(film, rendered, tmp_path):

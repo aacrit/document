@@ -9625,7 +9625,8 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
     rendering a frame. It uses the render's own fitted screenplay when there is one, takes the frame size
     from the master, refuses when the master's frame count differs from the plan's (the master is then
     stale: render again), keeps the previous file's loudness, and records the master's sha256. It plans as the
-    master was rendered: ``draft`` when given, else the master's own run (its journal's run.start), else final."""
+    master was rendered: the master's own draft-ness (master_was_draft), else ``draft`` when given, else final; a
+    ``draft`` that contradicts a master recorded as final is refused."""
     film = Path(film).resolve()
     out = Path(out).resolve() if out else film / "out"
     master = out / "master.mp4"
@@ -9637,8 +9638,14 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
     pr = probe_video(master)
     with journal.unit("scout", "sources-only", size={"driver": "items", "value": 0}) as u:
         # the master exists: its takes were judged by its render; sources.json is rewritten from the screenplay
-        if draft is None:
-            draft = bool(master_was_draft(out))
+        # the master's own draft-ness is the truth: --draft may only fill in what cannot be read (a sources.json
+        # rewritten before the master's draft-ness was recorded), never turn a final master's sources into a draft's
+        recorded = master_was_draft(out)
+        if recorded is False and draft:
+            raise Refused("--draft on a final master: its sources.json records it as rendered final, so its sources are "
+                          "planned as a final (the final-only checks apply). Run --sources-only without --draft, or "
+                          "render the film again with --draft")
+        draft = recorded if recorded is not None else bool(draft)
         plan = build_plan(film, W=pr["width"], H=pr["height"], burn_subtitles=False, journal=journal, play=play,
                           voice_lints="off", draft=draft)
         u.size = {"driver": "items", "value": len(plan["shots"])}
