@@ -404,6 +404,11 @@ LT = dict(                 # lower third (A16: quieter than the G2 kit in size, 
     wash_w=52.0,           # % of W the wash reaches (was 62)
     wash_feather=4.0,      # % of H above the block
     a_flag=0.94, a_name=0.88, a_role=0.74, a_source=0.62, a_rule=0.55,   # text opacity per line (was 1.0; rule 0.85)
+    wash_contrast=4.5,     # WCAG target the wash must clear against its faintest line (founder ruling 2026-11-07, A16)
+    wash_cap=0.70,         # the deepened peak never exceeds this ("Kit form, deeper.", founder ruling 2026-11-07)
+    wash_w_cap=50.0,       # the deepened reach never exceeds this, % of W (same ruling: "capped at 50% of W")
+    wash_pad=2.0,          # % of W past the ink's own measured end before the deepened wash starts to feather out
+    wash_feather_x=10.0,   # % of W over which the deepened wash feathers from its plateau to nothing
 )
 # A16's lower third is on screen for at most its arrival, LT.hold and its departure, whatever the screenplay's end.
 LT_MAX_S = 3 * LT["stagger"] + WHISPER.settle_time() + LT["hold"] + LT["exit"]
@@ -713,6 +718,40 @@ def _shift(layer: Image.Image, dy: float) -> Image.Image:
 
 def _as_rgba(img: Image.Image) -> Image.Image:
     return img.convert("RGBA") if img.mode != "RGBA" else img.copy()
+
+
+# --------------------------------------------------------------------------
+# WCAG contrast (founder ruling 2026-11-07, A16: a lower third's wash adapts
+# to its background). Target: 4.5:1, the ticket's own choice -- WCAG's
+# large-text AA floor is 3:1, but BRAND-KIT 4's lower-third faces run as
+# small as 8.6px at 1080p/PHONE (motion.py LT comments), so the engine holds
+# itself to AA's normal-text ratio instead of the minimum its type size would
+# technically allow. Colours are plain sRGB 0..255 channels throughout.
+# --------------------------------------------------------------------------
+
+
+def _linearize(c) -> np.ndarray:
+    c = np.asarray(c, dtype=np.float64) / 255.0
+    return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+
+
+def relative_luminance(rgb) -> float:
+    """WCAG relative luminance of one sRGB colour (channels 0..255)."""
+    lin = _linearize(np.asarray(rgb, dtype=np.float64)[..., :3])
+    return float(lin[..., 0] * 0.2126 + lin[..., 1] * 0.7152 + lin[..., 2] * 0.0722)
+
+
+def _luminance_map(arr: np.ndarray) -> np.ndarray:
+    """``relative_luminance``, vectorised over an (H, W, 3+) array."""
+    lin = _linearize(arr[..., :3])
+    return lin[..., 0] * 0.2126 + lin[..., 1] * 0.7152 + lin[..., 2] * 0.0722
+
+
+def contrast_ratio(rgb_a, rgb_b) -> float:
+    """WCAG contrast ratio between two sRGB colours: (L_light + .05) / (L_dark + .05)."""
+    la, lb = relative_luminance(rgb_a), relative_luminance(rgb_b)
+    hi, lo = (la, lb) if la >= lb else (lb, la)
+    return (hi + 0.05) / (lo + 0.05)
 
 
 # --------------------------------------------------------------------------
@@ -1326,20 +1365,200 @@ def lower_third_layout(L: Layout, lines, fonts: Fonts, kind: str = "speaker", fl
     return els, top
 
 
-def _wash(L: Layout, top: float, alpha: float) -> Image.Image:
-    """A feathered dark gradient behind the lower third, from the left edge to
-    LT.wash_w, from LT.wash_feather above the block to the bottom of the frame."""
+def _hx(xs: np.ndarray, plateau: float, width: float) -> np.ndarray:
+    """The wash's own left-to-right falloff: 1.0 (full strength) at ``xs``
+    (fractions of W) up to ``plateau`` (percent of W), smoothstepped down to
+    0.0 at ``width`` (percent of W). ``plateau=0.0`` reproduces exactly the
+    kit's original shape (BRAND-KIT 4: a feathered gradient from the left
+    edge, no plateau, no box, no straight edge) -- the same arithmetic in the
+    same order, so a render that never needed a plateau is byte-for-byte
+    itself. A deepened wash holds its plateau to the ink's own measured end
+    (``_ink_plateau_width``), then feathers out exactly the same smoothstepped
+    way: still no box, still no straight edge, just a flatter top to the
+    curve (founder ruling 2026-11-07, "Kit form, deeper.")."""
+    if plateau <= 0.0:
+        r = np.clip(xs / (width / 100.0), 0.0, 1.0)
+    else:
+        span = max(width - plateau, 1e-6)
+        r = np.clip((xs * 100.0 - plateau) / span, 0.0, 1.0)
+    hx = 1.0 - r
+    return hx * hx * (3.0 - 2.0 * hx)
+
+
+def _wash(L: Layout, top: float, alpha: float, *, peak: float = LT["wash"], width: float = LT["wash_w"],
+         plateau: float = 0.0) -> Image.Image:
+    """A feathered dark gradient behind the lower third: ``_hx`` from the
+    left edge (or, deepened, held at full strength to ``plateau``) out to
+    ``width`` (percent of W), from LT.wash_feather above the block to the
+    bottom of the frame. ``peak`` is the wash's own peak alpha (LT.wash by
+    default); ``alpha`` is the caller's arrival/exit progress, already folded
+    in. Passing the defaults (``plateau=0.0``, ``peak=LT.wash``,
+    ``width=LT.wash_w``) reproduces exactly what this function computed
+    before the wash could deepen (A16, founder ruling 2026-11-07): a
+    dark-background render stays byte-identical."""
     xs = np.linspace(0.0, 1.0, L.W, dtype=np.float32)
-    hx = 1.0 - np.clip(xs / (LT["wash_w"] / 100.0), 0.0, 1.0)
-    hx = hx * hx * (3.0 - 2.0 * hx)
+    hx = _hx(xs, plateau, width)
     ys = np.arange(L.H, dtype=np.float32)
     f = L.h(LT["wash_feather"])
     vy = np.clip((ys - (top - f)) / f, 0.0, 1.0)
     vy = vy * vy * (3.0 - 2.0 * vy)
-    a = (vy[:, None] * hx[None, :]) * (255.0 * LT["wash"] * clamp01(alpha))
+    a = (vy[:, None] * hx[None, :]) * (255.0 * peak * clamp01(alpha))
     rgba = np.zeros((L.H, L.W, 4), np.uint8)
     rgba[..., 3] = a.astype(np.uint8)
     return Image.fromarray(rgba)
+
+
+def _line_alpha(kind: str) -> float:
+    return {"flag": LT["a_flag"], "name": LT["a_name"], "role": LT["a_role"],
+            "source": LT["a_source"], "source2": LT["a_source"]}[kind]
+
+
+def _ink_plateau_width(L: Layout, els: list[dict], x0: float) -> tuple[float, float, float]:
+    """Geometry only, no background involved: the plateau a deepened wash
+    holds (the longest drawn line's own ink, LT.x to its measured right edge,
+    plus LT.wash_pad) and the reach it feathers out to by (that plateau plus
+    LT.wash_feather_x), both percent of W -- never past LT.wash_w_cap, the
+    50% ceiling ("Kit form, deeper.", founder ruling 2026-11-07: "Size the
+    boost search to each line's ink extent ... not LT.max_w"). Also returns
+    the real, unclamped ink end, since a very long line's own tail can sit
+    past the plateau once it is clamped (below).
+
+    The plateau is clamped to ``LT.wash_w_cap - LT.wash_feather_x``, never
+    further out, so ``width - plateau`` is always exactly LT.wash_feather_x:
+    a full feather, never a step. Without this, a line long enough to push
+    ``ink_end + LT.wash_feather_x`` past the 50% cap collapsed the feather to
+    a single pixel (``width`` capped while ``plateau`` kept tracking the
+    ink), a hard edge in the middle of a picture -- found on a page bright
+    enough that the step itself read as a visible seam (founder review,
+    2026-11-07)."""
+    ink_w = max((_measure(e["text"], e["font"], e["data_font"])
+                for e in els if e["kind"] != "rule" and str(e.get("text") or "").strip()), default=0.0)
+    ink_end = (x0 + ink_w) / L.W * 100.0 + LT["wash_pad"]
+    width = min(ink_end + LT["wash_feather_x"], LT["wash_w_cap"])
+    plateau = min(ink_end, LT["wash_w_cap"] - LT["wash_feather_x"])
+    return plateau, width, ink_end
+
+
+def _effective_line_alpha(L: Layout, e: dict, x0: float) -> float:
+    """``LT.a_*``'s declared opacity, corrected for what antialiasing at this
+    resolution actually delivers at a glyph's own "solid" pixels (the same
+    threshold ``_line_ink_mask``/``lower_third_contrast`` call its core):
+    thin strokes at a small size dilute even a "fully covered" pixel's real
+    alpha below the declared value. Drawing the line once at its declared
+    alpha and reading its own alpha channel back at the core -- never
+    assuming the declared number holds -- is "the same ink estimate in the
+    boost and the lint" (founder ruling 2026-11-07), so the boost never
+    promises a contrast the lint, measuring the real pixels, will not find."""
+    declared = _line_alpha(e["kind"])
+    raw = np.asarray(_line_ink_mask((L.W, L.H), e, x0))
+    core = raw > 200
+    if not core.any():
+        core = raw > 127
+        if not core.any():
+            return declared
+    layer = Image.new("RGBA", (L.W, L.H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    col = PALETTE["mark_text"]
+    if e["kind"].startswith("source") and "  ·  " in e["text"]:
+        main, suffix = e["text"].split("  ·  ", 1)
+        _draw_mixed(d, (x0, e["baseline"]), main, e["font"], e["data_font"], _rgba(col, declared))
+        xx = x0 + _measure(main, e["font"], e["data_font"])
+        d.text((xx, e["baseline"]), "  ·  ", font=e["font"], fill=_rgba(col, declared * 0.7), anchor="ls")
+        xx += e["font"].getlength("  ·  ")
+        _draw_mixed(d, (xx, e["baseline"]), suffix, e["font"], e["data_font"], _rgba(col, declared * 0.7))
+    else:
+        _draw_mixed(d, (x0, e["baseline"]), e["text"], e["font"], e["data_font"], _rgba(col, declared))
+    eff = float(np.asarray(layer)[..., 3][core].mean()) / 255.0
+    return min(declared, eff) if eff > 0.0 else declared
+
+
+def _bg_p98(box_rgb: np.ndarray) -> np.ndarray:
+    """The p98-bright pixel's own RGB in a background sample: never the
+    single brightest pixel, so a stray hot pixel or an antialiasing fringe
+    does not alone decide the wash (founder ruling 2026-11-07)."""
+    flat = box_rgb.reshape(-1, 3)
+    order = np.argsort(_luminance_map(flat))
+    return flat[order[int(round(0.98 * (len(order) - 1)))]]
+
+
+def lower_third_wash_plan(L: Layout, els: list[dict], samples: list[Image.Image], top: float) -> tuple[float, float, float]:
+    """Founder ruling 2026-11-07 ("Kit form, deeper."): measured once per
+    lower third, over its own span (``samples``, a handful of frames across
+    its settled hold -- never per frame, so the wash never flickers), this
+    sizes the plateau to the ink actually drawn (``_ink_plateau_width``, not
+    LT.max_w) and solves the minimal peak in [LT.wash, LT.wash_cap] (0.36 to
+    0.70, continuous) that clears LT.wash_contrast against the worst
+    background found: each sample's own p98-bright pixel (``_bg_p98``), the
+    brightest of those across the samples.
+
+    Below the threshold -- the kit's own shape (plateau 0, LT.wash_w) at
+    LT.wash already clears the target at the ink's own tail, the worst point
+    under it (``_hx`` is monotone, so the tail is always the worst) -- this
+    returns exactly ``(LT.wash, LT.wash_w, 0.0)``, the same constants, so a
+    dark-background render stays byte-for-byte itself. Above it, if even
+    LT.wash_cap cannot clear the target, this still returns the capped peak
+    and the ink-sized width: the lint is the real backstop, and its own fix
+    is copy (a shorter line), not more wash."""
+    x0 = L.w(LT["x"])
+    ta = min(_effective_line_alpha(L, e, x0) for e in els if e["kind"] != "rule")
+    text_rgb = np.asarray(PALETTE["mark_text"], dtype=np.float64)
+    target = LT["wash_contrast"] * 1.20
+    plateau, width, ink_end = _ink_plateau_width(L, els, x0)
+    bx0 = max(0, int(round(x0)))
+    bx1 = min(L.W, int(round(L.w(min(ink_end, 100.0)))) + 1)   # the real ink's own reach, which may sit past
+                                                               # the (clamped) plateau for a very long line
+    y0 = max(0, int(round(top)))
+    y1 = min(L.H, int(round(L.h(LT["bottom"]))) + 1)
+    if bx1 <= bx0 or y1 <= y0 or not samples:
+        return LT["wash"], LT["wash_w"], 0.0
+    p98s = []
+    for img in samples:
+        box = np.asarray(_as_rgba(img).crop((bx0, y0, bx1, y1)).convert("RGB"), dtype=np.float64)
+        if box.size:
+            p98s.append(_bg_p98(box))
+    if not p98s:
+        return LT["wash"], LT["wash_w"], 0.0
+    bg_rgb = max(p98s, key=relative_luminance)
+
+    ink_tail_frac = ink_end / 100.0     # where the ink itself actually ends (real, unclamped); _hx is monotone
+                                        # in x, so this is always the worst point under any line's ink
+
+    def contrast_at_hx(peak: float, hx_tail: float) -> float:
+        washed = bg_rgb * (1.0 - hx_tail * peak)
+        blended = washed * (1.0 - ta) + text_rgb * ta
+        return contrast_ratio(blended, washed)
+
+    old_hx_tail = float(_hx(np.array([ink_tail_frac]), 0.0, LT["wash_w"])[0])
+    if contrast_at_hx(LT["wash"], old_hx_tail) >= target:
+        return LT["wash"], LT["wash_w"], 0.0
+    # the ink's real tail may now sit past the (clamped) plateau, inside the feather itself, for a very long
+    # line (the plateau clamp above): evaluate the candidate (peak, width) at the real hx there, never assuming
+    # hx == 1, so the plan never promises more than its own shape actually delivers at the worst point under the ink
+    new_hx_tail = float(_hx(np.array([ink_tail_frac]), plateau, width)[0])
+
+    def contrast_at(peak: float) -> float:
+        return contrast_at_hx(peak, new_hx_tail)
+
+    if contrast_at(LT["wash_cap"]) < target:
+        return LT["wash_cap"], width, plateau
+    lo, hi = LT["wash"], LT["wash_cap"]
+    for _ in range(24):
+        mid = (lo + hi) / 2.0
+        if contrast_at(mid) >= target:
+            hi = mid
+        else:
+            lo = mid
+    return hi, width, plateau
+
+
+def _wash_boost(L: Layout, base: Image.Image, top: float, els: list[dict]) -> tuple[float, float, float]:
+    """``lower_third_wash_plan`` from a single already-composited frame: the
+    simple case (a caller with no multi-frame plan of its own, a direct
+    unit test). The real pipeline measures several frames across a lower
+    third's span once (``studio/engine/render.py``'s ``Pictures.wash_plan``)
+    and passes the result into ``lower_third_frame`` directly, so it is
+    never recomputed per frame."""
+    return lower_third_wash_plan(L, els, [base], top)
 
 
 def lower_third_span(start: float, end: float) -> tuple[float, float]:
@@ -1350,11 +1569,17 @@ def lower_third_span(start: float, end: float) -> tuple[float, float]:
 
 
 def lower_third_frame(img: Image.Image, t: float, *, start: float, end: float, lines, fonts: Fonts,
-                      kind: str = "speaker", flag: str | None = None) -> Image.Image:
+                      kind: str = "speaker", flag: str | None = None,
+                      wash: tuple[float, float, float] | None = None) -> Image.Image:
     """Draw a lower third at time t. ``lines`` are GRAMMAR 9's lines: for a
     speaker [name, "role, year", "source, archive  ·  read by a computer voice"];
     for a place [place, date]. ``flag`` is the partisan-source eyebrow
-    ("Account of the Government of West Punjab, 1948").
+    ("Account of the Government of West Punjab, 1948"). ``wash`` is the
+    (peak, width, plateau) a caller already measured once for this lower
+    third's whole span (``lower_third_wash_plan``); when it is ``None`` this
+    measures the one frame it was given (``_wash_boost``), which is fine for
+    a direct call or a test but never what the render pipeline should rely
+    on for a lower third held over several frames (it would flicker).
 
     A16, quieter than the G2 kit: smaller type, each line at its own opacity
     (LT.a_*), a lighter wash and a shorter, fainter rule. In: the flag and the
@@ -1373,7 +1598,9 @@ def lower_third_frame(img: Image.Image, t: float, *, start: float, end: float, l
     exit_k = let_go(t, end, LT["exit"])
     layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
     rule_p = STAMP.progress(t - start)
-    out = Image.alpha_composite(base, _wash(L, top, clamp01(WHISPER.progress(t - start)) * exit_k))
+    wash_peak, wash_w, wash_plateau = wash if wash is not None else _wash_boost(L, base, top, els)
+    out = Image.alpha_composite(base, _wash(L, top, clamp01(WHISPER.progress(t - start)) * exit_k,
+                                            peak=wash_peak, width=wash_w, plateau=wash_plateau))
     d = ImageDraw.Draw(layer)
     for e in els:
         t0 = start + e["order"] * LT["stagger"]
@@ -1405,6 +1632,89 @@ def lower_third_frame(img: Image.Image, t: float, *, start: float, end: float, l
             _draw_mixed(sd, (x0, e["baseline"]), e["text"], e["font"], e["data_font"], _rgba(col, a))
         layer.alpha_composite(_shift(sub, dy))
     return Image.alpha_composite(out, layer)
+
+
+def _line_ink_mask(size: tuple[int, int], e: dict, x0: float) -> Image.Image:
+    """A solid ("L" mode, 255 where a glyph lands) mask for one lower-third
+    line, drawn at the same position and font ``lower_third_frame`` uses for
+    it, opaque and colourless: used only to find where a line's own pixels
+    sit in an already-rendered frame (``lower_third_contrast``), never to
+    draw the film itself. Mirrors that function's per-line branch exactly
+    (the source line's mid dot is drawn too, so it never reads as part of
+    either neighbour's ink)."""
+    layer = Image.new("L", size, 0)
+    d = ImageDraw.Draw(layer)
+    if e["kind"].startswith("source") and "  ·  " in e["text"]:
+        main, suffix = e["text"].split("  ·  ", 1)
+        _draw_mixed(d, (x0, e["baseline"]), main, e["font"], e["data_font"], 255)
+        xx = x0 + _measure(main, e["font"], e["data_font"])
+        d.text((xx, e["baseline"]), "  ·  ", font=e["font"], fill=255, anchor="ls")
+        xx += e["font"].getlength("  ·  ")
+        _draw_mixed(d, (xx, e["baseline"]), suffix, e["font"], e["data_font"], 255)
+    else:
+        _draw_mixed(d, (x0, e["baseline"]), e["text"], e["font"], e["data_font"], 255)
+    return layer
+
+
+def lower_third_contrast(frame: np.ndarray, L: Layout, lines, fonts: Fonts, *,
+                         kind: str = "speaker", flag: str | None = None) -> dict:
+    """The ``lower-third-contrast`` lint (founder ruling 2026-11-07, A16).
+
+    Reads an already-rendered frame directly -- not the wash's own math, so a
+    real regression (a bug in ``lower_third_wash_plan``, a palette change,
+    anything) is still caught -- and measures it locally, per the founder's
+    "Kit form, deeper." rework: a line's ink core is found from
+    ``_line_ink_mask`` (a stricter threshold, a glyph's solid interior, not
+    its antialiased fringe -- robust down to a small render's tiny lower-
+    third type), the background is the dilated ink mask *minus* the ink
+    itself (a local halo right around the glyphs, never the whole box), and
+    the contrast is taken in a sliding window along the line's own measured
+    extent; the minimum window along it is what counts, since a line can
+    fail only at its tail (A16's own example) while its mean looks fine.
+
+    Returns ``{"lines": [...], "worst": <min contrast or None>, "target":
+    LT.wash_contrast, "ok": worst is None or worst >= target}``. ``t`` should
+    be a moment in the lower third's hold (after every line has arrived,
+    before any has begun to leave): mid-arrival or mid-exit opacity is not
+    what the wash was shaped for."""
+    from PIL import ImageFilter
+    x0 = L.w(LT["x"])
+    els, _ = lower_third_layout(L, lines, fonts, kind, flag)
+    H, W = frame.shape[0], frame.shape[1]
+    out = []
+    for e in els:
+        if e["kind"] == "rule" or not str(e.get("text") or "").strip():
+            continue
+        raw = np.asarray(_line_ink_mask((W, H), e, x0))
+        fringe = raw > 127                     # anything even partly inked -- kept out of the background sample
+        core = raw > 200                       # a glyph's solid interior, not its antialiased fringe
+        if not core.any():
+            core = fringe                      # a very small font may have no fully-opaque pixel at all: fall back
+            if not core.any():
+                continue
+        ys, xs = np.where(core)
+        y0, y1 = max(0, int(ys.min()) - 2), min(H, int(ys.max()) + 3)
+        xs_min, xs_max = int(xs.min()), int(xs.max())
+        row_core, row_fringe = core[y0:y1], fringe[y0:y1]
+        dil = np.asarray(Image.fromarray((row_fringe.astype(np.uint8) * 255)).filter(ImageFilter.MaxFilter(13))) > 127
+        bg_ring = dil & ~row_fringe             # the dilated ink mask minus the ink itself (fringe included): a
+                                                # local halo clear of any antialiased glyph edge, not a box
+        win = max(6, (xs_max - xs_min + 1) // 6)
+        worst_c = None
+        for cx in range(xs_min, xs_max + 1, max(1, win // 2)):
+            wx0, wx1 = max(0, cx - win), min(W, cx + win + 1)
+            ink_px = frame[y0:y1, wx0:wx1][row_core[:, wx0:wx1]]
+            bg_px = frame[y0:y1, wx0:wx1][bg_ring[:, wx0:wx1]]
+            if ink_px.size == 0 or bg_px.size == 0:
+                continue
+            c = contrast_ratio(ink_px[:, :3].astype(np.float64).mean(axis=0),
+                               bg_px[:, :3].astype(np.float64).mean(axis=0))
+            worst_c = c if worst_c is None else min(worst_c, c)
+        if worst_c is not None:
+            out.append({"kind": e["kind"], "contrast": worst_c})
+    worst = min((x["contrast"] for x in out), default=None)
+    return {"lines": out, "worst": worst, "target": LT["wash_contrast"],
+            "ok": worst is None or worst >= LT["wash_contrast"]}
 
 
 OVERLAY = dict(right=4.0, bottom=92.0, size=2.8, wash=0.5, wash_w=40.0, feather=4.0, rise=0.8, exit=0.5,

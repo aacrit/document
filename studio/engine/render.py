@@ -3613,6 +3613,8 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                 why += (f" (refused by {', '.join(outside)} outside this check span; the plan judges every take in "
                         "the film)")
         raise Refused(why)
+    if write_overlays:        # a preview tool's plan (sheets.py), never a render's, renders no frame to wash
+        _plan_lower_third_washes(plan)
     return plan
 
 
@@ -4393,9 +4395,13 @@ def picture_level(plan: dict, f: int, i: int) -> float:
     return level
 
 
-def compose(plan: dict, pics: Pictures, f: int, i: int, probe: dict | None = None) -> Image.Image:
-    """Frame f (owned by shot i): picture with its transition, then the lower
-    thirds, burned subtitles, watermark and the provenance mark (A16)."""
+def _shot_picture(plan: dict, pics: Pictures, f: int, i: int) -> Image.Image:
+    """Shot i's own picture at frame f: its transition and dip level, before
+    any title early-return, lower third, overlay, subtitle or watermark.
+    RGB mode (black for a dip's hold). Shared by ``compose`` and
+    ``Pictures.wash_plan`` (a handful of frames sampled once per lower third,
+    never per frame -- founder ruling 2026-11-07, "measure once... so it
+    never flickers")."""
     shots, fps = plan["shots"], plan["fps"]
     t = f / fps
     s = shots[i]
@@ -4413,6 +4419,61 @@ def compose(plan: dict, pics: Pictures, f: int, i: int, probe: dict | None = Non
     if level < 1.0:
         arr = np.asarray(img, dtype=np.float32) * level
         img = Image.fromarray(arr.astype(np.uint8))
+    return img
+
+
+def _plan_lower_third_washes(plan: dict) -> None:
+    """Founder ruling 2026-11-07 ("Kit form, deeper."): a lower third's
+    (peak, width, plateau) is planned once, here, at plan time, never once
+    per rendered shot. A lower third spanning a cut (the fixture's T1 spans
+    S4 and S5) samples a handful of frames from *every* shot its settled
+    hold touches, clamped to each shot's own range, and plans from all of
+    them together, so it comes out the same whatever order the segments
+    render or cache in -- unlike planning it once per shot, which would
+    give a cut lower third one wash in the first shot and a different one
+    in the second, a visible jump at the cut. Stores the result directly on
+    each lower third's own dict (``lt["wash"]``); ``compose`` just reads
+    it, so a plan this function never touched (a hand-built test fixture
+    with no lower thirds, or none of this ruling's doing) still works:
+    ``lt.get("wash")`` is ``None`` and ``lower_third_frame`` measures its
+    one given frame instead."""
+    lts = plan["lower_thirds"]
+    if not lts:
+        return
+    fps = plan["fps"]
+    pics = Pictures(plan)
+    try:
+        for lt in lts:
+            els, top = M.lower_third_layout(pics.L, lt["lines"], pics.fonts, lt["kind"], lt["flag"])
+            settled = lt["start"] + (M.LT_MAX_S - M.LT["hold"] - M.LT["exit"])
+            leaving = lt["end"] - M.LT["exit"]
+            t0, t1 = settled, min(lt["end"], leaving)
+            samples: list[Image.Image] = []
+            if t1 >= t0:
+                for i, s in enumerate(plan["shots"]):
+                    lo, hi = max(t0, s["f0"] / fps), min(t1, (s["f1"] - 1) / fps)
+                    if hi < lo:
+                        continue
+                    n = 3
+                    for k in range(n):
+                        tt = lo if n == 1 else lo + (hi - lo) * k / (n - 1)
+                        f2 = max(s["f0"], min(s["f1"] - 1, int(round(tt * fps))))
+                        samples.append(_shot_picture(plan, pics, f2, i))
+            lt["wash"] = M.lower_third_wash_plan(pics.L, els, samples, top)
+    finally:
+        pics.close()
+
+
+def compose(plan: dict, pics: Pictures, f: int, i: int, probe: dict | None = None) -> Image.Image:
+    """Frame f (owned by shot i): picture with its transition, then the lower
+    thirds, burned subtitles, watermark and the provenance mark (A16)."""
+    shots, fps = plan["shots"], plan["fps"]
+    t = f / fps
+    s = shots[i]
+    img = _shot_picture(plan, pics, f, i)
+    if picture_level(plan, f, i) <= 0.0:
+        return img                          # a dip's black hold: every pixel off, overlays included (A11); nothing
+                                            # past this point ever draws on it, mark and lower third included
     title = s.get("_title")
     if title is not None and (title["burned"] or TS.source_frame(f - s["f0"], fps, title["fps"], title.get("frames")) in title["holds"]):
         return img.convert("RGB")           # A40: the master carries its own marks, watermark and lockup: nothing over it
@@ -4421,8 +4482,10 @@ def compose(plan: dict, pics: Pictures, f: int, i: int, probe: dict | None = Non
     lt_top = None
     for lt in plan["lower_thirds"]:
         if lt["start"] <= t < lt["end"]:
+            # planned once, at plan time, from every shot its span touches (founder ruling 2026-11-07): the same
+            # wash in every segment whatever order they render or cache in, never recomputed per frame or per shot
             rgba = M.lower_third_frame(rgba, t, start=lt["start"], end=lt["end"], lines=lt["lines"], fonts=pics.fonts,
-                                       kind=lt["kind"], flag=lt["flag"])
+                                       kind=lt["kind"], flag=lt["flag"], wash=lt.get("wash"))
             lt_top = M.lower_third_top(pics.L, lt["lines"], pics.fonts, kind=lt["kind"], flag=lt["flag"])
     for o in plan["overlays"]:
         if o["start"] <= t < o["end"]:
@@ -4585,6 +4648,16 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
     title = s.get("_title")
     first_whole, first_detail = None, None
     ms = []
+    # The lower-third-contrast lint (founder ruling 2026-11-07, A16): each lower
+    # third is sampled once, at the first frame of its own shot (if any) that
+    # falls in its settled hold -- after every line has arrived, before any
+    # has begun to leave, which is where the wash was shaped to hold the
+    # target (``lower_third_wash_plan``) -- never mid-arrival or mid-exit, when
+    # a line's own opacity is still rising or falling, and never a frame the
+    # picture itself alters: a dip's hold or its brightness ramp
+    # (``picture_level`` under 1.0), or a dissolve's own transition_in.
+    lt_contrast: dict[str, dict] = {}
+    lt_sampled: set[str] = set()
     try:
         for f in range(s["f0"], s["f1"]):
             ft = time.perf_counter()
@@ -4598,6 +4671,20 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
                     res = "dip" if not arr.any() else "fade"     # the next shot's own dip, laid over the master's black
             else:
                 res = check_mark(plan, arr, f, i, probe.get("bare_corner"))
+                tr = s["transition_in"]
+                in_dissolve = tr.get("type") == "dissolve" and i > 0 and (f - s["f0"]) / plan["fps"] < float(tr["s"])
+                if picture_level(plan, f, i) >= 1.0 and not in_dissolve:   # a dip's hold, its ramp, or a dissolve
+                                                                           # into the shot all alter the picture
+                    t = f / plan["fps"]
+                    for lt in plan["lower_thirds"]:
+                        if lt["id"] in lt_sampled:
+                            continue
+                        settled = lt["start"] + (M.LT_MAX_S - M.LT["hold"] - M.LT["exit"])
+                        leaving = lt["end"] - M.LT["exit"]
+                        if settled <= t < min(lt["end"], leaving):
+                            lt_contrast[lt["id"]] = M.lower_third_contrast(arr, pics.L, lt["lines"], pics.fonts,
+                                                                           kind=lt["kind"], flag=lt["flag"])
+                            lt_sampled.add(lt["id"])
             stats[res] += 1
             if res in ("ok", "fade") and title is None:   # A16: which of the two carried the provenance on this frame
                 st = M.mark_state(f / plan["fps"], plan["marks"])
@@ -4640,7 +4727,8 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
         err.close()
     result = {"shot": s["id"], "frames": frames, "wall_s": time.perf_counter() - t_start,
               "ms_mean": round(sum(ms) / len(ms), 2) if ms else None, "mark": stats, "first_frame_whole": first_whole,
-              "first_frame_detail": first_detail, "held_frames": held_by.get(s["id"], 0), "held_by_shot": held_by}
+              "first_frame_detail": first_detail, "held_frames": held_by.get(s["id"], 0), "held_by_shot": held_by,
+              "lower_third_contrast": lt_contrast}
     seg.with_name(seg.name + ".json").write_text(json.dumps(result), encoding="utf-8")
     return result
 
@@ -4658,6 +4746,21 @@ def held_totals(results: dict[int, dict], ids: list[str]) -> dict[str, int]:
             if k:
                 out[sid] = out.get(sid, 0) + int(k)
     return out
+
+
+def merge_lower_third_contrast(results: dict[int, dict]) -> dict[str, dict]:
+    """A lower third that spans a cut is sampled independently in each shot
+    it touches; merged here by the minimum ``worst`` per id, walked in a
+    fixed shot order (``sorted(results)``), so the result never depends on
+    cache state or the (nondeterministic, parallel) order segments finish
+    in (founder ruling 2026-11-07)."""
+    merged: dict[str, dict] = {}
+    for i in sorted(results):
+        for lt_id, v in (results[i].get("lower_third_contrast") or {}).items():
+            prev = merged.get(lt_id)
+            if prev is None or (v["worst"] is not None and (prev["worst"] is None or v["worst"] < prev["worst"])):
+                merged[lt_id] = v
+    return merged
 
 
 def still_first_frame_whole(plan: dict, pics: Pictures, i: int, detail: dict | None = None) -> bool:
@@ -9476,6 +9579,30 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
             ev = dict(r.get("first_frame_detail") or {}, enters_by=plan["shots"][i]["transition_in"].get("type"))
             journal.lint("still-first-frame-whole-pixels", bool(r["first_frame_whole"]), stage="marks", unit=ids[i], grammar="A7",
                          phase="post-render", evidence=ev, status="inconclusive" if ev.get("verdict") == "inconclusive" else None)
+        # A16 (founder ruling 2026-11-07): the lower-third-contrast lint, read from the frames actually rendered.
+        lt_checked = merge_lower_third_contrast(results)
+        lt_fail = {k: v for k, v in lt_checked.items() if not v["ok"]}
+        lt_unchecked = [lt["id"] for lt in plan["lower_thirds"] if lt["id"] not in lt_checked]
+        # a full render (not a --until/--shots check, which never reaches the whole film by design) that left a
+        # lower third unsampled cannot claim a clean pass, so it stays inconclusive, not a false pass
+        lt_status = "inconclusive" if (lt_unchecked and not lt_fail and not check) else None
+        journal.lint("lower-third-contrast", not lt_fail, stage="marks", grammar="9, A16", phase="post-render",
+                     evidence={"target": M.LT["wash_contrast"], "checked": list(lt_checked),
+                               "unchecked": lt_unchecked, "failed": lt_fail}, status=lt_status)
+        if lt_fail:
+            # by cause: the wash already spent everything it is allowed (ink reaches past the plateau, or the
+            # 0.70 cap itself could not clear the target) asks for shorter copy; anything else failing despite
+            # room left in the wash is unexpected, and asks for a second look, not more wash either way
+            washes = {lt["id"]: lt.get("wash") for lt in plan["lower_thirds"]}
+            at_cap = sorted(k for k in lt_fail if (washes.get(k) or (0.0,))[0] >= M.LT["wash_cap"] - 1e-6)
+            other = sorted(k for k in lt_fail if k not in at_cap)
+            parts = []
+            if at_cap:
+                parts.append(f"{', '.join(at_cap)}: ink past the plateau or the 0.70 cap; shorten the line "
+                             "(the fix is copy, not more wash)")
+            if other:
+                parts.append(f"{', '.join(other)}: choose a different frame, or ask the founder to amend the kit")
+            raise Refused(f"lower-third-contrast failed (GRAMMAR 9, A16) -- " + "; ".join(parts))
         doc = sources_doc(plan, journal, {})
         voiced = {"narration": 0.0, "reading": 0.0, "archival": 0.0}
         for ln in placed["lines"]:
