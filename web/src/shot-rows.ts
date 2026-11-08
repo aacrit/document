@@ -1,7 +1,7 @@
 // A shot's provenance rows on the Sources page: archive, author, item, licence, data, credit and treatment. CC BY
 // asks for the title, the author, the source and the licence; every one of them is here. Values from sources.json
 // are set as DOM text or as links checked by safeUrl, never as markup (tests/shot-rows.test.ts).
-import { entryWhat, itemLinkLabel, safeUrl, shotTreatment, type Footage, type Shot, type TitleInput } from "./film-data";
+import { entryWhat, itemLinkLabel, kindLabel, safeUrl, shotTreatment, type Footage, type Shot, type TitleInput } from "./film-data";
 import { dataSourcesNode, el, numerals, withDeeds } from "./site";
 
 const same = (a: string, b: string): boolean => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -42,8 +42,11 @@ export function licenceNode(licence: string): Node {
 }
 
 /** The series titles' inputs, one line each: the title (linked to its https page), whom it is by, its licence. */
-export function titleInputsNode(inputs: TitleInput[] | undefined): Node | null {
+export function titleInputsNode(inputs: TitleInput[] | undefined, byKind = false): Node | null {
   if (!inputs?.length) return null;
+  // ruling 18: the "Drawn from" row says what each input is (a period record, a museum-object scan, a studio
+  // texture); a sources.json made before it states no kind and prints as before
+  const labelled = byKind && inputs.every((x) => kindLabel(x.kind));
   return el(
     "ul",
     { class: "title-inputs" },
@@ -51,6 +54,7 @@ export function titleInputsNode(inputs: TitleInput[] | undefined): Node | null {
       el(
         "li",
         {},
+        labelled ? `${kindLabel(x.kind)}: ` : "",
         x.url ? el("a", { class: "source", href: x.url, rel: "noopener noreferrer" }, numerals(x.title)) : numerals(x.title),
         x.by ? ", by " : "",
         x.by ? numerals(x.by) : "",
@@ -73,7 +77,7 @@ export function sourceRows(shot: Shot, footage: Footage): [string, Node | string
     ["Licence", shot.licence ? withDeeds(shot.licence) : null],
     ["Data", shot.data_sources.length ? dataSourcesNode(shot.data_sources) : null],
     ["Credit", creditNode(shot.credit)],
-    ["Drawn from", titleInputsNode(shot.title_records)],
+    ["Drawn from", titleInputsNode(shot.title_records, true)],
     ["Sound", titleInputsNode(shot.title_sound)],
     ["Treatment", shotTreatment(shot)],
   ];

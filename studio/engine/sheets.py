@@ -570,8 +570,10 @@ def plan_stills(film: Path, journal: J.Journal, *, skip_sound_lints: bool = Fals
         # the same rule as the bounds/spans caches above
         # voice_lints off: the takes' sound lints (render.take_lints) neither measure nor write their cache here; a
         # picture preview stays fast and says so in its journal
+        # draft: a preview is never a final render (ruling 19's drop refusal and the other final-only checks wait for
+        # the render itself)
         return R.build_plan(film, W=W, H=H, burn_subtitles=False, journal=journal, play=play, write_overlays=False,
-                            voice_lints="off")
+                            voice_lints="off", draft=True)
 
 
 def plan_sha(film: Path) -> str:

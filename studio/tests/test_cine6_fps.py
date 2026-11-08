@@ -518,9 +518,9 @@ def _titled_ntsc(tmp_path, ntsc_titles, item):
     return A.titled_film(tmp_path, ntsc_titles, item=item, edit=lambda p: p.pop("settings", None))
 
 
-def _title_plan(film):
+def _title_plan(film, draft=False):
     import test_a40_title_sequence as A
-    plan, j = A.plan_of(film)
+    plan, j = A.plan_of(film, draft=draft)
     assert not isinstance(plan, R.Refused), plan
     for rule in A.RULES:
         if rule not in ("title-audio-slot",):
@@ -557,6 +557,7 @@ def test_a44_a_title_whose_own_rate_is_the_films_plays_1_to_1(tmp_path, ntsc_tit
 
 
 def test_a44_a_24_only_title_in_a_29_97_film_is_conformed_and_declared(tmp_path, ntsc_titles):
+    # a final render: a repeat conform (a 24 master in a 29.97 film) is declared and allowed (BRAND-KIT 17)
     plan, j, s = _title_plan(_titled_ntsc(tmp_path, ntsc_titles, None))
     assert s["_item"]["file"] == "burned.mkv" and s["_title"]["fps"] == 24
     cad = lints(j, "cadence")[0]["evidence"]
@@ -660,3 +661,53 @@ def test_a44_a_shots_span_masters_at_30000_1001_with_its_sound_cut_to_the_sample
     cut, _ = sf.read(str(work / "mix-shots-S5-S6.wav"), dtype="float32", always_2d=False)
     full, _ = sf.read(str(work / "mix-norm.wav"), dtype="float32", always_2d=False)
     assert len(cut) == n1 - n0 and np.array_equal(cut, full[n0:n1])
+
+
+def _ntsc_own(ntsc_titles, **over):
+    """The 29.97 test master as the item's own file (a 24 fps film then drops its frames)."""
+    return dict(ntsc_titles["alt"], fps="30000/1001", **over)
+
+
+def test_ruling_19_a_29_97_master_in_a_24_film_fails_as_a_final_and_passes_as_a_draft(tmp_path, ntsc_titles):
+    """Ruling 19 (2026-11-07, BRAND-KIT 15/17; CoS: drop only): a final render never drops the series titles' frames.
+    A 29.97-only title in a 24 fps film is a drop conform: title-format refuses the final, naming the fix; the same
+    film plans as a draft, the drop declared."""
+    import test_a40_title_sequence as A
+    film = A.titled_film(tmp_path, ntsc_titles, master="ntsc", item=_ntsc_own(ntsc_titles))
+    plan, j = A.plan_of(film)
+    assert isinstance(plan, R.Refused) and "title-format" in str(plan)
+    fmt = A.lints(j, "title-format")[0]
+    assert fmt["status"] == "fail" and fmt["evidence"]["no_master_at_film_rate"]["method"] == "drop"
+    assert fmt["evidence"]["no_master_at_film_rate"]["film_fps"] == 24.0
+    assert "declare one in the item's masters" in fmt["evidence"]["fix"]
+    plan, j = A.plan_of(film, draft=True)
+    assert not isinstance(plan, R.Refused), plan
+    assert A.passed(j, "title-format")
+    conf = [c for c in lints(j, "cadence")[0]["evidence"]["conformed"] if c.get("shot") == "TS1"]
+    assert len(conf) == 1 and conf[0]["method"] == "drop"
+
+
+def test_ruling_19_a_masters_24_alternate_plays_in_a_final_24_film(tmp_path, ntsc_titles):
+    """The item's own file is 29.97 and it declares its 24 fps master in ``masters``: a final 24 fps film plays the
+    alternate 1:1, with no conform."""
+    import test_a40_title_sequence as A
+    alt24 = {"file": "burned.mkv", "frames": A.N, "marks": A.TL, "dip": A.DIP, "record_frames": [40, 50],
+             "lockup_frame": 84}
+    film = A.titled_film(tmp_path, ntsc_titles, master="ntsc", item=_ntsc_own(ntsc_titles, masters={"24": alt24}))
+    plan, j = A.plan_of(film)
+    assert not isinstance(plan, R.Refused), plan
+    assert plan["fps"] == 24 and A.passed(j, "title-format")
+    cad = lints(j, "cadence")[0]["evidence"]
+    assert cad["titles"][0]["how"] == "alternate" and not [c for c in cad["conformed"] if c.get("shot") == "TS1"]
+    s = next(x for x in plan["shots"] if x["id"] == "TS1")
+    assert s["_item"]["file"] == "burned.mkv"
+
+
+def test_ruling_19_a_masters_entry_with_no_file_is_named_in_the_fix(tmp_path, ntsc_titles):
+    import test_a40_title_sequence as A
+    film = A.titled_film(tmp_path, ntsc_titles, master="ntsc",
+                         item=_ntsc_own(ntsc_titles, masters={"24": {"frames": A.N}}))
+    plan, j = A.plan_of(film)
+    assert isinstance(plan, R.Refused)
+    fmt = A.lints(j, "title-format")[0]
+    assert fmt["status"] == "fail" and "masters['24'] names no file" in fmt["evidence"]["fix"]

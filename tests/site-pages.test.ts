@@ -49,7 +49,9 @@ describe("the public pages", () => {
   });
 
   it("carry no studio language, on the page or in what the scripts write", () => {
-    const banned = /\b(render(?:ed|ing|s)?|pipeline|studio|Director's Lens|ledger|pending|slot|cleared|read-by|refrain|end frame|screenplay|engine)\b/i;
+    // "studio texture(s)" is the founder's own public credit wording for the series titles' inputs (ruling 18,
+    // 2026-11-07: "with six museum-object scans and four studio textures (CC0)"), the one use of the word allowed
+    const banned = /\b(render(?:ed|ing|s)?|pipeline|studio(?! textures?\b)|Director's Lens|ledger|pending|slot|cleared|read-by|refrain|end frame|screenplay|engine)\b/i;
     for (const page of pages) expect(visible(read(page)), page).not.toMatch(banned);
     for (const page of pages) expect(read(page), page).not.toMatch(/href="\/studio/);
     for (const f of clientScripts) expect(stringLiterals(read(`web/src/${f}`)), f).not.toMatch(banned);

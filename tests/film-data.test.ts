@@ -18,6 +18,8 @@ import {
   chapterAt,
   chapters,
   computeBalance,
+  creditByKind,
+  parseTitleInputs,
   formatTime,
   itemLinkLabel,
   lowerThirdAt,
@@ -288,6 +290,35 @@ describe("words: sources, flags, the transcript, the record's silences", () => {
     const titles = { ...clip, kind: "title_sequence", start_s: 20, end_s: 77, mark: { class: "DRAWN", detail: "from period records" }, alterations: [] };
     expect(shotWhat(titles, new Map())).toBe("The series titles, drawn from period records, 57 s");
     expect(shotTreatment(titles)).toMatch(/^A model built from scans of period records/);
+  });
+
+  it("words the series titles by kind, as the engine's credit (ruling 18), from sources.json's credit_kind", () => {
+    const clip = film.shots.find((s) => s.id === "S05")!;
+    const rec = (i: number, kind: string, licence = "CC0") => ({ title: `T${i}`, by: null, archive: null, licence, url: null, kind });
+    const inputs = [
+      ...Array.from({ length: 14 }, (_, i) => rec(i, "period record", "public domain")),
+      ...Array.from({ length: 6 }, (_, i) => rec(20 + i, "museum-object scan")),
+      ...Array.from({ length: 4 }, (_, i) => rec(30 + i, "studio texture", "CC0 1.0")),
+    ];
+    const titles = { ...clip, kind: "title_sequence", start_s: 20, end_s: 62, mark: { class: "DRAWN", detail: "from period records" }, alterations: [], title_records: inputs };
+    expect(creditByKind(inputs)).toBe("drawn from 14 period records, with six museum-object scans and four studio textures (CC0), no AI");
+    expect(shotWhat(titles, new Map())).toBe(
+      "The series titles, drawn from 14 period records, with six museum-object scans and four studio textures (CC0), no AI, 42 s");
+    expect(shotTreatment(titles)).toBe(
+      "A model drawn from 14 period records, with six museum-object scans and four studio textures (CC0), then this film's own record, shown whole. No AI.");
+    // under ten in words, the records clause dropped when there is none, no "(CC0)" when a scan is CC BY
+    expect(creditByKind([rec(1, "period record"), rec(2, "museum-object scan", "CC BY 4.0")])).toBe("drawn from one period record, with one museum-object scan, no AI");
+    expect(creditByKind([rec(1, "studio texture"), rec(2, "studio texture")])).toBe("drawn from two studio textures (CC0), no AI");
+    // The Run (founder, 2026-11-07): photographs of museum objects, drawn from beside the records
+    const run = [...Array.from({ length: 15 }, (_, i) => rec(i, "period record", "public domain")), ...Array.from({ length: 6 }, (_, i) => rec(50 + i, "museum object", "public domain"))];
+    expect(creditByKind(run)).toBe("drawn from 15 period records and six museum objects, no AI");
+    expect(creditByKind([rec(1, "period record"), rec(2, "museum object"), rec(3, "museum-object scan"), rec(4, "studio texture")])).toBe(
+      "drawn from one period record and one museum object, with one museum-object scan and one studio texture (CC0), no AI");
+    expect(creditByKind([rec(1, "museum object"), rec(2, "museum object")])).toBe("drawn from two museum objects, no AI");
+    // a sources.json made before ruling 18 (no kinds) keeps the old words
+    expect(creditByKind([rec(1, "")].map((x) => ({ ...x, kind: null })))).toBe(null);
+    expect(parseTitleInputs([{ title: "A globe", holder: "A museum", licence: "CC0", credit_kind: "museum-object scan" }], "record")[0].kind).toBe("museum-object scan");
+    expect(parseTitleInputs([{ title: "A sound", licence: "CC0", credit_kind: "period record" }], "sound")[0].kind).toBe(null);
   });
 });
 

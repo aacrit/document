@@ -72,6 +72,51 @@ def is_title(shot: dict) -> bool:
     return shot.get("kind") == KIND
 
 
+# Ruling 18 (2026-11-07): what each input is. "museum object" (founder, 2026-11-07, The Run): a photograph of a
+# museum object, not a 3D scan of one ("museum-object scan").
+CREDIT_KINDS = ("period record", "museum object", "museum-object scan", "studio texture")
+_WORDS = ("no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine")
+
+
+def _count(n: int, noun: str) -> str:
+    word = _WORDS[n] if n < len(_WORDS) else str(n)
+    return f"{word} {noun}" + ("" if n == 1 else "s")
+
+
+def credit_kind_problem(it: dict) -> str | None:
+    """Ruling 18: every picture input of the series titles states its ``credit_kind`` (no default), one of
+    CREDIT_KINDS; the title-provenance lint refuses any other, naming the item."""
+    k = it.get("credit_kind")
+    if k in CREDIT_KINDS:
+        return None
+    return (f"{it.get('id')}: credit_kind {k!r} is not one of {', '.join(CREDIT_KINDS)}" if k is not None
+            else f"{it.get('id')}: no credit_kind (one of {', '.join(CREDIT_KINDS)})")
+
+
+def credit_by_kind(items: list[dict]) -> str:
+    """Founder ruling 18 (2026-11-07), the series titles' credit by kind, counted from the provenance ledger's
+    ``credit_kind`` (stated on every item: title-provenance refuses a missing or unknown one). What the titles are
+    drawn from (period records, museum objects: photographs of them) is joined by "and"; what they were made with
+    (museum-object scans, studio textures) follows ", with", marked "(CC0)" when every one of those is CC0. Numbers
+    under ten are words; a kind with no item is left out.
+        v11:     "drawn from 14 period records, with six museum-object scans and four studio textures (CC0), no AI"
+        The Run: "drawn from 15 period records and six museum objects, no AI"
+    """
+    bad = [p for p in (credit_kind_problem(it) for it in items) if p]
+    if bad:
+        raise ValueError("; ".join(bad))
+    by = {k: [it for it in items if it.get("credit_kind") == k] for k in CREDIT_KINDS}
+    drawn = [_count(len(by[k]), k) for k in ("period record", "museum object") if by[k]]
+    made = [_count(len(by[k]), k) for k in ("museum-object scan", "studio texture") if by[k]]
+    cc0 = " (CC0)" if made and all(str(it.get("licence") or "").strip().lower().startswith("cc0")
+                                   for k in ("museum-object scan", "studio texture") for it in by[k]) else ""
+    if drawn:
+        words = "drawn from " + " and ".join(drawn) + (", with " + " and ".join(made) + cc0 if made else "")
+    else:
+        words = "drawn from " + " and ".join(made) + cc0
+    return words + ", no AI"
+
+
 def is_title_slot(shot: dict) -> bool:
     """A40 placeholder (founder ruling 2026-10-18): a shot holding the title slot with ``title_slot: true``
     until the series title ("The Run") is spliced in later, by ``render --shots``. It is an ordinary shot
@@ -154,6 +199,13 @@ def select_master(item: dict, fps: float) -> tuple[dict, str]:
                 out["_path"] = str((Path(item["_path"]).parent / alt["file"]).resolve())
             return out, "alternate"
     return item, "conform"
+
+
+def _same_rate(name: str, fps: float) -> bool:
+    try:
+        return abs(float(CAD.parse_rate(name)) - fps) < 1e-6
+    except CAD.RateError:
+        return False
 
 
 def sub_marks(item: dict, start_s: float) -> list[dict]:
@@ -583,6 +635,8 @@ def _provenance_problems(it: dict, *, kind: str, play: dict | None) -> list[str]
         out.append(f"{it.get('id')}: no licence evidence or basis")
     if not it.get("sha256"):
         out.append(f"{it.get('id')}: no sha256 of the file used")
+    if kind == "picture" and credit_kind_problem(it):   # ruling 18: the credit counts every picture input by kind
+        out.append(credit_kind_problem(it))
     return out
 
 
@@ -612,7 +666,7 @@ def _overlaps(a0: float, a1: float, b0: float, b1: float, eps: float = 0.5 / FPS
 
 
 def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, lines: list[dict], texts: list[dict],
-               cues: list[dict], vl: list[dict], silences: list, fps: float = FPS) -> dict:
+               cues: list[dict], vl: list[dict], silences: list, fps: float = FPS, draft: bool = False) -> dict:
     """Every A40 check the plan can decide. ``lint`` is build_plan's; ``silences`` gains the title's span (to the cut
     out of its lockup card) when the master's own sound is silent. Returns, per title shot id, what the plan and the
     frames need: {item, burned, record_path, probe, audio} (``audio``: the mix's entry, audio_plan's). ``fps`` is the film's master rate (A44): the
@@ -811,8 +865,27 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
                                      "film's master rate with no speed change", unit=sid, evidence=out[sid]["conform"])
             except Exception as e:
                 ev["error"] = f"{type(e).__name__}: {e}"
-        lint("title-format", fmt_ok, unit=sid, grammar="A40, 7.5",
-             evidence=dict(ev, fix=None if fmt_ok else "the master is 1920x1080 at the rate its "
+        # Ruling 19 (2026-11-07, BRAND-KIT 15/17, the kit is law; CoS: "drop only"): a final render never drops the
+        # series titles' frames. A master faster than the film (a 29.97 master in a 24 film) is a drop conform: only a
+        # draft may go on. A declared repeat conform (a 24 master in a 29.97 film, one frame in four repeated) stays,
+        # as BRAND-KIT 17 allows.
+        dropped = fmt_ok and rate_of(item) is not None and fps < _r(item) - 1e-6
+        refuse = dropped and not draft
+        drop_fix = None
+        if refuse:
+            want = CAD.rate_str(CAD.Fraction(fps).limit_denominator(100000))
+            alts = item.get("masters") if isinstance(item.get("masters"), dict) else {}
+            named = next((k for k, v in alts.items() if _same_rate(k, fps) and not (isinstance(v, dict) and v.get("file"))),
+                         None)
+            ev["no_master_at_film_rate"] = {"film_fps": round(fps, 4), "title_fps": rate_of(item),
+                                            "masters": sorted(alts.keys()), "method": "drop"}
+            drop_fix = (f"masters['{named}'] names no file: give the {want} fps master's file" if named is not None else
+                        f"no master at the film's rate ({want}): a final render never drops the series titles' frames "
+                        "(ruling 19, BRAND-KIT 15/17); declare one in the item's masters, or render --draft")
+        fmt_lint_ok = fmt_ok and not refuse
+        lint("title-format", fmt_lint_ok, unit=sid, grammar="A40, 7.5, A44",
+             evidence=dict(ev, fix=None if fmt_lint_ok else drop_fix if fmt_ok else
+                           "the master is 1920x1080 at the rate its "
                                                        "ledger states (24 or 30000/1001), its frame count the ledger's, and "
                                                        "the shot's dur_s is frames / that rate (A44)"))
         # A40 standalone audio: the master's own track, frame-aligned, continued under the lockup card (title-audio)

@@ -2502,8 +2502,7 @@ def credits_blocks(plan: dict) -> list:
                                  # 2026-11-07); the studio's own theme stems in the shared ledger are not
         prov, _, _ = TS.provenance(titles[0].get("_item") or {})
         items = TS.provenance_items(prov)
-        series = wrap(f"{TS.SERIES}: drawn from {len(items)} period records, no AI; every record on the "
-                      "sources page")
+        series = wrap(f"{TS.SERIES}: {TS.credit_by_kind(items)}; every input on the sources page")
         for x in [x for x in items if (TS.licence_rank(x.get("licence")) or 0) >= 2] + TS.credited_sound_items(prov):
             lic = str(x.get("licence") or "")
             who = x.get("credit") or x.get("holder") or x.get("creator") or x.get("uploader")
@@ -3513,7 +3512,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             silences.append((float(x["start_s"]), float(x["end_s"])))
     # A40: the series titles, a pre-rendered master played as it is after the cold open (studio/engine/titles.py)
     titles = TS.plan_lints(lint, journal, play, shots, assets, lines=lines, texts=texts, cues=cues, vl=vl, silences=silences,
-                           fps=fps)
+                           fps=fps, draft=draft)
     # A44: the cadence reviewer item names the film's master rate, how it was chosen and every clip or title conformed
     conformed += [t["conform"] for t in titles.values() if t.get("conform")]
     journal.lint("cadence", True, stage="conform", unit="master_fps", severity="review", grammar="A44, A6", phase="preflight",
@@ -8929,7 +8928,7 @@ def title_sources_fields(s: dict) -> dict:
         return {}
     it = s.get("_item") or {}
     prov, _, _ = TS.provenance(it)
-    keep = ("id", "title", "date", "holder", "licence", "source_page", "use", "beats")
+    keep = ("id", "title", "date", "holder", "licence", "source_page", "use", "beats", "credit_kind")
     return {"title_sequence": {
         "series": TS.SERIES, "master": it.get("id"), "version": it.get("version"), "record": it.get("record"),
         "burned_marks": it.get("burned") is True, "marks": TS.timeline(it), "ai": False,
@@ -9012,6 +9011,13 @@ def public_loudness(loud, run_dir: Path):
     return walk(loud)
 
 
+def sources_test_fixture(s: dict, it: dict) -> bool:
+    """The sources record's ``test_fixture``: a synthetic stand-in (is_synthetic). A series title (A40) is the
+    studio's own master, made by its generator, never a test fixture unless its item says so (``test_fixture`` or
+    ``synthetic``)."""
+    return bool(it.get("test_fixture") or it.get("synthetic")) if TS.is_title(s) else is_synthetic(it)
+
+
 def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
     shots = []
     for s in plan["shots"]:
@@ -9039,7 +9045,7 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             "resampler": s.get("_resampler"), "conform": (s.get("_video") or {}).get("conform"),
             "levels": s.get("_levels"),          # A46: the black floor applied (non-material), or the stated opt-out
             "neutralise_cast": (s.get("_video") or {}).get("neutralise_cast"),
-            "test_fixture": is_synthetic(it),
+            "test_fixture": sources_test_fixture(s, it),
             **OV.sources_fields(s),
             **title_sources_fields(s),
             "text": s.get("text"),
@@ -9675,7 +9681,10 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         # One write: a check render writes its own partial sources file and never the full one (T1d);
         # a full render also records the master's sha256, which ties sources.json to its film (T7).
         # A span (--shots) writes no sources file at all: its timeline is the film's, cut, and it is never published.
-        extra = {"loudness": public_loudness(loud, run_dir), "master": master.name, "master_sha256": sha256_file(master)}
+        extra = {"loudness": public_loudness(loud, run_dir), "master": master.name, "master_sha256": sha256_file(master),
+                 # the master's own run and whether it was a draft: --sources-only re-plans as the master was rendered,
+                 # however many times it rewrites this file (its own run has no run.start)
+                 "master_run": journal.run, "draft": bool(draft)}
         if check:
             extra.update(partial=True, until_s=until_s)
         if not span:
@@ -9713,11 +9722,38 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         raise
 
 
-def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Journal | None = None) -> dict:
+def master_was_draft(out: Path) -> bool | None:
+    """Whether the master in ``out`` was rendered with --draft: its sources.json says so (``draft``, written by the
+    render and carried forward by every --sources-only rewrite), else names the master's run (``master_run``, or the
+    ``run`` of a file written before it), whose journal opens with run.start and its settings. None when neither can be
+    read."""
+    try:
+        doc = json.loads((out / "sources.json").read_text(encoding="utf-8"))
+        if isinstance(doc.get("draft"), bool):
+            return doc["draft"]
+        run = doc.get("master_run") or doc.get("run")
+        if not run:
+            return None
+        from studio.engine.journal import journal_dir
+        with (journal_dir() / f"{run}.jsonl").open(encoding="utf-8") as f:
+            for line in f:
+                ev = json.loads(line)
+                if ev.get("lens") == "run.start":
+                    d = (ev.get("settings") or {}).get("draft")
+                    return None if d is None else bool(d)
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Journal | None = None,
+                 draft: bool | None = None) -> dict:
     """--sources-only: re-plan the film and rewrite ``<out>/sources.json`` beside an existing master, without
     rendering a frame. It uses the render's own fitted screenplay when there is one, takes the frame size
     from the master, refuses when the master's frame count differs from the plan's (the master is then
-    stale: render again), keeps the previous file's loudness, and records the master's sha256."""
+    stale: render again), keeps the previous file's loudness, and records the master's sha256. It plans as the
+    master was rendered: the master's own draft-ness (master_was_draft), else ``draft`` when given, else final; a
+    ``draft`` that contradicts a master recorded as final is refused."""
     film = Path(film).resolve()
     out = Path(out).resolve() if out else film / "out"
     master = out / "master.mp4"
@@ -9729,8 +9765,16 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
     pr = probe_video(master)
     with journal.unit("scout", "sources-only", size={"driver": "items", "value": 0}) as u:
         # the master exists: its takes were judged by its render; sources.json is rewritten from the screenplay
+        # the master's own draft-ness is the truth: --draft may only fill in what cannot be read (a sources.json
+        # rewritten before the master's draft-ness was recorded), never turn a final master's sources into a draft's
+        recorded = master_was_draft(out)
+        if recorded is False and draft:
+            raise Refused("--draft on a final master: its sources.json records it as rendered final, so its sources are "
+                          "planned as a final (the final-only checks apply). Run --sources-only without --draft, or "
+                          "render the film again with --draft")
+        draft = recorded if recorded is not None else bool(draft)
         plan = build_plan(film, W=pr["width"], H=pr["height"], burn_subtitles=False, journal=journal, play=play,
-                          voice_lints="off")
+                          voice_lints="off", draft=draft)
         u.size = {"driver": "items", "value": len(plan["shots"])}
     frames = count_frames(master)
     journal.lint("master-matches-plan", frames == plan["frames"], stage="assembly", phase="sources-only",
@@ -9742,7 +9786,9 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
     prev = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     if "loudness" in prev:                  # an earlier render's record, with any absolute path made relative
         extra["loudness"] = public_loudness(prev["loudness"], out)
-    extra.update(master="master.mp4", master_sha256=sha256_file(master))
+    extra.update(master="master.mp4", master_sha256=sha256_file(master),
+                 # carried forward: the master's own run (never this rewrite's) and its draft-ness, as planned here
+                 master_run=prev.get("master_run") or prev.get("run"), draft=bool(draft))
     if plan_has_placeholders(plan):
         fills = prev.get("card_fills")
         values = fills.get("values") if isinstance(fills, dict) else None
@@ -9801,7 +9847,7 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     if a.sources_only:
         try:
-            r = sources_only(a.film, a.out)
+            r = sources_only(a.film, a.out, draft=True if a.draft else None)
         except Refused as e:
             print(f"render: refused: {e}", file=sys.stderr)
             return 2
