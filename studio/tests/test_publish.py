@@ -376,3 +376,28 @@ def test_sources_only_plans_as_its_master_was_rendered(film, rendered, tmp_path,
     monkeypatch.setattr(R, "master_was_draft", lambda o: True)
     R.sources_only(film, out)
     assert seen == [False, True, True]
+
+
+def test_sources_only_on_a_draft_master_stays_a_draft_however_often_it_runs(film, rendered, tmp_path):
+    """Review of PR #96: a --sources-only rewrite stamps its own run (which has no run.start) into sources.json, so a
+    second rewrite once lost the master's draft-ness and planned it as a final. The master's run and its draft-ness are
+    carried forward: two plain calls on a draft master (no flag, no patch) both plan as a draft and pass."""
+    from studio.engine.journal import journal_dir
+    out = _copy_render(rendered, tmp_path / "out")
+    doc = json.loads((out / "sources.json").read_text(encoding="utf-8"))
+    # the master as a draft render left it: its own run, whose journal says draft (a file written before the fix
+    # carries only "run")
+    run = "r-20261107-draft-master"
+    for k in ("draft", "master_run"):
+        doc.pop(k, None)
+    doc["run"] = run
+    (out / "sources.json").write_text(json.dumps(doc), encoding="utf-8")
+    journal_dir().mkdir(parents=True, exist_ok=True)
+    (journal_dir() / f"{run}.jsonl").write_text(json.dumps({"kind": "stage", "lens": "run.start", "status": "start",
+                                                            "settings": {"draft": True}}) + "\n", encoding="utf-8")
+    assert R.master_was_draft(out) is True
+    for _ in range(2):
+        R.sources_only(film, out)
+        after = json.loads((out / "sources.json").read_text(encoding="utf-8"))
+        assert after["draft"] is True and after["master_run"] == run and after["run"] != run
+        assert R.master_was_draft(out) is True

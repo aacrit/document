@@ -9554,7 +9554,10 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         # One write: a check render writes its own partial sources file and never the full one (T1d);
         # a full render also records the master's sha256, which ties sources.json to its film (T7).
         # A span (--shots) writes no sources file at all: its timeline is the film's, cut, and it is never published.
-        extra = {"loudness": public_loudness(loud, run_dir), "master": master.name, "master_sha256": sha256_file(master)}
+        extra = {"loudness": public_loudness(loud, run_dir), "master": master.name, "master_sha256": sha256_file(master),
+                 # the master's own run and whether it was a draft: --sources-only re-plans as the master was rendered,
+                 # however many times it rewrites this file (its own run has no run.start)
+                 "master_run": journal.run, "draft": bool(draft)}
         if check:
             extra.update(partial=True, until_s=until_s)
         if not span:
@@ -9593,10 +9596,15 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
 
 
 def master_was_draft(out: Path) -> bool | None:
-    """Whether the master in ``out`` was rendered with --draft: its sources.json names its run, whose journal opens
-    with run.start and its settings. None when that cannot be read."""
+    """Whether the master in ``out`` was rendered with --draft: its sources.json says so (``draft``, written by the
+    render and carried forward by every --sources-only rewrite), else names the master's run (``master_run``, or the
+    ``run`` of a file written before it), whose journal opens with run.start and its settings. None when neither can be
+    read."""
     try:
-        run = json.loads((out / "sources.json").read_text(encoding="utf-8")).get("run")
+        doc = json.loads((out / "sources.json").read_text(encoding="utf-8"))
+        if isinstance(doc.get("draft"), bool):
+            return doc["draft"]
+        run = doc.get("master_run") or doc.get("run")
         if not run:
             return None
         from studio.engine.journal import journal_dir
@@ -9644,7 +9652,9 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
     prev = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     if "loudness" in prev:                  # an earlier render's record, with any absolute path made relative
         extra["loudness"] = public_loudness(prev["loudness"], out)
-    extra.update(master="master.mp4", master_sha256=sha256_file(master))
+    extra.update(master="master.mp4", master_sha256=sha256_file(master),
+                 # carried forward: the master's own run (never this rewrite's) and its draft-ness, as planned here
+                 master_run=prev.get("master_run") or prev.get("run"), draft=bool(draft))
     if plan_has_placeholders(plan):
         fills = prev.get("card_fills")
         values = fills.get("values") if isinstance(fills, dict) else None
