@@ -9,10 +9,11 @@ import json
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 import numpy as np
 import pytest
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 
 from conftest import make_film, tone
 from studio.engine import description as D
@@ -1047,6 +1048,149 @@ def test_a40_lockup_card_draws_brand_kit_15(tmp_path):
     for k, f in enumerate(frames):
         sheet.paste(Image.fromarray(f).resize((W // 2, H // 2)), ((k % 2) * W // 2, (k // 2) * H // 2))
     sheet.save(tmp_path / "lockup_card_sheet.png")
+
+
+# --------------------------------------------------------------------------
+# A40 lockup on the record's paper (founder ruling 2026-11-08, Record + lockup): from title v12 the lockup sits on the
+# photographed paper the push ends on, in ink; the black card stays valid as the v11 form
+# --------------------------------------------------------------------------
+
+
+def _paper(W, H, ground=(196, 182, 156), seed=11):
+    """A stand-in for a record's photographed paper: a warm ground with grain and a soft fall of light."""
+    rng = np.random.default_rng(seed)
+    y, x = np.mgrid[0:H, 0:W]
+    light = 1.0 - 0.12 * ((x / W - 0.45) ** 2 + (y / H - 0.4) ** 2)
+    a = np.asarray(ground, float)[None, None, :] * light[..., None] + rng.normal(0, 6, (H, W, 1))
+    return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
+
+
+def _lockup_card_v11(img, t, *, start, end, fonts):
+    """lockup_card_frame as it was before the paper form, verbatim: the reference the black form must still match."""
+    base = M._black(img.size)
+    if t < start or t >= end:
+        return base
+    L = M.Layout(*base.size)
+    lay = M.lockup_layout(L, fonts)
+    px, x0, baseline = lay["px"], lay["x0"], lay["baseline"]
+    p = M.clamp01(M.DRIFT.progress(t - start))
+    box = round(px * 24 / 17)
+    mark = M.draw_logomark(box, spread=0.08 * (1 - p), ember_alpha=M.clamp01((p - 0.9) / 0.1))
+    base = base.convert("RGBA")
+    base.alpha_composite(mark, (round(x0 - (box - px) / 2), round(baseline - M.LOCKUP["baseline"] * px - box / 2)))
+    d = ImageDraw.Draw(base)
+    x = x0 + px + lay["ring_d"]
+    for (s, f), w in zip(lay["words"], lay["widths"]):
+        d.text((x, baseline), s, font=f, fill=M._rgba(M.PALETTE["bone"], 1.0), anchor="ls")
+        x += w + lay["space"]
+    return base
+
+
+def _old_lockup_pixels(arr):
+    H, W = arr.shape[:2]
+    band = arr[H // 3: 2 * H // 3, W // 10: 9 * W // 10]
+    return round(int((band.max(axis=2) >= 150).sum()) * (1080 / H) ** 2)
+
+
+def test_a40_lockup_card_without_paper_is_the_v11_card_byte_for_byte():
+    fonts = M.Fonts()
+    for size in (TS.SIZE, (1280, 720)):
+        for t in (-0.1, 0.0, 0.5, 1.5, 4.95, 5.0):
+            want = _lockup_card_v11(Image.new("RGB", size), t, start=0.0, end=5.0, fonts=fonts)
+            for got in (M.lockup_card_frame(Image.new("RGB", size), t, start=0.0, end=5.0, fonts=fonts),
+                        M.lockup_card_frame(Image.new("RGB", size), t, start=0.0, end=5.0, fonts=fonts, paper=None)):
+                assert got.mode == want.mode and got.size == want.size and got.tobytes() == want.tobytes(), (size, t)
+
+
+def test_a40_the_lockup_ink_is_the_house_ink_token():
+    css = Path(M.__file__).resolve().parents[2] / "design" / "tokens.css"
+    hexv = css.read_text(encoding="utf-8").split("--doc-ink:")[1].split(";")[0].strip()
+    assert M.PALETTE["ink"] == tuple(int(hexv[i:i + 2], 16) for i in (1, 3, 5))
+
+
+def test_a40_lockup_card_on_paper_is_ink_on_the_records_own_paper():
+    """The paper form: the base is the given paper (cover-fit to the frame), the words and the logomark's ring and
+    corners in ink where the v11 card has them in bone, the ember still the ember, the layout and timing the same;
+    outside the card's span the frame is the paper (never black)."""
+    fonts = M.Fonts()
+    W, H = TS.SIZE
+    paper = _paper(1500, 1100)                                     # another size and aspect: resized and cropped, cover
+    ground = np.asarray(ImageOps.fit(paper, (W, H), Image.LANCZOS).convert("RGB")).astype(int)
+    for t in (-0.1, 5.0):
+        out = np.asarray(M.lockup_card_frame(Image.new("RGB", (W, H)), t, start=0.0, end=5.0, fonts=fonts,
+                                             paper=paper).convert("RGB")).astype(int)
+        assert out.shape == (H, W, 3) and np.array_equal(out, ground), t
+    ink, bone, ember = (np.array(M.PALETTE[k]) for k in ("ink", "bone", "safelight"))
+    for t in (0.0, 0.5, 4.95):
+        blk = np.asarray(M.lockup_card_frame(Image.new("RGB", (W, H)), t, start=0.0, end=5.0, fonts=fonts).convert("RGB")).astype(int)
+        pap = np.asarray(M.lockup_card_frame(Image.new("RGB", (W, H)), t, start=0.0, end=5.0, fonts=fonts,
+                                             paper=paper).convert("RGB")).astype(int)
+        off = blk.max(axis=2) == 0                                 # nothing drawn there on the black card
+        assert np.array_equal(pap[off], ground[off]), t            # ... so the paper shows, untouched
+        solid = np.abs(blk - bone).max(axis=2) == 0                # full-coverage bone type and mark strokes
+        assert solid.sum() > 2000 and np.abs(pap[solid] - ink).max() <= 1, t
+        lit = blk.max(axis=2) >= 150                               # where the v11 card is bright, the paper card is dark
+        assert np.mean(pap[lit].max(axis=1) < 110) > 0.95, t
+        assert TS.lockup_pixels(pap) >= TS.LOCKUP_MIN_PX, t
+    at = np.abs(blk - ember).max(axis=2) <= 2                      # the ember in the last tenth, on paper too
+    assert at.sum() >= 10 and np.abs(pap[at] - ember).max() <= 2
+
+
+def test_a40_lockup_pixels_counts_ink_on_paper_and_type_on_black_but_not_blank_paper():
+    fonts = M.Fonts()
+    W, H = TS.SIZE
+    black = np.asarray(M.lockup_card_frame(Image.new("RGB", (W, H)), 4.95, start=0.0, end=5.0, fonts=fonts).convert("RGB"))
+    assert TS.lockup_pixels(black) == _old_lockup_pixels(black) >= TS.LOCKUP_MIN_PX     # the black form: as before
+    assert TS.lockup_pixels(np.zeros((H, W, 3), np.uint8)) == 0
+    for ground in ((196, 182, 156), (150, 136, 112), (232, 224, 206)):                  # light, darker, pale papers
+        paper = _paper(W, H, ground)
+        card = np.asarray(M.lockup_card_frame(Image.new("RGB", (W, H)), 4.95, start=0.0, end=5.0, fonts=fonts,
+                                              paper=paper).convert("RGB"))
+        assert TS.lockup_pixels(card) >= TS.LOCKUP_MIN_PX, ground
+        assert TS.lockup_pixels(np.asarray(paper)) < TS.LOCKUP_MIN_PX // 10, ground    # blank paper is no lockup
+    small = np.asarray(M.lockup_card_frame(Image.new("RGB", (1280, 720)), 4.95, start=0.0, end=5.0, fonts=fonts,
+                                           paper=_paper(1280, 720)).convert("RGB"))
+    assert TS.lockup_pixels(small) >= TS.LOCKUP_MIN_PX                                  # normalised to 1080p
+
+
+def _with_glyph(base: Image.Image, cls: str) -> np.ndarray:
+    W, H = base.size
+    return np.asarray(Image.alpha_composite(base.convert("RGBA"), M._glyph_layer(W, H, cls)).convert("RGB"))
+
+
+def test_a40_the_card_ring_reads_on_black_and_on_paper_and_paper_alone_fails():
+    W, H = TS.SIZE
+    black = Image.new("RGB", (W, H))
+    item = {"marks": TL, "dip": DIP, "frames": N}
+    k = N - 4                                                       # the lockup, after the dip's hold
+    assert k not in TS.dip_hold_frames(item) and TS.expected_class(item, k)[0] == "CARD"
+    assert TS.glyph_shows(_with_glyph(black, "CARD"), "CARD")
+    assert TS.check_frame(_with_glyph(black, "CARD"), item, k) == "burned"
+    fonts = M.Fonts()
+    for ground in ((196, 182, 156), (150, 136, 112), (232, 224, 206)):
+        paper = _paper(W, H, ground)
+        v12 = M.lockup_card_frame(black, 4.95, start=0.0, end=5.0, fonts=fonts, paper=paper)
+        for base in (paper, v12):
+            ringed = _with_glyph(base, "CARD")
+            assert TS.glyph_shows(ringed, "CARD"), ground
+            assert TS.check_frame(ringed, item, k) == "burned", ground
+            bare = np.asarray(base.convert("RGB"))
+            assert not TS.glyph_shows(bare, "CARD"), ground
+            assert TS.check_frame(bare, item, k) == "fail", ground
+            assert TS.any_glyph(bare) is None
+            assert not TS.glyph_shows(_with_glyph(base, "RECONSTRUCTED"), "CARD")    # the same hue, the wrong shape
+
+
+def test_a40_other_glyphs_are_unaffected_by_the_paper_ring_check():
+    W, H = TS.SIZE
+    for base in (Image.new("RGB", (W, H)), _machine(W, H), _paper(W, H)):
+        for cls in ("DRAWN", "AI-GENERATED", "ARCHIVE", "RECONSTRUCTED"):
+            arr = _with_glyph(base, cls)
+            assert TS.glyph_shows(arr, cls), cls
+            assert TS.any_glyph(arr) == cls, cls
+        assert not TS.glyph_shows(_with_glyph(base, "DRAWN"), "AI-GENERATED")
+        assert not TS.glyph_shows(_with_glyph(base, "AI-GENERATED"), "DRAWN")
+        assert not TS.glyph_shows(_with_glyph(base, "CARD"), "RECONSTRUCTED")
 
 
 # --------------------------------------------------------------------------

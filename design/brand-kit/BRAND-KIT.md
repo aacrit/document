@@ -597,6 +597,18 @@ The founder: "a cinematic ... intro ... after the hook of each video like it's a
 
 Do: keep the record the film's own (an item of its ledgers, held whole); state in the master's ledger item what it already carries. Don't: draw a second mark, label or watermark over a burned master; let narration, a lower third or a subtitle run over it; dissolve into or out of it; let the master's own dip show anything on its black hold.
 
+### 15a. The lockup on the record's paper (2026-11-08, founder ruling, Record + lockup; GRAMMAR A40 lockup on paper)
+
+Appended, so the rows above keep their text and are read with this. The founder: "Lockup on the same paper, every film: as the camera pushes in, the same paper texture carries straight into the title lockup card."
+
+| | Value |
+|---|---|
+| Form, title v12 on | the lockup sits on the record's own photographed paper: the paper the last frame of the push shows, its grain and light continuous across the hard cut into the lockup. The words and the logomark's ring and corners are drawn in ink; the ember stays the safelight ember. Layout, sizes and timing are the lockup row's above (5.6% of the height, the corners closing on `drift`, the ember in the last tenth) |
+| Ink | `--doc-ink` `#1c1712` (RGB 28, 23, 18), the house's one near-black text primary (until now light-theme text only); `motion.PALETTE["ink"]` carries it and a test reads it from `design/tokens.css`. No new colour is introduced |
+| Who draws it | the engine owns the form: a burned v12 master burns its lockup by calling `motion.lockup_card_frame(..., paper=<the record's paper as the push's last frame shows it>)`, which resizes and crops the paper to the frame (cover, LANCZOS); with no paper it draws the v11 card |
+| v11 form | bone type and mark on film black stays valid for masters already released with it (Not a Free Agent, The Next Village and Market Street release with their v11 titles) |
+| Checks | `title-lockup` counts lockup pixels against the band's own ground (bone on black or ink on paper; a blank paper frame fails), and the CARD ring is read over the frame's own ground beside the glyph (film black or the paper), so both forms pass and a paper frame without the ring fails (GRAMMAR A40 lockup on paper) |
+
 ## 16. Legible on a phone (2026-10-17, founder; cinematography pass, ticket 8)
 
 The house's small screen is a landscape phone, the 16:9 frame about 693 px wide. A portrait phone shows a thumbnail. Every text a viewer must read renders at 7 px or more there. The glyphs are marks, not text, and stay as section 12 sets them. The rows below supersede section 4's source size and section 12's label sizes. Exception, for now: the map renderer's note, legend and source text (1.5% to 1.75%, 5.8 to 6.8 px) is reported under the floor and follows in a maps ticket.
