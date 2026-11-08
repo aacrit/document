@@ -97,6 +97,14 @@ export function markPlate(m: Pick<MarkSpan, "class" | "detail">, extraClass = ""
   );
 }
 
+/**
+ * The pages' words about readings ([data-readings], hidden in the page as built) are shown only once the film's own
+ * sources.json says it has readings, so a film with none never claims them, with or without script.
+ */
+export function showReadings(nodes: Iterable<Pick<HTMLElement, "hidden">>, d: Pick<FilmSources, "readings">): void {
+  for (const n of nodes) n.hidden = d.readings.length === 0;
+}
+
 export function byId<T extends HTMLElement = HTMLElement>(id: string): T {
   const node = document.getElementById(id);
   if (!node) throw new Error(`#${id} is missing`);

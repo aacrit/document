@@ -22,11 +22,11 @@
             <h1 class="title">{{title}}</h1>
             <p class="place">{{dates_html}}, told with the public record</p>
             <p class="synopsis">{{synopsis_html}}</p>
-            <p class="note">{{content_note}}<span id="derived-notes" hidden><span id="accounts"></span> </span>Every reading is word for word from its source, sometimes in part (marked <span class="num">...</span>). <span id="voice-note"></span> {{shows}} <span id="silent-note"></span></p>
+            <p class="note">{{content_note}}<span id="derived-notes" hidden><span id="accounts"></span> </span><span data-readings hidden>Every reading is word for word from its source, sometimes in part (marked <span class="num">...</span>). </span><span id="voice-note"></span> {{shows}} <span id="silent-note"></span></p>
             <p class="install-offer" id="install-offer" hidden><button class="btn quiet" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v10M7.5 10.5 12 15l4.5-4.5M5 19.5h14" /></svg><span>Install void document</span></button><span class="m" id="install-note"></span></p>
           </div>
           <nav class="onward" aria-label="About this film">
-            <a href="/f/{{slug}}/sources/"><span class="t">Sources</span><span class="m">Every shot with its mark, archive and licence; every reading with its speaker and source</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 16 16 8M10 8h6v6" /></svg></a>
+            <a href="/f/{{slug}}/sources/"><span class="t">Sources</span><span class="m">Every shot with its mark, archive and licence<span data-readings hidden>; every reading with its speaker and source</span></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 16 16 8M10 8h6v6" /></svg></a>
             <a href="/f/{{slug}}/correct/"><span class="t">Correct something</span><span class="m">Tell us what the film gets wrong.</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 16 16 8M10 8h6v6" /></svg></a>
 {{related_onward}}
           </nav>
@@ -36,7 +36,7 @@
           </details>
           <details class="drill" id="transcript-drill" hidden>
             <summary><span class="t">Transcript</span><span class="s">English</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></summary>
-            <p class="lede"><span id="transcript-lede">The readings, word for word, each with its speaker.</span>{{review_note_after}}</p>
+            <p class="lede"><span id="transcript-lede">Everything spoken, word for word.</span>{{review_note_after}}</p>
             <ol class="transcript" id="transcript"></ol>
           </details>
         </section>

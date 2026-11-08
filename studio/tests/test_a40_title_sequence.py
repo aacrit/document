@@ -15,6 +15,7 @@ import pytest
 from PIL import Image, ImageDraw
 
 from conftest import make_film, tone
+from studio.engine import description as D
 from studio.engine import journal as J
 from studio.engine import motion as M
 from studio.engine import render as R
@@ -122,9 +123,11 @@ def _sha(p):
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
-def titled_film(tmp_path, masters, *, master="burned", item=None, prov_items=None, records=None, shot=None, edit=None):
+def titled_film(tmp_path, masters, *, master="burned", item=None, prov_items=None, prov_sound=None, records=None,
+                 shot=None, edit=None):
     """The fixture film with a cold open and the series titles before its title card; everything after them moves
-    on by SHIFT. ``item``, ``prov_items``, ``records`` and ``shot`` override the defaults; ``edit(play)`` runs last."""
+    on by SHIFT. ``item``, ``prov_items``, ``prov_sound``, ``records`` and ``shot`` override the defaults;
+    ``edit(play)`` runs last."""
     film = make_film(tmp_path / "film")
     stills = json.loads((film / "stills-ledger.json").read_text(encoding="utf-8"))
     items = stills if isinstance(stills, list) else stills["items"]
@@ -140,7 +143,10 @@ def titled_film(tmp_path, masters, *, master="burned", item=None, prov_items=Non
                 {"id": "T-01", "title": "A clay tablet", "licence": "CC0", "ai": False, "source_page": "https://example.org/t01",
                  "licence_evidence": "read 2026-10-16", "sha256": "0" * 64, "holder": "A museum"},
                 {"id": "T-13", "title": "A tabulator", "licence": "CC BY 2.0", "ai": False, "credit": "A photographer",
-                 "source_page": "https://example.org/t13", "basis": "CC BY 2.0 on the file page", "sha256": "1" * 64}]}
+                 "source_page": "https://example.org/t13", "basis": "CC BY 2.0 on the file page", "sha256": "1" * 64}],
+            "sound": prov_sound if prov_sound is not None else [
+                {"id": "FX-01", "title": "Paper flutter", "licence": "CC0", "ai": False, "source_page": "https://example.org/fx01",
+                 "licence_evidence": "read 2026-10-16", "sha256": "4" * 64}]}
     (film / "title-assets.json").write_text(json.dumps(prov), encoding="utf-8")
     src = masters[master]
     it = {"id": "TS-test", "file": src.name, "title": f"{TS.SERIES}, series titles (test)", "version": "v1",
@@ -331,6 +337,60 @@ def test_a40_provenance_must_be_declared_open_and_sourced(tmp_path, masters):
     plan, j = plan_of(titled_film(tmp_path / "c", masters, prov_items=unsourced))
     ev = next(e for e in lints(j, "title-provenance") if e["status"] == "fail")["evidence"]
     assert any("source page" in p for p in ev["problems"]) and any("sha256" in p for p in ev["problems"])
+
+
+def test_a40_mit_is_allowed_for_a_sound_input_but_refused_for_a_picture_input(tmp_path, masters):
+    """Founder ruling 2026-11-07: MIT (the RWTH Aachen room impulse response, used in the title Foley mix) is
+    allowed only in the ledger's ``sound`` section; an MIT picture item (in ``items``) is still refused."""
+    plan, j = plan_of(titled_film(tmp_path / "sound-ok", masters, prov_sound=[AIR_SOUND]))
+    assert not isinstance(plan, R.Refused), plan
+    assert passed(j, "title-provenance")
+    mit_picture = [{"id": "T-99", "title": "a texture", "licence": "MIT", "ai": False, "source_page": "https://e.org",
+                    "basis": "b", "sha256": "6" * 64}]
+    plan, j = plan_of(titled_film(tmp_path / "picture-refused", masters, prov_items=mit_picture))
+    assert isinstance(plan, R.Refused) and failed(j, "title-provenance")
+    ev = next(e for e in lints(j, "title-provenance") if e["status"] == "fail")["evidence"]
+    assert any("not allowed" in p for p in ev["problems"])
+    # an MIT image filed under sound is not sound: refused
+    png = [dict(AIR_SOUND, id="TEX-01", file="D:/media/texture.png")]
+    plan, j = plan_of(titled_film(tmp_path / "png-under-sound", masters, prov_sound=png))
+    assert isinstance(plan, R.Refused) and failed(j, "title-provenance")
+    ev = next(e for e in lints(j, "title-provenance") if e["status"] == "fail")["evidence"]
+    assert any("TEX-01" in p and "only for sound" in p for p in ev["problems"])
+
+
+# Shaped like the real v11 ledger's sound entries (D:/document-media/title-sequence/v11/provenance-v11.json): the
+# house IR names its holder and no creator; the studio's own theme stems are CC BY 4.0 with no holder.
+AIR_SOUND = {"id": "AIR-1.4-lecture", "holder": "Institute of Communication Systems and Data Processing (IND), RWTH Aachen University",
+             "title": "Aachen Impulse Response Database, lecture room",
+             "file": "D:/document-media/house-room/AIR_1_4/air_binaural_lecture_1_1_2.mat", "sha256": "5" * 64,
+             "source_page": "https://www.iks.rwth-aachen.de/en/research/tools-downloads/databases/aachen-impulse-response-database/",
+             "licence": "MIT", "licence_evidence": "D:/document-media/house-room/AIR_1_4/license.txt", "ai": False}
+THEME_SOUND = {"id": "THEME-v11-RW", "title": "the Fall theme conformed notes-only to the RW title's events",
+               "file": "D:/document-media/title-sequence/theme-v11/the-fall-theme-v11-RW.wav", "sha256": "7" * 64,
+               "licence": "CC BY 4.0", "ai": False, "basis": "composed by the studio's music director",
+               "source_page": "compose_v8.py"}
+
+
+def test_a40_the_mit_sound_credit_reaches_sources_json_the_credits_and_the_description(tmp_path, masters):
+    """The house IR's MIT credit reaches sources.json (title_sequence.sound), the credits' Series titles block and
+    description.txt, by its holder; the studio's own theme stems (CC BY 4.0, shared ledger) print in none of them."""
+    themes = [THEME_SOUND, dict(THEME_SOUND, id="THEME-v11-NFA"), dict(THEME_SOUND, id="THEME-v11-NV")]
+    plan, j = plan_of(titled_film(tmp_path, masters, prov_sound=[AIR_SOUND, *themes]))
+    assert not isinstance(plan, R.Refused), plan
+    doc = R.sources_doc(plan, j, {})
+    s = next(x for x in doc["shots"] if x["id"] == "TS1")
+    assert [x["id"] for x in s["title_sequence"]["sound"]] == ["AIR-1.4-lecture"]
+    assert s["title_sequence"]["sound"][0]["holder"] == AIR_SOUND["holder"]
+    assert "file" not in s["title_sequence"]["sound"][0] and "licence_evidence" not in s["title_sequence"]["sound"][0]
+    series = dict(plan["credits"])["Series titles"]
+    assert any("Aachen Impulse Response" in ln for ln in series)
+    assert any("MIT licence" in ln for ln in series)
+    assert not any("Fall theme" in ln for ln in series)
+    t = D.description_text(doc, {"slug": "fixture", "title": "Fixture film"})
+    assert ("Aachen Impulse Response Database, lecture room. By " + AIR_SOUND["holder"] + ". MIT licence. "
+            + AIR_SOUND["source_page"]) in t
+    assert "Fall theme" not in t
 
 
 def test_a40_the_masters_licence_is_as_demanding_as_its_inputs(tmp_path, masters):

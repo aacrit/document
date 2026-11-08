@@ -97,6 +97,58 @@ def test_a_lower_third_is_name_and_role_only():
     assert DS.lower_third_problems(["Only a name"])
 
 
+# Market Street's brand audit (founder, 2026-11-02): a role line that is a record or a work's title is not a role.
+@pytest.mark.parametrize("role", [
+    "Carmen, Act II, Victor, 1905",          # the case: a work and act, a record label and a year
+    "Victor, 1905",                          # a label with a year
+    "Columbia Records, 1912",
+    "Edison cylinder, 1908",
+    "Gramophone Company, 1902",
+    "HMV, 1931",
+    "Odeon, 1910",
+    "Zonophone 1903",
+    "Aida, Act 3",                           # an act, with a digit
+    "Rigoletto, Act IV",                     # an act, in roman
+])
+def test_a_role_line_that_is_a_record_or_a_work_is_refused(role):
+    probs = DS.lower_third_problems(["Enrico Caruso", role])
+    assert len(probs) == 1 and "record or a work" in probs[0], probs
+
+
+@pytest.mark.parametrize("lines", [
+    # the house's real lower thirds (sept11, episode-v2, smallpox and market-street screenplays, 2026-11-02)
+    ["Enrico Caruso", "Tenor, Metropolitan Opera"],
+    ["Victor recording", "1905"],                            # a place-and-date form: the role line holds no label
+    ["George W. Bush", "President, Emma E. Booker Elementary School, Sarasota, 9:30 a.m."],
+    ["Foxy, NEADS", "08:42:59  ·  11 September 2001"],
+    ["Medical Department, Southern Nigeria", "Annual Report for 1910, Lagos, 1911"],
+    ["Medical Department, Nigeria", "Report for 1934, Lagos"],
+    ["Education Gazette, a Bengali weekly", "as translated for the Government of Bengal, 1891"],
+    ["M. K. Gandhi", "writing in his weekly paper, Harijan, 1946"],
+    ["G. D. Khosla", "for the Fact Finding Organisation, Government of India, 1949"],
+    ["Jill Knight", "Member of Parliament for a Birmingham seat, 1979"],
+    # a label word that is a place or an institution is not a label; "act" as a word is not an act
+    ["A member", "Member of Congress, District of Columbia, 1950"],
+    ["A professor", "Columbia University, 1968"],
+    ["A minister", "in charge of the Act, 1949"],
+    ["A minister", "Government of India Act, 1935"],
+    ["A victor", "victorious at Plassey, 1757"],
+])
+def test_the_houses_real_roles_pass(lines):
+    assert DS.lower_third_problems(lines) == []
+
+
+def test_the_record_rule_reads_text_and_never_raises_on_a_hostile_line():
+    probs = DS.lower_third_problems(['"><img src=x onerror=alert(1)>', '"><img src=x onerror=alert(1)> Victor, 1905'])
+    assert len(probs) == 1 and "record or a work" in probs[0]
+
+
+def test_a_record_title_lower_third_refuses_the_plan(film):
+    _edit(film, lambda p: p["parts"][1]["text"][0].update(lines=["Fixture speaker", "Carmen, Act II, Victor, 1905"]))
+    with pytest.raises(R.Refused, match=r"lower-third-format \(T1\)"):
+        _plan(film, "a56-lt-record")
+
+
 def test_the_label_is_the_class_word_and_one_qualifier():
     assert DS.label_problems("Archive · photographed Apr 2001") == []
     assert DS.label_problems("Archive · 1947 · stabilised")
@@ -257,3 +309,12 @@ def test_an_attribution_card_in_the_credits_is_the_attribution_not_provenance(fi
     _edit(film, lambda p: p["parts"][2]["shots"][0].update(text=["Read by a computer voice."]))
     with pytest.raises(R.Refused, match=r"meta-text \(S9\.text\[0\]\)"):
         _plan(film, "a56-credits-voice")
+
+
+def test_record_title_rule_ignores_case():
+    """Review of #88: "VICTOR 1905", "Carmen, ACT II" and "Carmen, act 2" are the same titles in another case."""
+    from studio.engine import disclosure as DS
+    for role in ("VICTOR 1905", "Carmen, ACT II", "Carmen, act 2", "victor, 1905"):
+        assert DS.record_title_problem(role), role
+    for role in ("Tenor, Metropolitan Opera", "1905"):
+        assert DS.record_title_problem(role) is None, role

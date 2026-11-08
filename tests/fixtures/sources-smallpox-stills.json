@@ -1,0 +1,503 @@
+{
+ "_note": "Eight shots copied verbatim from the live https://document.voidvision.org/media/smallpox-eradication/sources.json (fetched 2026-11-02): photographs with a map in the picture, a painting, a CIA map sheet, WHO map slides and a photograph of a pin map.",
+ "v": 2,
+ "slug": "smallpox-eradication",
+ "title": "The Next Village",
+ "fps": 24,
+ "duration_s": 1703.4583,
+ "readings": [],
+ "shots": [
+  {
+   "id": "O1",
+   "part": "cold-open",
+   "kind": "archive_still",
+   "start_s": 0,
+   "end_s": 15.7083,
+   "start_frame": 0,
+   "end_frame": 377,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Cleveland Museum of Art",
+    "label": "Archive"
+   },
+   "ledger": "stills",
+   "ledger_id": "S-CMA-2003-157A",
+   "title": "Sheetaladevi: The Smallpox Goddess, Kalighat painting, Kolkata, c. 1890",
+   "archive": "Cleveland Museum of Art",
+   "item_url": "https://clevelandart.org/art/2003.157.a",
+   "date": "c. 1890",
+   "creator": "unknown Kalighat painter (Eastern India, Bengal, Kolkata, Kalighat)",
+   "credit": "The Cleveland Museum of Art, Gift of William E. Ward in memory of his wife, Evelyn Svec Ward, 2003.157.a (CC0)",
+   "licence": "CC0",
+   "basis": "Cleveland Museum of Art Open Access: share_license_status \"CC0\"",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 0.8803,
+    "image": [
+     2181,
+     3400
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 48,
+    "p2": 69,
+    "min0_5": 39,
+    "applied": true,
+    "black_in": 39,
+    "black_out": 10,
+    "white": 255,
+    "gain": 1.1343,
+    "p2_after": 44,
+    "what": "black level set: the scan's grey floor taken down to near black by one straight-line level, the same on every colour, which raises contrast and colour strength by the same small factor; the white point kept",
+    "materiality": "non-material (GRAMMAR 4.2: a level adjustment, one straight line the same on every channel; A46)"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  },
+  {
+   "id": "O2",
+   "part": "cold-open",
+   "kind": "archive_still",
+   "start_s": 15.7083,
+   "end_s": 55.5833,
+   "start_frame": 377,
+   "end_frame": 1334,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "CDC PHIL 1968",
+    "label": "Archive · 1968"
+   },
+   "ledger": "stills",
+   "ledger_id": "S-14458",
+   "title": "J. Donald Millar beside a Shapona display: map of West Africa, a description of Yoruba beliefs, and a votive sculpture, 1968",
+   "archive": "CDC Public Health Image Library",
+   "item_url": "https://wwwn.cdc.gov/phil/details.aspx?pid=14458",
+   "date": "1968",
+   "creator": "CDC",
+   "credit": "CDC Public Health Image Library (PHIL) #14458; CDC",
+   "licence": "public domain",
+   "basis": "US federal work (CDC); PHIL: 'Permission is not required for public domain images'",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 0.5085,
+    "image": [
+     3776,
+     4725
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 22,
+    "p2": 24,
+    "min0_5": 22,
+    "applied": false,
+    "why": "p2 24 is at or under 24"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  },
+  {
+   "id": "1.5a",
+   "part": "ch-1",
+   "kind": "archive_still",
+   "start_s": 197.7083,
+   "end_s": 208.8333,
+   "start_frame": 4745,
+   "end_frame": 5012,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "CDC PHIL 1968",
+    "label": "Archive · 1968"
+   },
+   "ledger": "stills",
+   "ledger_id": "S-10363",
+   "title": "A Shapona display: map of West Africa, a description of Yoruba beliefs, and a votive sculpture, 1968",
+   "archive": "CDC Public Health Image Library",
+   "item_url": "https://wwwn.cdc.gov/phil/details.aspx?pid=10363",
+   "date": "1968",
+   "creator": "CDC/ J. Donald Millar, M.D., D.T.P.H.",
+   "credit": "CDC Public Health Image Library (PHIL) #10363; CDC/ J. Donald Millar, M.D., D.T.P.H.",
+   "licence": "public domain",
+   "basis": "US federal work (CDC); PHIL: 'Permission is not required for public domain images'",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 0.9711,
+    "image": [
+     2029,
+     2744
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 27,
+    "p2": 30,
+    "min0_5": 27,
+    "applied": true,
+    "black_in": 27,
+    "black_out": 10,
+    "white": 255,
+    "gain": 1.0746,
+    "p2_after": 13,
+    "what": "black level set: the scan's grey floor taken down to near black by one straight-line level, the same on every colour, which raises contrast and colour strength by the same small factor; the white point kept",
+    "materiality": "non-material (GRAMMAR 4.2: a level adjustment, one straight line the same on every channel; A46)"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  },
+  {
+   "id": "1.11",
+   "part": "ch-1",
+   "kind": "archive_still",
+   "start_s": 402.7083,
+   "end_s": 423.2083,
+   "start_frame": 9665,
+   "end_frame": 10157,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "Library of Congress 1963",
+    "label": "Archive · 1963"
+   },
+   "ledger": "sheets",
+   "ledger_id": "SH-WESTAFRICA-1963",
+   "title": "West Africa (countries, roads and caravan routes, railways), US Central Intelligence Agency, 1963",
+   "archive": "Library of Congress Geography and Map Division",
+   "item_url": "https://www.loc.gov/item/75690458/",
+   "date": "1963-05",
+   "creator": "United States. Central Intelligence Agency",
+   "credit": "Library of Congress 75690458, US Central Intelligence Agency (public domain)",
+   "licence": "public domain",
+   "basis": "US federal government work (17 U.S.C. 105): a Central Intelligence Agency map",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "dip",
+    "s": 0.5
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 3,
+    "image": [
+     5000,
+     5210
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 52,
+    "p2": 66,
+    "min0_5": 47,
+    "applied": true,
+    "black_in": 47,
+    "black_out": 10,
+    "white": 255,
+    "gain": 1.1779,
+    "p2_after": 32,
+    "what": "black level set: the scan's grey floor taken down to near black by one straight-line level, the same on every colour, which raises contrast and colour strength by the same small factor; the white point kept",
+    "materiality": "non-material (GRAMMAR 4.2: a level adjustment, one straight line the same on every channel; A46)"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  },
+  {
+   "id": "2.1a",
+   "part": "ch-2",
+   "kind": "archive_still",
+   "start_s": 460.625,
+   "end_s": 476.5,
+   "start_frame": 11055,
+   "end_frame": 11436,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "CDC PHIL 1966",
+    "label": "Archive · 1966"
+   },
+   "ledger": "stills",
+   "ledger_id": "S-12291",
+   "title": "Worldwide smallpox endemic areas, 1966: a map slide (Source: WHO) from Michael Schwartz's set",
+   "archive": "CDC Public Health Image Library",
+   "item_url": "https://wwwn.cdc.gov/phil/Details.aspx?pid=12291",
+   "date": "1966 (the map's own title); PHIL creation date 1975",
+   "creator": "CDC/ Dr. Michael Schwartz",
+   "credit": "CDC Public Health Image Library (PHIL) #12291; CDC/ Dr. Michael Schwartz",
+   "licence": "public domain",
+   "basis": "US federal work (CDC); PHIL: 'Permission is not required for public domain images'",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 0.8136,
+    "image": [
+     2659,
+     1945
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 32,
+    "p2": 78,
+    "min0_5": 0,
+    "applied": false,
+    "why": "the darkest channel's p0.5 0 is already at or under 10"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  },
+  {
+   "id": "4.2a",
+   "part": "ch-4",
+   "kind": "archive_still",
+   "start_s": 1201.7917,
+   "end_s": 1212.375,
+   "start_frame": 28843,
+   "end_frame": 29097,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "CDC PHIL 1975",
+    "label": "Archive · 1975"
+   },
+   "ledger": "stills",
+   "ledger_id": "S-7703",
+   "title": "A map of Sylhet with flags on the villages where smallpox had been found, 1975",
+   "archive": "CDC Public Health Image Library",
+   "item_url": "https://wwwn.cdc.gov/phil/Details.aspx?pid=7703",
+   "date": "1975",
+   "creator": "CDC/ World Health Organization; Stanley O. Foster M.D., M.P.H.",
+   "credit": "CDC Public Health Image Library (PHIL) #7703; CDC/ World Health Organization; Stanley O. Foster M.D., M.P.H.",
+   "licence": "public domain",
+   "basis": "US federal work (CDC); PHIL: 'Permission is not required for public domain images'",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 1.7608,
+    "image": [
+     1302,
+     2081
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 5,
+    "p2": 15,
+    "min0_5": 5,
+    "applied": false,
+    "why": "p2 15 is at or under 24"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  },
+  {
+   "id": "5.3b",
+   "part": "ch-5",
+   "kind": "archive_still",
+   "start_s": 1349.5,
+   "end_s": 1360.5833,
+   "start_frame": 32388,
+   "end_frame": 32654,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "CDC PHIL",
+    "label": "Archive"
+   },
+   "ledger": "stills",
+   "ledger_id": "S-5662",
+   "title": "World-wide smallpox endemic areas, June 1971 (map, Source: WHO)",
+   "archive": "CDC Public Health Image Library",
+   "item_url": "https://wwwn.cdc.gov/phil/Details.aspx?pid=5662",
+   "date": "June 1971 (the map's own legend)",
+   "creator": "CDC",
+   "credit": "CDC Public Health Image Library (PHIL) #5662; CDC",
+   "licence": "public domain",
+   "basis": "US federal work (CDC); PHIL: 'Permission is not required for public domain images'",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 3,
+    "image": [
+     2874,
+     1686
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 0,
+    "p2": 0,
+    "min0_5": 0,
+    "applied": false,
+    "why": "p2 0 is at or under 24"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  },
+  {
+   "id": "5.9a",
+   "part": "ch-5",
+   "kind": "archive_still",
+   "start_s": 1422.375,
+   "end_s": 1429.9167,
+   "start_frame": 34137,
+   "end_frame": 34318,
+   "mark": {
+    "class": "ARCHIVE",
+    "detail": "CDC PHIL 1976",
+    "label": "Archive · 1976"
+   },
+   "ledger": "stills",
+   "ledger_id": "S-16928",
+   "title": "World-wide smallpox endemic areas, 1976 (map, Source: WHO)",
+   "archive": "CDC Public Health Image Library",
+   "item_url": "https://wwwn.cdc.gov/phil/Details.aspx?pid=16928",
+   "date": "1976 (the map's own title)",
+   "creator": "CDC",
+   "credit": "CDC Public Health Image Library (PHIL) #16928; CDC",
+   "licence": "public domain",
+   "basis": "US federal work (CDC); PHIL: 'Permission is not required for public domain images'",
+   "licence_note": null,
+   "source_line": null,
+   "notes": [],
+   "alterations": [],
+   "transition_in": {
+    "type": "cut"
+   },
+   "preset": "TOUR",
+   "fill_ok": true,
+   "fill": null,
+   "fill_exception": null,
+   "fill_detail": null,
+   "in_s": null,
+   "out_s": null,
+   "resampler": {
+    "method": "lanczos prescale + bicubic affine (PIL)",
+    "ml_upscaler": false,
+    "scale_max": 2.2134,
+    "image": [
+     2874,
+     1686
+    ]
+   },
+   "conform": null,
+   "levels": {
+    "version": 2,
+    "p0_5": 0,
+    "p2": 0,
+    "min0_5": 0,
+    "applied": false,
+    "why": "p2 0 is at or under 24"
+   },
+   "neutralise_cast": null,
+   "test_fixture": false,
+   "text": null
+  }
+ ]
+}

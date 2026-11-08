@@ -2,7 +2,8 @@
 // uploads to the film's folder in R2 with --remote and sources.json last, and
 // a dry run is plain data that never runs a command.
 import { describe, expect, it } from "vitest";
-import { BUCKET, MAX_PUT_BYTES, PACKET_ROOT, UPLOAD_ORDER, captionReview, commandLine, uploadsCaptions, gopFrames, rateProblems, videoKbps, webEncodeArgs, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease, readLedgers, posterSource } from "../scripts/release-film.mjs";
+import { BUCKET, MAX_PUT_BYTES, PACKET_ROOT, UPLOAD_ORDER, captionReview, cropProblems, parseCrop, commandLine, uploadsCaptions, gopFrames, rateProblems, videoKbps, webEncodeArgs, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease, readLedgers, posterSource, localPathProblems, runCheck } from "../scripts/release-film.mjs";
+import { localPathFindings } from "../scripts/lib/local-paths.mjs";
 import { mkdtempSync, readFileSync, writeFileSync as wfs, mkdirSync as mkd } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as pjoin } from "node:path";
@@ -15,7 +16,7 @@ const plan = (argv: string[], durations = { film: 1205, trailer: 120 }) => planR
 describe("release-film", () => {
   it("runs sources-only, the web encode, the poster and packet, the captions check, the upload and the hashes, in that order", () => {
     const { steps } = plan(["r/master.mp4", "--trailer", "t/master.mp4"]);
-    expect(steps.map((s) => s.id)).toEqual(["a", "b", "b", "c", "c", "d", "e", "e", "e", "e", "e", "e", "e", "f"]);
+    expect(steps.map((s) => s.id)).toEqual(["a", "b", "b", "c", "c", "d", "e", "e", "e", "e", "e", "e", "e", "e", "f"]);
     expect(steps[0].args).toEqual(expect.arrayContaining(["-m", "studio.engine.render", "--sources-only"]));
     expect(steps[1].args).toEqual(expect.arrayContaining(webEncodeArgs(1205)));
     expect(steps[2].args).toEqual(expect.arrayContaining(["-maxrate", `${videoKbps(120)}k`]));
@@ -33,6 +34,44 @@ describe("release-film", () => {
     const firstWrite = steps.findIndex((s) => s.args?.includes("put") || s.args?.includes("delete"));
     expect(hashes).toBeGreaterThan(-1);
     expect(hashes).toBeLessThan(firstWrite);
+  });
+
+  // The live defect (Partition, 2026-11): four shots printed a drive as their archive and credit.
+  const defect = () => ({
+    slug: "partition-of-india",
+    shots: [
+      { id: "S-133", archive: "Internet Archive", credit: "Internet Archive", item_url: "https://archive.org/details/x" },
+      { id: "S-134", archive: "Lok Sabha Secretariat (eparlib), PDF on D:", credit: "Lok Sabha Secretariat (eparlib), PDF on D:", item_url: "https://eparlib.nic.in" },
+    ],
+    cues: [{ id: "M-01", tradition: "the reach (phrase c in C: C5 D5 A5)" }],
+    loudness: { limiter: { file: "D:\\document-media\\market-street-render\\work\\mix-norm-limited.wav" } },
+  });
+
+  it("names every field of sources.json that names a local drive, and nothing else", () => {
+    expect(localPathFindings(defect())).toEqual([
+      { path: ".shots[1].archive", value: "Lok Sabha Secretariat (eparlib), PDF on D:" },
+      { path: ".shots[1].credit", value: "Lok Sabha Secretariat (eparlib), PDF on D:" },
+      { path: ".loudness.limiter.file", value: "D:\\document-media\\market-street-render\\work\\mix-norm-limited.wav" },
+    ]);
+    expect(localPathFindings({ shots: [{ archive: "Internet Archive", item_url: "https://eparlib.nic.in", t: "12:30", id: "A:5.4" }] })).toEqual([]);
+    expect(localPathFindings({ "D:/x": 1 })).toEqual([{ path: '["D:/x"] (key)', value: "D:/x" }]);
+  });
+
+  it("refuses a packet whose sources.json names a local drive, before any put, naming each field", () => {
+    const { steps } = plan(["r/master.mp4", "--trailer", "t/master.mp4"]);
+    const check = steps.findIndex((s) => s.check === "local-paths");
+    const firstWrite = steps.findIndex((s) => s.args?.includes("put") || s.args?.includes("delete"));
+    expect(check).toBeGreaterThan(-1);
+    expect(check).toBeLessThan(firstWrite);
+    expect(plan(["r/master.mp4", "--no-upload"]).steps.some((s) => s.check === "local-paths")).toBe(true);
+    const dir = mkdtempSync(pjoin(tmpdir(), "release-local-"));
+    const bad = pjoin(dir, "sources.json");
+    wfs(bad, JSON.stringify(defect()));
+    expect(() => runCheck({ check: "local-paths", sources: bad })).toThrow(/3 field\(s\) name a local drive[\s\S]*\.shots\[1\]\.archive[\s\S]*\.shots\[1\]\.credit[\s\S]*\.loudness\.limiter\.file/);
+    const good = pjoin(dir, "good.json");
+    wfs(good, JSON.stringify({ shots: [defect().shots[0]], cues: defect().cues }));
+    expect(() => runCheck({ check: "local-paths", sources: good })).not.toThrow();
+    expect(localPathProblems(defect())[0]).toBe('sources.json .shots[1].archive names a local drive: "Lok Sabha Secretariat (eparlib), PDF on D:"');
   });
 
   it("derives the rate cap from the duration, so the 720p file stays under the put limit with margin", () => {
@@ -172,8 +211,39 @@ describe("release-film", () => {
     // As shipped: Real World's are planned, so its release puts no captions up.
     const shipped = JSON.parse(readFileSync(new URL("../films.json", import.meta.url), "utf8"));
     expect(captionReview(shipped, "real-world")).toBe("planned");
+    expect(captionReview(shipped, "market-street")).toBe("planned");
     expect(captionReview(shipped, "partition-of-india")).toBe("reviewed");
     expect(captionReview(shipped, "smallpox-eradication")).toBe("in_review");
+  });
+
+  it("crops the poster before the scale with --poster-crop, and tells publish the crop", () => {
+    const o = parseArgs(["r/master.mp4", "--poster-crop", "3200x1800+100+120"]);
+    expect(o.posterCrop).toEqual({ w: 3200, h: 1800, x: 100, y: 120 });
+    const steps = planRelease(o, { ...tools, durations: { film: 1205, trailer: null }, stillSize: { w: 3400, h: 2100 } }).steps as Step[];
+    const posterStep = steps.find((s) => s.label.startsWith("the poster"))!;
+    const vf = posterStep.args![posterStep.args!.indexOf("-vf") + 1];
+    expect(vf).toBe("crop=3200:1800:100:120,scale=1920:-1:flags=lanczos");
+    const pub = steps.find((s) => s.args?.includes("studio.engine.publish"))!.args!;
+    expect(pub[pub.indexOf("--poster-crop") + 1]).toBe("3200x1800+100+120");
+    // without it, the scale alone, and publish is told no crop
+    const plain = plan(["r/master.mp4"]).steps;
+    const pv = plain.find((s) => s.label.startsWith("the poster"))!.args!;
+    expect(pv[pv.indexOf("-vf") + 1]).toBe("scale=1920:-1:flags=lanczos");
+    expect(plain.some((s) => s.args?.includes("--poster-crop"))).toBe(false);
+  });
+
+  it("refuses a poster crop that is malformed, not 16:9 within 1%, or outside the still", () => {
+    for (const bad of ["3200x1800", "3200x1800+100", "0x0+0+0", "3200x1800+-1+0", '"><img src=x onerror=alert(1)>', "1800x1800+0+0", "1940x1080+0+0"]) {
+      expect(() => parseArgs(["r/master.mp4", "--poster-crop", bad]), bad).toThrow(/poster crop/);
+    }
+    expect(parseCrop("1918x1080+0+0")).toEqual({ w: 1918, h: 1080, x: 0, y: 0 });   // 0.1% off 16:9
+    const crop = parseCrop("3200x1800+100+120");
+    expect(cropProblems(crop, { w: 3400, h: 2100 })).toEqual([]);
+    expect(cropProblems(crop, { w: 3300, h: 1920 })).toEqual([]);                    // exactly to the right and bottom edges
+    expect(cropProblems(crop, { w: 3299, h: 2100 })).toEqual([expect.stringMatching(/outside the still.*3299x2100/)]);
+    expect(cropProblems(crop, { w: 3400, h: 1919 })).toEqual([expect.stringMatching(/outside the still/)]);
+    expect(cropProblems(crop, null)).toEqual([expect.stringMatching(/could not read the still's size/)]);
+    expect(() => planRelease(parseArgs(["r/master.mp4", "--poster-crop", "3200x1800+100+120"]), { ...tools, durations: { film: 1205, trailer: null }, stillSize: { w: 3000, h: 2000 } })).toThrow(/outside the still/);
   });
 
   it("prints a command line a person can paste", () => {

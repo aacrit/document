@@ -1,7 +1,7 @@
 """Render a screenplay v2 into a 1080p24 master film.
 
     python -m studio.engine.render <film dir> [--out <dir>] [--res 1080|720]
-                                   [--from SHOT | --until S | --shots A..B] [--workers N] [--burn-subtitles]
+                                   [--from SHOT | --until S | --shots A..B] [--workers N] [--burn-subtitles] [--stems]
 
 Reads ``<film dir>/screenplay.json`` (films/GRAMMAR.md section 12) and the
 ledgers it cites (top-level ``ledgers``: name -> path, or {"path", "media"};
@@ -54,6 +54,7 @@ enters the repo (R-08); outputs land outside it unless ``--out`` says so.
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import json
 import math
@@ -214,6 +215,11 @@ LICENCE_OK = re.compile(r"^(public domain|cc0( 1\.0)?|cc[- ]?by([- ][1-4]\.0)?)$
 # screenplay declares ``share_alike: {decision: "<its docs/DECISIONS.md entry>"}``, so the licence is scoped per film,
 # and the film's sources page carries the ShareAlike attribution. Every such asset is journaled as a decision.
 LICENCE_SHARE_ALIKE = re.compile(r"^cc[- ]?by[- ]?sa([- ][1-4]\.0)?$", re.I)
+# MIT (founder ruling 2026-11-07, prompted by the RWTH Aachen room impulse response, AIR database, MIT, used in the
+# title Foley mix): allowed only for a sound or other non-picture input, credited the same way as CC BY
+# (description.py); a picture input under MIT is refused, same as any licence off the house allowlist above.
+LICENCE_MIT = DSC.MIT                # the one MIT pattern (description.py), shared with its credit and titles' rank
+NON_PICTURE_KINDS = ("sound", "non_picture")
 
 
 def share_alike_declared(play: dict | None) -> tuple[bool, list[str]]:
@@ -230,13 +236,17 @@ def share_alike_declared(play: dict | None) -> tuple[bool, list[str]]:
     return True, []
 
 
-def licence_allowed(lic: str, play: dict | None = None) -> tuple[bool, bool]:
-    """(allowed, share_alike): the house allowlist, or CC BY-SA in a film that declares it (share_alike_declared)."""
+def licence_allowed(lic: str, play: dict | None = None, *, kind: str = "picture") -> tuple[bool, bool]:
+    """(allowed, share_alike): the house allowlist, CC BY-SA in a film that declares it (share_alike_declared), or
+    MIT when ``kind`` is "sound" or "non_picture" (founder ruling 2026-11-07). A picture input (the default
+    ``kind``) is never allowed under MIT."""
     lic = str(lic or "").strip()
     if LICENCE_OK.match(lic):
         return True, False
     if LICENCE_SHARE_ALIKE.match(lic):
         return share_alike_declared(play)[0], True
+    if kind in NON_PICTURE_KINDS and LICENCE_MIT.match(lic):
+        return True, False
     return False, False
 PRESETS = {                         # GRAMMAR 7.2, zoom relative to the largest 16:9 window
     "HOLD": ({"z": 1.0}, {"z": 1.0}),
@@ -789,14 +799,16 @@ def card_text_check(shot: dict, W: int, H: int, fonts: M.Fonts | None = None) ->
     """E15: what a card shot draws of its ``text[]``, from the same layout the
     drawer uses. Returns ``fits`` (False with ``why`` when the text cannot be
     laid out in the card's safe area at a readable size), ``missing`` (the
-    elements not drawn word for word: index, intended, drawn) and, for a
+    elements not drawn word for word: index, intended, drawn), ``numerals``
+    (BRAND-KIT 7, GRAMMAR A28(g): the digit runs the layout would set outside
+    JetBrains Mono, read from the spans the drawer draws) and, for a
     statement card, its ``scale`` and ``lines``. Never OCR: the layout
     records are what is drawn."""
     fonts = fonts or M.Fonts()
     L = M.Layout(W, H)
     texts = [str(x) for x in (shot.get("text") or [])]
     ck = shot.get("_card") or card_kind(shot)
-    out = {"card": ck, "fits": True, "why": None, "missing": []}
+    out = {"card": ck, "fits": True, "why": None, "missing": [], "numerals": []}
 
     def norm(x):
         return " ".join(str(x).split())
@@ -829,6 +841,7 @@ def card_text_check(shot: dict, W: int, H: int, fonts: M.Fonts | None = None) ->
             out.update(fits=False, why=str(e), missing=drawn_as([]))
             return out
         out["missing"] = drawn_as([norm(r["text"]) for r in recs])
+        out["numerals"] = M.card_numeral_problems(lay)
         return out
     try:
         lay = M.card_layout(L, texts, fonts, what=f"card {shot.get('id')}")
@@ -836,17 +849,26 @@ def card_text_check(shot: dict, W: int, H: int, fonts: M.Fonts | None = None) ->
         out.update(fits=False, why=str(e), missing=drawn_as([]))
         return out
     out["missing"] = M.card_text_problems(texts, lay)
+    out["numerals"] = M.card_numeral_problems(lay)
     out["scale"] = lay["scale"]
     out["lines"] = [len(e["lines"]) for e in lay["elements"]]
     return out
 
 
+def card_numerals_evidence(card: str, numerals: list[dict]) -> dict:
+    return {"card": card, "numerals": numerals,
+            "fix": None if not numerals else "every numeral on a card is JetBrains Mono (BRAND-KIT 7 and 7a); the card's "
+                                             "layout must set its digit runs in the data face"}
+
+
 def card_lints(lint, shots: list[dict], W: int, H: int, *, rule_fits: str = "card-fits", rule_drawn: str = "card-drawn",
-               stage: str = "scout", only=None) -> None:
+               rule_numerals: str = "card-numerals-mono", stage: str = "scout", only=None) -> None:
     """E15: every card's text fits its safe area at a readable size, and every
     element of its ``text[]`` is drawn word for word (from the layout records).
     At plan time a shortfall card is checked with its placeholders as written,
-    which are longer than any fill; after the fill it is checked again."""
+    which are longer than any fill; after the fill it is checked again.
+    GRAMMAR A28(g): every digit run a card draws is set in JetBrains Mono
+    (``rule_numerals``, from the same layout spans)."""
     fonts = M.Fonts()
     for s in shots:
         if s.get("kind") not in ("card", "black") or (only is not None and s["id"] not in only):
@@ -859,6 +881,8 @@ def card_lints(lint, shots: list[dict], W: int, H: int, *, rule_fits: str = "car
              evidence={"card": c["card"], "missing": c["missing"],
                        "fix": None if not c["missing"] else "every element of text[] must be drawn; this card kind draws "
                                                             "only what its form allows (GRAMMAR 9)"})
+        lint(rule_numerals, not c["numerals"], unit=s["id"], stage=stage, grammar="A28(g), BRAND-KIT 7 and 7a",
+             evidence=card_numerals_evidence(c["card"], c["numerals"]))
 
 
 def whole_camera(shot: dict, img_size, W: int, H: int, *, preset: str = "HOLD") -> dict:
@@ -2473,15 +2497,18 @@ def credits_blocks(plan: dict) -> list:
                                                                                   m.get("licence")) if b)))
     blocks = [("Shots", shots)]
     titles = [s for s in plan["shots"] if TS.is_title(s)]
-    if titles:                  # A40: the series titles, drawn from period records; every CC BY input is attributed
+    if titles:                  # A40: the series titles, drawn from period records; every CC BY picture input is
+                                 # attributed, and every third-party CC BY or MIT sound input (founder ruling
+                                 # 2026-11-07); the studio's own theme stems in the shared ledger are not
         prov, _, _ = TS.provenance(titles[0].get("_item") or {})
         items = TS.provenance_items(prov)
         series = wrap(f"{TS.SERIES}: drawn from {len(items)} period records, no AI; every record on the "
                       "sources page")
-        for x in items:
-            if (TS.licence_rank(x.get("licence")) or 0) >= 2:
-                series += wrap(", ".join(b for b in [TS.plain(x.get("title")), TS.plain(x.get("credit") or x.get("holder")),
-                                                     str(x.get("licence") or "")] if b))
+        for x in [x for x in items if (TS.licence_rank(x.get("licence")) or 0) >= 2] + TS.credited_sound_items(prov):
+            lic = str(x.get("licence") or "")
+            who = x.get("credit") or x.get("holder") or x.get("creator") or x.get("uploader")
+            series += wrap(", ".join(b for b in [TS.plain(x.get("title")), TS.plain(who),
+                                                 "MIT licence" if DSC.names_mit(lic) else lic] if b))
         blocks.append(("Series titles", series))
     if recordings:
         blocks.append(("Recordings", recordings))
@@ -3467,6 +3494,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     shortfalls = shortfall_lints(lint, play, shots, settings)
     # A56: what the record lacks, and who the record names only by role, are stated in the sources data
     gaps = gap_lints(lint, play, shots)
+    film_notes = film_note_lints(lint, play)       # the house's dated notes, outside the horizon (founder, 2026-11-02)
     unnamed_speakers = descriptor_lints(lint, speakers)
     if lint_fail:
         raise Refused("lint failed: " + "; ".join(lint_fail))
@@ -3534,7 +3562,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         # A31: the mark key's classes, from the whole film (kept by --until), the series titles' own classes with them (A40)
         # A21, A25 and E2's sides: what the sources page states about the film's own rules
         "imagery_rule": rule, "settings": settings, "settings_stated": settings_stated, "shortfalls": shortfalls,
-        "gaps": gaps, "unnamed_speakers": unnamed_speakers,
+        "gaps": gaps, "unnamed_speakers": unnamed_speakers, "film_notes": film_notes,
         "score_standard": score_std, "score_standard_stated": score_stated,
         "balance": play.get("balance"), "sides": film_sides(play),
         "clip_integrity": clip_integrity,
@@ -3543,8 +3571,11 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     plan["dips"] = dip_list(plan)
     plan["credits"] = credits_blocks(plan)
     try:
-        M.credits_layout(M.Layout(W, H), plan["credits"], M.Fonts())
+        credits_lay = M.credits_layout(M.Layout(W, H), plan["credits"], M.Fonts())
         lint("credits-fits", True, unit="credits", grammar="9, BRAND-KIT 11c")
+        bad = M.card_numeral_problems(credits_lay)
+        lint("card-numerals-mono", not bad, unit="credits", grammar="A28(g), BRAND-KIT 7 and 7a",
+             evidence=card_numerals_evidence("credits", bad))
     except M.TextOverflow as e:
         lint("credits-fits", False, unit="credits", grammar="9, BRAND-KIT 11c", evidence={"why": str(e)})
     if lint_fail:
@@ -3862,6 +3893,52 @@ def descriptor_lints(lint, speakers: dict) -> list[dict]:
         if speaker_is_descriptor(sp):
             out.append({"speaker": sid, "name": sp.get("name"), "role": sp.get("role"),
                         "basis": None if reads else sp.get("descriptor_basis")})
+    return out
+
+
+FILM_NOTE_KEYS = {"text", "noted", "source"}
+ISO_DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def film_note_lints(lint, play: dict) -> list[dict]:
+    """film-note (blocking; founder, 2026-11-02, Market Street's brand audit): the house's own notes about the film,
+    dated and outside its horizon, are the screenplay's top-level ``film_notes``, each {text, noted, source}: text
+    a non-empty string, printed as written (no placeholder); noted the day the house wrote it (YYYY-MM-DD); source
+    a non-empty string or null. Unknown keys are refused. They are never in the frame (aswas reads only the parts),
+    so A0's horizon does not bind them; the Sources page prints each with its date under "Notes on this film".
+    Returns the notes, for sources.json (source null when left out)."""
+    declared = play.get("film_notes")
+    declared = declared if declared is not None else []
+    if not isinstance(declared, list):
+        lint("film-note", False, unit="film_notes", grammar="A0, A56", evidence={"why": "film_notes must be a list"})
+        return []
+    out = []
+    for k, n in enumerate(declared):
+        probs = []
+        if not isinstance(n, dict):
+            probs.append("a film note is {text, noted, source}")
+            n = {}
+        text, noted, source = n.get("text"), n.get("noted"), n.get("source")
+        if not isinstance(text, str) or not text.strip():
+            probs.append("text is the note itself, a non-empty string")
+        elif POL.has_placeholder(text):
+            probs.append("a film note holds no placeholder: it is printed as written")
+        day = None
+        if isinstance(noted, str) and ISO_DAY_RE.match(noted):
+            try:
+                day = datetime.date.fromisoformat(noted)
+            except ValueError:
+                day = None
+        if day is None:
+            probs.append("noted is the day the house wrote the note, an ISO date (YYYY-MM-DD)")
+        if source is not None and (not isinstance(source, str) or not source.strip()):
+            probs.append("source is a non-empty string, or null")
+        unknown = sorted(set(n) - FILM_NOTE_KEYS)
+        if unknown:
+            probs.append(f"unknown keys {unknown}: a film note is text, noted and source")
+        lint("film-note", not probs, unit=f"film_notes[{k}]", grammar="A0, A56", evidence={"note": n, "problems": probs})
+        if not probs:
+            out.append({"text": text, "noted": noted, "source": source})
     return out
 
 
@@ -6098,6 +6175,7 @@ SOUND_LINTS: dict[str, dict] = {
     "shortfall-fill": {"class": "needs full mix", "why": "E15, a card's numbers come from the mix's measurement"},
     "card-fills-fit": {"class": "needs full mix", "why": "E15, the card as filled from the mix"},
     "card-fills-drawn": {"class": "needs full mix", "why": "E15, the card as filled from the mix"},
+    "card-fills-numerals-mono": {"class": "needs full mix", "why": "A28(g), the card's numerals as filled from the mix"},
     "still-hold": {"class": "needs full mix", "why": "A39 guidance, the holds against the speech as placed"},
     "loudness": {"class": "needs full mix", "why": "8.5, the levelled master"},
     "loudnorm-linear": {"class": "needs full mix", "why": "8.5, the levelled master"},
@@ -6509,7 +6587,8 @@ def title_audio_rendered(journal: Journal, plan: dict, master: Path, *, span: di
 
 
 def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
-              work: Path | None = None, stems: dict | None = None) -> tuple[np.ndarray, dict]:
+              work: Path | None = None, stems: dict | None = None,
+              bus_capture: dict | None = None) -> tuple[np.ndarray, dict]:
     """The programme mix, in two passes (A15 refined, E14). Pass 1 levels,
     cleans and peak-controls every line at A15's fixed voice ceiling and
     mixes. If the master's true-peak limiter would then do more than catch
@@ -6532,7 +6611,14 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
 
     A29 take (S4): a take cue is the film's whole score in one stem, placed
     whole at 0 with no shaping, levelling or fades (the duck still applies);
-    ``stems`` then receives its reading by span (score.take_analysis)."""
+    ``stems`` then receives its reading by span (score.take_analysis).
+
+    ``bus_capture``, when given (``--stems``), receives the four programme
+    buses (``voice``, ``clips``, ``music_ducked``, ``amb``: they sum, sample
+    for sample, to the returned mix), ``music_preduck``, the ``duck`` curve
+    and ``lines``: every voice placement of the final pass (_placed_lines),
+    which sum to ``voice``. It changes no return value and nothing when it is
+    None."""
     std = plan.get("score_standard") or dict(SC.STANDARD)
     n = int(round(plan["frames"] / fps_of(plan) * AUDIO_RATE))
     voice, music, amb, clips = (np.zeros(n, np.float32) for _ in range(4))
@@ -6749,8 +6835,184 @@ def build_mix(plan: dict, film: Path, journal: Journal, *, draft: bool = False,
     if t_off:
         raise Refused(f"title-audio-level (A40): {'; '.join(t_off)}")
     mix = (voice + clips + music * duck + amb).astype(np.float32)
-    lifted = voice_ceiling_pass(mix, parts, clips, music, amb, placed, journal, draft=draft, work=work, duck=duck)
+    final: dict | None = {} if bus_capture is not None else None
+    lifted = voice_ceiling_pass(mix, parts, clips, music, amb, placed, journal, draft=draft, work=work, duck=duck,
+                                capture=final)
+    if bus_capture is not None:
+        # voice_ceiling_pass only ever re-places the voice bus (clips, music, duck and amb are pass 1's, held fixed).
+        # The voice bus and every line are taken from the pass that made the returned mix: pass 1's when it kept the
+        # mix, else the last pass's own placements (``final``), so the lines sum to voice and the buses to the mix.
+        last = final.get("got") if lifted is not None else None
+        bus_capture.update(voice=voice if lifted is None else final["voice"], clips=clips, music_preduck=music,
+                           music_ducked=(music * duck).astype(np.float32), amb=amb, duck=duck,
+                           lines=_placed_lines(parts, placed, last, n))
     return (mix if lifted is None else lifted), placed
+
+
+def _placed_lines(parts: list[dict], placed: dict, got: dict | None, n: int) -> list[dict]:
+    """``--stems``: every voice part exactly as it went into the final voice
+    bus (``_place``'s own trim and gain): from pass 1 (``parts``) when ``got``
+    is None, else from the last voice-ceiling pass's placements. Narration
+    and readings are their processed takes (gate, EQ, level, peak control,
+    mood offset); archival spans and archival files are their own sound at
+    their one static gain, edges included. Each carries the sample it starts
+    on, so the lines placed back at their starts sum to the voice bus."""
+    out = []
+    for k, p in enumerate(parts):
+        x, db = (got[k]["x"], got[k]["db"]) if got is not None else (
+            p["x"], p["total"] if p["kind"] == "archival" else p["db"])
+        i = int(round(p["at_s"] * AUDIO_RATE))
+        if i >= n:
+            continue
+        y = (x[: n - i] * (10 ** (db / 20))).astype(np.float32)             # _place's arithmetic, exactly
+        line = placed["lines"][p["i"]] if "i" in p else {}
+        out.append({"id": p["id"], "start_sample": i, "start_s": i / AUDIO_RATE,
+                    "kind": line.get("kind") or ("archival" if p["kind"].startswith("archival") else "reading"),
+                    "gain_db": float(db), "audio": y})
+    return out
+
+
+# Windows device names: a file named one of these (with any extension) opens the device, not a file
+_WIN_RESERVED = frozenset({"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
+                           *(f"LPT{i}" for i in range(1, 10))})
+STEM_NAME_MAX = 64                  # a line file's name, before its suffix (MAX_PATH leaves the out folder the rest)
+STEM_WAV_HEADER_BYTES = 4096        # a float WAV's header, with room to spare, per file
+STEM_BUSES = (("voice.wav", "voice"), ("clips.wav", "clips"), ("music_preduck.wav", "music_preduck"),
+              ("music_ducked.wav", "music_ducked"), ("amb.wav", "amb"), ("duck.wav", "duck"))
+
+
+def stem_file_name(line_id: str, used: set[str]) -> str:
+    """A line id from the screenplay (untrusted) as a file name under
+    stems/lines: only ``[A-Za-z0-9_.-]``, never all dots, never a Windows
+    device name (CON, NUL, COM1 ...: prefixed ``_``), at most STEM_NAME_MAX
+    characters, and unique against ``used`` without regard to case (NTFS is
+    case-insensitive: ``N1`` and ``n1`` are one file). ``used`` holds
+    casefolded names and is updated."""
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", str(line_id))
+    if safe.strip(".") == "":           # empty, or only dots ("..") names no file
+        safe = "line"
+    safe = safe[:STEM_NAME_MAX].rstrip(". ") or "line"     # Windows drops trailing dots, so they never end a name
+    if safe.split(".")[0].upper() in _WIN_RESERVED:
+        safe = "_" + safe[: STEM_NAME_MAX - 1]
+    name, i = safe, 1
+    while name.casefold() in used:
+        i += 1
+        tail = f"_{i}"
+        name = safe[: STEM_NAME_MAX - len(tail)] + tail
+    used.add(name.casefold())
+    return name
+
+
+def stem_bytes(bus: dict) -> int:
+    """What ``write_stem_files`` puts on disk, to within the JSON: every bus and
+    line as float32 samples plus a header each."""
+    arrays = [bus[k] for _, k in STEM_BUSES] + [ln["audio"] for ln in bus.get("lines") or []]
+    return sum(4 * len(a) + STEM_WAV_HEADER_BYTES for a in arrays)
+
+
+def stems_post_gain(loud: dict) -> tuple[float, dict | None]:
+    """The programme gain from work/mix.wav to mix-norm.wav, as loudnorm applied
+    it, and the master limiter's part in it (None when it did not run).
+    Without the limiter, mix-norm is mix x one linear gain (TARGET_LUFS - the
+    measured input_i, which loudnorm's linear mode applies). With it,
+    mix-norm = limit(mix x pre_gain) x post_gain, the second gain measured on
+    the limited file, so the total is their sum in dB and is exact only where
+    the limiter did not act."""
+    if not loud.get("normalised"):
+        return 0.0, None                                   # a silent programme: mix-norm is mix, copied
+    lim = loud.get("limiter")
+    if not lim:
+        return TARGET_LUFS - float(loud["input_i"]), None
+    second = TARGET_LUFS - float(lim["attempts"][-1]["measured"]["input_i"])
+    pre = float(lim["pre_gain_db"])
+    return pre + second, {"applied": True, "ceiling_dbtp": lim["ceiling_dbtp"], "pre_gain_db": round(pre, 4),
+                          "post_gain_db": round(second, 4), "file": lim["file"],
+                          "max_reduction_db": lim.get("max_reduction_db"), "acted_s": lim.get("acted_s")}
+
+
+def write_stem_files(run_dir: Path, bus: dict, loud: dict, journal: Journal, *, min_free_gb: float = MIN_FREE_GB,
+                     disk_usage=shutil.disk_usage) -> Path:
+    """``--stems`` (loom Phase 2a): the four programme buses, the duck curve
+    and every voice line's processed audio, under ``run_dir/stems`` (never
+    off the render's own out folder, since ``run_dir`` always follows
+    ``out``). A stems folder from an earlier render (one holding stems.json)
+    is removed once the disk floor is checked, so no stale line survives; a
+    stems folder without stems.json is refused and left untouched. Each file is float32 WAV at AUDIO_RATE; the buses
+    are full programme length, frame-aligned to the master and start at
+    sample 0 (``bus_capture``'s arrays, from build_mix). The ``duck`` curve
+    is a mono WAV (its own JSON would be one float per sample). Each line
+    file is the line as placed in the final voice bus, starting on its
+    ``start_sample``; archival spans and files are lines too
+    (``kind: archival``). ``stems.json`` is the manifest: what sums to
+    what, the programme gain after the mix and the master limiter, if it ran
+    (reconstructing mix-norm.wav from the stems is valid only when
+    ``limiter`` is null), and the sha256 of every file and of work/mix.wav.
+    Refused before any file is written when the stems would take the out
+    drive under ``min_free_gb``. Every file is journaled as an artifact."""
+    import soundfile as sf
+    stems_dir = run_dir / "stems"
+    lines_dir = stems_dir / "lines"
+    if stems_dir.exists() and not (stems_dir / "stems.json").is_file():
+        raise Refused(f"--stems: {stems_dir} exists but holds no stems.json, so it is not an earlier render's stems; "
+                      "it is left untouched (move or remove it, then render again)")
+    # the floor is checked before anything is removed, so a refused run keeps the earlier stems
+    need = stem_bytes(bus)
+    free = disk_usage(_existing(run_dir)).free
+    if free - need < min_free_gb * 1024 ** 3:
+        raise Refused(f"--stems: the stems need {need / 1024 ** 3:.2f} GB and the out drive has {free / 1024 ** 3:.2f} GB "
+                      f"free; writing them would leave it under the {min_free_gb:g} GB floor")
+    if stems_dir.exists():
+        shutil.rmtree(stems_dir)                            # an earlier render's stems never mix with these
+    lines_dir.mkdir(parents=True, exist_ok=True)
+    gain_db, limiter = stems_post_gain(loud)
+    mix_wav = run_dir / "work" / "mix.wav"
+    lines = bus.get("lines") or []
+    manifest = {"sample_rate": AUDIO_RATE, "length_samples": len(bus["voice"]),
+                "duration_s": round(len(bus["voice"]) / AUDIO_RATE, 6),
+                "sums": {"mix": "voice + clips + music_ducked + amb = work/mix.wav, sample for sample",
+                         "music": "music_preduck * duck = music_ducked",
+                         "voice": "every lines/ file placed at its start_sample sums to voice"},
+                "mix": {"file": "work/mix.wav", "sha256": sha256_file(mix_wav)} if mix_wav.is_file() else None,
+                "post_gain_db": round(gain_db, 4), "post_gain_linear": round(10 ** (gain_db / 20), 8),
+                "limiter": limiter,
+                "mix_norm_from_stems": (
+                    "valid: mix-norm.wav = work/mix.wav x post_gain_linear" if limiter is None else
+                    "not valid: the master limiter ran, so mix-norm.wav = limit(work/mix.wav x limiter.pre_gain_db) x "
+                    "limiter.post_gain_db; post_gain_db is their sum, exact only where the limiter did not act"),
+                "lines": {"count": len(lines), "kinds": sorted({ln["kind"] for ln in lines}),
+                          "note": "every voice placement: narration and readings as processed, archival spans and "
+                                  "archival files (kind archival) at their own sound and static gain"},
+                "files": {}}
+
+    def put(rel: str, x: np.ndarray) -> None:
+        p = stems_dir / rel
+        sf.write(str(p), np.ascontiguousarray(x, dtype=np.float32), AUDIO_RATE, subtype="FLOAT")
+        manifest["files"][rel] = sha256_file(p)
+        journal.artifact("assembly", p, unit="stems", role=f"stems/{rel}")
+
+    for rel, key in STEM_BUSES:
+        put(rel, bus[key])
+    index, used = [], set()
+    for ln in lines:
+        rel = f"lines/{stem_file_name(ln['id'], used)}.wav"
+        put(rel, ln["audio"])
+        at = int(ln["start_sample"]) if "start_sample" in ln else int(round(ln["start_s"] * AUDIO_RATE))
+        index.append({"id": ln["id"], "start_sample": at, "start_s": round(ln["start_s"], 6),
+                      "kind": ln["kind"], "gain_db": round(ln["gain_db"], 3), "file": rel})
+    idx_path = lines_dir / "index.json"
+    idx_path.write_text(json.dumps(index, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    manifest["files"]["lines/index.json"] = sha256_file(idx_path)
+    journal.artifact("assembly", idx_path, unit="stems", role="stems/lines/index.json")
+    manifest_path = stems_dir / "stems.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    journal.artifact("assembly", manifest_path, unit="stems", role="stems/stems.json")
+    journal.decision("assembly", f"--stems: {len(lines)} lines plus the four buses and the duck curve "
+                     f"written to {stems_dir}",
+                     "loom Phase 2a: a movable mix needs the buses and every processed line, not only their sum",
+                     unit="stems", evidence={"dir": str(stems_dir), "lines": len(lines), "bytes": need,
+                                              "post_gain_db": manifest["post_gain_db"],
+                                              "limiter": limiter is not None})
+    return manifest_path
 
 
 def narrator_eq_lints(journal: Journal, plan: dict, eq: dict | None, eq_lines: dict, draft: bool) -> list[str]:
@@ -6876,11 +7138,12 @@ def _held_gain(db: float, tp: float | None, ceiling: float) -> float:
 
 
 def _mix_at(parts: list[dict], ceiling: float, n: int, clips: np.ndarray, music: np.ndarray,
-            amb: np.ndarray, duck: np.ndarray | None = None) -> tuple[np.ndarray, dict]:
+            amb: np.ndarray, duck: np.ndarray | None = None, bus: dict | None = None) -> tuple[np.ndarray, dict]:
     """E14: place every voice part again under ``ceiling``: synthetic lines
     peak-controlled (A13) from their levelled take, archival spans and
     archival files at one static gain held to it (A26; never limited).
-    Returns the mix and, per part, what was placed."""
+    Returns the mix and, per part, what was placed; ``bus``, when given,
+    receives the voice bus this pass built (``--stems``)."""
     voice = np.zeros(n, np.float32)
     got = {}
     for k, p in enumerate(parts):
@@ -6896,13 +7159,15 @@ def _mix_at(parts: list[dict], ceiling: float, n: int, clips: np.ndarray, music:
         else:
             got[k] = {"x": p["x"], "db": p["db"]}
         _place(voice, got[k]["x"], p["at_s"], got[k]["db"])
+    if bus is not None:
+        bus["voice"] = voice
     # A29: pass 1's duck (its lines' spans and the film's hold) when given; pass 2 only re-peaks the same lines
     return (voice + clips + music * (duck_gain(voice) if duck is None else duck) + amb).astype(np.float32), got
 
 
 def voice_ceiling_pass(mix: np.ndarray, parts: list[dict], clips: np.ndarray, music: np.ndarray, amb: np.ndarray,
                        placed: dict, journal: Journal, *, draft: bool = False, work: Path | None = None,
-                       duck: np.ndarray | None = None) -> np.ndarray | None:
+                       duck: np.ndarray | None = None, capture: dict | None = None) -> np.ndarray | None:
     """A15 refined (E14): measure pass 1's mix (its integrated loudness, so
     the lift to TARGET_LUFS) and, when that gain would push its true peak past
     TARGET_TP, run the loudness pass on a trial copy. Only when that master's
@@ -6916,7 +7181,9 @@ def voice_ceiling_pass(mix: np.ndarray, parts: list[dict], clips: np.ndarray, mu
     it). A mix that passes is returned as None (kept, sample for sample).
     Journals one ``voice-ceiling`` decision: the lift, each pass's ceiling,
     pass 1's limiter and each line's change. A bad take at the final ceiling
-    (A13) is refused, a warning under --draft."""
+    (A13) is refused, a warning under --draft. ``capture``, when given
+    (``--stems``) and a pass after the first made the mix, receives that last
+    pass's voice bus (``voice``) and its placements (``got``, per part)."""
     m = _measure(mix)
     if not math.isfinite(m["input_i"]) or m["input_i"] < -70:
         journal.decision("assembly", f"voice ceiling kept at {VOICE_TP:g} dBTP: silent programme",
@@ -6945,7 +7212,7 @@ def voice_ceiling_pass(mix: np.ndarray, parts: list[dict], clips: np.ndarray, mu
         return None
     passes = [{"pass": 1, "ceiling_dbtp": VOICE_TP, "input_i": m["input_i"], "lift_db": lift}]
     while True:
-        out, got = _mix_at(parts, ceiling, len(mix), clips, music, amb, duck)
+        out, got = _mix_at(parts, ceiling, len(mix), clips, music, amb, duck, bus=capture)
         mn = _measure(out)
         lift_n = round(TARGET_LUFS - mn["input_i"], 2)
         nxt, nraw, nbound = derived_voice_ceiling(lift_n)
@@ -6999,6 +7266,8 @@ def voice_ceiling_pass(mix: np.ndarray, parts: list[dict], clips: np.ndarray, mu
                      + "; synthetic lines peak-controlled to it again (A13), archival lines' static gain held to it (A26, "
                      f"never limited); the final mix is {last['input_i']:.2f} LUFS, a {last['lift_db']:+.2f} dB lift",
                      unit="voice-ceiling", evidence=ev)
+    if capture is not None:
+        capture["got"] = got                    # the last pass's placements; its voice bus is in capture["voice"]
     if bad and not draft:
         raise Refused(f"voice-peak-control (A13, A15 refined): bad takes at the derived voice ceiling {ceiling:g} dBTP, "
                       f"re-render them instead of crushing them: {'; '.join(bad)}")
@@ -8186,7 +8455,7 @@ def card_fill_lints(journal: Journal, plan: dict) -> list[str]:
             out.append(f"{rule} ({unit}): {evidence}")
 
     card_lints(lint, plan["shots"], plan["W"], plan["H"], rule_fits="card-fills-fit", rule_drawn="card-fills-drawn",
-               stage="assembly", only=set(fills))
+               rule_numerals="card-fills-numerals-mono", stage="assembly", only=set(fills))
     return out
 
 
@@ -8665,7 +8934,13 @@ def title_sources_fields(s: dict) -> dict:
         "series": TS.SERIES, "master": it.get("id"), "version": it.get("version"), "record": it.get("record"),
         "burned_marks": it.get("burned") is True, "marks": TS.timeline(it), "ai": False,
         "made_with": it.get("generator"),
-        "provenance": [dict({k: x.get(k) for k in keep}, credit=TS.plain(x.get("credit"))) for x in TS.provenance_items(prov)]}}
+        "provenance": [dict({k: x.get(k) for k in keep}, credit=TS.plain(x.get("credit"))) for x in TS.provenance_items(prov)],
+        # the third-party sound inputs owed a credit (CC BY, MIT: founder ruling 2026-11-07), by their holder;
+        # description.py and the Sources page credit them, the studio's own theme stems are not listed
+        "sound": [{"id": x.get("id"), "title": x.get("title"), "holder": x.get("holder"),
+                   "creator": x.get("creator") or x.get("uploader"), "licence": x.get("licence"),
+                   "source_page": x.get("source_page"), "credit": TS.plain(x.get("credit"))}
+                  for x in TS.credited_sound_items(prov)]}}
 
 
 def public_notes(item: dict | None) -> list[str]:
@@ -8705,6 +8980,36 @@ def description_fit(plan: dict, journal: Journal) -> dict:
     return {"fits": not r["incomplete"], "external_publish_ready": r["external_publish_ready"], "chars": len(r["text"]),
             "max_chars": DSC.MAX_CHARS, "omitted": [e["name"] for e in r["omitted"]], "trimmed": r["trimmed"],
             "problems": r["problems"]}
+
+
+_ABS_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\|/)")      # a drive path, a UNC path or a POSIX absolute path
+
+
+def public_loudness(loud, run_dir: Path):
+    """The loudness record as sources.json carries it: every absolute path in it (the limiter's ``file``, a step's
+    ``evidence.file``) made relative to the render folder ("work/mix-norm-limited.wav"), or, for a path outside it,
+    its folder and name. sources.json is public, and a drive path names the machine, never anything a viewer can
+    open (Market Street's printed "D:/document-media/.../work/mix-norm-limited.wav", 2026-11). Applied where
+    sources.json is written (a render and --sources-only, which keeps an earlier render's record), so a record
+    written before this rule is cleaned on its next rewrite. Pure: returns a copy."""
+    root = Path(run_dir).resolve()
+
+    def rel(s: str) -> str:
+        try:
+            return Path(s).resolve().relative_to(root).as_posix()
+        except (ValueError, OSError):
+            return "/".join(re.split(r"[\\/]+", s.rstrip("\\/"))[-2:])
+
+    def walk(v):
+        if isinstance(v, dict):
+            return {k: walk(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return [walk(x) for x in v]
+        if isinstance(v, str) and _ABS_PATH.match(v):
+            return rel(v)
+        return v
+
+    return walk(loud)
 
 
 def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
@@ -8778,6 +9083,8 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             # A56: what the record lacks, and the speakers the screen does not name (the record names them only by
             # role), stated here for the Sources page's "Notes on this film" and the description block
             "gaps": plan.get("gaps") or [],
+            # the house's dated notes about the film, outside its horizon, for "Notes on this film" (founder, 2026-11-02)
+            "film_notes": plan.get("film_notes") or [],
             "unnamed_speakers": [dict(u, lines=[{"id": ln["id"], "start_s": ln.get("start_s")} for ln in plan["lines"]
                                                 if ln.get("speaker") == u["speaker"]])
                                  for u in plan.get("unnamed_speakers") or []],
@@ -8858,7 +9165,8 @@ def tools_key() -> dict:
     """What else changes a segment's pixels: the ffmpeg build and the font files."""
     f = M.Fonts()
     fonts = {}
-    for name in ("display", "display_italic", "display_regular", "structure", "structure_medium", "data", "data_semibold"):
+    for name in ("display", "display_italic", "display_regular", "structure", "structure_medium", "data", "data_semibold",
+                 "data_light"):
         path = Path(getattr(f, name))
         fonts[name] = sha256_file(path)[:16] if path.exists() else None
     return {"ffmpeg": ffmpeg_version(), "fonts": fonts}
@@ -8899,7 +9207,8 @@ class _Direct:
 def render(film: Path | str, out: Path | str | None = None, *, height: int = 1080, from_shot: str | None = None,
            workers: int = DEFAULT_WORKERS, burn_subtitles: bool = False, min_free_gb: float = MIN_FREE_GB,
            encode_preset: str = "slow", draft: bool = False, fit_voices_opt: bool = False, audio_only: bool = False,
-           until_s: float | None = None, shots: str | tuple | None = None, journal: Journal | None = None) -> dict:
+           until_s: float | None = None, shots: str | tuple | None = None, journal: Journal | None = None,
+           write_stems: bool = False) -> dict:
     film = Path(film).resolve()
     out = Path(out).resolve() if out else film / "out"
     W, H = frame_size(height)
@@ -8957,7 +9266,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         with journal.unit("scout", "preflight", size={"driver": "items", "value": 1}):
             pf = preflight(out, journal, min_free_gb=min_free_gb)
         fonts = M.Fonts()
-        missing = [p for p in (fonts.display, fonts.structure, fonts.data) if not Path(p).exists()]
+        missing = [p for p in (fonts.display, fonts.structure, fonts.data, fonts.data_light) if not Path(p).exists()]
         if missing:
             raise Refused(f"fonts not found ({missing[0]}); run npm ci in the repo")
         play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
@@ -9072,9 +9381,10 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         journal.stage("assembly", "start")
         work = run_dir / "work"
         work.mkdir(parents=True, exist_ok=True)
+        bus_capture: dict | None = {} if write_stems else None
         with journal.unit("assembly", "mix", size={"driver": "seconds", "value": round(plan["duration_s"], 3)}) as u:
             stems: dict = {}
-            mix, placed = build_mix(plan, film, journal, draft=draft, work=work, stems=stems)
+            mix, placed = build_mix(plan, film, journal, draft=draft, work=work, stems=stems, bus_capture=bus_capture)
             import soundfile as sf
             sf.write(str(work / "mix.wav"), mix, AUDIO_RATE, subtype="FLOAT")
             u.extra.update(placed=placed)
@@ -9112,6 +9422,10 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         if loud.get("limiter"):
             journal.artifact("assembly", loud["limiter"]["file"], unit="loudness", role="mix-limited")
         journal.artifact("assembly", work / "mix-norm.wav", unit="loudness", role="mix-normalised")
+        if write_stems:
+            # --stems (loom Phase 2a): additive only, after the loudness pass so the manifest can carry the
+            # programme gain after the mix the buses reproduce, and whether the master limiter ran.
+            write_stem_files(run_dir, bus_capture, loud, journal, min_free_gb=min_free_gb)
         # Pre-flight, before any frame: a final master's loudness is linear, and its limiter only catches peaks (GRAMMAR 8.5).
         refusals = loudness_lints(journal, loud, draft=draft)
         refusals += title_mastered_lints(journal, placed, loud, draft=draft)
@@ -9361,7 +9675,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         # One write: a check render writes its own partial sources file and never the full one (T1d);
         # a full render also records the master's sha256, which ties sources.json to its film (T7).
         # A span (--shots) writes no sources file at all: its timeline is the film's, cut, and it is never published.
-        extra = {"loudness": loud, "master": master.name, "master_sha256": sha256_file(master)}
+        extra = {"loudness": public_loudness(loud, run_dir), "master": master.name, "master_sha256": sha256_file(master)}
         if check:
             extra.update(partial=True, until_s=until_s)
         if not span:
@@ -9426,7 +9740,8 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
     extra: dict = {}
     path = out / "sources.json"
     prev = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    extra.update({k: prev[k] for k in ("loudness",) if k in prev})
+    if "loudness" in prev:                  # an earlier render's record, with any absolute path made relative
+        extra["loudness"] = public_loudness(prev["loudness"], out)
     extra.update(master="master.mp4", master_sha256=sha256_file(master))
     if plan_has_placeholders(plan):
         fills = prev.get("card_fills")
@@ -9479,6 +9794,10 @@ def main(argv=None) -> int:
                     help="run the pre-flight and the sound (mix, levelling, loudness) only: no frames, no master")
     ap.add_argument("--sources-only", action="store_true",
                     help="rewrite sources.json beside an existing master.mp4 from the screenplay, without rendering frames")
+    ap.add_argument("--stems", action="store_true",
+                    help="also write the four programme buses, the duck curve and every voice line as placed in the "
+                         "final mix (narration, readings, archival) under <out>/stems, with stems.json saying "
+                         "what sums to what (journaled; off by default, no effect on the master)")
     a = ap.parse_args(argv)
     if a.sources_only:
         try:
@@ -9490,7 +9809,8 @@ def main(argv=None) -> int:
         return 0
     try:
         s = render(a.film, a.out, height=a.res, from_shot=a.from_shot, workers=a.workers, burn_subtitles=a.burn_subtitles,
-                   draft=a.draft, fit_voices_opt=a.fit_voices, audio_only=a.audio_only, until_s=a.until_s, shots=a.shots)
+                   draft=a.draft, fit_voices_opt=a.fit_voices, audio_only=a.audio_only, until_s=a.until_s, shots=a.shots,
+                   write_stems=a.stems)
     except Refused as e:
         print(f"render: refused: {e}", file=sys.stderr)
         return 2

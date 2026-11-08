@@ -3,7 +3,11 @@
 // imagery rule. Partition's pages must stay exactly what they were before
 // they were generated (tests/fixtures/partition-pages/: the hand-written
 // pages as main held them at 4fb7669), save that the film and sources pages now
-// open their note with the film's content note, as the home page does).
+// open their note with the film's content note, as the home page does, and the
+// pages mark their words about readings (the notes' and ledes' sentences, the
+// links, the readings heading and list) to be shown only once the film's readings
+// are counted, the sources page's description and notes intro and the transcript's
+// lede are true for a film with none).
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -52,12 +56,13 @@ const rawFilms = () => yamlParse(read("contract.yaml")).films;
 const partition = () => clone(registry.films.find((f: Film) => f.slug === "partition-of-india"));
 
 describe("films.json", () => {
-  it("as shipped: Partition, The Next Village and Real World all live, Partition on the marquee", () => {
+  it("as shipped: Partition, The Next Village, Real World and Market Street all live, Partition on the marquee", () => {
     expect(registryProblems(live)).toEqual([]);
     expect(listedFilms(live).map((f: Film) => [f.slug, f.status, f.order])).toEqual([
       ["partition-of-india", "live", 1],
       ["smallpox-eradication", "live", 2],
       ["real-world", "live", 3],
+      ["market-street", "live", 4],
     ]);
     expect(marqueeFilm(live).slug).toBe("partition-of-india");
     const nv = live.films.find((f: Film) => f.slug === "smallpox-eradication");
@@ -100,6 +105,40 @@ describe("films.json", () => {
     expect(p["f/real-world/correct/index.html"]).toBeDefined();
     expect(p["index.html"]).toContain('<li><a href="/f/real-world/"><span class="t">Real World</span>');
     // Partition keeps the marquee.
+    expect(marqueeFilm(live).slug).toBe("partition-of-india");
+  });
+
+  it("as shipped: Market Street carries the founder-approved copy (2026-11-02) word for word, and no caption track it has not reviewed", () => {
+    const ms = live.films.find((f: Film) => f.slug === "market-street");
+    expect(ms).toMatchObject({
+      title: "Market Street",
+      dates: "spring 1906",
+      status: "live",
+      order: 4,
+      logline: "a cable car ride down one street, and the same corners in May",
+      synopsis:
+        "In the spring of 1906 the Miles brothers put a camera on the front of a cable car and filmed Market Street, San Francisco, from the moving car, east toward the Ferry Building. The film plays the ride, then follows the record from Tuesday 17 April, when Caruso sang Carmen and went back to the Palace Hotel on Market Street, through the days of the fire: the troops on Market Street that morning, the mayor's proclamation, the fire at Third by noon and at Van Ness on Thursday night. The witnesses are quoted from their printed accounts: Funston in Cosmopolitan, Jack London in Collier's, Caruso in The Theatre. In May a Biograph camera films at Eighth and Market, where trolley wire has been strung over the cable line. Then the ride resumes, to the end of the line.",
+      content_note:
+        "It tells of an earthquake and the fire that followed, and of soldiers posted with orders to shoot looters, and of looters shot. The dead are counted in a newspaper of the time; the later counts are on the Sources page.",
+      shows:
+        "This film shows the street and the people on it in the spring of 1906, the fire from Sacramento Street on the morning of 18 April, the crowds at the foot of Market Street and the ruins, in photographs of the time. The days of the fire are seen in photographs and printed pages; the moving pictures are from before and from May. It shows no bodies and no one hurt. A front page of 19 April, read on screen, gives its own estimate of the dead; the later counts are on the Sources page.",
+      legend: { reconstructed: "none in this film", drawn: "none in this film" },
+      poster: "poster.jpg",
+      screenplay_path: "~/document-work/market-street/screenplay.json",
+    });
+    // Only the Partition pilot may fall back on its own balance figures.
+    expect(ms.balance_fallback).toBeUndefined();
+    // Nobody has reviewed the English captions: planned, so none is offered and release-film uploads none.
+    expect(ms.languages.captions).toEqual([{ lang: "en", name: "English", kind: "captions", review: "planned" }]);
+    expect(publishedTracks(ms)).toEqual([]);
+    const p = sitePages(live, templates);
+    const page = p["f/market-street/index.html"];
+    expect(page).toContain("<title>Market Street · void document</title>");
+    expect(page).not.toContain("/media/market-street/captions-en.vtt");
+    expect(page).toContain("English captions are planned.");
+    expect(p["f/market-street/sources/index.html"]).toBeDefined();
+    expect(p["f/market-street/correct/index.html"]).toBeDefined();
+    expect(p["index.html"]).toContain('<li><a href="/f/market-street/"><span class="t">Market Street</span>');
     expect(marqueeFilm(live).slug).toBe("partition-of-india");
   });
 
@@ -230,7 +269,7 @@ describe("the generated pages", () => {
     }
     // The home page says the marquee film's note once, as before.
     const m = marqueeFilm(live);
-    expect(p["index.html"]).toContain(`<p class="note">${numHtml(m.content_note)} Every reading is word for word`);
+    expect(p["index.html"]).toContain(`<p class="note">${numHtml(m.content_note)} <span data-readings hidden>Every reading is word for word`);
     expect(numHtml("It concerns 11 September 2001.")).toBe('It concerns <span class="num">11</span> September <span class="num">2001</span>.');
     // A film with no content note says nothing in its place, and its note starts as it did.
     const r = clone(live);
@@ -318,8 +357,12 @@ describe("the contract, expanded from films.json", () => {
   const contract = loadContract(path.join(root, "contract.yaml"));
   const forFilm = (slug: string) => contract.checks.filter((c: { film?: string }) => c.film === slug);
 
-  it("gives Partition every check it had, and The Next Village and Real World a live film's checks", () => {
-    expect(contract.checks).toHaveLength(87);
+  it("gives Partition every check it had, and The Next Village, Real World and Market Street a live film's checks", () => {
+    expect(contract.checks).toHaveLength(87 + 19);
+    const ms = forFilm("market-street");
+    expect(ms).toHaveLength(19);
+    expect(ms.find((c: { type: string }) => c.type === "json_has")).toMatchObject({ path: "/media/market-street/sources.json", field: "balance.sides", requires: "deployed" });
+    expect(ms.some((c: { path?: string }) => /captions-/.test(c.path ?? ""))).toBe(false);
     const rw = forFilm("real-world");
     expect(rw).toHaveLength(19);
     expect(rw.find((c: { type: string }) => c.type === "json_has")).toMatchObject({ path: "/media/real-world/sources.json", field: "balance.sides", requires: "deployed" });

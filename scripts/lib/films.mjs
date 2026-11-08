@@ -176,7 +176,8 @@ function filmVars(film) {
     title: esc(film.title),
     dates_html: numHtml(film.dates),
     description: esc(`${film.title}, ${film.dates}, told with the public record${film.logline ? `: ${film.logline}` : ""}. A void document film.`),
-    sources_description: esc(`Every shot of ${film.title} with its mark, archive and licence, and every reading with its speaker and source.`),
+    // true for every film: readings are known only from sources.json at runtime, so the description names none
+    sources_description: esc(`Every shot of ${film.title} with its mark, archive and licence, and what the picture does not say.`),
     correct_description: esc(`Tell void document what ${film.title} gets wrong.`),
     synopsis_html: film.synopsis ? numHtml(film.synopsis) : "",
     shows: esc(film.shows ?? ""),

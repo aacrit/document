@@ -1,0 +1,256 @@
+{
+  "_note": "Market Street sources.json, trimmed (2026-11-02): its stills fixture plus the film_notes and cues the engine writes (sources_doc), for the Sources page Notes on this film: the house notes and the recordings (role palette) only.",
+  "v": 2,
+  "slug": "market-street",
+  "title": "Market Street",
+  "fps": 24,
+  "duration_s": 1140.375,
+  "film_notes": [
+    {
+      "text": "The dead were counted at 478 by the city in 1907 and 498 by the Army in 1906. Research since names more than 3,000.",
+      "noted": "2026-11-02",
+      "source": "498: the Army's report, Maj. Gen. Adolphus W. Greely, Earthquake in California, April 18, 1906 (1906), page 15: 304 known and 194 unknown in San Francisco. 478: the city's count of 1907. More than 3,000: Gladys Hansen and Emmet Condon, Denial of Disaster (1989)."
+    }
+  ],
+  "cues": [
+    {
+      "id": "LC",
+      "kind": "music",
+      "role": "main_title",
+      "source": "void document studio, series title theme v5d, lockup stem (D:/document-media/title-sequence/lockup-chime/provenance.json)",
+      "licence": "CC BY 4.0 (void document studio)",
+      "tradition": "main_title: the house chime, the lockup of the series title theme v5d (The Run)",
+      "performer": "rendered from note data on VSCO 2 Community Edition samples (CC0 1.0)",
+      "start_s": 105,
+      "end_s": 111
+    },
+    {
+      "id": "C1",
+      "kind": "music",
+      "role": "house_motif",
+      "source": "score.yaml",
+      "licence": "CC0",
+      "tradition": "house motif (score.yaml)",
+      "performer": "rendered from note data on VSCO 2 Community Edition samples (cello section, upright piano)",
+      "start_s": 111,
+      "end_s": 129.5
+    },
+    {
+      "id": "R1",
+      "kind": "music",
+      "role": "underscore",
+      "source": "score/v1/compose.yaml (score/compose.py)",
+      "licence": "CC0 and CC BY 3.0 (MTG cello: credit Music Technology Group, Universitat Pompeu Fabra)",
+      "tradition": "underscore: Market Street draft score v1, cue r1-phelan-block",
+      "performer": "rendered from note data on VSCO 2 Community Edition samples (CC0) and the MTG solo cello (Freesound pack 20236, CC BY 3.0)",
+      "start_s": 128.5,
+      "end_s": 216.25
+    },
+    {
+      "id": "N1-caruso",
+      "kind": "music",
+      "role": "palette",
+      "source": "Library of Congress, National Jukebox, jukebox-121360 (Recorded Sound Section transfer of the 12-in. disc)",
+      "licence": "public domain (a US sound recording published before 1923: Music Modernization Act; LoC rights note)",
+      "tradition": "opera: Bizet, Carmen, Act II, \"Il fior che avevi a me tu dato\" (the Flower Song), sung in Italian",
+      "performer": "Enrico Caruso, tenor, with piano (Victor 85049, matrix C-2341, take 1, recorded 27 February 1905)",
+      "start_s": 451.15,
+      "end_s": 513.69
+    }
+  ],
+  "readings": [],
+  "shots": [
+    {
+      "id": "1.1",
+      "part": "ch-1",
+      "kind": "archive_video",
+      "start_s": 125,
+      "end_s": 420,
+      "start_frame": 3000,
+      "end_frame": 10080,
+      "mark": {
+        "class": "ARCHIVE",
+        "detail": "Prelinger Archives 1906",
+        "label": "Archive · 1906"
+      },
+      "ledger": "footage",
+      "ledger_id": "MS-F01",
+      "title": "A Trip Down Market Street (Miles Brothers, spring 1906), Prelinger 4K scan, conformed",
+      "archive": "Prelinger Archives, via Internet Archive",
+      "item_url": "https://archive.org/details/MarketStreet19064KScan20181016",
+      "date": "1906-04",
+      "creator": "Miles Brothers",
+      "credit": null,
+      "licence": "public domain",
+      "basis": "a US work published in 1906; Prelinger Archives item statement: \"Anyone may reproduce or reuse this scan. Please attribute it to its source: Prelinger Archives.\"",
+      "licence_note": null,
+      "source_line": null,
+      "notes": [],
+      "alterations": [],
+      "transition_in": {
+        "type": "cut"
+      },
+      "preset": null,
+      "fill_ok": null,
+      "fill": null,
+      "fill_exception": null,
+      "fill_detail": null,
+      "in_s": 250.75,
+      "out_s": 545.75,
+      "resampler": {
+        "method": "lanczos (ffmpeg scale)",
+        "ml_upscaler": false,
+        "scale": 1
+      },
+      "conform": {
+        "method": "repeat",
+        "filter": "fps=24",
+        "in_fps": 16,
+        "out_fps": 24,
+        "out_rate": "24",
+        "note": "frame repeat to 24 with no speed change",
+        "telecine_declared": true,
+        "pattern": {
+          "out_frames": 7080,
+          "source_frames": 4720,
+          "dropped": 0,
+          "repeated": 2360
+        }
+      },
+      "levels": null,
+      "neutralise_cast": null,
+      "test_fixture": false,
+      "text": null
+    },
+    {
+      "id": "2.1a",
+      "part": "ch-2",
+      "kind": "archive_still",
+      "start_s": 424,
+      "end_s": 476.1667,
+      "start_frame": 10176,
+      "end_frame": 11428,
+      "mark": {
+        "class": "ARCHIVE",
+        "detail": "Prelinger Archives 1906",
+        "label": "Archive · 1906"
+      },
+      "ledger": "stills",
+      "ledger_id": "MS-F01-PALACE-1",
+      "title": "A Trip Down Market Street: a frame of the ride on Market Street near New Montgomery, held",
+      "archive": "Prelinger Archives, via Internet Archive",
+      "item_url": "https://archive.org/details/MarketStreet19064KScan20181016",
+      "date": "1906-04",
+      "creator": "Miles Brothers",
+      "credit": null,
+      "licence": "public domain",
+      "basis": "a US work published in 1906 (public domain); the scan is free to reuse, Prelinger Archives: \"Anyone may reproduce or reuse this scan. Please attribute it to its source: Prelinger Archives.\"",
+      "licence_note": null,
+      "source_line": null,
+      "notes": [],
+      "alterations": [],
+      "transition_in": {
+        "type": "cut"
+      },
+      "preset": "TOUR",
+      "fill_ok": true,
+      "fill": null,
+      "fill_exception": null,
+      "fill_detail": null,
+      "in_s": null,
+      "out_s": null,
+      "resampler": {
+        "method": "lanczos prescale + bicubic affine (PIL)",
+        "ml_upscaler": false,
+        "scale_max": 0.5818,
+        "image": [
+          3300,
+          2475
+        ]
+      },
+      "conform": null,
+      "levels": {
+        "version": 2,
+        "p0_5": 30,
+        "p2": 38,
+        "min0_5": 30,
+        "applied": true,
+        "black_in": 30,
+        "black_out": 10,
+        "white": 255,
+        "gain": 1.0889,
+        "p2_after": 19,
+        "what": "black level set: the scan's grey floor taken down to near black by one straight-line level, the same on every colour, which raises contrast and colour strength by the same small factor; the white point kept",
+        "materiality": "non-material (GRAMMAR 4.2: a level adjustment, one straight line the same on every channel; A46)"
+      },
+      "neutralise_cast": null,
+      "test_fixture": false,
+      "text": null
+    },
+    {
+      "id": "2.1b",
+      "part": "ch-2",
+      "kind": "archive_still",
+      "start_s": 476.1667,
+      "end_s": 515.2083,
+      "start_frame": 11428,
+      "end_frame": 12365,
+      "mark": {
+        "class": "ARCHIVE",
+        "detail": "Prelinger Archives 1906",
+        "label": "Archive · 1906"
+      },
+      "ledger": "stills",
+      "ledger_id": "MS-F01-PALACE-2",
+      "title": "A Trip Down Market Street: a second frame of the same block, held",
+      "archive": "Prelinger Archives, via Internet Archive",
+      "item_url": "https://archive.org/details/MarketStreet19064KScan20181016",
+      "date": "1906-04",
+      "creator": "Miles Brothers",
+      "credit": null,
+      "licence": "public domain",
+      "basis": "a US work published in 1906 (public domain); the scan is free to reuse, Prelinger Archives: \"Anyone may reproduce or reuse this scan. Please attribute it to its source: Prelinger Archives.\"",
+      "licence_note": null,
+      "source_line": null,
+      "notes": [],
+      "alterations": [],
+      "transition_in": {
+        "type": "cut"
+      },
+      "preset": "TOUR",
+      "fill_ok": true,
+      "fill": null,
+      "fill_exception": null,
+      "fill_detail": null,
+      "in_s": null,
+      "out_s": null,
+      "resampler": {
+        "method": "lanczos prescale + bicubic affine (PIL)",
+        "ml_upscaler": false,
+        "scale_max": 0.5818,
+        "image": [
+          3300,
+          2475
+        ]
+      },
+      "conform": null,
+      "levels": {
+        "version": 2,
+        "p0_5": 30,
+        "p2": 37,
+        "min0_5": 30,
+        "applied": true,
+        "black_in": 30,
+        "black_out": 10,
+        "white": 255,
+        "gain": 1.0889,
+        "p2_after": 18,
+        "what": "black level set: the scan's grey floor taken down to near black by one straight-line level, the same on every colour, which raises contrast and colour strength by the same small factor; the white point kept",
+        "materiality": "non-material (GRAMMAR 4.2: a level adjustment, one straight line the same on every channel; A46)"
+      },
+      "neutralise_cast": null,
+      "test_fixture": false,
+      "text": null
+    }
+  ]
+}

@@ -95,13 +95,14 @@ Chapter titles, planned times and the numbers come from `films/partition-of-indi
 - the mark exactly as on screen;
 - the time (or the ledger id before a cut);
 - the item title (Fraunces);
-- kind and year, plus duration in the archive;
+- kind and year, plus duration in the archive. An archive still says what it is, only as far as its file shows it: "Frame of archive film" (held from the same archive item as a film this film shows), "Map" (a drawn map's data, a map sheet, a mark that names a map, a map slide, or a title whose opening is a plain name of a map, never a scene such as "A map of Sylhet with flags on the villages"), "Printed page" (titled by its page, "page 22" or "p. 91", a newspaper's front page included; a gazette's issue named by its date; or a title that is a proclamation or broadside by name), else "Photograph". A drawn map reads "Drawn map". The seconds by mark count every kind of archive still together as "ARCHIVE stills";
 - archive, item link (safelight), licence;
 - for RECONSTRUCTED, the alterations from GRAMMAR's closed list;
 - for AI-GENERATED, the prompt, model, seed and the no-people check result;
 - for DRAWN, the data source;
 - for CARD, what was searched;
 - "Correct this", which goes to Corrections with `?s=<id>`.
+- for the series title (a title_sequence shot), two more rows (founder ruling 2026-11-07): "Drawn from", the period records the title is made from (title, archive, item link), and "Sound", each credited sound input the title's own mix uses (title, ", by " its holder, licence; an MIT licence links to its text). Only third-party sound is listed: the studio's own theme and Foley stems are not credited to the studio.
 
 **Readings.** Each reading shows:
 - the quote, verbatim, with `[...]` kept;
@@ -109,12 +110,19 @@ Chapter titles, planned times and the numbers come from `films/partition-of-indi
 - Year and Source (safelight link plus archive);
 - Voice: "Read by a computer voice. No recording of <name> was used."
 
+A film with no readings shows no Readings heading or list, no "All readings" link and no readings sentences in the header. They are hidden in the page and shown only once the film's readings are counted. The same holds wherever a page speaks of a film's readings: the film page's note ("Every reading is word for word ..."), its Sources link ("; every reading with its speaker and source") and the home marquee's note. The Sources page's description reads "Every shot of <title> with its mark, archive and licence, and what the picture does not say." The transcript's lede says what is spoken: "Everything spoken, word for word: the narration." with no readings, "The readings, word for word, each with its speaker." with no narration, else both.
+
 **Account balance, shown plainly** (numbers from TREATMENT section 5). Cleared testimony 396 s: Britain 136 s (34.3%), India 136 (34.3%), Pakistan 66 (16.7%), Sikh 58 (14.6%), Bangladesh 0. With every pending slot (616 s): 22.1 / 32.5 / 20.6 / 14.3 / 10.6%. Women 46 s, 11.6% (floor 30%; 23.4% with every slot). Seconds by mark: ARCHIVE film 137 (10.6%), ARCHIVE stills about 628 (48.6%), DRAWN about 308 (23.8%), CARD 220 (17.0%), AI-GENERATED 0.
 
 **Balance panel layout.** "Whose words, and how long."
 - One bar per side, giving testimony seconds and share of all testimony, with the GRAMMAR 6.5 band marked (10% to 35%). It also shows named speakers per side, and women's share against the 30% rule.
 - Before a cut it shows cleared speakers per side and "Seconds appear when the film is cut".
 - Shortfalls appear in the record-is-silent form. Today, true of the cleared ledger: "The record holds no first-person Bangladeshi account under an open licence." and "The record holds no first-person account by a woman under an open licence." / "Searched: the void history research ledger, 54 sources."
+- A film with no readings: "This film has no readings." With a quote card (a card's words, then their dated source) it adds "Its witnesses are quoted on cards.", or "Its witnesses are quoted on cards and printed pages." when an archive still is a printed page (titled by its page). Then, when it declares sides, "This film's sides: <label>; <label>." Then any gaps, and the seconds by mark as for every film. "Balance figures are not available for this cut." is only for a film whose readings cannot be measured.
+
+**Notes on this film.** The intro names only the blocks shown: "What the picture does not say: the voices, the speakers the record names only by role, the gaps in the record, the notes on the maps, the notes on the pictures and the licences." (or "What the picture does not say." alone). A drawn map's notes go under "Notes on the maps"; a note on any other picture (a newspaper page, a photograph) goes under "Notes on the pictures", after the shot's title.
+  - **Our dated notes** come first, from sources.json `film_notes`, under the muted line "Notes we keep on this film, outside the picture, each dated the day we wrote it." Each reads "Noted 2026-11-02: <text>", then "Source: <source>" when it has one; the date sits whole in the data face. A note without a real date is not printed. The intro then names "our dated notes on the film" first.
+  - **Recordings** lists the recordings the film plays: its music cues whose role is "palette", never the score's own cues. Each gives Performer, What (the cue's tradition), Source and Licence, leaving out a field the cue does not record; a Creative Commons licence links to its deed. When the block is shown the intro adds "It also lists the recordings the film plays." For Market Street that is the 1905 Victor record of Caruso singing the Flower Song.
 
 ## 4. Corrections `/f/<slug>/correct`
 
@@ -299,5 +307,5 @@ One card per run, when it finishes or fails.
   The header links to "Whose words, and how long" and "All 26 readings".
 - **No studio words in public copy.** "Pending", "slot", "cleared", "ledger", "read-by", "refrain", "end frame" and ledger ids are banned. The generator sweeps page text for them.
   - **Licence wording:** the DRAWN map's field names its facts' source in plain words (the Governor's telegram of 8 August 1947, printed in The Transfer of Power, vol. XII, HMSO 1983) and the drawing's licence (CC BY 4.0).
-  - **Item links** read "The photograph at Wikimedia Commons" or "The film at the Internet Archive".
+  - **Item links** read "The photograph at Wikimedia Commons" or "The film at the Internet Archive". A still's noun is the kind its What row names: "The map at", "The page at" (a printed page), "The film at" (a frame held from archive film), else "The photograph at".
 - **Corrections.** "Where in the film" takes the time or the shot's title as Sources lists it. The example text is "For example: you wrote 7:12, I think you meant 17:12."
