@@ -358,19 +358,19 @@ describe("the contract, expanded from films.json", () => {
   const forFilm = (slug: string) => contract.checks.filter((c: { film?: string }) => c.film === slug);
 
   it("gives Partition every check it had, and The Next Village, Real World and Market Street a live film's checks", () => {
-    expect(contract.checks).toHaveLength(87 + 19);
+    expect(contract.checks).toHaveLength(92 + 20);
     const ms = forFilm("market-street");
-    expect(ms).toHaveLength(19);
+    expect(ms).toHaveLength(20);
     expect(ms.find((c: { type: string }) => c.type === "json_has")).toMatchObject({ path: "/media/market-street/sources.json", field: "balance.sides", requires: "deployed" });
     expect(ms.some((c: { path?: string }) => /captions-/.test(c.path ?? ""))).toBe(false);
     const rw = forFilm("real-world");
-    expect(rw).toHaveLength(19);
+    expect(rw).toHaveLength(20);
     expect(rw.find((c: { type: string }) => c.type === "json_has")).toMatchObject({ path: "/media/real-world/sources.json", field: "balance.sides", requires: "deployed" });
     // No English track is reviewed yet, so the contract asks for none.
     expect(rw.some((c: { path?: string }) => /captions-/.test(c.path ?? ""))).toBe(false);
-    expect(forFilm("partition-of-india")).toHaveLength(22);
+    expect(forFilm("partition-of-india")).toHaveLength(23);
     const nv = forFilm("smallpox-eradication");
-    expect(nv).toHaveLength(19);
+    expect(nv).toHaveLength(20);
     expect(nv.some((c: { name: string }) => /has no page until/.test(c.name))).toBe(false);
     expect(nv.find((c: { type: string }) => c.type === "json_has")).toMatchObject({ path: "/media/smallpox-eradication/sources.json", field: "balance.sides" });
   });

@@ -193,3 +193,44 @@ describe("app_manifest check", () => {
     expect(r.detail).toContain("an orientation lock");
   });
 });
+
+describe("no third-party analytics beacon (rule V3)", () => {
+  const check = { checks: [{ name: "beacon", type: "forbidden", path: "/", strings: ["static.cloudflareinsights.com", "cf-beacon", "google-analytics.com"] }] };
+
+  it("passes a page that loads nothing a third-party analytics script or beacon would need", async () => {
+    currentHome = GOOD_HOME;
+    const [r] = await runContract(check, baseUrl);
+    expect(r.pass).toBe(true);
+  });
+
+  it("fails when the page carries Cloudflare Web Analytics' beacon script", async () => {
+    currentHome = `<!doctype html><html><head><meta name="build" content="abc123"></head><body>Demo Product<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token":"x"}'></script></body></html>`;
+    const [r] = await runContract(check, baseUrl);
+    currentHome = GOOD_HOME;
+    expect(r.pass).toBe(false);
+    expect(r.detail).toContain("static.cloudflareinsights.com");
+  });
+
+  it("fails when the page carries another third-party analytics script (e.g. Google Analytics)", async () => {
+    currentHome = `<!doctype html><html><head><meta name="build" content="abc123"></head><body>Demo Product<script src="https://www.google-analytics.com/analytics.js"></script></body></html>`;
+    const [r] = await runContract(check, baseUrl);
+    currentHome = GOOD_HOME;
+    expect(r.pass).toBe(false);
+    expect(r.detail).toContain("google-analytics.com");
+  });
+
+  it("contract.yaml checks every served page (homepage, film pages, privacy) for a third-party analytics beacon", () => {
+    const file = fileURLToPath(new URL("../contract.yaml", import.meta.url));
+    const contract = loadContract(path.resolve(file));
+    const beaconChecks = contract.checks.filter((c: { name?: string }) => /third-party analytics beacon/.test(c.name ?? ""));
+    // Homepage, privacy page, and once per live film (partition-of-india, smallpox-eradication, real-world, market-street).
+    expect(beaconChecks.length).toBeGreaterThanOrEqual(6);
+    for (const c of beaconChecks) {
+      expect(c.type).toBe("forbidden");
+      expect(c.strings).toContain("static.cloudflareinsights.com");
+      expect(c.strings).toContain("cf-beacon");
+    }
+    expect(beaconChecks.some((c: { path?: string }) => c.path === "/")).toBe(true);
+    expect(beaconChecks.some((c: { path?: string }) => c.path === "/privacy")).toBe(true);
+  });
+});
