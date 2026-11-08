@@ -670,13 +670,13 @@ def test_a_final_render_still_refuses_a_failing_lower_third_contrast(talk, tmp_p
 
     ``workers=1`` is deliberate, not incidental: at ``workers=2`` or more,
     ``render()`` renders each shot in a freshly spawned process (``spawn``
-    context, render.py's ``elif todo:`` branch, ~9500), which re-imports
+    context, render.py's ``elif todo:`` branch), which re-imports
     ``studio.engine.motion`` from scratch and never sees this process's
     monkeypatch -- the patch would be inert, and the test would pass only
     because the fixture's own real T3 measurement happens to fail anyway
     (reviewer finding, PR #98 round 3: inverting the mock to ``ok=True``
     still raised, proving exactly that). ``workers=1`` takes the serial
-    path (``if todo and n == 1:``, ~9474), which calls ``render_segment``
+    path (``if todo and n == 1:``), which calls ``render_segment``
     directly in this process, so the monkeypatch is what actually runs."""
     film = _talk_film(tmp_path, talk)
 

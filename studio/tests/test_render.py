@@ -2495,19 +2495,43 @@ def test_subtitle_frame_ltr_stays_on_basic_layout():
     assert f.layout_engine == M.ImageFont.Layout.BASIC
 
 
-@pytest.mark.skipif(not M.features.check("raqm"), reason="raqm not compiled into this Pillow build")
-def test_subtitle_frame_rtl_opens_its_font_through_raqm_and_does_not_raise():
+def test_subtitle_frame_rtl_opens_raqm_when_present_else_falls_back_to_basic_without_raising(monkeypatch):
     """Reviewer finding (PR #98): ``ImageDraw.text``'s ``direction`` kwarg
-    needs a font loaded with RAQM layout; a BASIC-loaded one raises. Skipped
-    (with a reason, not a silent pass) when this Pillow build has no raqm,
-    since there's then nothing to prove -- ``subtitle_frame`` already drops
-    ``direction`` in that case (``features.check("raqm")`` gates it)."""
+    needs a font loaded with RAQM layout; a BASIC-loaded one raises. Round 4
+    rewrite: a permanent ``skipif`` on ``features.check("raqm")`` is not an
+    annotated, time-boxed skip (rule 14, lint-workflows) -- whether this
+    Pillow build has raqm compiled in is a fact about the machine, not
+    something that will become false by a given date, so there is no expiry
+    to add. Asserting something real in both branches, on every machine,
+    replaces the skip instead: with raqm, the font is RAQM-loaded and
+    ``direction`` reaches ``ImageDraw.text`` (spied on below); without it,
+    the font stays BASIC and ``direction`` is never passed -- the fallback
+    this same reviewer round needs proven, not merely assumed. Either way
+    ``subtitle_frame`` must not raise."""
     fonts = M.Fonts()
+    px = M.Layout(640, 360).px(M.SUB["size"])
     base = Image.new("RGB", (640, 360), (20, 20, 20))
+
+    calls: list[dict] = []
+    orig_text = M.ImageDraw.ImageDraw.text
+
+    def spy_text(self, *a, **k):
+        calls.append(k)
+        return orig_text(self, *a, **k)
+
+    monkeypatch.setattr(M.ImageDraw.ImageDraw, "text", spy_text)
     out = M.subtitle_frame(base, "نص عربي", fonts.structure, rtl=True)
     assert out.size == base.size
-    f = M._font_raqm(fonts.structure, M.Layout(640, 360).px(M.SUB["size"]))
-    assert f.layout_engine == M.ImageFont.Layout.RAQM
+    assert calls, "subtitle_frame drew nothing"
+
+    if M.features.check("raqm"):
+        f = M._font_raqm(fonts.structure, px)
+        assert f.layout_engine == M.ImageFont.Layout.RAQM
+        assert any(k.get("direction") == "rtl" for k in calls), calls
+    else:
+        f = M._font(fonts.structure, px)
+        assert f.layout_engine == M.ImageFont.Layout.BASIC
+        assert all("direction" not in k for k in calls), calls
 
 
 def test_a16_wash_plan_measures_once_a_stray_bright_outlier_does_not_move_it():
