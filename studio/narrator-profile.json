@@ -1,82 +1,163 @@
 {
- "_note": "The narrator's stored profile (GRAMMAR A14 refined: the narrator-drift reference only; it never sets the baseline or the bounds): Orpheus 3B tara, the five audition takes the founder approved by ear (DECISIONS 2026-10-10, Narrator Tara), document-work/audition/orpheus/tara-0..4.wav with the spoken lines of audition/script.json. Made by studio.engine.render.narrator_profile_from_takes; re-make it with the same function if the measure changes.",
+ "_note": "The narrator's stored profile (GRAMMAR A14 refined: the narrator-drift reference only; it never sets the baseline or the bounds): Kokoro-82M (hexgrad) af_aoede at speed 0.88, the house narrator from 2026-11-07 (founder ruling, docs/DECISIONS.md), the stand-in until the founder's own recordings replace her. Five takes by the same audition method as Tara's: the five spoken lines of document-work/audition/script.json, one take each, document-work/audition/kokoro-aoede/profile5/aoede-0..4.wav (voiced by python -m studio.engine.narrator audition <lines> --profile; the model checked against studio/kokoro.lock.json), at her natural pitch (no PSOLA shift). Measured f0 174.56 Hz, centroid 1265.4 Hz. Her EQ (eq) is her own, measured on the same takes by the house method (A38 refined, A57): a bell of +3.0 dB at 195 Hz and no shelf. Made by studio.engine.render.narrator_profile_from_takes; re-make it with the same function if the measure changes.",
  "voice": {
-  "engine": "orpheus",
-  "voice": "tara"
+  "engine": "kokoro",
+  "voice": "af_aoede",
+  "speed": 0.88
  },
  "baseline": {
-  "f0_hz": 175.87,
-  "centroid_hz": 1083.25
+  "f0_hz": 174.56,
+  "centroid_hz": 1265.4
  },
  "takes": {
-  "tara-0.wav": {
-   "f0_hz": 179.55,
-   "f0_p10_hz": 162.59,
-   "f0_p90_hz": 223.34,
-   "f0_range_hz": 60.75,
-   "centroid_hz": 983.91,
+  "aoede-0.wav": {
+   "f0_hz": 173.67,
+   "f0_p10_hz": 140.58,
+   "f0_p90_hz": 244.31,
+   "f0_range_hz": 103.74,
+   "centroid_hz": 1258.41,
    "words": 7,
-   "speech_s": 3.92,
-   "wps": 1.79,
-   "voiced_frames": 223,
-   "active_frames": 257,
-   "sha256": "853a80679565e732"
+   "speech_s": 2.74,
+   "wps": 2.55,
+   "voiced_frames": 199,
+   "active_frames": 245,
+   "sha256": "597d0fa15b9a23b4"
   },
-  "tara-1.wav": {
-   "f0_hz": 170.89,
-   "f0_p10_hz": 154.4,
-   "f0_p90_hz": 258.29,
-   "f0_range_hz": 103.89,
-   "centroid_hz": 1083.25,
+  "aoede-1.wav": {
+   "f0_hz": 173.44,
+   "f0_p10_hz": 154.14,
+   "f0_p90_hz": 240.15,
+   "f0_range_hz": 86.01,
+   "centroid_hz": 1275.86,
    "words": 13,
-   "speech_s": 5.38,
-   "wps": 2.42,
-   "voiced_frames": 308,
-   "active_frames": 370,
-   "sha256": "2000c98d898dbf00"
+   "speech_s": 5.18,
+   "wps": 2.51,
+   "voiced_frames": 366,
+   "active_frames": 459,
+   "sha256": "b13869319134cd74"
   },
-  "tara-2.wav": {
-   "f0_hz": 175.87,
-   "f0_p10_hz": 155.49,
-   "f0_p90_hz": 217.0,
-   "f0_range_hz": 61.51,
-   "centroid_hz": 1153.75,
+  "aoede-2.wav": {
+   "f0_hz": 179.92,
+   "f0_p10_hz": 140.58,
+   "f0_p90_hz": 228.62,
+   "f0_range_hz": 88.04,
+   "centroid_hz": 1277.4,
    "words": 19,
-   "speech_s": 6.59,
-   "wps": 2.88,
-   "voiced_frames": 373,
-   "active_frames": 517,
-   "sha256": "56410820b33661da"
+   "speech_s": 6.65,
+   "wps": 2.86,
+   "voiced_frames": 443,
+   "active_frames": 577,
+   "sha256": "1dbf89aefb9c7d63"
   },
-  "tara-3.wav": {
-   "f0_hz": 175.86,
-   "f0_p10_hz": 162.27,
-   "f0_p90_hz": 227.31,
-   "f0_range_hz": 65.03,
-   "centroid_hz": 927.77,
+  "aoede-3.wav": {
+   "f0_hz": 180.19,
+   "f0_p10_hz": 146.87,
+   "f0_p90_hz": 237.14,
+   "f0_range_hz": 90.27,
+   "centroid_hz": 1229.67,
    "words": 22,
-   "speech_s": 7.63,
-   "wps": 2.88,
-   "voiced_frames": 547,
-   "active_frames": 634,
-   "sha256": "b82ad420d3d6705e"
+   "speech_s": 7.74,
+   "wps": 2.84,
+   "voiced_frames": 529,
+   "active_frames": 656,
+   "sha256": "0eeac1483e6883a0"
   },
-  "tara-4.wav": {
-   "f0_hz": 222.41,
-   "f0_p10_hz": 185.69,
-   "f0_p90_hz": 250.99,
-   "f0_range_hz": 65.3,
-   "centroid_hz": 1142.71,
+  "aoede-4.wav": {
+   "f0_hz": 174.56,
+   "f0_p10_hz": 148.05,
+   "f0_p90_hz": 247.25,
+   "f0_range_hz": 99.2,
+   "centroid_hz": 1265.4,
    "words": 9,
-   "speech_s": 2.8,
-   "wps": 3.21,
-   "voiced_frames": 167,
-   "active_frames": 218,
-   "sha256": "a2277f12a4324659"
+   "speech_s": 2.3,
+   "wps": 3.91,
+   "voiced_frames": 165,
+   "active_frames": 213,
+   "sha256": "913d6cc8d2ad5126"
   }
  },
- "method": "studio.engine.render.voice_profile on each take levelled to -20 LUFS; median over the takes",
+ "method": "studio.engine.render.clean_voice (A19) then voice_profile on each take levelled to -20 LUFS, the same order process_take measures a narration line's own profile; median over the takes",
+ "generated": "2026-11-07",
  "variants": [
+  {
+   "_note": "Orpheus 3B tara, unshifted (the house narrator from 2026-10-10 to 2026-11-07; kept for a film whose narrator cast voice is orpheus:tara, behind config): The narrator's stored profile (GRAMMAR A14 refined: the narrator-drift reference only; it never sets the baseline or the bounds): Orpheus 3B tara, the five audition takes the founder approved by ear (DECISIONS 2026-10-10, Narrator Tara), document-work/audition/orpheus/tara-0..4.wav with the spoken lines of audition/script.json. Made by studio.engine.render.narrator_profile_from_takes; re-make it with the same function if the measure changes.",
+   "voice": {
+    "engine": "orpheus",
+    "voice": "tara"
+   },
+   "baseline": {
+    "f0_hz": 175.87,
+    "centroid_hz": 1083.25
+   },
+   "takes": {
+    "tara-0.wav": {
+     "f0_hz": 179.55,
+     "f0_p10_hz": 162.59,
+     "f0_p90_hz": 223.34,
+     "f0_range_hz": 60.75,
+     "centroid_hz": 983.91,
+     "words": 7,
+     "speech_s": 3.92,
+     "wps": 1.79,
+     "voiced_frames": 223,
+     "active_frames": 257,
+     "sha256": "853a80679565e732"
+    },
+    "tara-1.wav": {
+     "f0_hz": 170.89,
+     "f0_p10_hz": 154.4,
+     "f0_p90_hz": 258.29,
+     "f0_range_hz": 103.89,
+     "centroid_hz": 1083.25,
+     "words": 13,
+     "speech_s": 5.38,
+     "wps": 2.42,
+     "voiced_frames": 308,
+     "active_frames": 370,
+     "sha256": "2000c98d898dbf00"
+    },
+    "tara-2.wav": {
+     "f0_hz": 175.87,
+     "f0_p10_hz": 155.49,
+     "f0_p90_hz": 217.0,
+     "f0_range_hz": 61.51,
+     "centroid_hz": 1153.75,
+     "words": 19,
+     "speech_s": 6.59,
+     "wps": 2.88,
+     "voiced_frames": 373,
+     "active_frames": 517,
+     "sha256": "56410820b33661da"
+    },
+    "tara-3.wav": {
+     "f0_hz": 175.86,
+     "f0_p10_hz": 162.27,
+     "f0_p90_hz": 227.31,
+     "f0_range_hz": 65.03,
+     "centroid_hz": 927.77,
+     "words": 22,
+     "speech_s": 7.63,
+     "wps": 2.88,
+     "voiced_frames": 547,
+     "active_frames": 634,
+     "sha256": "b82ad420d3d6705e"
+    },
+    "tara-4.wav": {
+     "f0_hz": 222.41,
+     "f0_p10_hz": 185.69,
+     "f0_p90_hz": 250.99,
+     "f0_range_hz": 65.3,
+     "centroid_hz": 1142.71,
+     "words": 9,
+     "speech_s": 2.8,
+     "wps": 3.21,
+     "voiced_frames": 167,
+     "active_frames": 218,
+     "sha256": "a2277f12a4324659"
+    }
+   },
+   "method": "studio.engine.render.voice_profile on each take levelled to -20 LUFS; median over the takes"
+  },
   {
    "_note": "Tara lowered 2 semitones (founder ruling 2026-10-16, narrator option C): the same five approved audition takes, each shifted by PSOLA with formants and timing kept (document-work/narrator_shift.py, as narrator-audition/scripts/process.py: Praat To Manipulation 0.01 s, 90-500 Hz, pitch tier x 2^(-2/12), overlap-add), at document-work/audition/orpheus-2st/tara-2st-0..4.wav. A film whose narrator cast voice declares pitch_shift_st -2 is held to this; made by narrator_profile_from_takes.",
    "voice": {
@@ -460,5 +541,45 @@
    },
    "method": "studio.engine.render.clean_voice (A19) then voice_profile on each take levelled to -20 LUFS, the same order process_take measures a narration line's own profile; median over the takes"
   }
- ]
+ ],
+ "eq": {
+  "low": {
+   "type": "bell",
+   "hz": 195.0,
+   "gain_db": 3.0,
+   "q": 1.2
+  },
+  "high": {
+   "type": "high_shelf",
+   "hz": 6000.0,
+   "gain_db": 0.0,
+   "slope": 1.0
+  }
+ },
+ "eq_method": "A38 refined, the house method every reader voice's EQ is derived by: voicing.measure_takes on these five takes, then voicing.derive against the pinned reader target (READER_TARGET); the shelf never boosts, so a voice darker than the target keeps its own treble",
+ "eq_evidence": {
+  "takes": 5,
+  "frames": 533,
+  "f0_hz": 174.6,
+  "warmth_db": 4.78,
+  "warmth_after_db": 6.78,
+  "treble_db": {
+   "5000": -4.0,
+   "6300": 0.8,
+   "8000": 2.0
+  },
+  "treble_after_db": {
+   "5000": -4.21,
+   "6300": 0.59,
+   "8000": 1.79
+  },
+  "target": {
+   "warmth_db": 8.08,
+   "treble_db": {
+    "5000": 0.44,
+    "6300": 2.63,
+    "8000": 8.84
+   }
+  }
+ }
 }

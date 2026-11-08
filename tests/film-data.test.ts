@@ -557,6 +557,21 @@ describe("notes on this film (A56)", () => {
     return j;
   };
 
+  it("names the house narrator's model, voice and licence as the description block does (A57)", () => {
+    const j = withNotes();
+    j.narrator = {
+      credit: "Narrated by a computer voice",
+      engine: "kokoro",
+      voice: "af_aoede",
+      speed: 0.88,
+      model: "Kokoro-82M (hexgrad)",
+      licence: "Apache-2.0",
+    };
+    const n = filmNotes(parseSources(j));
+    // studio/tests/test_narrator.py holds description.py to the same sentence
+    expect(n.voices[0]).toBe("Narration: a computer voice, Kokoro-82M (hexgrad), the voice af_aoede, Apache-2.0.");
+  });
+
   it("never publishes a ledger's work_notes, nor a string notes letter by letter", () => {
     const j = raw();
     j.shots[0].work_notes = "WORK NOTE: crop above the caption";
