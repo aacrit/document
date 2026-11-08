@@ -3583,7 +3583,8 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                 why += (f" (refused by {', '.join(outside)} outside this check span; the plan judges every take in "
                         "the film)")
         raise Refused(why)
-    _plan_lower_third_washes(plan)
+    if write_overlays:        # a preview tool's plan (sheets.py), never a render's, renders no frame to wash
+        _plan_lower_third_washes(plan)
     return plan
 
 
@@ -4575,8 +4576,10 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
     # third is sampled once, at the first frame of its own shot (if any) that
     # falls in its settled hold -- after every line has arrived, before any
     # has begun to leave, which is where the wash was shaped to hold the
-    # target (``_wash_boost``) -- never mid-arrival or mid-exit, when a line's
-    # own opacity is still rising or falling.
+    # target (``lower_third_wash_plan``) -- never mid-arrival or mid-exit, when
+    # a line's own opacity is still rising or falling, and never a frame the
+    # picture itself alters: a dip's hold or its brightness ramp
+    # (``picture_level`` under 1.0), or a dissolve's own transition_in.
     lt_contrast: dict[str, dict] = {}
     lt_sampled: set[str] = set()
     try:
@@ -4592,7 +4595,10 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
                     res = "dip" if not arr.any() else "fade"     # the next shot's own dip, laid over the master's black
             else:
                 res = check_mark(plan, arr, f, i, probe.get("bare_corner"))
-                if res not in ("dip", "fade"):              # a dip or a dissolve alters the picture; not representative
+                tr = s["transition_in"]
+                in_dissolve = tr.get("type") == "dissolve" and i > 0 and (f - s["f0"]) / plan["fps"] < float(tr["s"])
+                if picture_level(plan, f, i) >= 1.0 and not in_dissolve:   # a dip's hold, its ramp, or a dissolve
+                                                                           # into the shot all alter the picture
                     t = f / plan["fps"]
                     for lt in plan["lower_thirds"]:
                         if lt["id"] in lt_sampled:
@@ -9264,9 +9270,19 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
                      evidence={"target": M.LT["wash_contrast"], "checked": list(lt_checked),
                                "unchecked": lt_unchecked, "failed": lt_fail}, status=lt_status)
         if lt_fail:
-            raise Refused(f"lower-third-contrast failed for {', '.join(lt_fail)} (GRAMMAR 9, A16): "
-                          "the 0.70 peak cap could not clear the target on at least one line; shorten the line "
-                          "(the fix is copy, not more wash) or ask the founder for a kit amendment")
+            # by cause: the wash already spent everything it is allowed (ink reaches past the plateau, or the
+            # 0.70 cap itself could not clear the target) asks for shorter copy; anything else failing despite
+            # room left in the wash is unexpected, and asks for a second look, not more wash either way
+            washes = {lt["id"]: lt.get("wash") for lt in plan["lower_thirds"]}
+            at_cap = sorted(k for k in lt_fail if (washes.get(k) or (0.0,))[0] >= M.LT["wash_cap"] - 1e-6)
+            other = sorted(k for k in lt_fail if k not in at_cap)
+            parts = []
+            if at_cap:
+                parts.append(f"{', '.join(at_cap)}: ink past the plateau or the 0.70 cap; shorten the line "
+                             "(the fix is copy, not more wash)")
+            if other:
+                parts.append(f"{', '.join(other)}: choose a different frame, or ask the founder to amend the kit")
+            raise Refused(f"lower-third-contrast failed (GRAMMAR 9, A16) -- " + "; ".join(parts))
         doc = sources_doc(plan, journal, {})
         voiced = {"narration": 0.0, "reading": 0.0, "archival": 0.0}
         for ln in placed["lines"]:

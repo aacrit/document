@@ -1334,19 +1334,30 @@ def _line_alpha(kind: str) -> float:
             "source": LT["a_source"], "source2": LT["a_source"]}[kind]
 
 
-def _ink_plateau_width(L: Layout, els: list[dict], x0: float) -> tuple[float, float]:
+def _ink_plateau_width(L: Layout, els: list[dict], x0: float) -> tuple[float, float, float]:
     """Geometry only, no background involved: the plateau a deepened wash
     holds (the longest drawn line's own ink, LT.x to its measured right edge,
     plus LT.wash_pad) and the reach it feathers out to by (that plateau plus
     LT.wash_feather_x), both percent of W -- never past LT.wash_w_cap, the
     50% ceiling ("Kit form, deeper.", founder ruling 2026-11-07: "Size the
-    boost search to each line's ink extent ... not LT.max_w")."""
+    boost search to each line's ink extent ... not LT.max_w"). Also returns
+    the real, unclamped ink end, since a very long line's own tail can sit
+    past the plateau once it is clamped (below).
+
+    The plateau is clamped to ``LT.wash_w_cap - LT.wash_feather_x``, never
+    further out, so ``width - plateau`` is always exactly LT.wash_feather_x:
+    a full feather, never a step. Without this, a line long enough to push
+    ``ink_end + LT.wash_feather_x`` past the 50% cap collapsed the feather to
+    a single pixel (``width`` capped while ``plateau`` kept tracking the
+    ink), a hard edge in the middle of a picture -- found on a page bright
+    enough that the step itself read as a visible seam (founder review,
+    2026-11-07)."""
     ink_w = max((_measure(e["text"], e["font"], e["data_font"])
                 for e in els if e["kind"] != "rule" and str(e.get("text") or "").strip()), default=0.0)
     ink_end = (x0 + ink_w) / L.W * 100.0 + LT["wash_pad"]
     width = min(ink_end + LT["wash_feather_x"], LT["wash_w_cap"])
-    plateau = min(ink_end, width)
-    return plateau, width
+    plateau = min(ink_end, LT["wash_w_cap"] - LT["wash_feather_x"])
+    return plateau, width, ink_end
 
 
 def _effective_line_alpha(L: Layout, e: dict, x0: float) -> float:
@@ -1413,9 +1424,10 @@ def lower_third_wash_plan(L: Layout, els: list[dict], samples: list[Image.Image]
     ta = min(_effective_line_alpha(L, e, x0) for e in els if e["kind"] != "rule")
     text_rgb = np.asarray(PALETTE["mark_text"], dtype=np.float64)
     target = LT["wash_contrast"] * 1.20
-    plateau, width = _ink_plateau_width(L, els, x0)
+    plateau, width, ink_end = _ink_plateau_width(L, els, x0)
     bx0 = max(0, int(round(x0)))
-    bx1 = min(L.W, int(round(L.w(plateau))) + 1)
+    bx1 = min(L.W, int(round(L.w(min(ink_end, 100.0)))) + 1)   # the real ink's own reach, which may sit past
+                                                               # the (clamped) plateau for a very long line
     y0 = max(0, int(round(top)))
     y1 = min(L.H, int(round(L.h(LT["bottom"]))) + 1)
     if bx1 <= bx0 or y1 <= y0 or not samples:
@@ -1429,8 +1441,8 @@ def lower_third_wash_plan(L: Layout, els: list[dict], samples: list[Image.Image]
         return LT["wash"], LT["wash_w"], 0.0
     bg_rgb = max(p98s, key=relative_luminance)
 
-    ink_tail_frac = plateau / 100.0     # where the ink itself actually ends (_ink_plateau_width); _hx is
-                                        # monotone in x, so this is always the worst point under any line's ink
+    ink_tail_frac = ink_end / 100.0     # where the ink itself actually ends (real, unclamped); _hx is monotone
+                                        # in x, so this is always the worst point under any line's ink
 
     def contrast_at_hx(peak: float, hx_tail: float) -> float:
         washed = bg_rgb * (1.0 - hx_tail * peak)
@@ -1440,10 +1452,13 @@ def lower_third_wash_plan(L: Layout, els: list[dict], samples: list[Image.Image]
     old_hx_tail = float(_hx(np.array([ink_tail_frac]), 0.0, LT["wash_w"])[0])
     if contrast_at_hx(LT["wash"], old_hx_tail) >= target:
         return LT["wash"], LT["wash_w"], 0.0
-    # within the deepened plateau, hx == 1 identically out to the ink's own tail (by construction), so the
-    # candidate (peak, width) is evaluated as a plain uniform darkening -- no spatial falloff left to account for
+    # the ink's real tail may now sit past the (clamped) plateau, inside the feather itself, for a very long
+    # line (the plateau clamp above): evaluate the candidate (peak, width) at the real hx there, never assuming
+    # hx == 1, so the plan never promises more than its own shape actually delivers at the worst point under the ink
+    new_hx_tail = float(_hx(np.array([ink_tail_frac]), plateau, width)[0])
+
     def contrast_at(peak: float) -> float:
-        return contrast_at_hx(peak, 1.0)
+        return contrast_at_hx(peak, new_hx_tail)
 
     if contrast_at(LT["wash_cap"]) < target:
         return LT["wash_cap"], width, plateau

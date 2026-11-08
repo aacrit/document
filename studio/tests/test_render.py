@@ -2359,6 +2359,32 @@ def test_a16_the_deepened_peak_and_width_never_exceed_the_kits_ceiling():
                 assert width <= M.LT["wash_w_cap"] + 1e-9, (lines, luma, width)    # 52%) predates this ceiling
 
 
+def test_a16_the_feather_never_collapses_to_a_hard_edge_on_a_long_line():
+    """A line long enough to push the plateau against LT.wash_w_cap (the
+    50% ceiling) still keeps a full LT.wash_feather_x of feather, never a
+    single-pixel step (the founder's own catch: a visible seam at 49.9% of
+    W on a bright page). True of every lower third that passes layout, and
+    the per-column alpha step this produces stays small."""
+    fonts = M.Fonts()
+    L = M.Layout(1920, 1080)
+    for lines in (["Sample speaker", "Role, 1947"],
+                 ["A considerably longer sample name reaching toward the edge",
+                  "Role, description, somewhat long, 1947"],
+                 ["A short name", "Role, 1947",
+                  "A considerably longer typed government record title here  ·  read by a computer voice"]):
+        els, top = M.lower_third_layout(L, lines, fonts, "speaker", None)
+        x0 = L.w(M.LT["x"])
+        plateau, width, ink_end = M._ink_plateau_width(L, els, x0)
+        assert abs((width - plateau) - M.LT["wash_feather_x"]) < 1e-6, (lines, plateau, width)
+        for luma in (150, 200, 235, 255):
+            bg = M._as_rgba(Image.new("RGB", (1920, 1080), (luma, luma, luma)))
+            peak, width2, plateau2 = M._wash_boost(L, bg, top, els)
+            assert abs((width2 - plateau2) - M.LT["wash_feather_x"]) < 1e-6, (lines, luma, plateau2, width2)
+            wash_img = M._wash(L, top, 1.0, peak=peak, width=width2, plateau=plateau2)
+            alpha = np.asarray(wash_img)[int(top) + 5, :, 3].astype(float)
+            assert np.abs(np.diff(alpha)).max() <= 4.0, (lines, luma, "a hard edge in the wash")
+
+
 def test_lower_third_contrast_lint_passes_the_adaptive_wash_on_a_bright_background():
     fonts = M.Fonts()
     lines = ["Sample speaker", "Role, 1947", "A typed record  ·  read by a computer voice"]
