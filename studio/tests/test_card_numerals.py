@@ -12,7 +12,7 @@ import json
 
 import numpy as np
 import pytest
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 from conftest import make_film
 from studio.engine import journal as J
@@ -29,16 +29,19 @@ def _digit_spans(lines):
 
 
 def _foot(path: str, px: int, s: str = "1") -> int:
-    """The bottom row of ``s``'s ink drawn on one baseline (a flat-footed 1 has no overshoot)."""
-    f = ImageFont.truetype(path, px)
+    """The bottom row of ``s``'s ink drawn on one baseline (a flat-footed 1 has no overshoot). Opened through
+    ``motion._font`` (BASIC layout, pinned), the same call the card renderer itself makes, so this measures the
+    production layout and not whatever layout engine ``ImageFont.truetype`` would otherwise default to."""
+    f = M._font(path, px)
     im = Image.new("L", (px * 3, 400))
     ImageDraw.Draw(im).text((10, 300), s, font=f, fill=255, anchor="ls")
     return int(np.where((np.asarray(im) > 127).any(1))[0].max())
 
 
 def _ink(path: str, px: int, s: str):
-    """The figure height and the median horizontal stem of ``s`` drawn at ``px``, in pixels."""
-    f = ImageFont.truetype(path, px)
+    """The figure height and the median horizontal stem of ``s`` drawn at ``px``, in pixels. Opened through
+    ``motion._font`` (BASIC layout, pinned), the same call the card renderer itself makes."""
+    f = M._font(path, px)
     im = Image.new("L", (px * len(s) * 2, px * 3))
     ImageDraw.Draw(im).text((10, 2 * px), s, font=f, fill=255, anchor="ls")
     a = np.asarray(im) > 127

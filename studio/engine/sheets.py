@@ -271,7 +271,10 @@ def stop_label(i: int, n: int) -> str:
 
 @lru_cache(maxsize=64)
 def _font(path: str, px: int) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(path, max(1, int(px)))
+    """BASIC layout, pinned (``studio/engine/motion.py``'s ``_font`` docstring
+    says why): a raqm-built Pillow wheel shapes and hints differently from
+    one without it, which otherwise moves glyph extents between machines."""
+    return ImageFont.truetype(path, max(1, int(px)), layout_engine=ImageFont.Layout.BASIC)
 
 
 def _rgba(rgb, a: float) -> tuple[int, int, int, int]:

@@ -2393,7 +2393,61 @@ def test_lower_third_contrast_lint_passes_the_adaptive_wash_on_a_bright_backgrou
     frame = np.asarray(M.lower_third_frame(bright, 2.0, start=0.0, end=8.0, lines=lines, fonts=fonts,
                                            kind="speaker").convert("RGB"))
     res = M.lower_third_contrast(frame, L, lines, fonts, kind="speaker")
-    assert res["ok"] is True and res["worst"] >= M.LT["wash_contrast"] and len(res["lines"]) == 3
+    assert res["ok"] is True and len(res["lines"]) == 3
+    # A margin well clear of the target, not a boundary pass: this plan isn't at LT.wash_cap (plenty of room was
+    # left), so the measurement should sit comfortably above LT.wash_contrast, not within the few hundredths a
+    # cross-machine FreeType/raqm/layout-engine difference could erase (the cross-machine flake ``_font``'s
+    # BASIC-layout pin and ``M._ink_core``'s adaptive threshold fix -- see their docstrings).
+    assert res["worst"] >= M.LT["wash_contrast"] + 0.4, res
+
+
+def test_a16_a_dimmed_mask_never_reads_a_higher_worst_than_the_strict_core_fringe_rule(monkeypatch):
+    """Reviewer finding (PR #98's probe at a dimmed mask): a scaled,
+    in-between core threshold (tried and reverted) read 0.11-0.12 *more
+    lenient* -- a higher measured contrast -- than the strict two-branch
+    rule (``raw > 200``, or else the whole antialiased fringe) when a
+    render's own peak coverage fell in [163, 200): exactly the dimmer
+    antialiasing a different FreeType build or layout engine can produce.
+    ``M._ink_core`` must never read a higher contrast there than the strict
+    rule would have found on the very same (dimmed) mask -- checked here
+    against a hand-written strict fallback, independent of ``_ink_core``,
+    so a future regression back toward a lenient scaled threshold is
+    caught rather than silently passing because both sides share code."""
+    fonts = M.Fonts()
+    L = M.Layout(1920, 1080)
+    lines = ["Sample speaker", "Role, 1947"]
+    orig_mask = M._line_ink_mask
+
+    def strict_core(raw, fringe=None):
+        if fringe is None:
+            fringe = raw > 127
+        core = raw > 200
+        return core if core.any() else fringe
+
+    def dimmed_mask(size, e, x0):
+        m = orig_mask(size, e, x0)
+        dim = (np.asarray(m).astype(np.float64) * 0.78).astype(np.uint8)
+        return Image.fromarray(dim)
+
+    xs_frac = np.arange(1920) / 1920
+    cases = {
+        "bright under text only": np.where(xs_frac < 0.20, 235, 20),
+        "apollo ramp": np.interp(xs_frac, [0.04, 0.30, 0.60], [171, 194, 232]),
+        "tail only bright": np.where(xs_frac < 0.12, 20, 235),
+    }
+    for name, row in cases.items():
+        bg = Image.fromarray(np.stack([np.tile(row.astype(np.uint8), (1080, 1))] * 3, -1))
+        els, top = M.lower_third_layout(L, lines, fonts, "speaker", None)
+        wash = M.lower_third_wash_plan(L, els, [bg], top)
+        frame = np.asarray(M.lower_third_frame(bg, 3.0, start=0.0, end=8.0, lines=lines, fonts=fonts,
+                                               kind="speaker", wash=wash).convert("RGB"))
+        monkeypatch.setattr(M, "_line_ink_mask", dimmed_mask)
+        new_res = M.lower_third_contrast(frame, L, lines, fonts, kind="speaker")
+        monkeypatch.setattr(M, "_ink_core", lambda raw, fringe=None: (strict_core(raw, fringe), "fringe"))
+        old_res = M.lower_third_contrast(frame, L, lines, fonts, kind="speaker")
+        monkeypatch.undo()
+        assert new_res["worst"] is not None and old_res["worst"] is not None, (name, new_res, old_res)
+        assert new_res["worst"] <= old_res["worst"] + 1e-9, (name, new_res["worst"], old_res["worst"])
 
 
 def test_lower_third_contrast_lint_fails_a_wash_that_never_adapted_to_a_bright_background():
@@ -2427,6 +2481,57 @@ def test_lower_third_contrast_lint_measures_locally_bright_under_one_line_dark_b
     res = M.lower_third_contrast(frame, L, lines, fonts, kind="speaker")
     by_kind = {x["kind"]: x["contrast"] for x in res["lines"]}
     assert res["ok"] is False and by_kind["role"] < M.LT["wash_contrast"] <= by_kind["name"]
+
+
+def test_subtitle_frame_ltr_stays_on_basic_layout():
+    """The BASIC pin (``_font``) must hold for the ordinary, Latin, left-to-
+    right cue: no ``rtl``, no ``nastaliq``, so ``subtitle_frame`` opens its
+    font the same way every other label does, never ``_font_raqm``."""
+    fonts = M.Fonts()
+    base = Image.new("RGB", (640, 360), (20, 20, 20))
+    out = M.subtitle_frame(base, "A plain English cue.", fonts.structure)
+    assert out.size == base.size
+    f = M._font(fonts.structure, M.Layout(640, 360).px(M.SUB["size"]))
+    assert f.layout_engine == M.ImageFont.Layout.BASIC
+
+
+def test_subtitle_frame_rtl_opens_raqm_when_present_else_falls_back_to_basic_without_raising(monkeypatch):
+    """Reviewer finding (PR #98): ``ImageDraw.text``'s ``direction`` kwarg
+    needs a font loaded with RAQM layout; a BASIC-loaded one raises. Round 4
+    rewrite: a permanent ``skipif`` on ``features.check("raqm")`` is not an
+    annotated, time-boxed skip (rule 14, lint-workflows) -- whether this
+    Pillow build has raqm compiled in is a fact about the machine, not
+    something that will become false by a given date, so there is no expiry
+    to add. Asserting something real in both branches, on every machine,
+    replaces the skip instead: with raqm, the font is RAQM-loaded and
+    ``direction`` reaches ``ImageDraw.text`` (spied on below); without it,
+    the font stays BASIC and ``direction`` is never passed -- the fallback
+    this same reviewer round needs proven, not merely assumed. Either way
+    ``subtitle_frame`` must not raise."""
+    fonts = M.Fonts()
+    px = M.Layout(640, 360).px(M.SUB["size"])
+    base = Image.new("RGB", (640, 360), (20, 20, 20))
+
+    calls: list[dict] = []
+    orig_text = M.ImageDraw.ImageDraw.text
+
+    def spy_text(self, *a, **k):
+        calls.append(k)
+        return orig_text(self, *a, **k)
+
+    monkeypatch.setattr(M.ImageDraw.ImageDraw, "text", spy_text)
+    out = M.subtitle_frame(base, "نص عربي", fonts.structure, rtl=True)
+    assert out.size == base.size
+    assert calls, "subtitle_frame drew nothing"
+
+    if M.features.check("raqm"):
+        f = M._font_raqm(fonts.structure, px)
+        assert f.layout_engine == M.ImageFont.Layout.RAQM
+        assert any(k.get("direction") == "rtl" for k in calls), calls
+    else:
+        f = M._font(fonts.structure, px)
+        assert f.layout_engine == M.ImageFont.Layout.BASIC
+        assert all("direction" not in k for k in calls), calls
 
 
 def test_a16_wash_plan_measures_once_a_stray_bright_outlier_does_not_move_it():
