@@ -1,7 +1,7 @@
 """Render a screenplay v2 into a 1080p24 master film.
 
     python -m studio.engine.render <film dir> [--out <dir>] [--res 1080|720]
-                                   [--from SHOT | --until S | --shots A..B] [--workers N] [--burn-subtitles] [--stems]
+                                   [--from SHOT | --until S | --shots A..B] [--workers N] [--burn-subtitles] [--stems] [--layers]
 
 Reads ``<film dir>/screenplay.json`` (films/GRAMMAR.md section 12) and the
 ledgers it cites (top-level ``ledgers``: name -> path, or {"path", "media"};
@@ -4346,13 +4346,17 @@ class Pictures:
             if r:
                 self._retire(r)
             r = self.readers[s["id"]] = VideoReader(s, max(0.0, t_local))
-        fr = r.frame(t_local)
+        return self.fit_video(s, r.frame(t_local), t_local)
+
+    def fit_video(self, s: dict, fr: Image.Image, t_local: float) -> Image.Image:
+        """A decoded clip frame placed on the frame at ``t_local``: its camera's
+        framing then (A34), or centred on the letterbox field."""
         cam = s.get("_cam")
         if cam is not None and len(cam["path"]) > 1:   # A34: the whole frame first, then the rostrum move to the fill
             f = OV.framing_at(cam, t_local, s["_dur"])
             return M.fit_still(fr, self.L, z=f["z"], cx=f["x"], cy=f["y"], clamp=cam["clamp"])
         out = Image.new("RGB", (self.plan["W"], self.plan["H"]), M.PALETTE["letterbox"])
-        out.paste(fr, ((self.plan["W"] - r.vw) // 2, (self.plan["H"] - r.vh) // 2))
+        out.paste(fr, ((self.plan["W"] - fr.width) // 2, (self.plan["H"] - fr.height) // 2))
         return out
 
     def title(self, s: dict, t_local: float) -> Image.Image:
@@ -4452,31 +4456,63 @@ def picture_level(plan: dict, f: int, i: int) -> float:
     return level
 
 
+def compose(plan: dict, pics: Pictures, f: int, i: int, probe: dict | None = None) -> Image.Image:
+    """Frame f (owned by shot i): picture with its transition, then the lower
+    thirds, burned subtitles, watermark and the provenance mark (A16).
+    ``--layers`` splits it in two: ``_shot_picture`` is what the clean plates
+    and the timeline's transitions rebuild, and ``draw_overlays`` on a
+    transparent canvas is the overlay pass."""
+    img = _shot_picture(plan, pics, f, i)
+    if not overlays_drawn(plan, f, i):
+        return img.convert("RGB")           # a dip's black hold (A11) or a series title with its own marks (A40)
+    return draw_overlays(img.convert("RGBA"), plan, pics, f, i, probe).convert("RGB")
+
+
+def dissolve_weight_at(plan: dict, f: int, i: int) -> float | None:
+    """The incoming shot's weight on frame f when shot i dissolves in from the
+    shot before it there, else None (compose's own test)."""
+    shots, fps = plan["shots"], plan["fps"]
+    s = shots[i]
+    tl = f / fps - s["f0"] / fps
+    tr = s["transition_in"]
+    if tr.get("type") == "dissolve" and i > 0 and tl < float(tr["s"]):
+        return M.dissolve_weight(tl, float(tr["s"]))
+    return None
+
+
+def apply_level(img: Image.Image, level: float) -> Image.Image:
+    """A dip's picture level on an RGB picture, as compose applies it (truncated
+    to 8 bits); 0 is the black hold, every pixel off."""
+    if level <= 0.0:
+        return Image.new("RGB", img.size, (0, 0, 0))
+    if level < 1.0:
+        arr = np.asarray(img, dtype=np.float32) * level
+        return Image.fromarray(arr.astype(np.uint8))
+    return img
+
+
 def _shot_picture(plan: dict, pics: Pictures, f: int, i: int) -> Image.Image:
     """Shot i's own picture at frame f: its transition and dip level, before
     any title early-return, lower third, overlay, subtitle or watermark.
-    RGB mode (black for a dip's hold). Shared by ``compose`` and
-    ``Pictures.wash_plan`` (a handful of frames sampled once per lower third,
-    never per frame -- founder ruling 2026-11-07, "measure once... so it
-    never flickers")."""
+    RGB mode (black for a dip's hold). Shared by ``compose``, ``--layers``
+    (the clean plates rebuild it) and ``_plan_lower_third_washes`` (a handful
+    of frames sampled once per lower third, never per frame -- founder ruling
+    2026-11-07, "measure once... so it never flickers")."""
     shots, fps = plan["shots"], plan["fps"]
     t = f / fps
     s = shots[i]
     tl = t - s["f0"] / fps
     img = pics.shot(i, tl)
-    tr = s["transition_in"]
-    if tr.get("type") == "dissolve" and i > 0 and tl < float(tr["s"]):
+    w = dissolve_weight_at(plan, f, i)
+    if w is not None:
         prev = shots[i - 1]
         a = pics.shot(i - 1, t - prev["f0"] / fps)
-        img = Image.blend(a, img, M.dissolve_weight(tl, float(tr["s"])))
+        img = Image.blend(a, img, w)
     level = picture_level(plan, f, i)
     if level <= 0.0:
         # a dip's black hold: every pixel off, overlays included (founder ruling 2026-10-10)
         return Image.new("RGB", (plan["W"], plan["H"]), (0, 0, 0))
-    if level < 1.0:
-        arr = np.asarray(img, dtype=np.float32) * level
-        img = Image.fromarray(arr.astype(np.uint8))
-    return img
+    return apply_level(img, level)
 
 
 def _plan_lower_third_washes(plan: dict) -> None:
@@ -4521,21 +4557,27 @@ def _plan_lower_third_washes(plan: dict) -> None:
         pics.close()
 
 
-def compose(plan: dict, pics: Pictures, f: int, i: int, probe: dict | None = None) -> Image.Image:
-    """Frame f (owned by shot i): picture with its transition, then the lower
-    thirds, burned subtitles, watermark and the provenance mark (A16)."""
-    shots, fps = plan["shots"], plan["fps"]
-    t = f / fps
-    s = shots[i]
-    img = _shot_picture(plan, pics, f, i)
+def overlays_drawn(plan: dict, f: int, i: int) -> bool:
+    """Whether anything is drawn over frame f's picture: never on a dip's black
+    hold (A11: nothing past it ever draws on it, mark and lower third included),
+    nor over a series title that carries its own marks (A40)."""
     if picture_level(plan, f, i) <= 0.0:
-        return img                          # a dip's black hold: every pixel off, overlays included (A11); nothing
-                                            # past this point ever draws on it, mark and lower third included
+        return False
+    s, fps = plan["shots"][i], plan["fps"]
     title = s.get("_title")
     if title is not None and (title["burned"] or TS.source_frame(f - s["f0"], fps, title["fps"], title.get("frames")) in title["holds"]):
-        return img.convert("RGB")           # A40: the master carries its own marks, watermark and lockup: nothing over it
+        return False                        # A40: the master carries its own marks, watermark and lockup: nothing over it
                                             # (and its own dip's black hold stays black, A11)
-    rgba = img.convert("RGBA")
+    return True
+
+
+def draw_overlays(rgba: Image.Image, plan: dict, pics, f: int, i: int, probe: dict | None = None) -> Image.Image:
+    """Everything compose draws over frame f's picture, in its order, onto
+    ``rgba``: the lower thirds, the text overlays, burned subtitles, the
+    watermark and the provenance mark (A16). ``pics`` needs only ``fonts`` and
+    ``L``. ``probe`` receives the shape-probe pixels just before the mark."""
+    t = f / plan["fps"]
+    title = plan["shots"][i].get("_title")
     lt_top = None
     for lt in plan["lower_thirds"]:
         if lt["start"] <= t < lt["end"]:
@@ -4553,11 +4595,11 @@ def compose(plan: dict, pics: Pictures, f: int, i: int, probe: dict | None = Non
     if plan["wm_start"] is not None:
         rgba = M.watermark(rgba, t, start=plan["wm_start"], card_spans=plan["card_spans"])
     if probe is not None:                # the shape probes before the mark, so the shape check never reads the picture
-        probe["bare_corner"] = [rgba.getpixel(at)[:3] for at in M.glyph_shape_probes(pics.L)]
+        probe["bare_rgba"] = [rgba.getpixel(at) for at in M.glyph_shape_probes(pics.L)]
+        probe["bare_corner"] = [px[:3] for px in probe["bare_rgba"]]
     if title is not None:                # A40: a master without its own marks is marked from its timeline
-        return M.mark_frame(rgba, t, title["marks"], pics.fonts).convert("RGB")
-    rgba = M.mark_frame(rgba, t, plan["marks"], pics.fonts)
-    return rgba.convert("RGB")
+        return M.mark_frame(rgba, t, title["marks"], pics.fonts)
+    return M.mark_frame(rgba, t, plan["marks"], pics.fonts)
 
 
 def mark_probe(plan: dict) -> tuple[int, int]:
@@ -9285,7 +9327,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
            workers: int = DEFAULT_WORKERS, burn_subtitles: bool = False, min_free_gb: float = MIN_FREE_GB,
            encode_preset: str = "slow", draft: bool = False, fit_voices_opt: bool = False, audio_only: bool = False,
            until_s: float | None = None, shots: str | tuple | None = None, journal: Journal | None = None,
-           write_stems: bool = False) -> dict:
+           write_stems: bool = False, write_layers: bool = False) -> dict:
     film = Path(film).resolve()
     out = Path(out).resolve() if out else film / "out"
     W, H = frame_size(height)
@@ -9337,6 +9379,9 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
                               "in its own folder, so running the same --shots again resumes)")
             if audio_only:
                 raise Refused("--shots with --audio-only: not supported (a span is its pictures with the film's sound)")
+        if write_layers and (shots is not None or until_s is not None or audio_only):
+            raise Refused("--layers with --shots, --until or --audio-only: not supported (the layers are the whole "
+                          "film's: every shot's plate and one full-length overlay pass)")
         if draft:
             journal.human("scout", "draft render: missing voice WAVs become silence; dynamic loudness, a compressing master limiter, A13 bad takes and narrator-consistency are warnings instead of refusing the run",
                           override="--draft")
@@ -9391,6 +9436,27 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
             not_whole = preflight_stills(plan, journal, only=set(in_span) if span else None)
             if not_whole:
                 raise Refused(f"A7 (pre-flight): the first frame of {', '.join(not_whole)} is not the whole photograph")
+        asset_hash = {}
+        for s in plan["shots"]:
+            if s.get("_span"):                   # A26: keyed by the span's own sha256 (in the shot), never the whole reel
+                continue
+            p = (s.get("_item") or {}).get("_path")
+            if p and s.get("asset") not in asset_hash:
+                asset_hash[s["asset"]] = sha256_file(p)
+        env_key = tools_key()
+        if write_layers:
+            # --layers (loom Phase 2b): additive only. Its size is estimated now, before any frame: only the
+            # plates not already cached under run_dir/layers plus the overlay, less what a stale plate there
+            # would free, the way write_layers itself will write them. The floor is checked again just before
+            # the layers are written, after the master (asset_hash and env_key may be unchanged by then, but
+            # the plan is not: a shot can move between here and there only on --fit-voices, which --layers
+            # already refuses to combine with a span or a check render).
+            from studio.engine import layers as LY
+            specs = [LY.plate_spec(plan, i) for i in range(len(plan["shots"]))]
+            need, _ = LY.remaining_layers_bytes(plan, run_dir / "layers" / "plates", specs, asset_hash, env_key)
+            journal.human("scout", f"--layers: every shot's clean plate still to render and the overlay pass, about "
+                          f"{need / 1024 ** 3:.2f} GB, under {run_dir / 'layers'}", override="--layers")
+            LY.check_disk(run_dir, need, min_free_gb=min_free_gb)
         journal.stage("scout", "done", phase="preflight", frames_rendered=0)
 
         if n != n_req:
@@ -9405,14 +9471,6 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
 
         seg_dir = run_dir / "segments"
         seg_dir.mkdir(parents=True, exist_ok=True)
-        asset_hash = {}
-        for s in plan["shots"]:
-            if s.get("_span"):                   # A26: keyed by the span's own sha256 (in the shot), never the whole reel
-                continue
-            p = (s.get("_item") or {}).get("_path")
-            if p and s.get("asset") not in asset_hash:
-                asset_hash[s["asset"]] = sha256_file(p)
-        env_key = tools_key()
         segs, todo, cached = {}, [], []
 
         def key_shot(i):
@@ -9782,6 +9840,14 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         journal.artifact("assembly", master, role="check-master" if check else "master")
         if not span:
             journal.artifact("assembly", sources_path, role="check-sources" if check else "sources")
+        layers_manifest = None
+        if write_layers:
+            # --layers (loom Phase 2b): additive only, after the master and its lints, so nothing in it reaches the master
+            from studio.engine import layers as LY
+            current.update(stage="assembly", unit="layers")
+            with journal.unit("assembly", "layers", size={"driver": "frames", "value": n_frames}):
+                layers_manifest = LY.write_layers(plan, run_dir, master, journal, asset_hash=asset_hash, env_key=env_key,
+                                                  workers=n, min_free_gb=min_free_gb)
         journal.stage("assembly", "done")
         wall = time.perf_counter() - run_t0
         journal.timing("run", "total", wall, size={"driver": "seconds", "value": round(dur, 3), "frames": n_frames},
@@ -9791,6 +9857,8 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
                    "cached": [ids[i] for i in cached], "workers": n, "partial": bool(check), "until_s": until_s,
                    "shots": {k: span[k] for k in ("a", "b", "f0", "f1", "t0_s", "t1_s", "edge_in", "edge_out")} if span else None,
                    "clip_warnings": plan.get("clip_integrity", {}).get("warnings", [])}     # A33(3): listed in the report
+        if layers_manifest is not None:
+            summary["layers"] = str(layers_manifest)
         journal.event("stage", "run", None, lens="run.end", status="done", outcome="ok", **summary)
         return summary
     except BaseException as exc:
@@ -9927,6 +9995,10 @@ def main(argv=None) -> int:
                     help="also write the four programme buses, the duck curve and every voice line as placed in the "
                          "final mix (narration, readings, archival) under <out>/stems, with stems.json saying "
                          "what sums to what (journaled; off by default, no effect on the master)")
+    ap.add_argument("--layers", action="store_true",
+                    help="also write every shot's clean plate with 1 s handles (ProRes 422 HQ), one full-length overlay "
+                         "pass (ProRes 4444 with alpha) and layers.json under <out>/layers, after the master (journaled; "
+                         "off by default, no effect on the master)")
     a = ap.parse_args(argv)
     if a.sources_only:
         try:
@@ -9939,7 +10011,7 @@ def main(argv=None) -> int:
     try:
         s = render(a.film, a.out, height=a.res, from_shot=a.from_shot, workers=a.workers, burn_subtitles=a.burn_subtitles,
                    draft=a.draft, fit_voices_opt=a.fit_voices, audio_only=a.audio_only, until_s=a.until_s, shots=a.shots,
-                   write_stems=a.stems)
+                   write_stems=a.stems, write_layers=a.layers)
     except Refused as e:
         print(f"render: refused: {e}", file=sys.stderr)
         return 2
