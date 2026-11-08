@@ -81,14 +81,30 @@ class Fonts:
 
 @lru_cache(maxsize=256)
 def _font(path: str, px: int) -> ImageFont.FreeTypeFont:
-    """BASIC layout, pinned, everywhere the engine opens a font: Pillow wheels
+    """BASIC layout, pinned, everywhere the engine draws its Latin-only
+    labels and numerals (marks, lower thirds, cards, credits): Pillow wheels
     built with raqm (CI's) shape and hint differently from one built without
     it (a laptop's), which moves glyph advances and antialiasing enough to
     shift the lower-third-contrast lint's ink extent between machines (the
-    cross-machine flake this pin fixes). The engine draws Latin-only labels
-    and numerals, never a complex script needing raqm's shaping, so BASIC
-    costs nothing real and buys the same pixels everywhere."""
+    cross-machine flake this pin fixes). A Latin label never needs raqm's
+    shaping, so BASIC costs nothing real and buys the same pixels
+    everywhere. The one exception is ``subtitle_frame``'s RTL/Nastaliq cue
+    text, which opens its own font through ``_font_raqm`` instead (complex
+    scripts need raqm's shaping to read correctly at all; determinism there
+    is secondary to correctness, and is reviewed, not linted, by eye)."""
     return ImageFont.truetype(path, max(1, px), layout_engine=ImageFont.Layout.BASIC)
+
+
+@lru_cache(maxsize=32)
+def _font_raqm(path: str, px: int) -> ImageFont.FreeTypeFont:
+    """RAQM layout: only for ``subtitle_frame``'s rtl/nastaliq cue text, when
+    ``features.check("raqm")`` says this Pillow build actually has it. Arabic
+    and Urdu ligatures and right-to-left ordering need raqm's shaping to
+    read correctly at all -- the one case this engine actually relies on
+    it -- never used for the mark/label/lower-third/card Latin set, which
+    ``_font`` keeps on BASIC everywhere so its pixels stay the same on
+    every machine."""
+    return ImageFont.truetype(path, max(1, px), layout_engine=ImageFont.Layout.RAQM)
 
 
 def text_toolchain_versions() -> dict:
@@ -1469,27 +1485,38 @@ def _ink_plateau_width(L: Layout, els: list[dict], x0: float) -> tuple[float, fl
     return plateau, width, ink_end
 
 
-def _ink_core(raw: np.ndarray, fringe: np.ndarray | None = None) -> np.ndarray:
-    """A glyph's solid interior, never its antialiased fringe -- robust at a
-    small size, where a renderer never quite reaches a fixed ``raw > 200``
-    at a "fully covered" pixel (a thin stroke, or simply a different
-    FreeType build or layout engine: BASIC vs raqm hint and antialias a
-    glyph differently, which is exactly why ``_font`` pins BASIC everywhere
-    -- see its docstring -- yet the achieved peak coverage still isn't the
-    same number on every machine). A fixed threshold then falls through to
-    the fringe far more often on one machine than another, which moves the
-    measured ink extent -- and with it ``lower_third_contrast``'s result --
-    between machines. Scaling the threshold to the mask's own achieved peak
-    keeps it finding real core pixels instead of silently widening to the
-    fringe; the fringe is still the last resort when even that finds
-    nothing (an extremely thin glyph at a tiny size)."""
+def _ink_core(raw: np.ndarray, fringe: np.ndarray | None = None) -> tuple[np.ndarray, str]:
+    """A glyph's solid interior, never its antialiased fringe -- but never a
+    threshold the strict rule would not also allow. A render that never
+    quite reaches a "fully covered" pixel (a thin stroke, or simply a
+    different FreeType build or layout engine: BASIC vs raqm hint and
+    antialias a glyph differently, which is exactly why ``_font`` pins
+    BASIC for the Latin set -- see its docstring) falls back to the wider
+    antialiased fringe (``raw > 127``) whole, used as the conservative
+    stand-in -- never a threshold strictly between 127 and 200.
+
+    A scaled, in-between threshold was tried and rejected (reviewer finding,
+    PR #98's probe at a dimmed mask): for a peak in [163, 200) it read 0.11
+    to 0.12 *more lenient* (a higher measured contrast) than this strict
+    fallback, because it excluded exactly the lower-opacity edge pixels
+    that pull a line's own ink colour toward the background -- the pixels
+    the lint most needs counted when it cannot find a fully-opaque one. The
+    lint must never read a *higher* contrast on a dimmer render than the
+    strict rule would have found on the same mask; only this two-branch
+    rule (``raw > 200``, or else the whole fringe) guarantees that.
+
+    Returns ``(core, "core" | "fringe")``, the second value journaled as
+    evidence (``lower_third_contrast``) so a reviewer can see which branch
+    fired."""
     if fringe is None:
         fringe = raw > 127
     if not fringe.any():
-        return fringe
-    thresh = max(127, int(round(0.78 * int(raw.max()))))
-    core = raw > thresh
-    return core if core.any() else fringe
+        return fringe, "fringe"
+    if raw.max() >= 200:
+        core = raw > 200
+        if core.any():
+            return core, "core"
+    return fringe, "fringe"
 
 
 def _effective_line_alpha(L: Layout, e: dict, x0: float) -> float:
@@ -1504,7 +1531,7 @@ def _effective_line_alpha(L: Layout, e: dict, x0: float) -> float:
     promises a contrast the lint, measuring the real pixels, will not find."""
     declared = _line_alpha(e["kind"])
     raw = np.asarray(_line_ink_mask((L.W, L.H), e, x0))
-    core = _ink_core(raw)
+    core, _ink = _ink_core(raw)
     if not core.any():
         return declared
     layer = Image.new("RGBA", (L.W, L.H), (0, 0, 0, 0))
@@ -1740,8 +1767,8 @@ def lower_third_contrast(frame: np.ndarray, L: Layout, lines, fonts: Fonts, *,
         fringe = raw > 127                     # anything even partly inked -- kept out of the background sample
         if not fringe.any():
             continue
-        core = _ink_core(raw, fringe)          # a glyph's solid interior, scaled to what this render actually
-                                                # achieved (robust at a small size, or a different FreeType build)
+        core, ink = _ink_core(raw, fringe)     # a glyph's solid interior, or the whole fringe when this render
+                                                # never reached a fully-opaque pixel (never anything in between)
         ys, xs = np.where(core)
         y0, y1 = max(0, int(ys.min()) - 2), min(H, int(ys.max()) + 3)
         xs_min, xs_max = int(xs.min()), int(xs.max())
@@ -1761,7 +1788,7 @@ def lower_third_contrast(frame: np.ndarray, L: Layout, lines, fonts: Fonts, *,
                                bg_px[:, :3].astype(np.float64).mean(axis=0))
             worst_c = c if worst_c is None else min(worst_c, c)
         if worst_c is not None:
-            out.append({"kind": e["kind"], "contrast": worst_c})
+            out.append({"kind": e["kind"], "contrast": worst_c, "ink": ink})
     worst = min((x["contrast"] for x in out), default=None)
     return {"lines": out, "worst": worst, "target": LT["wash_contrast"],
             "ok": worst is None or worst >= LT["wash_contrast"]}
@@ -1837,18 +1864,25 @@ def subtitle_frame(img: Image.Image, text: str, font_path: str, *, rtl: bool = F
     """A cue at bottom centre on a per-line scrim, 3.9% of frame height, raised
     above a lower third when ``raise_above`` (that block's top, px) is given.
     Complex scripts need Pillow built with libraqm for shaping; without it this
-    draws glyphs unshaped, which is fine for layout checks only."""
+    draws glyphs unshaped, which is fine for layout checks only. rtl or
+    nastaliq, with raqm actually available, opens the font through
+    ``_font_raqm`` instead of ``_font``: ``ImageDraw.text``'s own
+    ``direction`` kwarg requires a font loaded with RAQM layout (a BASIC-
+    loaded font raises), and the BASIC pin everywhere else in this module
+    (``_font``'s docstring) must not break the one path that needs raqm to
+    read correctly at all."""
     base = _as_rgba(img)
     L = Layout(*base.size)
     px = L.px(SUB["size"])
-    f = _font(font_path, px)
+    use_raqm = (rtl or nastaliq) and features.check("raqm")
+    f = _font_raqm(font_path, px) if use_raqm else _font(font_path, px)
     lh = SUB["lh_nastaliq"] if nastaliq else SUB["lh"]
     lines = text.split("\n")
     box_h = px * lh
     bottom = (raise_above - L.h(SUB["gap"])) if raise_above is not None else L.h(SUB["bottom"])
     layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
-    kw = {"direction": "rtl"} if (rtl and features.check("raqm")) else {}
+    kw = {"direction": "rtl"} if (rtl and use_raqm) else {}
     for i, line in enumerate(reversed(lines)):
         top = bottom - (i + 1) * box_h
         baseline = top + px * (0.78 + (lh - 1.0) / 2.0)

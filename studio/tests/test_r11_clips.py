@@ -660,6 +660,30 @@ def test_a_render_measures_every_archival_line_on_its_own_picture(talk, tmp_path
     assert s["clip_warnings"] == []
 
 
+def test_a_final_render_still_refuses_a_failing_lower_third_contrast(talk, tmp_path, monkeypatch):
+    """GRAMMAR A16 is blocking on a final render: unlike --draft (a warning,
+    the second bug this ticket fixes), a lower third that fails
+    lower-third-contrast on a final (``draft=False``) render must still
+    raise Refused. A deliberately failing measurement (monkeypatched, not a
+    background chosen to fail by luck) isolates the blocking behaviour from
+    whether any particular background happens to clear the target."""
+    film = _talk_film(tmp_path, talk)
+
+    def always_fails(frame, L, lines, fonts, *, kind="speaker", flag=None):
+        return {"lines": [{"kind": "role", "contrast": 1.0, "ink": "fringe"}], "worst": 1.0,
+                "target": R.M.LT["wash_contrast"], "ok": False}
+
+    # Isolate the one lint under test: this fixture is built for --draft (test_a_render_measures_...
+    # above), not a from-scratch final render, so its unrelated preflight lints (T3's own 2 s span is
+    # short of lower-third-time's 4-6 s; the base fixture's S8 has a pre-existing voice-over-black
+    # finding) are neutralised here rather than re-engineering the whole fixture for a final render.
+    monkeypatch.setattr(R, "lower_third_time_lints", lambda *a, **k: [])
+    monkeypatch.setattr(R, "voice_over_black_lints", lambda *a, **k: [])
+    monkeypatch.setattr(R.M, "lower_third_contrast", always_fails)
+    with pytest.raises(R.Refused, match="lower-third-contrast"):
+        R.render(film, tmp_path / "out", height=HEIGHT, workers=2, min_free_gb=1, encode_preset="veryfast", draft=False)
+
+
 # --------------------------------------------------------------------------
 # R12 (A34): a FILL clip is measured where its framing is still
 # --------------------------------------------------------------------------
