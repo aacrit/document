@@ -15,6 +15,29 @@ url: https://document.voidvision.org
 burst_zone: voidvision.org
 burst_host: https://document.aacrit.workers.dev
 
+# Rule V3: no third-party analytics script, Cloudflare Web Analytics
+# included, ships without a charter amendment. Matched as page-source
+# substrings against every served page below; a real beacon script tag or
+# its loader call contains one of these. Shared via a YAML anchor so the
+# homepage, film page and privacy page checks (which run on the same served
+# HTML) stay in sync with one list, the thing tests/contract.test.ts covers.
+third_party_analytics_strings: &third_party_analytics_strings
+  - static.cloudflareinsights.com
+  - cf-beacon
+  - google-analytics.com
+  - googletagmanager.com
+  - gtag(
+  - mixpanel.com
+  - cdn.segment.com
+  - plausible.io
+  - matomo.js
+  - hotjar.com
+  - fullstory.com
+  - amplitude.com
+  - snowplow
+  - connect.facebook.net
+  - doubleclick.net
+
 checks:
   - name: homepage status 200
     type: status
@@ -39,6 +62,11 @@ checks:
     type: status
     path: /privacy
     expect: 200
+
+  - name: privacy page carries no third-party analytics beacon
+    type: forbidden
+    path: /privacy
+    strings: *third_party_analytics_strings
 
   - name: healthz responds
     type: status
@@ -75,6 +103,13 @@ checks:
     strings:
       - "fonts.googleapis.com"
       - "fonts.gstatic.com"
+
+  # Rule V3: no third-party analytics beacon ships without a charter
+  # amendment. Today the live site serves none.
+  - name: homepage carries no third-party analytics beacon
+    type: forbidden
+    path: /
+    strings: *third_party_analytics_strings
 
   # Headers a <meta> tag cannot carry. Static pages get them from
   # dist/_headers (scripts/build.mjs), Worker responses from
@@ -291,6 +326,21 @@ films:
         - "/studio"
         - "render"
         - "pipeline"
+
+    - name: "{title}: the film page carries no third-party analytics beacon"
+      type: forbidden
+      path: /f/{slug}/
+      strings: *third_party_analytics_strings
+
+    - name: "{title}: the sources page carries no third-party analytics beacon"
+      type: forbidden
+      path: /f/{slug}/sources/
+      strings: *third_party_analytics_strings
+
+    - name: "{title}: the corrections page carries no third-party analytics beacon"
+      type: forbidden
+      path: /f/{slug}/correct/
+      strings: *third_party_analytics_strings
 
     - name: "{title}: the film is served (deployed only)"
       type: status
