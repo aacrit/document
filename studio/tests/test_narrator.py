@@ -12,6 +12,11 @@ from studio.engine import narrator as NR
 from studio.engine import render as R
 
 AOEDE = {"engine": "kokoro", "voice": "af_aoede", "speed": 0.88}
+RUNTIME = {"kokoro-onnx": "0.6.1", "onnxruntime": "1.31.1", "espeak-ng": "1.52.0"}
+
+
+def probe(python=None):
+    return dict(RUNTIME)
 TARA = {"engine": "orpheus", "voice": "tara"}
 
 
@@ -64,11 +69,12 @@ def test_a_cached_take_is_reused_and_a_new_voice_is_synthesised(tmp_path):
         (folder / f["name"]).write_bytes(f["name"].encode())
     lock = dict(lock, files=[dict(f, size=len(f["name"]), sha256=NR.sha256_path(folder / f["name"]))
                              for f in lock["files"]])
-    res = NR.voice_lines(lines, cache=tmp_path / "c", runner=runner, folder=folder, lock=lock)
+    kw = dict(runner=runner, folder=folder, lock=lock, prober=probe)
+    res = NR.voice_lines(lines, cache=tmp_path / "c", **kw)
     assert res["synthesised"] == 2 and calls == [["af_aoede", "af_aoede"]]
-    again = NR.voice_lines(lines, cache=tmp_path / "c", runner=runner, folder=folder, lock=lock)
+    again = NR.voice_lines(lines, cache=tmp_path / "c", **kw)
     assert again["synthesised"] == 0 and all(v["cached"] for v in again["lines"].values()) and len(calls) == 1
-    other = NR.voice_lines(lines, dict(AOEDE, speed=1.0), cache=tmp_path / "c", runner=runner, folder=folder, lock=lock)
+    other = NR.voice_lines(lines, dict(AOEDE, speed=1.0), cache=tmp_path / "c", **kw)
     assert other["synthesised"] == 2                                              # another speed: new takes
 
 
@@ -81,7 +87,7 @@ def test_the_lock_pins_kokoro_v1_and_quotes_its_licence():
     lock = NR.load_lock()
     assert lock["model"] == "hexgrad/Kokoro-82M" and lock["license"] == "Apache-2.0" and lock["voice"] == "af_aoede"
     assert "apache-2.0" in lock["license_quote"] and "af_aoede" in lock["license_quote"]
-    assert "a tool" in lock["_note"] and "licence allowlist" in lock["_note"]
+    assert "tools, not source inputs" in lock["_note"] and "licence allowlist" in lock["_note"]
     assert {f["role"] for f in lock["files"]} == {"model", "voices"}
     assert all(len(f["sha256"]) == 64 for f in lock["files"])
 
@@ -111,7 +117,8 @@ def test_a_model_off_the_lock_is_never_handed_to_the_worker(tmp_path):
         raise AssertionError("the worker ran on an unverified model")
 
     with pytest.raises(NR.LockMismatch):
-        NR.voice_lines([{"id": "N1", "text": "One."}], cache=tmp_path / "c", runner=runner, folder=tmp_path)
+        NR.voice_lines([{"id": "N1", "text": "One."}], cache=tmp_path / "c", runner=runner, folder=tmp_path,
+                       prober=probe)
 
 
 def test_the_model_folder_defaults_to_d_and_can_be_overridden(monkeypatch, tmp_path):
@@ -194,3 +201,183 @@ def test_sources_json_and_the_description_name_the_model_voice_and_licence():
     old = DSC.notes({"narrator": {"credit": "x", "engine": "orpheus", "voice": "tara", "pitch_shift_st": 0.76},
                      "readings": [], "shots": []})
     assert old["narrator"] == "Narration: a computer voice, Orpheus 'tara', pitched +0.76 semitones."
+
+
+# --------------------------------------------------------------------------
+# Review round 1 (PR #97): the manifest, a voice with no engine, the voice bank, aoede's own EQ, fetch, runtime
+# --------------------------------------------------------------------------
+
+import hashlib                                      # noqa: E402
+from pathlib import Path                            # noqa: E402
+
+from conftest import make_film                      # noqa: E402
+from studio.engine import journal as J              # noqa: E402
+from studio.engine import score as SC               # noqa: E402
+
+
+def _edit(film, fn):
+    play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
+    fn(play)
+    (film / "screenplay.json").write_text(json.dumps(play), encoding="utf-8")
+
+
+def _house(p):
+    v = next(v for v in p["cast"]["voices"] if v["id"] == "v-narrator")
+    v.pop("engine")
+    v.pop("voice")
+
+
+def _no_engine(p):
+    next(v for v in p["cast"]["voices"] if v["id"] == "v-narrator").pop("engine")
+
+
+def _aoede_film(tmp_path):
+    """The fixture film with its narrator made the house narrator (engine and voice left out)."""
+    film = make_film(tmp_path / "film")
+    _edit(film, _house)
+    return film
+
+
+def _manifest(film, voice=AOEDE, text_of=None, sha_of=None):
+    play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
+    lines = {ln["id"]: ln for p in play["parts"] for ln in p.get("lines", []) if ln.get("kind") == "narration"}
+    doc = {"v": 1, "identity": NR.identity(voice), "model": "m", "runtime": RUNTIME, "lines": {}}
+    for lid, ln in lines.items():
+        wav = film / (ln.get("wav") or f"audio/{lid}.wav")
+        doc["lines"][lid] = {"text_sha256": NR.sha256_text((text_of or {}).get(lid, ln["text"])), "key": "k",
+                             "wav": wav.as_posix(), "sha256": (sha_of or {}).get(lid) or NR.sha256_path(wav)}
+    (film / NR.MANIFEST).write_text(json.dumps(doc), encoding="utf-8")
+
+
+def _plan(film, **kw):
+    return R.build_plan(film, W=640, H=360, burn_subtitles=False, journal=J.Journal(film="aoede"), **kw)
+
+
+def test_a_stale_take_is_refused_for_a_kokoro_narrator(tmp_path):
+    film = _aoede_film(tmp_path)
+    with pytest.raises(R.Refused, match=r"narrator-takes-voiced \(narrator\).*no voicing manifest"):
+        _plan(film)                                                   # a WAV made elsewhere (a Tara take left in place)
+    _manifest(film, sha_of={"L1": "0" * 64})
+    with pytest.raises(R.Refused, match=r"L1: L1.wav is not the take voiced as kokoro:af_aoede"):
+        _plan(film)
+    _manifest(film, voice=dict(AOEDE, speed=1.0))
+    with pytest.raises(R.Refused, match=r"narrator-takes-voiced.*re-voice it"):
+        _plan(film)
+    _manifest(film, text_of={"L1": "Another sentence."})
+    with pytest.raises(R.Refused, match=r"L1: its text changed since it was voiced"):
+        _plan(film)
+    _manifest(film)
+    with pytest.raises(R.Refused, match=r"narrator-drift"):            # the take passes; the tone is then judged as her
+        _plan(film)
+    plan = _plan(film, draft=True)                                    # the recorded take, as voiced: planned
+    assert plan["narrator_voice"]["voice"] == "af_aoede" and plan["narrator_eq"]["low"]["hz"] == 195.0
+
+
+def test_an_orpheus_film_needs_no_manifest():
+    assert NR.manifest_problems(Path("nowhere"), [{"id": "N1", "kind": "narration"}], TARA) == ([], {"exempt": "orpheus"})
+    assert NR.manifest_problems(Path("nowhere"), [{"id": "N1", "kind": "narration"}], {"engine": "test-tone"})[0] == []
+
+
+def test_a_voice_with_no_engine_is_not_turned_into_kokoro(tmp_path):
+    play = {"cast": {"voices": [{"id": "v-narrator", "voice": "tara", "credit": "x"}]}, "parts": []}
+    assert R.narrator_voice(play) == {"id": "v-narrator", "voice": "tara", "credit": "x"}     # not kokoro:tara
+    (p,) = NR.narrator_problems(R.narrator_voice(play))
+    assert "names no engine" in p
+    film = make_film(tmp_path / "film")
+    _edit(film, _no_engine)
+    with pytest.raises(R.Refused, match=r"narrator-voice-declared \(narrator\).*names no engine"):
+        _plan(film)
+
+
+def test_a_kokoro_voice_outside_the_pinned_bank_is_refused():
+    (p,) = NR.narrator_problems(dict(AOEDE, voice="af_nobody"))
+    assert "not a voice in the pinned voice bank" in p
+    assert "af_aoede" in NR.kokoro_voices() and len(NR.kokoro_voices()) == 54
+
+
+def test_aoede_takes_her_own_measured_eq_and_a_tara_eq_is_refused():
+    eq, how, problems = R.narrator_eq_resolve({}, AOEDE)
+    assert not problems and eq == {"low": {"type": "bell", "hz": 195.0, "gain_db": 3.0, "q": 1.2},
+                                   "high": {"type": "high_shelf", "hz": 6000.0, "gain_db": 0.0, "slope": 1.0}}
+    assert "kokoro:af_aoede" in how and not SC.narrator_eq_setting({"narrator_eq": eq})[2]   # inside A38's bounds
+    tara_eq = {"low": {"type": "bell", "hz": 170, "gain_db": 3, "q": 0.9},
+               "high": {"type": "high_shelf", "hz": 5000, "gain_db": -3, "slope": 0.8}}
+    none, _, problems = R.narrator_eq_resolve({"narrator_eq": tara_eq}, AOEDE)
+    assert none is None and "tuned to Tara" in problems[0]
+    assert R.narrator_eq_resolve({"narrator_eq": "off"}, AOEDE)[:2] == (None, "off")
+    assert R.narrator_eq_resolve({"narrator_eq": tara_eq}, TARA)[0] == tara_eq           # Orpheus keeps the film's
+    assert R.narrator_eq_resolve({}, dict(AOEDE, speed=1.0))[2]                           # no stored EQ: refused
+
+
+def test_a_film_with_a_tara_eq_and_a_kokoro_narrator_is_refused_at_plan_time(tmp_path):
+    film = _aoede_film(tmp_path)
+    _manifest(film)
+    _edit(film, lambda p: p.update(narrator_eq={"low": {"type": "bell", "hz": 170, "gain_db": 3, "q": 0.9},
+                                                "high": {"type": "high_shelf", "hz": 5000, "gain_db": -3,
+                                                         "slope": 0.8}}))
+    with pytest.raises(R.Refused, match=r"narrator-eq-declared \(narrator_eq\).*tuned to Tara"):
+        _plan(film)
+
+
+def test_the_stored_eq_is_derived_from_the_stored_takes_by_the_house_method():
+    prof = json.loads(R.NARRATOR_PROFILE.read_text(encoding="utf-8"))
+    ev = prof["eq_evidence"]
+    assert ev["takes"] == 5 and "voicing.derive" in prof["eq_method"]
+    assert prof["eq"]["low"]["hz"] == round(ev["f0_hz"] * 200.0 / 179.4 / 5) * 5      # the bell sits above her f0
+
+
+def test_fetch_checks_a_download_before_it_takes_the_name(tmp_path):
+    lock = NR.load_lock()
+    entry = dict(lock["files"][0], size=4)
+
+    def bad(url, dest):
+        dest.write_bytes(b"evil")
+
+    with pytest.raises(NR.LockMismatch):
+        NR.fetch(tmp_path, dict(lock, files=[entry]), download=bad)
+    name = entry["name"]
+    assert not (tmp_path / name).exists() and (tmp_path / f"{name}.rejected").read_bytes() == b"evil"
+
+    def ok(url, dest):
+        dest.write_bytes(b"good")
+
+    good = dict(entry, sha256=hashlib.sha256(b"good").hexdigest())
+    assert NR.fetch(tmp_path / "ok", dict(lock, files=[good]), download=ok)["model"].read_bytes() == b"good"
+
+
+def test_the_runtime_versions_are_in_the_key_and_a_changed_runtime_refuses(tmp_path):
+    assert NR.take_key("x", AOEDE, runtime=RUNTIME) != NR.take_key("x", AOEDE, runtime=dict(RUNTIME, onnxruntime="1.32"))
+    lock = NR.load_lock()
+    folder = tmp_path / "models"
+    folder.mkdir()
+    for f in lock["files"]:
+        (folder / f["name"]).write_bytes(f["name"].encode())
+    lock = dict(lock, files=[dict(f, size=len(f["name"]), sha256=NR.sha256_path(folder / f["name"]))
+                             for f in lock["files"]])
+
+    def runner(jobs, files, out, **kw):
+        for j in jobs:
+            (out / f"{j['id']}.wav").write_bytes(b"RIFF")
+        return {"ok": [j["id"] for j in jobs], "failed": {}, "runtime": dict(RUNTIME, numpy="9")}
+
+    with pytest.raises(NR.NarratorError, match="the worker ran on"):
+        NR.voice_lines([{"id": "N1", "text": "x"}], cache=tmp_path / "c", runner=runner, folder=folder, lock=lock,
+                       prober=probe)
+
+
+def test_the_lock_records_the_conversion():
+    c = NR.load_lock()["conversion"]
+    assert c["repo"] == "thewh1teagle/kokoro-onnx" and c["release"].startswith("model-files-v1.0")
+    assert c["model"]["what"] == "int8 ONNX export of hexgrad/Kokoro-82M v1.0"
+    assert "MIT License" in c["repo_licence_quote"] and "6e742170" in c["model"]["checked"]
+    assert "af_aoede.pt" in c["voices"]["af_aoede"] and "c03bd1a4" in c["voices"]["af_aoede"]
+
+
+def test_the_requirements_are_pinned_with_hashes():
+    req = (Path(NR.__file__).resolve().parents[1] / "requirements-tts.txt").read_text(encoding="utf-8")
+    pins = [ln for ln in req.splitlines() if "==" in ln]
+    assert any(ln.startswith("kokoro-onnx==0.6.1") for ln in pins) and "--require-hashes" in req
+    reqs = [ln for ln in pins if not ln.startswith("#")]
+    body = [ln for ln in req.splitlines() if not ln.startswith("#")]
+    blocks = " ".join(body).split("==")[1:]
+    assert len(reqs) == len(blocks) == 13 and all("--hash=sha256:" in b for b in blocks)

@@ -1,5 +1,5 @@
 {
- "_note": "The narrator's stored profile (GRAMMAR A14 refined: the narrator-drift reference only; it never sets the baseline or the bounds): Kokoro-82M (hexgrad) af_aoede at speed 0.88, the house narrator from 2026-11-07 (founder ruling, docs/DECISIONS.md), the stand-in until the founder's own recordings replace her. Five takes by the same audition method as Tara's: the five spoken lines of document-work/audition/script.json, one take each, document-work/audition/kokoro-aoede/profile5/aoede-0..4.wav (voiced by python -m studio.engine.narrator audition <lines> --profile; the model checked against studio/kokoro.lock.json), at her natural pitch (no PSOLA shift). Measured f0 174.56 Hz, centroid 1265.4 Hz. Made by studio.engine.render.narrator_profile_from_takes; re-make it with the same function if the measure changes.",
+ "_note": "The narrator's stored profile (GRAMMAR A14 refined: the narrator-drift reference only; it never sets the baseline or the bounds): Kokoro-82M (hexgrad) af_aoede at speed 0.88, the house narrator from 2026-11-07 (founder ruling, docs/DECISIONS.md), the stand-in until the founder's own recordings replace her. Five takes by the same audition method as Tara's: the five spoken lines of document-work/audition/script.json, one take each, document-work/audition/kokoro-aoede/profile5/aoede-0..4.wav (voiced by python -m studio.engine.narrator audition <lines> --profile; the model checked against studio/kokoro.lock.json), at her natural pitch (no PSOLA shift). Measured f0 174.56 Hz, centroid 1265.4 Hz. Her EQ (eq) is her own, measured on the same takes by the house method (A38 refined, A57): a bell of +3.0 dB at 195 Hz and no shelf. Made by studio.engine.render.narrator_profile_from_takes; re-make it with the same function if the measure changes.",
  "voice": {
   "engine": "kokoro",
   "voice": "af_aoede",
@@ -541,5 +541,45 @@
    },
    "method": "studio.engine.render.clean_voice (A19) then voice_profile on each take levelled to -20 LUFS, the same order process_take measures a narration line's own profile; median over the takes"
   }
- ]
+ ],
+ "eq": {
+  "low": {
+   "type": "bell",
+   "hz": 195.0,
+   "gain_db": 3.0,
+   "q": 1.2
+  },
+  "high": {
+   "type": "high_shelf",
+   "hz": 6000.0,
+   "gain_db": 0.0,
+   "slope": 1.0
+  }
+ },
+ "eq_method": "A38 refined, the house method every reader voice's EQ is derived by: voicing.measure_takes on these five takes, then voicing.derive against the pinned reader target (READER_TARGET); the shelf never boosts, so a voice darker than the target keeps its own treble",
+ "eq_evidence": {
+  "takes": 5,
+  "frames": 533,
+  "f0_hz": 174.6,
+  "warmth_db": 4.78,
+  "warmth_after_db": 6.78,
+  "treble_db": {
+   "5000": -4.0,
+   "6300": 0.8,
+   "8000": 2.0
+  },
+  "treble_after_db": {
+   "5000": -4.21,
+   "6300": 0.59,
+   "8000": 1.79
+  },
+  "target": {
+   "warmth_db": 8.08,
+   "treble_db": {
+    "5000": 0.44,
+    "6300": 2.63,
+    "8000": 8.84
+   }
+  }
+ }
 }

@@ -2441,10 +2441,12 @@ def reader_eq_plan(lint, journal: Journal, film: Path, play: dict) -> tuple[dict
 def narrator_voice(play: dict) -> dict | None:
     """The cast voice the narration is read by (a narration line's
     ``read_by``, else the voice ``v-narrator``). A narrator voice that names
-    no engine is the house narrator (founder ruling 2026-11-07: Kokoro
-    af_aoede at speed 0.88, studio/engine/narrator.py HOUSE_NARRATOR); one
-    that names ``engine: "orpheus"`` keeps its Orpheus takes, made outside the
-    engine. A film with no narrator voice declares none (None)."""
+    neither engine nor voice is the house narrator (founder ruling 2026-11-07:
+    Kokoro af_aoede at speed 0.88, studio/engine/narrator.py HOUSE_NARRATOR);
+    one that names a voice and no engine is returned as declared, and A57
+    (narrator-voice-declared) refuses it; one that names ``engine: "orpheus"``
+    keeps its Orpheus takes, made outside the engine. A film with no narrator
+    voice declares none (None)."""
     voices = {v.get("id"): v for v in (play.get("cast") or {}).get("voices", [])}
     found = None
     for part in play.get("parts", []):
@@ -2455,10 +2457,31 @@ def narrator_voice(play: dict) -> dict | None:
         if found:
             break
     found = found or voices.get("v-narrator")
-    if found is not None and not found.get("engine"):
+    if found is not None and not found.get("engine") and not found.get("voice"):
         house = {k: v for k, v in NR.HOUSE_NARRATOR.items() if k != "id"}
-        found = {**house, **found, "engine": house["engine"], "voice": found.get("voice") or house["voice"]}
+        found = {**house, **found}
     return found
+
+
+def narrator_eq_resolve(play: dict, nv: dict | None) -> tuple[dict | None, str, list[str]]:
+    """The narrator's EQ (A38, A57). A Kokoro narrator takes her own EQ, measured on her stored audition takes by
+    the house method (voicing.measure_takes then voicing.derive, as every reader voice's is) and stored with her
+    profile in narrator-profile.json under her identity; a film's own ``narrator_eq`` object was tuned to Tara and
+    is refused on her (``house`` or absent is her measured EQ; ``off`` is none). Any other narrator keeps A38's
+    setting (SC.narrator_eq_setting). Returns (eq or None, how it was declared, problems)."""
+    if (nv or {}).get("engine") != "kokoro":
+        return SC.narrator_eq_setting(play)
+    v = play.get("narrator_eq", "house") if isinstance(play, dict) else "house"
+    if v is False or v == "off":
+        return None, "off", []
+    if not (v is None or v == "house"):
+        return None, "invalid", [f"a Kokoro narrator takes her own measured EQ (A57): the film's narrator_eq {v!r} "
+                                 "was tuned to Tara; remove it"]
+    stored, why = load_narrator_profile(nv)
+    eq = (stored or {}).get("eq")
+    if not eq:
+        return None, "invalid", [f"no measured EQ is stored for {_voice_name(nv)} ({why})"]
+    return {k: dict(b) for k, b in eq.items()}, f"measured for {_voice_name(stored['voice'])} (narrator-profile.json)", []
 
 
 def credit_year(title: str, year: str | None) -> str:
@@ -2841,14 +2864,16 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     if play.get("settings") is not None:
         lint("film-settings", not settings_problems, unit="settings", grammar="A25",
              evidence={"settings": settings, "stated": settings_stated, "bounds": POL.SETTING_BOUNDS, "problems": settings_problems})
-    # A38 (R12): the narrator voicing EQ, the house's unless the film declares its own (or off), journaled
-    narrator_eq, eq_how, eq_problems = SC.narrator_eq_setting(play)
-    lint("narrator-eq-declared", not eq_problems, unit="narrator_eq", grammar="A38",
+    # A38 (R12): the narrator voicing EQ, the house's unless the film declares its own (or off), journaled; A57: a
+    # Kokoro narrator's is her own, measured, and a film's Tara-tuned narrator_eq is refused on her
+    nv_declared = narrator_voice(play)
+    narrator_eq, eq_how, eq_problems = narrator_eq_resolve(play, nv_declared)
+    lint("narrator-eq-declared", not eq_problems, unit="narrator_eq", grammar="A38, A57",
          evidence={"narrator_eq": narrator_eq, "declared": eq_how, "house": SC.NARRATOR_EQ_HOUSE,
                    "bounds": SC.NARRATOR_EQ_BOUNDS, "problems": eq_problems})
-    # A57 (founder ruling 2026-11-07): the narrator's engine, voice and speed; a Kokoro narrator at her natural pitch
-    nv_declared = narrator_voice(play)
-    if nv_declared is not None and nv_declared.get("engine") in NR.ENGINES:   # Kokoro and Orpheus only
+    # A57 (founder ruling 2026-11-07): the narrator's engine, voice and speed; a Kokoro narrator at her natural pitch.
+    # Judged: a voice with no engine, and the Kokoro and Orpheus engines; any other engine (a test tone) is not.
+    if nv_declared is not None and (not nv_declared.get("engine") or nv_declared.get("engine") in NR.ENGINES):
         nv_problems = NR.narrator_problems(nv_declared)
         lint("narrator-voice-declared", not nv_problems, unit="narrator", grammar="A57",
              evidence={"narrator_voice": nv_declared, "identity": NR.identity(nv_declared),
@@ -3545,6 +3570,12 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                                     + (f"{len(conformed)} clip(s) or title(s) are conformed by frame drop or repeat; look at their "
                                        "motion (pans, talking heads) for the cadence hitch." if conformed else
                                        "Every clip and title plays 1:1, no frame dropped or repeated.")})
+    # A57 narrator-takes-voiced: a Kokoro narrator's WAVs are the takes the film's voicing manifest records under her
+    # current identity, so a stale take (a Tara WAV left in place) never plays credited as her
+    if nv_declared is not None and nv_declared.get("engine") == "kokoro":
+        tv_problems, tv_ev = NR.manifest_problems(film, lines, nv_declared)
+        lint("narrator-takes-voiced", not tv_problems, unit="narrator", grammar="A57",
+             evidence=dict(tv_ev, problems=tv_problems[:20], refused=len(tv_problems)))
     if lint_fail:
         raise Refused("lint failed: " + "; ".join(lint_fail))
     card_spans = [(s["f0"] / fps, s["f1"] / fps) for s in shots if s["mark"] == "CARD"]
