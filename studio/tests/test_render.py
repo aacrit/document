@@ -2462,6 +2462,48 @@ def test_a16_the_lower_third_drawn_by_the_engine_is_clipped_to_its_hold(film, pl
     assert lt["end"] == min(lt["end_s"], lt["start"] + M.LT_MAX_S)
 
 
+def test_a16_a_lower_third_spanning_a_cut_is_planned_once_from_every_shot_it_touches(film, plan, monkeypatch):
+    """Founder ruling 2026-11-07: T1 (the fixture's only lower third) spans
+    S4 and S5 -- its settled hold starts inside S4 and ends inside S5. The
+    wash is planned once, at plan time (``_plan_lower_third_washes``), from
+    samples drawn out of every shot the span touches, not once per shot a
+    renderer happens to render it in, so it cannot jump at the cut."""
+    lt0 = plan["lower_thirds"][0]
+    assert isinstance(lt0.get("wash"), tuple) and len(lt0["wash"]) == 3
+    seen_shots: list[int] = []
+    orig = R._shot_picture
+
+    def spy(plan_, pics_, f_, i_):
+        seen_shots.append(i_)
+        return orig(plan_, pics_, f_, i_)
+
+    monkeypatch.setattr(R, "_shot_picture", spy)
+    j = J.Journal(film="lt-span-check")
+    fresh = R.build_plan(film, W=plan["W"], H=plan["H"], burn_subtitles=False, journal=j)
+    s4 = next(i for i, s in enumerate(fresh["shots"]) if s["id"] == "S4")
+    s5 = next(i for i, s in enumerate(fresh["shots"]) if s["id"] == "S5")
+    assert s4 in seen_shots and s5 in seen_shots, (fresh["shots"][s4]["id"], seen_shots)
+    assert fresh["lower_thirds"][0]["wash"] == lt0["wash"]     # deterministic: the same plan either build
+
+
+def test_a16_the_cross_cut_wash_reflects_the_brighter_of_both_shots_not_whichever_renders_first():
+    """A lower third spanning two shots gets one wash sized to the
+    brighter of the two backgrounds, regardless of which shot a renderer
+    happens to sample or encode first (``lower_third_wash_plan`` itself,
+    the pure core of ``_plan_lower_third_washes``, with one dark sample and
+    one bright one standing in for the two shots)."""
+    fonts = M.Fonts()
+    lines = ["Sample speaker", "Role, 1947"]
+    L = M.Layout(1920, 1080)
+    els, top = M.lower_third_layout(L, lines, fonts, "speaker", None)
+    dark_shot = Image.new("RGB", (1920, 1080), (40, 40, 40))
+    bright_shot = Image.new("RGB", (1920, 1080), (200, 200, 200))
+    dark_first = M.lower_third_wash_plan(L, els, [dark_shot, dark_shot, bright_shot], top)
+    bright_first = M.lower_third_wash_plan(L, els, [bright_shot, dark_shot, dark_shot], top)
+    assert dark_first == bright_first
+    assert dark_first[0] > M.LT["wash"]          # the plan answers to the bright shot, not just the dark one
+
+
 def _speechlike(seed=0, words=6, word_s=0.35, gap_s=0.6, hiss_db=-60.0):
     """Words (a 140 Hz-plus harmonic stack with a 20 ms rise and a 60 ms
     exponential tail) between gaps, all under white hiss at ``hiss_db``.

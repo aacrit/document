@@ -3583,6 +3583,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                 why += (f" (refused by {', '.join(outside)} outside this check span; the plan judges every take in "
                         "the film)")
         raise Refused(why)
+    _plan_lower_third_washes(plan)
     return plan
 
 
@@ -4193,37 +4194,6 @@ class Pictures:
         self._held: dict[str, int] = {}          # held frames of readers already closed, by the clip's shot id
         self.titles: dict[str, TS.Reader] = {}   # A40: the series titles' master, read in order
         self.title_native: np.ndarray | None = None   # the master's own frame last shown (its burned marks are checked on it)
-        self.lt_wash: dict[str, tuple] = {}       # a lower third's (peak, width, plateau), measured once (A16, 2026-11-07)
-
-    def wash_plan(self, plan: dict, lt: dict, i: int) -> tuple:
-        """A lower third's (peak, width, plateau), measured once over a
-        handful of frames across its own settled hold (never per frame, so
-        the wash never flickers -- founder ruling 2026-11-07). Cached by id:
-        every later frame of the same lower third (within this shot's own
-        render) gets back the exact same plan. The frames sampled are
-        clamped to shot ``i``'s own range, since that is what this call
-        already has open; a lower third spanning a cut gets its own
-        independent plan in the next shot's render, which is sized to what
-        that shot itself shows."""
-        cached = self.lt_wash.get(lt["id"])
-        if cached is not None:
-            return cached
-        els, top = M.lower_third_layout(self.L, lt["lines"], self.fonts, lt["kind"], lt["flag"])
-        s, fps = plan["shots"][i], plan["fps"]
-        settled = lt["start"] + (M.LT_MAX_S - M.LT["hold"] - M.LT["exit"])
-        leaving = lt["end"] - M.LT["exit"]
-        t0 = max(settled, s["f0"] / fps)
-        t1 = min(min(lt["end"], leaving), (s["f1"] - 1) / fps)
-        samples = []
-        if t1 >= t0:
-            n = 3
-            for k in range(n):
-                tt = t0 if n == 1 else t0 + (t1 - t0) * k / (n - 1)
-                f2 = max(s["f0"], min(s["f1"] - 1, int(round(tt * fps))))
-                samples.append(_shot_picture(plan, self, f2, i))
-        plan_vals = M.lower_third_wash_plan(self.L, els, samples, top)
-        self.lt_wash[lt["id"]] = plan_vals
-        return plan_vals
 
     def still(self, s: dict) -> Image.Image:
         key = s["id"]
@@ -4375,6 +4345,48 @@ def _shot_picture(plan: dict, pics: Pictures, f: int, i: int) -> Image.Image:
     return img
 
 
+def _plan_lower_third_washes(plan: dict) -> None:
+    """Founder ruling 2026-11-07 ("Kit form, deeper."): a lower third's
+    (peak, width, plateau) is planned once, here, at plan time, never once
+    per rendered shot. A lower third spanning a cut (the fixture's T1 spans
+    S4 and S5) samples a handful of frames from *every* shot its settled
+    hold touches, clamped to each shot's own range, and plans from all of
+    them together, so it comes out the same whatever order the segments
+    render or cache in -- unlike planning it once per shot, which would
+    give a cut lower third one wash in the first shot and a different one
+    in the second, a visible jump at the cut. Stores the result directly on
+    each lower third's own dict (``lt["wash"]``); ``compose`` just reads
+    it, so a plan this function never touched (a hand-built test fixture
+    with no lower thirds, or none of this ruling's doing) still works:
+    ``lt.get("wash")`` is ``None`` and ``lower_third_frame`` measures its
+    one given frame instead."""
+    lts = plan["lower_thirds"]
+    if not lts:
+        return
+    fps = plan["fps"]
+    pics = Pictures(plan)
+    try:
+        for lt in lts:
+            els, top = M.lower_third_layout(pics.L, lt["lines"], pics.fonts, lt["kind"], lt["flag"])
+            settled = lt["start"] + (M.LT_MAX_S - M.LT["hold"] - M.LT["exit"])
+            leaving = lt["end"] - M.LT["exit"]
+            t0, t1 = settled, min(lt["end"], leaving)
+            samples: list[Image.Image] = []
+            if t1 >= t0:
+                for i, s in enumerate(plan["shots"]):
+                    lo, hi = max(t0, s["f0"] / fps), min(t1, (s["f1"] - 1) / fps)
+                    if hi < lo:
+                        continue
+                    n = 3
+                    for k in range(n):
+                        tt = lo if n == 1 else lo + (hi - lo) * k / (n - 1)
+                        f2 = max(s["f0"], min(s["f1"] - 1, int(round(tt * fps))))
+                        samples.append(_shot_picture(plan, pics, f2, i))
+            lt["wash"] = M.lower_third_wash_plan(pics.L, els, samples, top)
+    finally:
+        pics.close()
+
+
 def compose(plan: dict, pics: Pictures, f: int, i: int, probe: dict | None = None) -> Image.Image:
     """Frame f (owned by shot i): picture with its transition, then the lower
     thirds, burned subtitles, watermark and the provenance mark (A16)."""
@@ -4382,6 +4394,9 @@ def compose(plan: dict, pics: Pictures, f: int, i: int, probe: dict | None = Non
     t = f / fps
     s = shots[i]
     img = _shot_picture(plan, pics, f, i)
+    if picture_level(plan, f, i) <= 0.0:
+        return img                          # a dip's black hold: every pixel off, overlays included (A11); nothing
+                                            # past this point ever draws on it, mark and lower third included
     title = s.get("_title")
     if title is not None and (title["burned"] or TS.source_frame(f - s["f0"], fps, title["fps"], title.get("frames")) in title["holds"]):
         return img.convert("RGB")           # A40: the master carries its own marks, watermark and lockup: nothing over it
@@ -4390,9 +4405,10 @@ def compose(plan: dict, pics: Pictures, f: int, i: int, probe: dict | None = Non
     lt_top = None
     for lt in plan["lower_thirds"]:
         if lt["start"] <= t < lt["end"]:
-            wash = pics.wash_plan(plan, lt, i)        # measured once per lower third, cached: never per frame
+            # planned once, at plan time, from every shot its span touches (founder ruling 2026-11-07): the same
+            # wash in every segment whatever order they render or cache in, never recomputed per frame or per shot
             rgba = M.lower_third_frame(rgba, t, start=lt["start"], end=lt["end"], lines=lt["lines"], fonts=pics.fonts,
-                                       kind=lt["kind"], flag=lt["flag"], wash=wash)
+                                       kind=lt["kind"], flag=lt["flag"], wash=lt.get("wash"))
             lt_top = M.lower_third_top(pics.L, lt["lines"], pics.fonts, kind=lt["kind"], flag=lt["flag"])
     for o in plan["overlays"]:
         if o["start"] <= t < o["end"]:
