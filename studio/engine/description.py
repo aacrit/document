@@ -230,6 +230,16 @@ def _voice(v) -> str:
     return f"{eng.capitalize()} '{name}'" if eng else f"'{name}'"
 
 
+def narrator_voice_text(nv: dict) -> str:
+    """The narrator's voice as printed. With its model recorded (A57, sources.json ``narrator.model`` and
+    ``licence``): "Kokoro-82M (hexgrad), the voice af_aoede, Apache-2.0"; else "Orpheus 'tara'" (_voice).
+    web/src/film-data.ts narratorVoiceText says the same."""
+    model, voice, lic = _s(nv.get("model")), _s(nv.get("voice")), _s(nv.get("licence"))
+    if not model:
+        return _voice(nv)
+    return ", ".join(x for x in (model, f"the voice {voice}" if voice else "", lic) if x)
+
+
 def statement_text(sf: dict) -> str | None:
     """A shortfall's statement as printed: the filled sentence, else the
     statement when it holds no placeholder. An unfilled statement is never
@@ -273,7 +283,7 @@ def notes(src: dict) -> dict:
     narrator = None
     if nv and (nv.get("engine") or nv.get("voice")):
         shift = nv.get("pitch_shift_st")
-        narrator = f"Narration: a computer voice, {_voice(nv)}" + (
+        narrator = f"Narration: a computer voice, {narrator_voice_text(nv)}" + (
             f", pitched {shift:+g} semitones" if isinstance(shift, (int, float)) and shift else "") + "."
     readers, seen = [], set()
     for r in readings:

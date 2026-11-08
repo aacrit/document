@@ -88,6 +88,7 @@ from studio.engine import score as SC
 from studio.engine import titles as TS
 from studio.engine import tour as T
 from studio.engine import moves as MV
+from studio.engine import narrator as NR
 from studio.engine import tourlint as TL
 from studio.engine import vision as VIS
 from studio.engine import voicing as VO
@@ -2439,13 +2440,25 @@ def reader_eq_plan(lint, journal: Journal, film: Path, play: dict) -> tuple[dict
 
 def narrator_voice(play: dict) -> dict | None:
     """The cast voice the narration is read by (a narration line's
-    ``read_by``, else the voice ``v-narrator``)."""
+    ``read_by``, else the voice ``v-narrator``). A narrator voice that names
+    no engine is the house narrator (founder ruling 2026-11-07: Kokoro
+    af_aoede at speed 0.88, studio/engine/narrator.py HOUSE_NARRATOR); one
+    that names ``engine: "orpheus"`` keeps its Orpheus takes, made outside the
+    engine. A film with no narrator voice declares none (None)."""
     voices = {v.get("id"): v for v in (play.get("cast") or {}).get("voices", [])}
+    found = None
     for part in play.get("parts", []):
         for ln in part.get("lines", []):
             if ln.get("kind") == "narration" and ln.get("read_by") in voices:
-                return voices[ln["read_by"]]
-    return voices.get("v-narrator")
+                found = voices[ln["read_by"]]
+                break
+        if found:
+            break
+    found = found or voices.get("v-narrator")
+    if found is not None and not found.get("engine"):
+        house = {k: v for k, v in NR.HOUSE_NARRATOR.items() if k != "id"}
+        found = {**house, **found, "engine": house["engine"], "voice": found.get("voice") or house["voice"]}
+    return found
 
 
 def credit_year(title: str, year: str | None) -> str:
@@ -2833,6 +2846,13 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     lint("narrator-eq-declared", not eq_problems, unit="narrator_eq", grammar="A38",
          evidence={"narrator_eq": narrator_eq, "declared": eq_how, "house": SC.NARRATOR_EQ_HOUSE,
                    "bounds": SC.NARRATOR_EQ_BOUNDS, "problems": eq_problems})
+    # A57 (founder ruling 2026-11-07): the narrator's engine, voice and speed; a Kokoro narrator at her natural pitch
+    nv_declared = narrator_voice(play)
+    if nv_declared is not None:
+        nv_problems = NR.narrator_problems(nv_declared)
+        lint("narrator-voice-declared", not nv_problems, unit="narrator", grammar="A57",
+             evidence={"narrator_voice": nv_declared, "identity": NR.identity(nv_declared),
+                       "house": NR.HOUSE_NARRATOR, "problems": nv_problems})
     # A38 refined (R13): each reader voice's EQ, the house table's (measured per voice), the film's own, or off
     reader_eq, reader_eq_how, reader_eq_table = reader_eq_plan(lint, journal, film, play)
     # A29 (R1): the house score standard, with what the film sets of it inside GRAMMAR's bounds
@@ -5977,7 +5997,9 @@ def _voice_shift(voice: dict | None) -> float:
 
 def _voice_name(voice: dict) -> str:
     s = _voice_shift(voice)
-    return f"{voice.get('engine')}:{voice.get('voice')}" + (f" shifted {s:+g} st" if s else "")
+    sp = NR.identity(voice)["speed"]
+    return (f"{voice.get('engine')}:{voice.get('voice')}" + (f" shifted {s:+g} st" if s else "")
+            + (f" at speed {sp:g}" if sp == sp and sp != 1.0 else ""))
 
 
 def load_narrator_profile(narrator_voice: dict | None, path: Path | None = None) -> tuple[dict | None, str]:
@@ -6013,13 +6035,16 @@ def load_narrator_profile(narrator_voice: dict | None, path: Path | None = None)
     shift = _voice_shift(narrator_voice)
     if shift != shift:                                       # NaN: not a number
         return None, f"the narrator's pitch_shift_st {(narrator_voice or {}).get('pitch_shift_st')!r} is not a number"
+    # the speed (a Kokoro setting, founder ruling 2026-11-07; absent is the engine's own 1.0) must match too
+    speed = NR.identity(narrator_voice)["speed"]
     for cand in cands:
         cv = cand.get("voice") or {}
-        if key(cv) == want and abs(_voice_shift(cv) - shift) < NARRATOR_SHIFT_TOL_ST:
+        if (key(cv) == want and abs(_voice_shift(cv) - shift) < NARRATOR_SHIFT_TOL_ST
+                and abs(NR.identity(cv)["speed"] - speed) < 1e-6):
             return cand, f"drift reference {Path(path).name} ({_voice_name(cv)})"
     stored = ", ".join(_voice_name(c.get("voice") or {}) for c in cands)
-    return None, (f"the film's narrator is {_voice_name(dict(want, pitch_shift_st=shift))}; the stored profiles are "
-                  f"{stored}: none has that shift")
+    return None, (f"the film's narrator is {_voice_name(dict(narrator_voice or {}, **want, pitch_shift_st=shift))}; "
+                  f"the stored profiles are {stored}: none has that shift and speed")
 
 
 def narrator_profile_from_takes(takes: list[tuple[Path, str]], voice: dict) -> dict:
@@ -6299,9 +6324,14 @@ def take_digest(rec: dict) -> str:
     return hashlib.sha256(json.dumps(rec, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def _take_key(sha: str, ln: dict, eq: dict | None, tools: dict) -> str:
-    words = len(WORD_RE.findall(str(ln.get("text") or ""))) if ln.get("kind") == "narration" else None
-    doc = {"take": sha, "narration": ln.get("kind") == "narration", "words": words, "eq": eq, "tools": tools}
+def _take_key(sha: str, ln: dict, eq: dict | None, tools: dict, voice: dict | None = None) -> str:
+    """A take record's cache key: the take's sha256, its kind and words, its EQ, the tools, and for narration the
+    narrator's identity (engine, voice, speed, shift: narrator.identity), so a record measured for one narrator
+    is never read for another's take, even a byte-identical one."""
+    narration = ln.get("kind") == "narration"
+    words = len(WORD_RE.findall(str(ln.get("text") or ""))) if narration else None
+    doc = {"take": sha, "narration": narration, "words": words, "eq": eq, "tools": tools,
+           "narrator": NR.identity(voice) if narration else None}
     return hashlib.sha256(json.dumps(doc, sort_keys=True, default=str).encode()).hexdigest()
 
 
@@ -6355,7 +6385,7 @@ def take_lints(journal: Journal, plan: dict, film: Path, *, draft: bool = False,
         placed["lines"].append({"id": ln["id"], "kind": "narration" if narration else "reading"})
         line_eq = eq if narration else reader_eqs.get(reader_of.get(ln["id"]))
         sha = sha256_file(wav)
-        f = cache / f"{_take_key(sha, ln, line_eq, tools)}.json"
+        f = cache / f"{_take_key(sha, ln, line_eq, tools, plan.get('narrator_voice') if narration else None)}.json"
         rec = None
         try:
             if f.exists():
@@ -9074,7 +9104,11 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
     nv = plan.get("narrator_voice") or {}
     narrator = ({"credit": nv.get("credit"), "engine": nv.get("engine"), "voice": nv.get("voice"),
                  **({"pitch_shift_st": nv["pitch_shift_st"]} if isinstance(nv.get("pitch_shift_st"), (int, float))
-                    and not isinstance(nv.get("pitch_shift_st"), bool) else {})}
+                    and not isinstance(nv.get("pitch_shift_st"), bool) else {}),
+                 # A57: the model and its licence, printed on the Sources page and in description.txt (narrator.ENGINES)
+                 **({"speed": nv["speed"]} if isinstance(nv.get("speed"), (int, float))
+                    and not isinstance(nv.get("speed"), bool) else {}),
+                 **NR.printed(nv)}
                 if narration and nv.get("credit") else None)
     return {"v": 2, "title": plan["title"], "slug": plan["slug"], "run": journal.run,
             "engine": {"version": ENGINE_VERSION, "hash": ENGINE_HASH},

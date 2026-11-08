@@ -1,0 +1,7 @@
+# The narrator's text-to-speech runtime (Kokoro-82M, Apache-2.0), in its OWN virtualenv, so the studio's
+# interpreter (numpy, pillow, soundfile, pytest, fonttools) never changes for it. The engine runs
+# studio/engine/kokoro_worker.py under that interpreter (DOCUMENT_KOKORO_PYTHON); nothing else imports these.
+# Ported from aacrit/void--news pipeline/briefing/requirements-tts.txt at 775cc33481f72a955e7f6fa6c29b03a17bc7fe39.
+kokoro-onnx==0.6.1
+onnxruntime>=1.20.1,<2
+numpy>=2.0.2,<3

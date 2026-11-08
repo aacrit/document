@@ -1,0 +1,30 @@
+{
+  "_note": "The narrator's text-to-speech model, pinned (founder ruling 2026-11-07, docs/DECISIONS.md). Ported from aacrit/void--news pipeline/briefing/kokoro.lock.json at 775cc33481f72a955e7f6fa6c29b03a17bc7fe39. The files live outside git, under DOCUMENT_KOKORO_DIR (default D:/document-media/models/kokoro); studio/engine/narrator.py checks each file's size and sha256 before any use and refuses a mismatch. The model is a tool, as Orpheus was, not a source input: nothing it makes is shown or quoted as a record, so it is not judged by the licence allowlist (render.LICENCE_OK), which covers source inputs only.",
+  "model": "hexgrad/Kokoro-82M",
+  "model_name": "Kokoro-82M (hexgrad)",
+  "license": "Apache-2.0",
+  "license_quote": "\"license: apache-2.0\" (model card front matter, https://huggingface.co/hexgrad/Kokoro-82M, revision f3ff3571791e39611d31c381e3a41a3af07b4987); \"With Apache-licensed weights, Kokoro can be deployed anywhere from production environments to personal projects.\" The voice packs (voices/*.pt, af_aoede among them) are files of the same repository under the same licence; VOICES.md states no other terms for any voice.",
+  "license_checked": "2026-11-07",
+  "training_data_note": "The model card lists CC BY audio in Kokoro v1.0's training set (Koniwa tnc, CC BY 3.0; SIWIS, CC BY 4.0). It is training data, not a voice pack or an input to a film.",
+  "voice": "af_aoede",
+  "voice_card": "VOICES.md, American English: af_aoede, female, target quality B, training duration H hours, overall grade C+, SHA256 c03bd1a4",
+  "runtime": "kokoro-onnx==0.6.1 (MIT, github.com/thewh1teagle/kokoro-onnx), onnxruntime>=1.20.1,<2: studio/requirements-tts.txt",
+  "release": "model-files-v1.0",
+  "source": "https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.0",
+  "files": [
+    {
+      "role": "model",
+      "name": "kokoro-v1.0.int8.onnx",
+      "url": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.int8.onnx",
+      "size": 92361271,
+      "sha256": "6e742170d309016e5891a994e1ce1559c702a2ccd0075e67ef7157974f6406cb"
+    },
+    {
+      "role": "voices",
+      "name": "voices-v1.0.bin",
+      "url": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin",
+      "size": 28214398,
+      "sha256": "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d"
+    }
+  ]
+}
