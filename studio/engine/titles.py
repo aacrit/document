@@ -72,6 +72,33 @@ def is_title(shot: dict) -> bool:
     return shot.get("kind") == KIND
 
 
+CREDIT_KINDS = ("period record", "museum-object scan", "studio texture")
+_WORDS = ("no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine")
+
+
+def _count(n: int, noun: str) -> str:
+    word = _WORDS[n] if n < len(_WORDS) else str(n)
+    return f"{word} {noun}" + ("" if n == 1 else "s")
+
+
+def credit_by_kind(items: list[dict]) -> str:
+    """Founder ruling 18 (2026-11-07), the series titles' credit by kind, counted from the provenance ledger's
+    ``credit_kind`` (an item that states none is a period record): "drawn from 14 period records, with six
+    museum-object scans and four studio textures (CC0), no AI". Numbers under ten are words; "(CC0)" when every scan
+    and texture is CC0."""
+    kinds = [str(it.get("credit_kind") or "period record") for it in items]
+    rec = sum(k == "period record" for k in kinds)
+    scans = [it for it, k in zip(items, kinds) if k == "museum-object scan"]
+    tex = [it for it, k in zip(items, kinds) if k == "studio texture"]
+    words = f"drawn from {rec} period record" + ("" if rec == 1 else "s")
+    more = [x for x in (_count(len(scans), "museum-object scan") if scans else "",
+                        _count(len(tex), "studio texture") if tex else "") if x]
+    if more:
+        cc0 = all(str(it.get("licence") or "").strip().lower().startswith("cc0") for it in scans + tex)
+        words += ", with " + " and ".join(more) + (" (CC0)" if cc0 else "")
+    return words + ", no AI"
+
+
 def is_title_slot(shot: dict) -> bool:
     """A40 placeholder (founder ruling 2026-10-18): a shot holding the title slot with ``title_slot: true``
     until the series title ("The Run") is spliced in later, by ``render --shots``. It is an ordinary shot
@@ -612,7 +639,7 @@ def _overlaps(a0: float, a1: float, b0: float, b1: float, eps: float = 0.5 / FPS
 
 
 def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, lines: list[dict], texts: list[dict],
-               cues: list[dict], vl: list[dict], silences: list, fps: float = FPS) -> dict:
+               cues: list[dict], vl: list[dict], silences: list, fps: float = FPS, draft: bool = False) -> dict:
     """Every A40 check the plan can decide. ``lint`` is build_plan's; ``silences`` gains the title's span (to the cut
     out of its lockup card) when the master's own sound is silent. Returns, per title shot id, what the plan and the
     frames need: {item, burned, record_path, probe, audio} (``audio``: the mix's entry, audio_plan's). ``fps`` is the film's master rate (A44): the
@@ -811,8 +838,18 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
                                      "film's master rate with no speed change", unit=sid, evidence=out[sid]["conform"])
             except Exception as e:
                 ev["error"] = f"{type(e).__name__}: {e}"
-        lint("title-format", fmt_ok, unit=sid, grammar="A40, 7.5",
-             evidence=dict(ev, fix=None if fmt_ok else "the master is 1920x1080 at the rate its "
+        # Ruling 19 (2026-11-07, BRAND-KIT 15/17, the kit is law): a final render plays the series titles 1:1 at the
+        # film's own rate; with no master at that rate (a conform), only a draft may go on
+        conformed = fmt_ok and not (rate_of(item) is not None and abs(_r(item) - fps) < 1e-6)
+        if conformed and not draft:
+            ev["no_master_at_film_rate"] = {"film_fps": round(fps, 4), "title_fps": rate_of(item),
+                                            "masters": sorted((item.get("masters") or {}).keys())}
+        fmt_lint_ok = fmt_ok and not (conformed and not draft)
+        lint("title-format", fmt_lint_ok, unit=sid, grammar="A40, 7.5, A44",
+             evidence=dict(ev, fix=None if fmt_lint_ok else
+                           ("no master at the film's rate: a final render plays the series titles 1:1 (ruling 19, "
+                            "BRAND-KIT 15/17); declare one in the item's masters, or render --draft") if fmt_ok else
+                           "the master is 1920x1080 at the rate its "
                                                        "ledger states (24 or 30000/1001), its frame count the ledger's, and "
                                                        "the shot's dur_s is frames / that rate (A44)"))
         # A40 standalone audio: the master's own track, frame-aligned, continued under the lockup card (title-audio)

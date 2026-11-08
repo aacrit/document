@@ -518,9 +518,9 @@ def _titled_ntsc(tmp_path, ntsc_titles, item):
     return A.titled_film(tmp_path, ntsc_titles, item=item, edit=lambda p: p.pop("settings", None))
 
 
-def _title_plan(film):
+def _title_plan(film, draft=False):
     import test_a40_title_sequence as A
-    plan, j = A.plan_of(film)
+    plan, j = A.plan_of(film, draft=draft)
     assert not isinstance(plan, R.Refused), plan
     for rule in A.RULES:
         if rule not in ("title-audio-slot",):
@@ -557,7 +557,8 @@ def test_a44_a_title_whose_own_rate_is_the_films_plays_1_to_1(tmp_path, ntsc_tit
 
 
 def test_a44_a_24_only_title_in_a_29_97_film_is_conformed_and_declared(tmp_path, ntsc_titles):
-    plan, j, s = _title_plan(_titled_ntsc(tmp_path, ntsc_titles, None))
+    # a draft (ruling 19, 2026-11-07: a final render with no master at the film's rate is refused)
+    plan, j, s = _title_plan(_titled_ntsc(tmp_path, ntsc_titles, None), draft=True)
     assert s["_item"]["file"] == "burned.mkv" and s["_title"]["fps"] == 24
     cad = lints(j, "cadence")[0]["evidence"]
     assert cad["titles"][0]["how"] == "conform"
@@ -660,3 +661,17 @@ def test_a44_a_shots_span_masters_at_30000_1001_with_its_sound_cut_to_the_sample
     cut, _ = sf.read(str(work / "mix-shots-S5-S6.wav"), dtype="float32", always_2d=False)
     full, _ = sf.read(str(work / "mix-norm.wav"), dtype="float32", always_2d=False)
     assert len(cut) == n1 - n0 and np.array_equal(cut, full[n0:n1])
+
+
+def test_ruling_19_a_final_render_with_no_title_master_at_the_films_rate_is_refused(tmp_path, ntsc_titles):
+    """Ruling 19 (2026-11-07, BRAND-KIT 15/17): a final render plays the series titles 1:1 at the film's rate; a 24 fps
+    only title in a 29.97 film is refused by title-format, naming the fix; the same film renders as a draft."""
+    import test_a40_title_sequence as A
+    film = _titled_ntsc(tmp_path, ntsc_titles, None)
+    plan, j = A.plan_of(film)
+    assert isinstance(plan, R.Refused) and "title-format" in str(plan)
+    fmt = A.lints(j, "title-format")[0]
+    assert fmt["status"] == "fail" and fmt["evidence"]["no_master_at_film_rate"]["title_fps"] == 24
+    assert "declare one in the item's masters" in fmt["evidence"]["fix"]
+    plan, j = A.plan_of(film, draft=True)
+    assert not isinstance(plan, R.Refused) and A.passed(j, "title-format")

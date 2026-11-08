@@ -191,10 +191,10 @@ def titled_film(tmp_path, masters, *, master="burned", item=None, prov_items=Non
     return film
 
 
-def plan_of(film, W=640, H=360):
+def plan_of(film, W=640, H=360, draft=False):
     j = J.Journal(film="a40")
     try:
-        return R.build_plan(film, W=W, H=H, burn_subtitles=False, journal=j), j
+        return R.build_plan(film, W=W, H=H, burn_subtitles=False, journal=j, draft=draft), j
     except R.Refused as e:
         return e, j
 

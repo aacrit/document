@@ -2502,8 +2502,7 @@ def credits_blocks(plan: dict) -> list:
                                  # 2026-11-07); the studio's own theme stems in the shared ledger are not
         prov, _, _ = TS.provenance(titles[0].get("_item") or {})
         items = TS.provenance_items(prov)
-        series = wrap(f"{TS.SERIES}: drawn from {len(items)} period records, no AI; every record on the "
-                      "sources page")
+        series = wrap(f"{TS.SERIES}: {TS.credit_by_kind(items)}; every record on the sources page")
         for x in [x for x in items if (TS.licence_rank(x.get("licence")) or 0) >= 2] + TS.credited_sound_items(prov):
             lic = str(x.get("licence") or "")
             who = x.get("credit") or x.get("holder") or x.get("creator") or x.get("uploader")
@@ -3513,7 +3512,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
             silences.append((float(x["start_s"]), float(x["end_s"])))
     # A40: the series titles, a pre-rendered master played as it is after the cold open (studio/engine/titles.py)
     titles = TS.plan_lints(lint, journal, play, shots, assets, lines=lines, texts=texts, cues=cues, vl=vl, silences=silences,
-                           fps=fps)
+                           fps=fps, draft=draft)
     # A44: the cadence reviewer item names the film's master rate, how it was chosen and every clip or title conformed
     conformed += [t["conform"] for t in titles.values() if t.get("conform")]
     journal.lint("cadence", True, stage="conform", unit="master_fps", severity="review", grammar="A44, A6", phase="preflight",
@@ -8909,6 +8908,12 @@ def public_loudness(loud, run_dir: Path):
     return walk(loud)
 
 
+def sources_test_fixture(s: dict, it: dict) -> bool:
+    """The sources record's ``test_fixture``: a synthetic stand-in (is_synthetic). A series title (A40) is the
+    studio's own master, made by its generator, never a test fixture unless its item says so."""
+    return bool(it.get("test_fixture")) if TS.is_title(s) else is_synthetic(it)
+
+
 def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
     shots = []
     for s in plan["shots"]:
@@ -8936,7 +8941,7 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             "resampler": s.get("_resampler"), "conform": (s.get("_video") or {}).get("conform"),
             "levels": s.get("_levels"),          # A46: the black floor applied (non-material), or the stated opt-out
             "neutralise_cast": (s.get("_video") or {}).get("neutralise_cast"),
-            "test_fixture": is_synthetic(it),
+            "test_fixture": sources_test_fixture(s, it),
             **OV.sources_fields(s),
             **title_sources_fields(s),
             "text": s.get("text"),
