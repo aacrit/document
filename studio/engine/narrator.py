@@ -102,12 +102,10 @@ def identity(voice: dict | None) -> dict:
 def narrator_problems(voice: dict | None) -> list[str]:
     """What is wrong with a narrator cast voice. A Kokoro narrator plays at her natural pitch: the PSOLA shifts
     were tuned to Tara (DECISIONS 2026-10-18, Real World's +0.76 st) and are never applied to her."""
-    if not voice:
-        return []
+    if not voice or voice.get("engine") not in ENGINES:
+        return []                   # A57 judges Kokoro and Orpheus only: a test tone or other engine passes untouched
     out = []
     eng = voice.get("engine")
-    if eng not in ENGINES:
-        out.append(f"narrator engine {eng!r} is not one of {sorted(ENGINES)}")
     ident = identity(voice)
     if ident["speed"] != ident["speed"] or not SPEED_RANGE[0] <= ident["speed"] <= SPEED_RANGE[1]:
         out.append(f"narrator speed {voice.get('speed')!r} is not a number from {SPEED_RANGE[0]:g} to {SPEED_RANGE[1]:g}")
@@ -274,6 +272,8 @@ def voice_lines(lines: list[dict], voice: dict | None = None, cache: Path | None
     Returns {"lines": {id: {key, wav, cached}}, "timing": {...}, "peak_rss_mb"}. Refuses an Orpheus narrator
     (its takes are made outside the engine), a voice with problems, and a model file off the lock."""
     voice = dict(voice or HOUSE_NARRATOR)
+    if voice.get("engine") not in ENGINES:
+        raise NarratorError(f"narrator engine {voice.get('engine')!r} is not one of {sorted(ENGINES)}")
     problems = narrator_problems(voice)
     if problems:
         raise NarratorError("; ".join(problems))

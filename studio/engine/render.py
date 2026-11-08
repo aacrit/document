@@ -2848,7 +2848,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
                    "bounds": SC.NARRATOR_EQ_BOUNDS, "problems": eq_problems})
     # A57 (founder ruling 2026-11-07): the narrator's engine, voice and speed; a Kokoro narrator at her natural pitch
     nv_declared = narrator_voice(play)
-    if nv_declared is not None:
+    if nv_declared is not None and nv_declared.get("engine") in NR.ENGINES:   # Kokoro and Orpheus only
         nv_problems = NR.narrator_problems(nv_declared)
         lint("narrator-voice-declared", not nv_problems, unit="narrator", grammar="A57",
              evidence={"narrator_voice": nv_declared, "identity": NR.identity(nv_declared),

@@ -33,9 +33,11 @@ def _st(a, b):
 
 
 def test_the_committed_profile_holds_tara_and_her_two_semitone_variant():
-    prof = json.loads(R.NARRATOR_PROFILE.read_text(encoding="utf-8"))
-    assert prof["voice"] == TARA and len(prof["takes"]) == 5          # the stock profile is unchanged
-    (var,) = [v for v in prof["variants"] if v["voice"] == DEEP]
+    top = json.loads(R.NARRATOR_PROFILE.read_text(encoding="utf-8"))
+    # since 2026-11-07 the top entry is the house narrator (aoede); Tara is kept as a variant, unchanged
+    (prof,) = [v for v in top["variants"] if v["voice"] == TARA]
+    assert sorted(prof["takes"]) == [f"tara-{k}.wav" for k in range(5)]
+    (var,) = [v for v in top["variants"] if v["voice"] == DEEP]
     assert sorted(var["takes"]) == [f"tara-2st-{k}.wav" for k in range(5)]   # the same five approved takes, shifted
     d = _st(var["baseline"]["f0_hz"], prof["baseline"]["f0_hz"])
     assert -2.3 < d < -1.5, d                                         # PSOLA lowers the measured median by about 2 st
