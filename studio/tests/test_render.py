@@ -2264,12 +2264,28 @@ def test_a16_a_lower_third_comes_and_goes_and_the_flag_stays_first():
     assert M.LT["name"] < 4.4 and M.LT["a_name"] < 1.0 and M.LT["wash"] < 0.5 and M.WM["opacity"] < 0.6
 
 
+def _weak_wash_frame(L, els, top, bg):
+    """The kit's own fixed wash (peak=LT.wash, plateau=0, width=LT.wash_w,
+    as it was before founder ruling 2026-11-07), drawn once over ``bg``:
+    the regression fixture for "a lower third that never adapted"."""
+    weak = Image.alpha_composite(M._as_rgba(bg), M._wash(L, top, 1.0))
+    d = M.ImageDraw.Draw(weak)
+    x0 = L.w(M.LT["x"])
+    for e in els:
+        if e["kind"] == "rule":
+            continue
+        M._draw_mixed(d, (x0, e["baseline"]), e["text"], e["font"], e["data_font"],
+                      M._rgba(M.PALETTE["mark_text"], M._line_alpha(e["kind"])))
+    return weak
+
+
 def test_a16_the_wash_deepens_over_a_bright_background_and_is_untouched_on_a_dark_one(monkeypatch):
-    """Founder ruling 2026-11-07: a lower third over a bright background (a
-    typed archive page, Apollo 13's LT-7) deepens its wash, and widens it if
-    deepening alone would not do, until its faintest line clears
-    LT.wash_contrast (WCAG 4.5:1). Below that, the output is byte-for-byte
-    what a renderer that never looked at the background would have drawn."""
+    """Founder ruling 2026-11-07 ("Kit form, deeper."): a lower third over a
+    bright background (a typed archive page, Apollo 13's LT-7) deepens its
+    wash smoothly from LT.wash (0.36) up to LT.wash_cap (0.70), holding that
+    depth to the end of its own ink and feathering out within LT.wash_w_cap
+    (50% of W). Below the threshold, the output is byte-for-byte what a
+    renderer that never looked at the background would have drawn."""
     fonts = M.Fonts()
     lines = ["Sample speaker", "Role, 1947"]
     L = M.Layout(1920, 1080)
@@ -2277,26 +2293,77 @@ def test_a16_the_wash_deepens_over_a_bright_background_and_is_untouched_on_a_dar
 
     dark = Image.new("RGB", (1920, 1080), (40, 40, 40))
     els, top = M.lower_third_layout(L, lines, fonts, "speaker", None)
-    assert M._wash_boost(L, M._as_rgba(dark), top, els) == (M.LT["wash"], M.LT["wash_w"])
+    assert M._wash_boost(L, M._as_rgba(dark), top, els) == (M.LT["wash"], M.LT["wash_w"], 0.0)
     with_ruling = np.asarray(M.lower_third_frame(dark, 2.0, **kw))
-    monkeypatch.setattr(M, "_wash_boost", lambda *a, **k: (M.LT["wash"], M.LT["wash_w"]))
+    monkeypatch.setattr(M, "_wash_boost", lambda *a, **k: (M.LT["wash"], M.LT["wash_w"], 0.0))
     without_ruling = np.asarray(M.lower_third_frame(dark, 2.0, **kw))
     monkeypatch.undo()
     assert np.array_equal(with_ruling, without_ruling)
 
     bright = Image.new("RGB", (1920, 1080), (235, 235, 235))
-    peak, width = M._wash_boost(L, M._as_rgba(bright), top, els)
-    assert peak > M.LT["wash"] and width >= M.LT["wash_w"]
+    peak, width, plateau = M._wash_boost(L, M._as_rgba(bright), top, els)
+    assert M.LT["wash"] < peak <= M.LT["wash_cap"] and width <= M.LT["wash_w_cap"] and plateau > 0.0
     rendered = np.asarray(M.lower_third_frame(bright, 2.0, **kw).convert("RGB"))
     res = M.lower_third_contrast(rendered, L, lines, fonts, kind="speaker")
     assert res["ok"] and res["worst"] >= M.LT["wash_contrast"]
+
+
+def test_a16_a_mid_tone_background_the_boost_does_not_engage_stays_byte_identical(monkeypatch):
+    """Finding 7's mid-tone byte-identity case: a background that is not
+    literally near-black (luma 90, plainly "mid-tone") but still clears
+    LT.wash_contrast under the kit's own unmoved wash gets back the exact
+    defaults, not merely an equal-looking peak."""
+    fonts = M.Fonts()
+    lines = ["Sample speaker", "Role, 1947"]
+    L = M.Layout(1920, 1080)
+    mid = Image.new("RGB", (1920, 1080), (90, 90, 90))
+    els, top = M.lower_third_layout(L, lines, fonts, "speaker", None)
+    assert M._wash_boost(L, M._as_rgba(mid), top, els) == (M.LT["wash"], M.LT["wash_w"], 0.0)
+    kw = dict(start=0.0, end=8.0, lines=lines, fonts=fonts, kind="speaker")
+    with_ruling = np.asarray(M.lower_third_frame(mid, 2.0, **kw))
+    monkeypatch.setattr(M, "_wash_boost", lambda *a, **k: (M.LT["wash"], M.LT["wash_w"], 0.0))
+    without_ruling = np.asarray(M.lower_third_frame(mid, 2.0, **kw))
+    monkeypatch.undo()
+    assert np.array_equal(with_ruling, without_ruling)
+
+
+def test_a16_a_short_name_on_a_mid_tone_background_gets_a_peak_strictly_between_the_floor_and_cap():
+    """Finding 1's own example: a short name over luma 90-120 is deepened,
+    but only partway -- a smooth ramp, not a cliff straight to the cap --
+    and the reach it holds stays inside the kit's own width."""
+    fonts = M.Fonts()
+    lines = ["Sample speaker", "Role, 1947"]
+    L = M.Layout(1920, 1080)
+    els, top = M.lower_third_layout(L, lines, fonts, "speaker", None)
+    bg = M._as_rgba(Image.new("RGB", (1920, 1080), (120, 120, 120)))
+    peak, width, plateau = M._wash_boost(L, bg, top, els)
+    assert M.LT["wash"] < peak < M.LT["wash_cap"]
+    assert width <= M.LT["wash_w"] and width <= M.LT["wash_w_cap"]
+
+
+def test_a16_the_deepened_peak_and_width_never_exceed_the_kits_ceiling():
+    """Finding 2's ceiling test: however bright the background or however
+    long the line, peak stays at or under LT.wash_cap (0.70) and width at
+    or under LT.wash_w_cap (50% of W)."""
+    fonts = M.Fonts()
+    L = M.Layout(1920, 1080)
+    for lines in (["Sample speaker", "Role, 1947"],
+                 ["A considerably longer sample name here", "Role, description, 1947",
+                  "A typed government record title  ·  read by a computer voice"]):
+        els, top = M.lower_third_layout(L, lines, fonts, "speaker", None)
+        for luma in (90, 150, 200, 255):
+            bg = M._as_rgba(Image.new("RGB", (1920, 1080), (luma, luma, luma)))
+            peak, width, plateau = M._wash_boost(L, bg, top, els)
+            assert peak <= M.LT["wash_cap"] + 1e-9, (lines, luma, peak)
+            if plateau > 0.0:                      # the deepened case: the kit's own un-adapted reach (LT.wash_w,
+                assert width <= M.LT["wash_w_cap"] + 1e-9, (lines, luma, width)    # 52%) predates this ceiling
 
 
 def test_lower_third_contrast_lint_passes_the_adaptive_wash_on_a_bright_background():
     fonts = M.Fonts()
     lines = ["Sample speaker", "Role, 1947", "A typed record  ·  read by a computer voice"]
     L = M.Layout(1920, 1080)
-    bright = Image.new("RGB", (1920, 1080), (235, 235, 235))
+    bright = Image.new("RGB", (1920, 1080), (150, 150, 150))   # within the 0.70 cap's reach for this line set
     frame = np.asarray(M.lower_third_frame(bright, 2.0, start=0.0, end=8.0, lines=lines, fonts=fonts,
                                            kind="speaker").convert("RGB"))
     res = M.lower_third_contrast(frame, L, lines, fonts, kind="speaker")
@@ -2310,19 +2377,84 @@ def test_lower_third_contrast_lint_fails_a_wash_that_never_adapted_to_a_bright_b
     fonts = M.Fonts()
     lines = ["Sample speaker", "Role, 1947"]
     L = M.Layout(1920, 1080)
-    bright = M._as_rgba(Image.new("RGB", (1920, 1080), (235, 235, 235)))
     els, top = M.lower_third_layout(L, lines, fonts, "speaker", None)
-    weak = Image.alpha_composite(bright, M._wash(L, top, 1.0))     # the old, non-adaptive wash: its own fixed peak/width
-    d = M.ImageDraw.Draw(weak)
-    x0 = L.w(M.LT["x"])
-    for e in els:
-        if e["kind"] == "rule":
-            continue
-        M._draw_mixed(d, (x0, e["baseline"]), e["text"], e["font"], e["data_font"],
-                      M._rgba(M.PALETTE["mark_text"], M._line_alpha(e["kind"])))
-    frame = np.asarray(weak.convert("RGB"))
+    frame = np.asarray(_weak_wash_frame(L, els, top, Image.new("RGB", (1920, 1080), (235, 235, 235))).convert("RGB"))
     res = M.lower_third_contrast(frame, L, lines, fonts, kind="speaker")
     assert res["ok"] is False and res["worst"] < M.LT["wash_contrast"]
+
+
+def test_lower_third_contrast_lint_measures_locally_bright_under_one_line_dark_beyond():
+    """Finding 3: a background mostly dark, but bright exactly under one
+    line's own ink (not the whole box, A16's own concern about the tail of
+    a line): the kit's unmoved wash still fails it, caught by a local
+    per-column scan even though most of the box reads dark enough."""
+    fonts = M.Fonts()
+    lines = ["Sample speaker", "Role, 1947"]
+    L = M.Layout(1920, 1080)
+    els, top = M.lower_third_layout(L, lines, fonts, "speaker", None)
+    x0 = L.w(M.LT["x"])
+    role = next(e for e in els if e["kind"] == "role")
+    base = Image.new("RGB", (1920, 1080), (30, 30, 30))
+    M.ImageDraw.Draw(base).rectangle(
+        [x0 - 10, role["top"] - 5, x0 + 400, role["top"] + role["size"] * 1.3 + 5], fill=(235, 235, 235))
+    frame = np.asarray(_weak_wash_frame(L, els, top, base).convert("RGB"))
+    res = M.lower_third_contrast(frame, L, lines, fonts, kind="speaker")
+    by_kind = {x["kind"]: x["contrast"] for x in res["lines"]}
+    assert res["ok"] is False and by_kind["role"] < M.LT["wash_contrast"] <= by_kind["name"]
+
+
+def test_a16_wash_plan_measures_once_a_stray_bright_outlier_does_not_move_it():
+    """Finding 6: p98, not the per-column/per-pixel max, so one hot sampled
+    frame (a reflection, a glint) does not spike the wash -- and the plan is
+    one value for the whole span (``Pictures.wash_plan`` caches it; here the
+    pure planner is given the same samples with and without the outlier and
+    must agree)."""
+    fonts = M.Fonts()
+    lines = ["Sample speaker", "Role, 1947"]
+    L = M.Layout(1920, 1080)
+    els, top = M.lower_third_layout(L, lines, fonts, "speaker", None)
+    flat = [Image.new("RGB", (1920, 1080), (130, 130, 130)) for _ in range(3)]
+    plain = M.lower_third_wash_plan(L, els, flat, top)
+    speck = Image.new("RGB", (1920, 1080), (130, 130, 130))
+    M.ImageDraw.Draw(speck).rectangle([80, int(top) + 2, 84, int(top) + 6], fill=(255, 255, 255))
+    with_outlier = M.lower_third_wash_plan(L, els, [flat[0], speck, flat[1]], top)
+    assert with_outlier == plain
+
+
+def test_a16_small_resolutions_the_lint_never_fails_where_the_boost_said_ok():
+    """Finding 5: the boost and the lint use the same ink estimate (the
+    measured, antialiasing-corrected opacity, ``_effective_line_alpha``), so
+    a confident boost (a peak strictly under the cap) is never contradicted
+    by the lint, down to the fixture's own small render size."""
+    fonts = M.Fonts()
+    for lines in (["Sample speaker", "Role, 1947"],
+                 ["Sample speaker", "Role, 1947", "A typed record  ·  read by a computer voice"]):
+        for W, H in ((640, 360), (1280, 720), (1920, 1080)):
+            L = M.Layout(W, H)
+            els, top = M.lower_third_layout(L, lines, fonts, "speaker", None)
+            for luma in (90, 120, 150, 180):
+                bg = Image.new("RGB", (W, H), (luma, luma, luma))
+                peak, width, plateau = M._wash_boost(L, M._as_rgba(bg), top, els)
+                if peak >= M.LT["wash_cap"] - 1e-6:
+                    continue      # the cap-exhausted, best-effort case: the lint failing there is the design
+                frame = np.asarray(M.lower_third_frame(bg, 2.0, start=0.0, end=8.0, lines=lines, fonts=fonts,
+                                                       kind="speaker", wash=(peak, width, plateau)).convert("RGB"))
+                res = M.lower_third_contrast(frame, L, lines, fonts, kind="speaker")
+                assert res["ok"], (lines, W, H, luma, peak, res)
+
+
+def test_render_merges_lower_third_contrast_across_a_cut_by_the_minimum_worst():
+    """Finding 4: a lower third sampled in two shots (it spans a cut) merges
+    to the worse (lower) of the two ``worst`` values, in a fixed shot order
+    -- not whichever result a dict happened to see last, which a parallel
+    render's completion order would otherwise make nondeterministic."""
+    results_in_order = {0: {"lower_third_contrast": {"T1": {"worst": 5.0, "ok": True}}},
+                        1: {"lower_third_contrast": {"T1": {"worst": 3.0, "ok": False}}}}
+    results_reversed = {1: {"lower_third_contrast": {"T1": {"worst": 3.0, "ok": False}}},
+                        0: {"lower_third_contrast": {"T1": {"worst": 5.0, "ok": True}}}}
+    for results in (results_in_order, results_reversed):
+        merged = R.merge_lower_third_contrast(results)
+        assert merged == {"T1": {"worst": 3.0, "ok": False}}
 
 
 def test_a16_the_lower_third_drawn_by_the_engine_is_clipped_to_its_hold(film, plan):
