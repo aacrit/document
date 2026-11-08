@@ -70,6 +70,12 @@ import traceback
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from pathlib import Path
 
+# ``python -m studio.engine.render`` runs this file as __main__; a module that imports it by name (layers.py's
+# ``from studio.engine import render as R``) must get this same module, not a second copy, or a Refused subclass
+# raised there (LayersRefused) is not this module's Refused and main()'s ``except Refused`` misses it.
+if __name__ == "__main__":
+    sys.modules.setdefault("studio.engine.render", sys.modules[__name__])
+
 import numpy as np
 from PIL import Image
 
@@ -9340,7 +9346,8 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         except Refused:           # refused inside the run, journaled
             pair = None
     resume_cmd = f"python -m studio.engine.render {film} --out {out} --res {height}" + (
-        f" --until {until_s:g}" if until_s is not None else "") + (f" --shots {pair[0]}..{pair[1]}" if pair else "")
+        f" --until {until_s:g}" if until_s is not None else "") + (f" --shots {pair[0]}..{pair[1]}" if pair else "") + (
+        " --layers" if write_layers else "")
     # A check render (--until, --shots) keeps its segments, mix and outputs apart: it never touches, or passes as, the
     # full render. A span (--shots) is named by its ends.
     check = (f"check-{until_s:g}s" if until_s is not None
@@ -9452,6 +9459,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
             # the plan is not: a shot can move between here and there only on --fit-voices, which --layers
             # already refuses to combine with a span or a check render).
             from studio.engine import layers as LY
+            LY.check_washes(plan)                # before the master: the overlay needs every lower third's planned wash
             specs = [LY.plate_spec(plan, i) for i in range(len(plan["shots"]))]
             need, _ = LY.remaining_layers_bytes(plan, run_dir / "layers" / "plates", specs, asset_hash, env_key)
             journal.human("scout", f"--layers: every shot's clean plate still to render and the overlay pass, about "

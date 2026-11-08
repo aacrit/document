@@ -134,6 +134,119 @@ def test_the_disk_floor_refuses_one_byte_short_and_passes_at_the_floor(tmp_path)
     assert LY.check_disk(tmp_path, need, min_free_gb=10, disk_usage=lambda p: Usage(floor + need))["need_bytes"] == need
 
 
+class _Usage:
+    def __init__(self, free):
+        self.free = free
+
+
+def test_d_keeps_its_own_12_gb_floor_whatever_min_free_gb_says(monkeypatch):
+    """The house floor is 12 GB on D: (10 elsewhere): check_disk raises min_free_gb to it there."""
+    assert LY.drive_floor_gb(Path("D:/document-media/out"), 10) == 12
+    assert LY.drive_floor_gb(Path("d:/x"), 15) == 15                # a higher floor asked for still wins
+    assert LY.drive_floor_gb(Path("C:/work/out"), 10) == 10
+    monkeypatch.setattr(LY.R, "_existing", lambda p: Path(p))      # the drive need not exist on the test machine
+    need = 1024 ** 3
+    seen = []
+
+    def usage(p):
+        seen.append(p)
+        return _Usage(11 * 1024 ** 3 + need)                       # 11 GB left after the layers: over 10, under 12
+
+    with pytest.raises(LY.LayersRefused, match="under the 12 GB floor"):
+        LY.check_disk(Path("D:/document-media/out"), need, min_free_gb=10, disk_usage=usage)
+    assert LY.check_disk(Path("C:/work/out"), need, min_free_gb=10, disk_usage=usage)["floor_gb"] == 10
+    ok = LY.check_disk(Path("D:/document-media/out"), need, min_free_gb=10,
+                       disk_usage=lambda p: _Usage(12 * 1024 ** 3 + need))
+    assert ok["floor_gb"] == 12 and seen
+
+
+def test_the_cli_reports_a_layers_refusal_as_a_refusal(film_safe, tmp_path):
+    """``python -m studio.engine.render`` runs render.py as __main__; layers.py's LayersRefused must still be
+    the CLI's Refused: exit 2 and "render: refused" on stderr, never a traceback. The cheapest refusal that
+    comes from layers.py: its scout disk check, before any frame, with the drive made to report just over
+    the render's own 10 GB floor (which passes) and under it once the layers are counted (which refuses)."""
+    import subprocess
+    import sys
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "sitecustomize.py").write_text(
+        "import collections, shutil\n"
+        "_U = collections.namedtuple('usage', 'total used free')\n"
+        "shutil.disk_usage = lambda p: _U(10 ** 12, 0, 10 * 1024 ** 3 + 4096)\n", encoding="utf-8")
+    root = Path(__file__).resolve().parents[2]
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(site), str(root)]), OMP_NUM_THREADS="2")
+    out = tmp_path / "out"
+    p = subprocess.run([sys.executable, "-m", "studio.engine.render", str(film_safe), "--out", str(out),
+                        "--res", "720", "--workers", "1", "--layers"],      # refused before any frame at either size
+                       cwd=root, env=env, capture_output=True, text=True, timeout=900)
+    assert p.returncode == 2, (p.returncode, p.stderr[-2000:])
+    assert "render: refused: --layers: the layers need about" in p.stderr, p.stderr[-2000:]
+    assert "Traceback" not in p.stderr
+    assert not (out / "master.mp4").exists() and not (out / "layers").exists()
+
+
+def test_stale_plate_removal_touches_only_the_files_the_pass_writes(tmp_path, monkeypatch):
+    plan = _two_shot_plan()
+    plates = tmp_path / "layers" / "plates"
+    plates.mkdir(parents=True)
+    stale = ["A.0123456789abcdef.mov", "A.0123456789abcdef.mov.json", "B.fedcba9876543210.mov.part"]
+    mine = ["my-grade.mov", "A.notakey.mov", "notes.mov.json", "B.0123456789abcdef.mov.bak"]
+    for n in stale + mine:
+        (plates / n).write_bytes(b"x")
+    assert [LY.is_plate_file(n) for n in stale] == [True] * 3
+    assert not any(LY.is_plate_file(n) for n in mine + ["A.0123456789ABCDEF.mov", "../x.0123456789abcdef.mov"])
+    _write_layers_fast(plan, tmp_path, monkeypatch)
+    left = {p.name for p in plates.iterdir()}
+    assert not (set(stale) & left) and set(mine) <= left
+
+
+def test_a_locked_plate_to_re_render_refuses_before_the_pass(tmp_path, monkeypatch):
+    """A plate whose sidecar is missing is re-rendered in place: if Resolve holds that .mov open, the pass
+    refuses before anything is written, like the overlay and a stale plate."""
+    plan = _two_shot_plan()
+    _write_layers_fast(plan, tmp_path, monkeypatch)
+    plates = tmp_path / "layers" / "plates"
+    a = next(p for p in plates.iterdir() if p.name.startswith("A.") and p.name.endswith(".mov"))
+    a.with_name(a.name + ".json").unlink()
+    real = LY._assert_writable
+
+    def locked(path, what, **kw):
+        if Path(path).name == a.name:
+            raise LY.LayersRefused(f"--layers: {what} ({a.name}) could not be opened (Resolve)")
+        return real(path, what, **kw)
+
+    monkeypatch.setattr(LY, "_assert_writable", locked)
+    with pytest.raises(LY.LayersRefused, match="a plate to re-render"):
+        _write_layers_fast(plan, tmp_path, monkeypatch)
+    assert (tmp_path / "layers" / "layers.json").exists()          # nothing moved aside: refused before the pass
+
+
+def test_the_serial_plate_path_retries_a_failed_encode_once(tmp_path, monkeypatch):
+    plan = _two_shot_plan()
+    calls = []
+
+    def flaky(plan, i, path, spec, sink=None):
+        calls.append(spec["shot"])
+        if calls.count(spec["shot"]) == 1 and spec["shot"] == "A":
+            raise R.EncodeError("ffmpeg exited 1 (test)")
+        return _fake_render_plate(plan, i, path, spec, sink)
+
+    monkeypatch.setattr(LY, "render_plate", flaky)
+    monkeypatch.setattr(LY, "render_overlay", _fake_render_overlay)
+    journal = J.Journal(film="serial-retry-test", out_dir=tmp_path)
+    (tmp_path / "master.mp4").write_bytes(b"m")
+    LY.write_layers(plan, tmp_path, tmp_path / "master.mp4", journal, asset_hash={}, env_key=None, workers=1, min_free_gb=0)
+    assert calls == ["A", "A", "B"]
+
+    def always(plan, i, path, spec, sink=None):
+        raise R.EncodeError("ffmpeg exited 1 (test)")
+
+    monkeypatch.setattr(LY, "render_plate", always)
+    with pytest.raises(R.EncodeError):
+        LY.write_layers(plan, tmp_path / "again", tmp_path / "master.mp4", journal, asset_hash={}, env_key={"v": 2},
+                        workers=1, min_free_gb=0)
+
+
 def test_a_folder_named_layers_that_is_not_ours_is_refused_and_left_alone(tmp_path):
     d = tmp_path / "layers"
     d.mkdir()

@@ -31,6 +31,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -181,6 +182,16 @@ def layers_bytes(plan: dict, specs: list[dict]) -> int:
     return _plates_bytes(plan, specs) + _overlay_bytes(plan) + 256 * 1024 * (1 + len(specs))
 
 
+PLATE_FILE_RE = re.compile(r"^[A-Za-z0-9_.-]+\.[0-9a-f]{16}\.mov(\.json|\.part)?$")
+
+
+def is_plate_file(name: str) -> bool:
+    """A name this pass writes under layers/plates: ``<safe stem>.<16 hex key>.mov``, its
+    ``.mov.json`` sidecar or a ``.mov.part`` left by a run that stopped. Only these are ever
+    removed as stale; any other file there (a user's own .mov) is left alone."""
+    return bool(PLATE_FILE_RE.match(name))
+
+
 def plate_write_plan(plan: dict, plates_dir: Path, specs: list[dict], asset_hash: dict,
                      env_key: dict | None) -> dict:
     """Which of ``specs``' plates already sit under ``plates_dir`` by this run's key (a cache
@@ -204,8 +215,7 @@ def plate_write_plan(plan: dict, plates_dir: Path, specs: list[dict], asset_hash
     stale_bytes = 0
     if plates_dir.exists():
         for old in plates_dir.iterdir():
-            if old.name not in keep and (old.name.endswith(".mov") or old.name.endswith(".mov.json")
-                                         or old.name.endswith(".mov.part")):
+            if old.name not in keep and is_plate_file(old.name):
                 try:
                     stale_bytes += old.stat().st_size
                 except OSError:
@@ -226,13 +236,26 @@ def remaining_layers_bytes(plan: dict, plates_dir: Path, specs: list[dict], asse
     return max(0, int(need)), wp
 
 
+DRIVE_FLOORS_GB = {"D:": 12.0}       # the house floor per drive (machine rule): D: keeps 12 GB free, others min_free_gb
+
+
+def drive_floor_gb(path: Path, min_free_gb: float) -> float:
+    """The free-space floor for the drive ``path`` sits on: ``min_free_gb``, raised to the
+    drive's own house floor where it has one (D: 12 GB)."""
+    drive = os.path.splitdrive(str(path))[0].upper()
+    return max(float(min_free_gb), DRIVE_FLOORS_GB.get(drive, 0.0))
+
+
 def check_disk(out_dir: Path, need: int, *, min_free_gb: float, disk_usage=shutil.disk_usage) -> dict:
-    """Refuse when writing ``need`` bytes would leave the out drive under the floor."""
-    free = disk_usage(R._existing(out_dir)).free
-    if free - need < min_free_gb * 1024 ** 3:
+    """Refuse when writing ``need`` bytes would leave the out drive under its floor
+    (``drive_floor_gb``: ``min_free_gb``, or D:'s 12 GB when that is higher)."""
+    anchor = R._existing(out_dir)
+    floor = drive_floor_gb(anchor, min_free_gb)
+    free = disk_usage(anchor).free
+    if free - need < floor * 1024 ** 3:
         raise LayersRefused(f"--layers: the layers need about {need / 1024 ** 3:.2f} GB and the out drive has "
-                            f"{free / 1024 ** 3:.2f} GB free; writing them would leave it under the {min_free_gb:g} GB floor")
-    return {"need_bytes": need, "free_bytes": free, "floor_gb": min_free_gb}
+                            f"{free / 1024 ** 3:.2f} GB free; writing them would leave it under the {floor:g} GB floor")
+    return {"need_bytes": need, "free_bytes": free, "floor_gb": floor}
 
 
 def _assert_writable(path: Path, what: str, *, opener=open) -> None:
@@ -625,6 +648,17 @@ def compose_layers(plate: np.ndarray, overlay: np.ndarray, *, prev: np.ndarray |
 # --------------------------------------------------------------------------
 
 
+def check_washes(plan: dict) -> None:
+    """compose == plate + overlay only when each lower third's wash is the one planned for its
+    span (founder ruling 2026-11-07, render._plan_lower_third_washes): without it compose
+    measures the picture under the frame, which the overlay's transparent canvas does not have,
+    so the overlay would draw another wash than the master's. Refused, naming the lower thirds."""
+    unplanned = [str(lt.get("id", k)) for k, lt in enumerate(plan["lower_thirds"]) if lt.get("wash") is None]
+    if unplanned:
+        raise LayersRefused(f"--layers: lower third {', '.join(unplanned)} has no planned wash, so the overlay pass "
+                            "cannot draw the wash the master's compose measured from its picture")
+
+
 def _prepare_dir(layers_dir: Path) -> None:
     """An earlier render's layers folder (one holding layers.json, or only
     plates and a partial overlay from a run that stopped) is kept as a cache;
@@ -653,13 +687,7 @@ def write_layers(plan: dict, run_dir: Path, master: Path, journal: Journal, *, a
     overlay_path = layers_dir / "overlay.mov"
     manifest_path = layers_dir / "layers.json"
     stale_manifest = layers_dir / "layers.json.stale"
-    # compose == plate + overlay only when each lower third's wash is the one planned for its span (founder ruling
-    # 2026-11-07, render._plan_lower_third_washes): without it compose measures the picture under the frame, which
-    # the overlay's transparent canvas does not have, so the overlay would draw another wash than the master's.
-    unplanned = [str(lt.get("id", k)) for k, lt in enumerate(plan["lower_thirds"]) if lt.get("wash") is None]
-    if unplanned:
-        raise LayersRefused(f"--layers: lower third {', '.join(unplanned)} has no planned wash, so the overlay pass "
-                            "cannot draw the wash the master's compose measured from its picture")
+    check_washes(plan)                                   # render's scout checks it too, before the master
     _prepare_dir(layers_dir)
     specs = [plate_spec(plan, i) for i in range(len(plan["shots"]))]
     need, wp = remaining_layers_bytes(plan, plates_dir, specs, asset_hash, env_key)
@@ -669,9 +697,10 @@ def write_layers(plan: dict, run_dir: Path, master: Path, journal: Journal, *, a
     _assert_writable(overlay_path, "the overlay")
     if plates_dir.exists():
         for old in plates_dir.iterdir():
-            if old.name not in wp["keep"] and (old.name.endswith(".mov") or old.name.endswith(".mov.json")
-                                               or old.name.endswith(".mov.part")):
+            if old.name not in wp["keep"] and is_plate_file(old.name):
                 _assert_writable(old, "a stale plate")
+        for i in wp["todo"]:                             # a plate re-rendered in place (its sidecar was missing)
+            _assert_writable(plates_dir / wp["names"][i], "a plate to re-render")
     if manifest_path.exists():            # moved aside the moment the pass starts rewriting it (every pass
         os.replace(manifest_path, stale_manifest)       # rewrites it in full: the overlay is never cached)
     plates_dir.mkdir(parents=True, exist_ok=True)
@@ -688,8 +717,7 @@ def write_layers(plan: dict, run_dir: Path, master: Path, journal: Journal, *, a
                 pass
         todo.append((i, str(plates_dir / name)))
     for old in plates_dir.iterdir():                     # a plate under an old key (or a partial one) is stale
-        if old.name not in wp["keep"] and (old.name.endswith(".mov") or old.name.endswith(".mov.json")
-                                          or old.name.endswith(".mov.part")):
+        if old.name not in wp["keep"] and is_plate_file(old.name):
             old.unlink(missing_ok=True)
     journal.decision("assembly", f"--layers: {len(specs)} plates ({len(todo)} to render, {len(specs) - len(todo)} cached) "
                      "and the overlay pass", "loom Phase 2b: a finishing timeline needs the clean picture and the "
@@ -703,7 +731,14 @@ def write_layers(plan: dict, run_dir: Path, master: Path, journal: Journal, *, a
     n = max(1, min(int(workers), R.MAX_WORKERS, len(todo) or 1))
     if todo and n == 1:
         for i, p in todo:
-            sides[i] = render_plate(plan, i, p, specs[i], sink=R._Direct(_tick(specs[i]["shot"])))
+            for attempt in (0, 1):                       # the same single retry the pool gives a plate
+                try:
+                    sides[i] = render_plate(plan, i, p, specs[i], sink=R._Direct(_tick(specs[i]["shot"])))
+                    break
+                except R.EncodeError as e:
+                    if attempt:
+                        raise
+                    journal.retry("assembly", specs[i]["shot"], 1, str(e), fix="re-render the plate once")
     elif todo:
         import multiprocessing as mp
         import queue as queue_mod
