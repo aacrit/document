@@ -332,6 +332,16 @@ films:
       path: /f/{slug}/
       strings: *third_party_analytics_strings
 
+    - name: "{title}: the sources page carries no third-party analytics beacon"
+      type: forbidden
+      path: /f/{slug}/sources/
+      strings: *third_party_analytics_strings
+
+    - name: "{title}: the corrections page carries no third-party analytics beacon"
+      type: forbidden
+      path: /f/{slug}/correct/
+      strings: *third_party_analytics_strings
+
     - name: "{title}: the film is served (deployed only)"
       type: status
       path: /media/{slug}/film.mp4

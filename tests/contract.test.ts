@@ -219,12 +219,13 @@ describe("no third-party analytics beacon (rule V3)", () => {
     expect(r.detail).toContain("google-analytics.com");
   });
 
-  it("contract.yaml checks every served page (homepage, film pages, privacy) for a third-party analytics beacon", () => {
+  it("contract.yaml checks every served page (homepage, film/sources/correct pages, privacy) for a third-party analytics beacon", () => {
     const file = fileURLToPath(new URL("../contract.yaml", import.meta.url));
     const contract = loadContract(path.resolve(file));
     const beaconChecks = contract.checks.filter((c: { name?: string }) => /third-party analytics beacon/.test(c.name ?? ""));
-    // Homepage, privacy page, and once per live film (partition-of-india, smallpox-eradication, real-world, market-street).
-    expect(beaconChecks.length).toBeGreaterThanOrEqual(6);
+    // Homepage, privacy page, and (film page, sources page, correct page) once per live film
+    // (partition-of-india, smallpox-eradication, real-world, market-street): 2 + 3*4 = 14.
+    expect(beaconChecks.length).toBeGreaterThanOrEqual(14);
     for (const c of beaconChecks) {
       expect(c.type).toBe("forbidden");
       expect(c.strings).toContain("static.cloudflareinsights.com");
@@ -232,5 +233,8 @@ describe("no third-party analytics beacon (rule V3)", () => {
     }
     expect(beaconChecks.some((c: { path?: string }) => c.path === "/")).toBe(true);
     expect(beaconChecks.some((c: { path?: string }) => c.path === "/privacy")).toBe(true);
+    expect(beaconChecks.some((c: { path?: string }) => c.path?.endsWith("/") && c.path !== "/" && !c.path.endsWith("/sources/") && !c.path.endsWith("/correct/"))).toBe(true);
+    expect(beaconChecks.some((c: { path?: string }) => c.path?.endsWith("/sources/"))).toBe(true);
+    expect(beaconChecks.some((c: { path?: string }) => c.path?.endsWith("/correct/"))).toBe(true);
   });
 });
