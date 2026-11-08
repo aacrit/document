@@ -72,7 +72,9 @@ def is_title(shot: dict) -> bool:
     return shot.get("kind") == KIND
 
 
-CREDIT_KINDS = ("period record", "museum-object scan", "studio texture")
+# Ruling 18 (2026-11-07): what each input is. "museum object" (founder, 2026-11-07, The Run): a photograph of a
+# museum object, not a 3D scan of one ("museum-object scan").
+CREDIT_KINDS = ("period record", "museum object", "museum-object scan", "studio texture")
 _WORDS = ("no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine")
 
 
@@ -93,22 +95,25 @@ def credit_kind_problem(it: dict) -> str | None:
 
 def credit_by_kind(items: list[dict]) -> str:
     """Founder ruling 18 (2026-11-07), the series titles' credit by kind, counted from the provenance ledger's
-    ``credit_kind`` (stated on every item: title-provenance refuses a missing or unknown one): "drawn from 14 period
-    records, with six museum-object scans and four studio textures (CC0), no AI". Numbers under ten are words; a kind
-    with no item is left out; "(CC0)" when every scan and texture is CC0."""
+    ``credit_kind`` (stated on every item: title-provenance refuses a missing or unknown one). What the titles are
+    drawn from (period records, museum objects: photographs of them) is joined by "and"; what they were made with
+    (museum-object scans, studio textures) follows ", with", marked "(CC0)" when every one of those is CC0. Numbers
+    under ten are words; a kind with no item is left out.
+        v11:     "drawn from 14 period records, with six museum-object scans and four studio textures (CC0), no AI"
+        The Run: "drawn from 15 period records and six museum objects, no AI"
+    """
     bad = [p for p in (credit_kind_problem(it) for it in items) if p]
     if bad:
         raise ValueError("; ".join(bad))
     by = {k: [it for it in items if it.get("credit_kind") == k] for k in CREDIT_KINDS}
-    rec, scans, tex = by["period record"], by["museum-object scan"], by["studio texture"]
-    more = [x for x in (_count(len(scans), "museum-object scan") if scans else "",
-                        _count(len(tex), "studio texture") if tex else "") if x]
-    cc0 = " (CC0)" if more and all(str(it.get("licence") or "").strip().lower().startswith("cc0")
-                                   for it in scans + tex) else ""
-    if rec:
-        words = "drawn from " + _count(len(rec), "period record") + (", with " + " and ".join(more) + cc0 if more else "")
+    drawn = [_count(len(by[k]), k) for k in ("period record", "museum object") if by[k]]
+    made = [_count(len(by[k]), k) for k in ("museum-object scan", "studio texture") if by[k]]
+    cc0 = " (CC0)" if made and all(str(it.get("licence") or "").strip().lower().startswith("cc0")
+                                   for k in ("museum-object scan", "studio texture") for it in by[k]) else ""
+    if drawn:
+        words = "drawn from " + " and ".join(drawn) + (", with " + " and ".join(made) + cc0 if made else "")
     else:
-        words = "drawn from " + " and ".join(more) + cc0
+        words = "drawn from " + " and ".join(made) + cc0
     return words + ", no AI"
 
 

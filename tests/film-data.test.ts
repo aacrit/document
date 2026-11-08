@@ -309,6 +309,12 @@ describe("words: sources, flags, the transcript, the record's silences", () => {
     // under ten in words, the records clause dropped when there is none, no "(CC0)" when a scan is CC BY
     expect(creditByKind([rec(1, "period record"), rec(2, "museum-object scan", "CC BY 4.0")])).toBe("drawn from one period record, with one museum-object scan, no AI");
     expect(creditByKind([rec(1, "studio texture"), rec(2, "studio texture")])).toBe("drawn from two studio textures (CC0), no AI");
+    // The Run (founder, 2026-11-07): photographs of museum objects, drawn from beside the records
+    const run = [...Array.from({ length: 15 }, (_, i) => rec(i, "period record", "public domain")), ...Array.from({ length: 6 }, (_, i) => rec(50 + i, "museum object", "public domain"))];
+    expect(creditByKind(run)).toBe("drawn from 15 period records and six museum objects, no AI");
+    expect(creditByKind([rec(1, "period record"), rec(2, "museum object"), rec(3, "museum-object scan"), rec(4, "studio texture")])).toBe(
+      "drawn from one period record and one museum object, with one museum-object scan and one studio texture (CC0), no AI");
+    expect(creditByKind([rec(1, "museum object"), rec(2, "museum object")])).toBe("drawn from two museum objects, no AI");
     // a sources.json made before ruling 18 (no kinds) keeps the old words
     expect(creditByKind([rec(1, "")].map((x) => ({ ...x, kind: null })))).toBe(null);
     expect(parseTitleInputs([{ title: "A globe", holder: "A museum", licence: "CC0", credit_kind: "museum-object scan" }], "record")[0].kind).toBe("museum-object scan");

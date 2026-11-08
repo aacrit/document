@@ -101,11 +101,13 @@ describe("a shot's provenance rows", () => {
       { id: "S-130", title: "The Gazette of India Extraordinary", holder: "Internet Archive", licence: "public domain", credit_kind: "period record" },
       { id: "globe", title: "Terrestrial globe, Doppelmayr 1728", holder: "Jagiellonian University Museum", licence: "CC0", credit_kind: "museum-object scan" },
       { id: "C-02", title: "Oak Wood Planks", holder: "Poly Haven", licence: "CC0", credit_kind: "studio texture" },
+      { id: "T-10", title: "Morse-Vail telegraph key", holder: "Smithsonian NMAH 1096762", licence: "CC0", credit_kind: "museum object" },
     ] } }));
     expect(kinds.get("Drawn from")?.textContent).toBe(
       "Period record: The Gazette of India Extraordinary, Internet Archive, public domain" +
       "Museum-object scan: Terrestrial globe, Doppelmayr 1728, Jagiellonian University Museum, CC0" +
-      "Studio texture: Oak Wood Planks, Poly Haven, CC0");
+      "Studio texture: Oak Wood Planks, Poly Haven, CC0" +
+      "Museum object: Morse-Vail telegraph key, Smithsonian NMAH 1096762, CC0");
   });
 
   it("sets a hostile title input as text, its non-https page unlinked", async () => {

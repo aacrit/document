@@ -81,9 +81,10 @@ export interface TitleInput {
 }
 
 /** Ruling 18 (founder, 2026-11-07): the series titles' inputs by kind, as studio/engine/titles.py CREDIT_KINDS. */
-export const CREDIT_KINDS = ["period record", "museum-object scan", "studio texture"] as const;
+export const CREDIT_KINDS = ["period record", "museum object", "museum-object scan", "studio texture"] as const;
 const KIND_LABEL: Record<string, string> = {
   "period record": "Period record",
+  "museum object": "Museum object",
   "museum-object scan": "Museum-object scan",
   "studio texture": "Studio texture",
 };
@@ -99,14 +100,14 @@ function countOf(n: number, noun: string): string {
 export function creditByKind(inputs: TitleInput[] | undefined, noAi = true): string | null {
   if (!inputs?.length || inputs.some((x) => !x.kind || !(CREDIT_KINDS as readonly string[]).includes(x.kind))) return null;
   const of = (k: string) => inputs.filter((x) => x.kind === k);
-  const rec = of("period record");
-  const scans = of("museum-object scan");
-  const tex = of("studio texture");
-  const more = [scans.length ? countOf(scans.length, "museum-object scan") : "", tex.length ? countOf(tex.length, "studio texture") : ""].filter(Boolean);
-  const cc0 = more.length && [...scans, ...tex].every((x) => (x.licence ?? "").trim().toLowerCase().startsWith("cc0")) ? " (CC0)" : "";
-  const words = rec.length
-    ? `drawn from ${countOf(rec.length, "period record")}${more.length ? `, with ${more.join(" and ")}${cc0}` : ""}`
-    : `drawn from ${more.join(" and ")}${cc0}`;
+  // what the titles are drawn from, joined by "and"; what they were made with after ", with", "(CC0)" when all are
+  const drawn = (["period record", "museum object"] as const).filter((k) => of(k).length).map((k) => countOf(of(k).length, k));
+  const madeKinds = (["museum-object scan", "studio texture"] as const).filter((k) => of(k).length);
+  const made = madeKinds.map((k) => countOf(of(k).length, k));
+  const cc0 = made.length && madeKinds.every((k) => of(k).every((x) => (x.licence ?? "").trim().toLowerCase().startsWith("cc0"))) ? " (CC0)" : "";
+  const words = drawn.length
+    ? `drawn from ${drawn.join(" and ")}${made.length ? `, with ${made.join(" and ")}${cc0}` : ""}`
+    : `drawn from ${made.join(" and ")}${cc0}`;
   return noAi ? `${words}, no AI` : words;
 }
 

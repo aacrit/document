@@ -199,7 +199,7 @@
   },
   {
    "id": "T-05",
-   "credit_kind": "museum-object scan",
+   "credit_kind": "museum object",
    "title": "Inka khipu (fibre recording device)",
    "date": "c. 1400 to 1532",
    "module_date": "1532",
@@ -339,7 +339,7 @@
   },
   {
    "id": "T-10",
-   "credit_kind": "museum-object scan",
+   "credit_kind": "museum object",
    "title": "Morse-Vail telegraph key",
    "date": "1844",
    "module_date": "1844",
@@ -365,7 +365,7 @@
   },
   {
    "id": "T-11",
-   "credit_kind": "museum-object scan",
+   "credit_kind": "museum object",
    "title": "Telegraph register",
    "date": "1849",
    "module_date": "1849",
@@ -420,7 +420,7 @@
   },
   {
    "id": "T-13",
-   "credit_kind": "museum-object scan",
+   "credit_kind": "museum object",
    "title": "Hollerith tabulator (replica), Computer History Museum, photo Adam Schuster",
    "date": "photo 2000s; machine c. 1890",
    "module_date": "1890",
@@ -450,7 +450,7 @@
   },
   {
    "id": "T-15",
-   "credit_kind": "museum-object scan",
+   "credit_kind": "museum object",
    "title": "Lumiere cinematographe, front and rear",
    "date": "1896",
    "module_date": "1896",
@@ -507,7 +507,7 @@
   },
   {
    "id": "T-17",
-   "credit_kind": "museum-object scan",
+   "credit_kind": "museum object",
    "title": "Underwood Standard No. 5, photograph",
    "date": "before Oct 1922; model from 1900",
    "module_date": "1900",
