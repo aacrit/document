@@ -184,3 +184,20 @@ def test_still_image_with_no_levels_record_is_unchanged(tmp_path):
     s = {"_item": {"_path": str(path)}, "_cam": {"fit_scale": 1.0, "z_max": 1.0}}
     still = SH._StillImage(s)
     assert np.array_equal(np.asarray(still.img), np.asarray(img.convert("RGB")))
+
+
+def test_a_preview_plans_as_a_draft(tmp_path, monkeypatch):
+    """Ruling 19 (2026-11-07): a preview is never a final render, so plan_stills plans with draft=True (a title that a
+    final would refuse for a drop conform still previews)."""
+    from studio.engine import journal as J
+    from studio.engine import render as R
+    film = make_film(tmp_path / "film")
+    seen = {}
+    real = R.build_plan
+
+    def spy(*a, **k):
+        seen["draft"] = k.get("draft")
+        return real(*a, **k)
+    monkeypatch.setattr(R, "build_plan", spy)
+    SH.plan_stills(film, J.Journal(film="preview"))
+    assert seen["draft"] is True

@@ -356,3 +356,63 @@ def test_the_cli_passes_the_crop_to_the_packet_and_refuses_a_bad_one(monkeypatch
     assert P.main(base) == 0 and seen["poster_crop"] is None
     assert P.main(base + ["--poster-crop", "1800x1800+0+0"]) == 2
     assert "poster crop" in capsys.readouterr().err
+
+
+def test_sources_only_plans_as_its_master_was_rendered(film, rendered, tmp_path, monkeypatch):
+    """Ruling 19 (2026-11-07): --sources-only re-plans with the master's own draft-ness (its run's journal, run.start
+    settings), unless told: a draft master's sources are not refused by final-only checks, a final's are."""
+    out = _copy_render(rendered, tmp_path / "out")
+    seen = []
+    real = R.build_plan
+
+    def spy(*a, **k):
+        seen.append(k.get("draft"))
+        return real(*a, **k)
+    monkeypatch.setattr(R, "build_plan", spy)
+    recorded = R.master_was_draft(out)
+    assert recorded is False                         # the fixture's master is a final render, read from its file
+    R.sources_only(film, out)
+    monkeypatch.setattr(R, "master_was_draft", lambda o: True)
+    R.sources_only(film, out)                         # a master recorded as a draft plans as one
+    monkeypatch.setattr(R, "master_was_draft", lambda o: None)
+    R.sources_only(film, out, draft=True)             # unreadable: --draft fills in
+    R.sources_only(film, out)                         # unreadable and no flag: final
+    assert seen == [False, True, True, False]
+
+
+def test_sources_only_draft_never_turns_a_final_master_into_a_draft(film, rendered, tmp_path):
+    """Review of PR #96: --draft once overwrote a final master's sources.json with draft: true (the override written,
+    not the master's value), letting a final skip the final-only checks for good. The master's recorded value wins:
+    --draft on a master recorded final is refused, naming the fix, and the file still says final."""
+    out = _copy_render(rendered, tmp_path / "out")
+    assert R.master_was_draft(out) is False
+    with pytest.raises(R.Refused, match="--draft on a final master"):
+        R.sources_only(film, out, draft=True)
+    assert json.loads((out / "sources.json").read_text(encoding="utf-8"))["draft"] is False
+    R.sources_only(film, out)
+    assert json.loads((out / "sources.json").read_text(encoding="utf-8"))["draft"] is False
+
+
+def test_sources_only_on_a_draft_master_stays_a_draft_however_often_it_runs(film, rendered, tmp_path):
+    """Review of PR #96: a --sources-only rewrite stamps its own run (which has no run.start) into sources.json, so a
+    second rewrite once lost the master's draft-ness and planned it as a final. The master's run and its draft-ness are
+    carried forward: two plain calls on a draft master (no flag, no patch) both plan as a draft and pass."""
+    from studio.engine.journal import journal_dir
+    out = _copy_render(rendered, tmp_path / "out")
+    doc = json.loads((out / "sources.json").read_text(encoding="utf-8"))
+    # the master as a draft render left it: its own run, whose journal says draft (a file written before the fix
+    # carries only "run")
+    run = "r-20261107-draft-master"
+    for k in ("draft", "master_run"):
+        doc.pop(k, None)
+    doc["run"] = run
+    (out / "sources.json").write_text(json.dumps(doc), encoding="utf-8")
+    journal_dir().mkdir(parents=True, exist_ok=True)
+    (journal_dir() / f"{run}.jsonl").write_text(json.dumps({"kind": "stage", "lens": "run.start", "status": "start",
+                                                            "settings": {"draft": True}}) + "\n", encoding="utf-8")
+    assert R.master_was_draft(out) is True
+    for _ in range(2):
+        R.sources_only(film, out)
+        after = json.loads((out / "sources.json").read_text(encoding="utf-8"))
+        assert after["draft"] is True and after["master_run"] == run and after["run"] != run
+        assert R.master_was_draft(out) is True

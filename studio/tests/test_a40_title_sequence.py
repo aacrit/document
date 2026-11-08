@@ -141,9 +141,11 @@ def titled_film(tmp_path, masters, *, master="burned", item=None, prov_items=Non
             "records": records if records is not None else {"FX-REC": {"sha256": _sha(rec_file), "cls": "ARCHIVE"}},
             "items": prov_items if prov_items is not None else [
                 {"id": "T-01", "title": "A clay tablet", "licence": "CC0", "ai": False, "source_page": "https://example.org/t01",
-                 "licence_evidence": "read 2026-10-16", "sha256": "0" * 64, "holder": "A museum"},
+                 "licence_evidence": "read 2026-10-16", "sha256": "0" * 64, "holder": "A museum",
+                 "credit_kind": "period record"},
                 {"id": "T-13", "title": "A tabulator", "licence": "CC BY 2.0", "ai": False, "credit": "A photographer",
-                 "source_page": "https://example.org/t13", "basis": "CC BY 2.0 on the file page", "sha256": "1" * 64}],
+                 "source_page": "https://example.org/t13", "basis": "CC BY 2.0 on the file page", "sha256": "1" * 64,
+                 "credit_kind": "museum-object scan"}],
             "sound": prov_sound if prov_sound is not None else [
                 {"id": "FX-01", "title": "Paper flutter", "licence": "CC0", "ai": False, "source_page": "https://example.org/fx01",
                  "licence_evidence": "read 2026-10-16", "sha256": "4" * 64}]}
@@ -191,10 +193,10 @@ def titled_film(tmp_path, masters, *, master="burned", item=None, prov_items=Non
     return film
 
 
-def plan_of(film, W=640, H=360):
+def plan_of(film, W=640, H=360, draft=False):
     j = J.Journal(film="a40")
     try:
-        return R.build_plan(film, W=W, H=H, burn_subtitles=False, journal=j), j
+        return R.build_plan(film, W=W, H=H, burn_subtitles=False, journal=j, draft=draft), j
     except R.Refused as e:
         return e, j
 
@@ -1240,3 +1242,16 @@ def test_a40_title_slot_is_title_slot_and_contiguous_runs_helpers():
     assert not TS.is_title_slot({})
     assert TS._contiguous_runs([2, 3, 4, 7, 8, 11]) == [[2, 3, 4], [7, 8], [11]]
     assert TS._contiguous_runs([]) == []
+
+
+def test_ruling_18_title_provenance_refuses_a_missing_or_misspelt_credit_kind(tmp_path, masters):
+    """Ruling 18 (2026-11-07): the credit counts every picture input by its kind, so each states one of CREDIT_KINDS;
+    title-provenance refuses a misspelt kind and a missing one, naming the item (no default to period record)."""
+    base = {"title": "A globe", "licence": "CC0", "ai": False, "source_page": "https://example.org/g",
+            "licence_evidence": "read 2026-11-07", "sha256": "5" * 64}
+    items = [dict(base, id="SCAN-1", credit_kind="museum object scan"), dict(base, id="TEX-1")]
+    plan, j = plan_of(titled_film(tmp_path, masters, prov_items=items))
+    assert isinstance(plan, R.Refused) and failed(j, "title-provenance")
+    probs = next(e for e in lints(j, "title-provenance") if e["status"] == "fail")["evidence"]["problems"]
+    assert any(p.startswith("SCAN-1: credit_kind 'museum object scan' is not one of") for p in probs)
+    assert any(p.startswith("TEX-1: no credit_kind") for p in probs)

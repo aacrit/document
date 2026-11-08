@@ -85,8 +85,8 @@ def tfilm(tmp_path, tmasters, master="burned", item=None, edit=None):
                                                                                     **(item or {})), edit=edit)
 
 
-def mixed(film):
-    plan, j = plan_of(film)
+def mixed(film, draft=False):
+    plan, j = plan_of(film, draft=draft)
     assert not isinstance(plan, Exception), (plan, [(e["rule"], e.get("evidence")) for e in J.read(j.path)
                                                     if e.get("kind") == "lint" and e.get("status") == "fail"][:3])
     stems: dict = {}
@@ -170,9 +170,10 @@ def test_title_audio_a_title_whose_peaks_would_hold_it_far_under_the_house_level
 def test_title_audio_conform_keeps_sync_and_pitch_at_24(tmp_path, tmasters):
     """A 30000/1001 master in a 24 fps film: the picture is drop-conformed (one frame in five), the sound plays at its
     own speed and pitch from the shot's first frame. The click on the master's frame for the record cut lands at that
-    frame's own time, within one film frame of the film frame that shows it."""
+    frame's own time, within one film frame of the film frame that shows it. Planned as a draft: a final render never
+    drops the titles' frames (ruling 19, 2026-11-07), so this conform is a draft's (and the drop's sound rule holds)."""
     film = tfilm(tmp_path, tmasters, master="ntsc", item=tmasters["ntsc_item"])
-    plan, j, mix, placed, _ = mixed(film)
+    plan, j, mix, placed, _ = mixed(film, draft=True)
     assert plan["fps"] == 24
     s = next(x for x in plan["shots"] if x["id"] == "TS1")
     src = 30000 / 1001
