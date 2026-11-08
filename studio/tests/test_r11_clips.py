@@ -645,6 +645,18 @@ def test_a_render_measures_every_archival_line_on_its_own_picture(talk, tmp_path
     got = [e for e in evs if e.get("rule") == "archival-sync-rendered"]
     assert len(got) == 1 and got[0]["unit"] == "A1" and got[0]["status"] == "pass", got
     assert abs(got[0]["evidence"]["audio_late_ms"]) <= C.RENDER_SYNC_TOL_MS
+    # T3 (the fixture's lower third, over A1's picture, at this fixture's small 640x360): its wash is already at
+    # LT.wash_cap here (the background under "Role, 1947" leaves no more room to boost), which measures within a
+    # few hundredths of LT.wash_contrast -- a margin a cross-machine font/FreeType/raqm difference (CI's raqm
+    # wheel vs a laptop without it) is exactly narrow enough to flip (GRAMMAR A16: "blocking on a final render").
+    # That is the second bug: this render must not refuse under --draft over a margin that thin, so the lint is
+    # a warning here, never a Refused -- proven below, not merely by this test reaching its end without raising.
+    # The evidence also journals the font/FreeType/raqm/numpy build that measured it (ticket item 2), so a
+    # cross-machine difference like this one is legible from the journal alone next time.
+    lt = next(e for e in evs if e.get("rule") == "lower-third-contrast")
+    assert lt["severity"] == "warn", lt           # advisory under --draft: GRAMMAR A16 never refuses a draft render
+    tc = lt["evidence"]["toolchain"]
+    assert tc["pillow"] and tc["numpy"] and "raqm_enabled" in tc
     assert s["clip_warnings"] == []
 
 

@@ -2393,7 +2393,12 @@ def test_lower_third_contrast_lint_passes_the_adaptive_wash_on_a_bright_backgrou
     frame = np.asarray(M.lower_third_frame(bright, 2.0, start=0.0, end=8.0, lines=lines, fonts=fonts,
                                            kind="speaker").convert("RGB"))
     res = M.lower_third_contrast(frame, L, lines, fonts, kind="speaker")
-    assert res["ok"] is True and res["worst"] >= M.LT["wash_contrast"] and len(res["lines"]) == 3
+    assert res["ok"] is True and len(res["lines"]) == 3
+    # A margin well clear of the target, not a boundary pass: this plan isn't at LT.wash_cap (plenty of room was
+    # left), so the measurement should sit comfortably above LT.wash_contrast, not within the few hundredths a
+    # cross-machine FreeType/raqm/layout-engine difference could erase (the cross-machine flake ``_font``'s
+    # BASIC-layout pin and ``M._ink_core``'s adaptive threshold fix -- see their docstrings).
+    assert res["worst"] >= M.LT["wash_contrast"] + 0.4, res
 
 
 def test_lower_third_contrast_lint_fails_a_wash_that_never_adapted_to_a_bright_background():

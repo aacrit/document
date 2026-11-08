@@ -31,6 +31,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, features
+from PIL import __version__ as PIL_VERSION
 
 # --------------------------------------------------------------------------
 # Palette. Every tuple cites a custom property in design/tokens.css, except
@@ -80,7 +81,36 @@ class Fonts:
 
 @lru_cache(maxsize=256)
 def _font(path: str, px: int) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(path, max(1, px))
+    """BASIC layout, pinned, everywhere the engine opens a font: Pillow wheels
+    built with raqm (CI's) shape and hint differently from one built without
+    it (a laptop's), which moves glyph advances and antialiasing enough to
+    shift the lower-third-contrast lint's ink extent between machines (the
+    cross-machine flake this pin fixes). The engine draws Latin-only labels
+    and numerals, never a complex script needing raqm's shaping, so BASIC
+    costs nothing real and buys the same pixels everywhere."""
+    return ImageFont.truetype(path, max(1, px), layout_engine=ImageFont.Layout.BASIC)
+
+
+def text_toolchain_versions() -> dict:
+    """Everything that can move a glyph's rendered extent from machine to
+    machine, for the ``lower-third-contrast`` lint's evidence (a reviewer's
+    fact, never itself asserted against): the Pillow wheel, its FreeType and
+    whether raqm shaping is actually compiled in and would apply if ``_font``
+    did not pin BASIC, and numpy (the lint's own pixel arithmetic)."""
+    try:
+        freetype = features.version("freetype2")
+    except Exception:
+        freetype = None
+    raqm_enabled = False
+    raqm = None
+    try:
+        raqm_enabled = bool(features.check("raqm"))
+        if raqm_enabled:
+            raqm = features.version("raqm")
+    except Exception:
+        pass
+    return {"pillow": PIL_VERSION, "freetype": freetype, "raqm": raqm, "raqm_enabled": raqm_enabled,
+            "numpy": np.__version__}
 
 
 # --------------------------------------------------------------------------
@@ -1439,6 +1469,29 @@ def _ink_plateau_width(L: Layout, els: list[dict], x0: float) -> tuple[float, fl
     return plateau, width, ink_end
 
 
+def _ink_core(raw: np.ndarray, fringe: np.ndarray | None = None) -> np.ndarray:
+    """A glyph's solid interior, never its antialiased fringe -- robust at a
+    small size, where a renderer never quite reaches a fixed ``raw > 200``
+    at a "fully covered" pixel (a thin stroke, or simply a different
+    FreeType build or layout engine: BASIC vs raqm hint and antialias a
+    glyph differently, which is exactly why ``_font`` pins BASIC everywhere
+    -- see its docstring -- yet the achieved peak coverage still isn't the
+    same number on every machine). A fixed threshold then falls through to
+    the fringe far more often on one machine than another, which moves the
+    measured ink extent -- and with it ``lower_third_contrast``'s result --
+    between machines. Scaling the threshold to the mask's own achieved peak
+    keeps it finding real core pixels instead of silently widening to the
+    fringe; the fringe is still the last resort when even that finds
+    nothing (an extremely thin glyph at a tiny size)."""
+    if fringe is None:
+        fringe = raw > 127
+    if not fringe.any():
+        return fringe
+    thresh = max(127, int(round(0.78 * int(raw.max()))))
+    core = raw > thresh
+    return core if core.any() else fringe
+
+
 def _effective_line_alpha(L: Layout, e: dict, x0: float) -> float:
     """``LT.a_*``'s declared opacity, corrected for what antialiasing at this
     resolution actually delivers at a glyph's own "solid" pixels (the same
@@ -1451,11 +1504,9 @@ def _effective_line_alpha(L: Layout, e: dict, x0: float) -> float:
     promises a contrast the lint, measuring the real pixels, will not find."""
     declared = _line_alpha(e["kind"])
     raw = np.asarray(_line_ink_mask((L.W, L.H), e, x0))
-    core = raw > 200
+    core = _ink_core(raw)
     if not core.any():
-        core = raw > 127
-        if not core.any():
-            return declared
+        return declared
     layer = Image.new("RGBA", (L.W, L.H), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
     col = PALETTE["mark_text"]
@@ -1687,11 +1738,10 @@ def lower_third_contrast(frame: np.ndarray, L: Layout, lines, fonts: Fonts, *,
             continue
         raw = np.asarray(_line_ink_mask((W, H), e, x0))
         fringe = raw > 127                     # anything even partly inked -- kept out of the background sample
-        core = raw > 200                       # a glyph's solid interior, not its antialiased fringe
-        if not core.any():
-            core = fringe                      # a very small font may have no fully-opaque pixel at all: fall back
-            if not core.any():
-                continue
+        if not fringe.any():
+            continue
+        core = _ink_core(raw, fringe)          # a glyph's solid interior, scaled to what this render actually
+                                                # achieved (robust at a small size, or a different FreeType build)
         ys, xs = np.where(core)
         y0, y1 = max(0, int(ys.min()) - 2), min(H, int(ys.max()) + 3)
         xs_min, xs_max = int(xs.min()), int(xs.max())

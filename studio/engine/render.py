@@ -9586,10 +9586,21 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         # a full render (not a --until/--shots check, which never reaches the whole film by design) that left a
         # lower third unsampled cannot claim a clean pass, so it stays inconclusive, not a false pass
         lt_status = "inconclusive" if (lt_unchecked and not lt_fail and not check) else None
+        # GRAMMAR A16 is blocking on a final render; --draft, --audio-only and --until journal it as a warning
+        # instead (the same ``advisory`` flag the sibling lower-third/score/loudness lints above use), since the
+        # font/FreeType/raqm/numpy build this machine happens to have moves the measured ink extent a little (its
+        # versions are journaled below, not asserted against) and a draft is never the gate that ships.
         journal.lint("lower-third-contrast", not lt_fail, stage="marks", grammar="9, A16", phase="post-render",
+                     severity="warn" if advisory else "block",
                      evidence={"target": M.LT["wash_contrast"], "checked": list(lt_checked),
-                               "unchecked": lt_unchecked, "failed": lt_fail}, status=lt_status)
-        if lt_fail:
+                               "worst": {k: v["worst"] for k, v in lt_checked.items()},  # every id measured, not
+                                                                                         # only the failures: a
+                                                                                         # margin a reviewer (or a
+                                                                                         # test) can read directly
+                               "unchecked": lt_unchecked, "failed": lt_fail,
+                               "toolchain": dict(M.text_toolchain_versions(), ffmpeg=ffmpeg_version())},
+                     status=lt_status)
+        if lt_fail and not advisory:
             # by cause: the wash already spent everything it is allowed (ink reaches past the plateau, or the
             # 0.70 cap itself could not clear the target) asks for shorter copy; anything else failing despite
             # room left in the wash is unexpected, and asks for a second look, not more wash either way
@@ -9602,7 +9613,8 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
                              "(the fix is copy, not more wash)")
             if other:
                 parts.append(f"{', '.join(other)}: choose a different frame, or ask the founder to amend the kit")
-            raise Refused(f"lower-third-contrast failed (GRAMMAR 9, A16) -- " + "; ".join(parts))
+            raise Refused(f"lower-third-contrast failed (GRAMMAR 9, A16) -- " + "; ".join(parts) +
+                          " (render with --draft to accept it)")
         doc = sources_doc(plan, journal, {})
         voiced = {"narration": 0.0, "reading": 0.0, "archival": 0.0}
         for ln in placed["lines"]:
