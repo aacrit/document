@@ -4509,6 +4509,14 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
     title = s.get("_title")
     first_whole, first_detail = None, None
     ms = []
+    # The lower-third-contrast lint (founder ruling 2026-11-07, A16): each lower
+    # third is sampled once, at the first frame of its own shot (if any) that
+    # falls in its settled hold -- after every line has arrived, before any
+    # has begun to leave, which is where the wash was shaped to hold the
+    # target (``_wash_boost``) -- never mid-arrival or mid-exit, when a line's
+    # own opacity is still rising or falling.
+    lt_contrast: dict[str, dict] = {}
+    lt_sampled: set[str] = set()
     try:
         for f in range(s["f0"], s["f1"]):
             ft = time.perf_counter()
@@ -4522,6 +4530,16 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
                     res = "dip" if not arr.any() else "fade"     # the next shot's own dip, laid over the master's black
             else:
                 res = check_mark(plan, arr, f, i, probe.get("bare_corner"))
+                t = f / plan["fps"]
+                for lt in plan["lower_thirds"]:
+                    if lt["id"] in lt_sampled:
+                        continue
+                    settled = lt["start"] + (M.LT_MAX_S - M.LT["hold"] - M.LT["exit"])
+                    leaving = lt["end"] - M.LT["exit"]
+                    if settled <= t < min(lt["end"], leaving):
+                        lt_contrast[lt["id"]] = M.lower_third_contrast(arr, pics.L, lt["lines"], pics.fonts,
+                                                                       kind=lt["kind"], flag=lt["flag"])
+                        lt_sampled.add(lt["id"])
             stats[res] += 1
             if res in ("ok", "fade") and title is None:   # A16: which of the two carried the provenance on this frame
                 st = M.mark_state(f / plan["fps"], plan["marks"])
@@ -4564,7 +4582,8 @@ def render_segment(plan: dict, i: int, seg: str, sink=None) -> dict:
         err.close()
     result = {"shot": s["id"], "frames": frames, "wall_s": time.perf_counter() - t_start,
               "ms_mean": round(sum(ms) / len(ms), 2) if ms else None, "mark": stats, "first_frame_whole": first_whole,
-              "first_frame_detail": first_detail, "held_frames": held_by.get(s["id"], 0), "held_by_shot": held_by}
+              "first_frame_detail": first_detail, "held_frames": held_by.get(s["id"], 0), "held_by_shot": held_by,
+              "lower_third_contrast": lt_contrast}
     seg.with_name(seg.name + ".json").write_text(json.dumps(result), encoding="utf-8")
     return result
 
@@ -9156,6 +9175,17 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
             ev = dict(r.get("first_frame_detail") or {}, enters_by=plan["shots"][i]["transition_in"].get("type"))
             journal.lint("still-first-frame-whole-pixels", bool(r["first_frame_whole"]), stage="marks", unit=ids[i], grammar="A7",
                          phase="post-render", evidence=ev, status="inconclusive" if ev.get("verdict") == "inconclusive" else None)
+        # A16 (founder ruling 2026-11-07): the lower-third-contrast lint, read from the frames actually rendered.
+        lt_checked: dict[str, dict] = {}
+        for r in results.values():
+            lt_checked.update(r.get("lower_third_contrast") or {})
+        lt_fail = {k: v for k, v in lt_checked.items() if not v["ok"]}
+        journal.lint("lower-third-contrast", not lt_fail, stage="marks", grammar="9, A16", phase="post-render",
+                     evidence={"target": M.LT["wash_contrast"], "checked": list(lt_checked),
+                               "unchecked": [lt["id"] for lt in plan["lower_thirds"] if lt["id"] not in lt_checked],
+                               "failed": lt_fail})
+        if lt_fail:
+            raise Refused(f"lower-third-contrast failed for {', '.join(lt_fail)} (GRAMMAR 9, A16)")
         doc = sources_doc(plan, journal, {})
         voiced = {"narration": 0.0, "reading": 0.0, "archival": 0.0}
         for ln in placed["lines"]:

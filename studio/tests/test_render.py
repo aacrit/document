@@ -2264,6 +2264,67 @@ def test_a16_a_lower_third_comes_and_goes_and_the_flag_stays_first():
     assert M.LT["name"] < 4.4 and M.LT["a_name"] < 1.0 and M.LT["wash"] < 0.5 and M.WM["opacity"] < 0.6
 
 
+def test_a16_the_wash_deepens_over_a_bright_background_and_is_untouched_on_a_dark_one(monkeypatch):
+    """Founder ruling 2026-11-07: a lower third over a bright background (a
+    typed archive page, Apollo 13's LT-7) deepens its wash, and widens it if
+    deepening alone would not do, until its faintest line clears
+    LT.wash_contrast (WCAG 4.5:1). Below that, the output is byte-for-byte
+    what a renderer that never looked at the background would have drawn."""
+    fonts = M.Fonts()
+    lines = ["Sample speaker", "Role, 1947"]
+    L = M.Layout(1920, 1080)
+    kw = dict(start=0.0, end=8.0, lines=lines, fonts=fonts, kind="speaker")
+
+    dark = Image.new("RGB", (1920, 1080), (40, 40, 40))
+    els, top = M.lower_third_layout(L, lines, fonts, "speaker", None)
+    assert M._wash_boost(L, M._as_rgba(dark), top, els) == (M.LT["wash"], M.LT["wash_w"])
+    with_ruling = np.asarray(M.lower_third_frame(dark, 2.0, **kw))
+    monkeypatch.setattr(M, "_wash_boost", lambda *a, **k: (M.LT["wash"], M.LT["wash_w"]))
+    without_ruling = np.asarray(M.lower_third_frame(dark, 2.0, **kw))
+    monkeypatch.undo()
+    assert np.array_equal(with_ruling, without_ruling)
+
+    bright = Image.new("RGB", (1920, 1080), (235, 235, 235))
+    peak, width = M._wash_boost(L, M._as_rgba(bright), top, els)
+    assert peak > M.LT["wash"] and width >= M.LT["wash_w"]
+    rendered = np.asarray(M.lower_third_frame(bright, 2.0, **kw).convert("RGB"))
+    res = M.lower_third_contrast(rendered, L, lines, fonts, kind="speaker")
+    assert res["ok"] and res["worst"] >= M.LT["wash_contrast"]
+
+
+def test_lower_third_contrast_lint_passes_the_adaptive_wash_on_a_bright_background():
+    fonts = M.Fonts()
+    lines = ["Sample speaker", "Role, 1947", "A typed record  ·  read by a computer voice"]
+    L = M.Layout(1920, 1080)
+    bright = Image.new("RGB", (1920, 1080), (235, 235, 235))
+    frame = np.asarray(M.lower_third_frame(bright, 2.0, start=0.0, end=8.0, lines=lines, fonts=fonts,
+                                           kind="speaker").convert("RGB"))
+    res = M.lower_third_contrast(frame, L, lines, fonts, kind="speaker")
+    assert res["ok"] is True and res["worst"] >= M.LT["wash_contrast"] and len(res["lines"]) == 3
+
+
+def test_lower_third_contrast_lint_fails_a_wash_that_never_adapted_to_a_bright_background():
+    """A regression check: a lower third drawn with the kit's own fixed
+    wash (its peak and width unchanged, as before this ruling) over a
+    bright background is exactly the failure LT-7 (Apollo 13) was."""
+    fonts = M.Fonts()
+    lines = ["Sample speaker", "Role, 1947"]
+    L = M.Layout(1920, 1080)
+    bright = M._as_rgba(Image.new("RGB", (1920, 1080), (235, 235, 235)))
+    els, top = M.lower_third_layout(L, lines, fonts, "speaker", None)
+    weak = Image.alpha_composite(bright, M._wash(L, top, 1.0))     # the old, non-adaptive wash: its own fixed peak/width
+    d = M.ImageDraw.Draw(weak)
+    x0 = L.w(M.LT["x"])
+    for e in els:
+        if e["kind"] == "rule":
+            continue
+        M._draw_mixed(d, (x0, e["baseline"]), e["text"], e["font"], e["data_font"],
+                      M._rgba(M.PALETTE["mark_text"], M._line_alpha(e["kind"])))
+    frame = np.asarray(weak.convert("RGB"))
+    res = M.lower_third_contrast(frame, L, lines, fonts, kind="speaker")
+    assert res["ok"] is False and res["worst"] < M.LT["wash_contrast"]
+
+
 def test_a16_the_lower_third_drawn_by_the_engine_is_clipped_to_its_hold(film, plan):
     lt = plan["lower_thirds"][0]
     assert lt["end"] == min(lt["end_s"], lt["start"] + M.LT_MAX_S)
