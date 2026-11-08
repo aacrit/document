@@ -59,6 +59,7 @@
  "items": [
   {
    "id": "T-01",
+   "credit_kind": "period record",
    "title": "Record of temple workers, Umma, obverse (View A)",
    "date": "c. 2094 to 2047 BCE (Shulgi year 37)",
    "module_date": "-2047",
@@ -85,6 +86,7 @@
   },
   {
    "id": "T-02a",
+   "credit_kind": "period record",
    "title": "Turin papyrus map, Wadi Hammamat, part 1",
    "date": "c. 1156 to 1150 BCE",
    "module_date": "-1150",
@@ -112,6 +114,7 @@
   },
   {
    "id": "T-02b",
+   "credit_kind": "period record",
    "title": "Turin papyrus map, Wadi Hammamat, part 2",
    "date": "c. 1156 to 1150 BCE",
    "module_date": "-1150",
@@ -139,6 +142,7 @@
   },
   {
    "id": "T-03",
+   "credit_kind": "period record",
    "title": "Catalan Atlas, attributed to Abraham Cresques",
    "date": "1375",
    "module_date": "1375",
@@ -167,6 +171,7 @@
   },
   {
    "id": "T-04",
+   "credit_kind": "period record",
    "title": "Piri Reis map, surviving fragment",
    "date": "1513",
    "module_date": "1513",
@@ -194,6 +199,7 @@
   },
   {
    "id": "T-05",
+   "credit_kind": "museum-object scan",
    "title": "Inka khipu (fibre recording device)",
    "date": "c. 1400 to 1532",
    "module_date": "1532",
@@ -222,6 +228,7 @@
   },
   {
    "id": "T-06",
+   "credit_kind": "period record",
    "title": "Gutenberg Bible (B42), Genesis 1",
    "date": "c. 1455",
    "module_date": "1455",
@@ -249,6 +256,7 @@
   },
   {
    "id": "T-07",
+   "credit_kind": "period record",
    "title": "Jost Amman, Der Buchdrucker (Staendebuch)",
    "date": "1568",
    "module_date": "1568",
@@ -277,6 +285,7 @@
   },
   {
    "id": "T-08",
+   "credit_kind": "period record",
    "title": "Ino Tadataka, Dai Nihon enkai yochi zenzu, sheet 6",
    "date": "[1821]; surveyed 1800 to 1816",
    "module_date": "1821",
@@ -304,6 +313,7 @@
   },
   {
    "id": "T-09",
+   "credit_kind": "period record",
    "title": "Morse's first telegraph message, embossed tape, 24 May 1844 (master TIFF, image 1)",
    "date": "1844-05-24",
    "module_date": "1844",
@@ -329,6 +339,7 @@
   },
   {
    "id": "T-10",
+   "credit_kind": "museum-object scan",
    "title": "Morse-Vail telegraph key",
    "date": "1844",
    "module_date": "1844",
@@ -354,6 +365,7 @@
   },
   {
    "id": "T-11",
+   "credit_kind": "museum-object scan",
    "title": "Telegraph register",
    "date": "1849",
    "module_date": "1849",
@@ -379,6 +391,7 @@
   },
   {
    "id": "T-12",
+   "credit_kind": "period record",
    "title": "Hollerith electric counting machines, engraving (Scientific American, 30 Aug 1890)",
    "date": "1890-08-30",
    "module_date": "1890",
@@ -407,6 +420,7 @@
   },
   {
    "id": "T-13",
+   "credit_kind": "museum-object scan",
    "title": "Hollerith tabulator (replica), Computer History Museum, photo Adam Schuster",
    "date": "photo 2000s; machine c. 1890",
    "module_date": "1890",
@@ -436,6 +450,7 @@
   },
   {
    "id": "T-15",
+   "credit_kind": "museum-object scan",
    "title": "Lumiere cinematographe, front and rear",
    "date": "1896",
    "module_date": "1896",
@@ -463,6 +478,7 @@
   },
   {
    "id": "T-16",
+   "credit_kind": "period record",
    "title": "Alexandre Promio, Panorama du Grand Canal pris d'un bateau (Lumiere)",
    "date": "1896 (Oct to Dec)",
    "module_date": "1896",
@@ -491,6 +507,7 @@
   },
   {
    "id": "T-17",
+   "credit_kind": "museum-object scan",
    "title": "Underwood Standard No. 5, photograph",
    "date": "before Oct 1922; model from 1900",
    "module_date": "1900",
@@ -518,6 +535,7 @@
   },
   {
    "id": "T-17b",
+   "credit_kind": "period record",
    "title": "Underwood Standard Typewriter No. 5, colour advertisement",
    "date": "1924",
    "module_date": "1924",
@@ -545,6 +563,7 @@
   },
   {
    "id": "T-18",
+   "credit_kind": "period record",
    "title": "The Bureau News, vol. 5 index, p. 7 (USDA Bureau of Markets and Crop Estimates), typewritten mimeograph",
    "date": "1921 (July 5 to December 20, 1921, on the index's first page)",
    "module_date": "1921",
@@ -571,6 +590,7 @@
   },
   {
    "id": "T-19",
+   "credit_kind": "period record",
    "title": "Rebbelib stick chart, Ratak and Ralik chains",
    "date": "1920s",
    "module_date": "1929",
@@ -598,6 +618,7 @@
   },
   {
    "id": "T-20",
+   "credit_kind": "period record",
    "title": "Admiralty chart 983, Marshall Islands",
    "date": "1891, new edition 1931",
    "module_date": "1931",

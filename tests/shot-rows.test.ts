@@ -96,6 +96,16 @@ describe("a shot's provenance rows", () => {
     ] } }));
     expect(dbl.get("Drawn from")?.textContent).toBe(
       "Lumiere cinematographe, front and rear, Unknown author, Public domainUnderwood Standard Typewriter No. 5, colour advertisement, Anonymous, Public domain");
+    // ruling 18: with kinds, each input says what it is; a texture or a scan is never listed as a record
+    const kinds = await rows(shotWith({ kind: "title_sequence", title_sequence: { provenance: [
+      { id: "S-130", title: "The Gazette of India Extraordinary", holder: "Internet Archive", licence: "public domain", credit_kind: "period record" },
+      { id: "globe", title: "Terrestrial globe, Doppelmayr 1728", holder: "Jagiellonian University Museum", licence: "CC0", credit_kind: "museum-object scan" },
+      { id: "C-02", title: "Oak Wood Planks", holder: "Poly Haven", licence: "CC0", credit_kind: "studio texture" },
+    ] } }));
+    expect(kinds.get("Drawn from")?.textContent).toBe(
+      "Period record: The Gazette of India Extraordinary, Internet Archive, public domain" +
+      "Museum-object scan: Terrestrial globe, Doppelmayr 1728, Jagiellonian University Museum, CC0" +
+      "Studio texture: Oak Wood Planks, Poly Haven, CC0");
   });
 
   it("sets a hostile title input as text, its non-https page unlinked", async () => {

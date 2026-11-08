@@ -2502,7 +2502,7 @@ def credits_blocks(plan: dict) -> list:
                                  # 2026-11-07); the studio's own theme stems in the shared ledger are not
         prov, _, _ = TS.provenance(titles[0].get("_item") or {})
         items = TS.provenance_items(prov)
-        series = wrap(f"{TS.SERIES}: {TS.credit_by_kind(items)}; every record on the sources page")
+        series = wrap(f"{TS.SERIES}: {TS.credit_by_kind(items)}; every input on the sources page")
         for x in [x for x in items if (TS.licence_rank(x.get("licence")) or 0) >= 2] + TS.credited_sound_items(prov):
             lic = str(x.get("licence") or "")
             who = x.get("credit") or x.get("holder") or x.get("creator") or x.get("uploader")
@@ -8825,7 +8825,7 @@ def title_sources_fields(s: dict) -> dict:
         return {}
     it = s.get("_item") or {}
     prov, _, _ = TS.provenance(it)
-    keep = ("id", "title", "date", "holder", "licence", "source_page", "use", "beats")
+    keep = ("id", "title", "date", "holder", "licence", "source_page", "use", "beats", "credit_kind")
     return {"title_sequence": {
         "series": TS.SERIES, "master": it.get("id"), "version": it.get("version"), "record": it.get("record"),
         "burned_marks": it.get("burned") is True, "marks": TS.timeline(it), "ai": False,
@@ -8910,8 +8910,9 @@ def public_loudness(loud, run_dir: Path):
 
 def sources_test_fixture(s: dict, it: dict) -> bool:
     """The sources record's ``test_fixture``: a synthetic stand-in (is_synthetic). A series title (A40) is the
-    studio's own master, made by its generator, never a test fixture unless its item says so."""
-    return bool(it.get("test_fixture")) if TS.is_title(s) else is_synthetic(it)
+    studio's own master, made by its generator, never a test fixture unless its item says so (``test_fixture`` or
+    ``synthetic``)."""
+    return bool(it.get("test_fixture") or it.get("synthetic")) if TS.is_title(s) else is_synthetic(it)
 
 
 def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
@@ -9591,11 +9592,32 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         raise
 
 
-def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Journal | None = None) -> dict:
+def master_was_draft(out: Path) -> bool | None:
+    """Whether the master in ``out`` was rendered with --draft: its sources.json names its run, whose journal opens
+    with run.start and its settings. None when that cannot be read."""
+    try:
+        run = json.loads((out / "sources.json").read_text(encoding="utf-8")).get("run")
+        if not run:
+            return None
+        from studio.engine.journal import journal_dir
+        with (journal_dir() / f"{run}.jsonl").open(encoding="utf-8") as f:
+            for line in f:
+                ev = json.loads(line)
+                if ev.get("lens") == "run.start":
+                    d = (ev.get("settings") or {}).get("draft")
+                    return None if d is None else bool(d)
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Journal | None = None,
+                 draft: bool | None = None) -> dict:
     """--sources-only: re-plan the film and rewrite ``<out>/sources.json`` beside an existing master, without
     rendering a frame. It uses the render's own fitted screenplay when there is one, takes the frame size
     from the master, refuses when the master's frame count differs from the plan's (the master is then
-    stale: render again), keeps the previous file's loudness, and records the master's sha256."""
+    stale: render again), keeps the previous file's loudness, and records the master's sha256. It plans as the
+    master was rendered: ``draft`` when given, else the master's own run (its journal's run.start), else final."""
     film = Path(film).resolve()
     out = Path(out).resolve() if out else film / "out"
     master = out / "master.mp4"
@@ -9607,8 +9629,10 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
     pr = probe_video(master)
     with journal.unit("scout", "sources-only", size={"driver": "items", "value": 0}) as u:
         # the master exists: its takes were judged by its render; sources.json is rewritten from the screenplay
+        if draft is None:
+            draft = bool(master_was_draft(out))
         plan = build_plan(film, W=pr["width"], H=pr["height"], burn_subtitles=False, journal=journal, play=play,
-                          voice_lints="off")
+                          voice_lints="off", draft=draft)
         u.size = {"driver": "items", "value": len(plan["shots"])}
     frames = count_frames(master)
     journal.lint("master-matches-plan", frames == plan["frames"], stage="assembly", phase="sources-only",
@@ -9679,7 +9703,7 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     if a.sources_only:
         try:
-            r = sources_only(a.film, a.out)
+            r = sources_only(a.film, a.out, draft=True if a.draft else None)
         except Refused as e:
             print(f"render: refused: {e}", file=sys.stderr)
             return 2

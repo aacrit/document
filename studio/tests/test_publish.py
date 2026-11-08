@@ -356,3 +356,23 @@ def test_the_cli_passes_the_crop_to_the_packet_and_refuses_a_bad_one(monkeypatch
     assert P.main(base) == 0 and seen["poster_crop"] is None
     assert P.main(base + ["--poster-crop", "1800x1800+0+0"]) == 2
     assert "poster crop" in capsys.readouterr().err
+
+
+def test_sources_only_plans_as_its_master_was_rendered(film, rendered, tmp_path, monkeypatch):
+    """Ruling 19 (2026-11-07): --sources-only re-plans with the master's own draft-ness (its run's journal, run.start
+    settings), unless told: a draft master's sources are not refused by final-only checks, a final's are."""
+    out = _copy_render(rendered, tmp_path / "out")
+    seen = []
+    real = R.build_plan
+
+    def spy(*a, **k):
+        seen.append(k.get("draft"))
+        return real(*a, **k)
+    monkeypatch.setattr(R, "build_plan", spy)
+    recorded = R.master_was_draft(out)
+    assert recorded is False                         # the fixture's master is a final render, read from its journal
+    R.sources_only(film, out)
+    R.sources_only(film, out, draft=True)
+    monkeypatch.setattr(R, "master_was_draft", lambda o: True)
+    R.sources_only(film, out)
+    assert seen == [False, True, True]

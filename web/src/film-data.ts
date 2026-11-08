@@ -76,6 +76,43 @@ export interface TitleInput {
   licence: string | null;
   /** https only; anything else is dropped and the title prints unlinked. */
   url: string | null;
+  /** Records only (ruling 18): what the input is, one of CREDIT_KINDS; null in a sources.json made before it. */
+  kind: string | null;
+}
+
+/** Ruling 18 (founder, 2026-11-07): the series titles' inputs by kind, as studio/engine/titles.py CREDIT_KINDS. */
+export const CREDIT_KINDS = ["period record", "museum-object scan", "studio texture"] as const;
+const KIND_LABEL: Record<string, string> = {
+  "period record": "Period record",
+  "museum-object scan": "Museum-object scan",
+  "studio texture": "Studio texture",
+};
+const COUNT_WORDS = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+
+function countOf(n: number, noun: string): string {
+  return `${n < COUNT_WORDS.length ? COUNT_WORDS[n] : String(n)} ${noun}${n === 1 ? "" : "s"}`;
+}
+
+/** The series titles' credit by kind, worded exactly as studio/engine/titles.py credit_by_kind (the founder's text:
+ * "drawn from 14 period records, with six museum-object scans and four studio textures (CC0), no AI"); without its
+ * ", no AI" when `noAi` is false. Null when any input states no kind (a sources.json made before ruling 18). */
+export function creditByKind(inputs: TitleInput[] | undefined, noAi = true): string | null {
+  if (!inputs?.length || inputs.some((x) => !x.kind || !(CREDIT_KINDS as readonly string[]).includes(x.kind))) return null;
+  const of = (k: string) => inputs.filter((x) => x.kind === k);
+  const rec = of("period record");
+  const scans = of("museum-object scan");
+  const tex = of("studio texture");
+  const more = [scans.length ? countOf(scans.length, "museum-object scan") : "", tex.length ? countOf(tex.length, "studio texture") : ""].filter(Boolean);
+  const cc0 = more.length && [...scans, ...tex].every((x) => (x.licence ?? "").trim().toLowerCase().startsWith("cc0")) ? " (CC0)" : "";
+  const words = rec.length
+    ? `drawn from ${countOf(rec.length, "period record")}${more.length ? `, with ${more.join(" and ")}${cc0}` : ""}`
+    : `drawn from ${more.join(" and ")}${cc0}`;
+  return noAi ? `${words}, no AI` : words;
+}
+
+/** A titles input's kind as a label ("Museum-object scan"), for the Sources page's "Drawn from" row. */
+export function kindLabel(kind: string | null): string | null {
+  return kind ? KIND_LABEL[kind] ?? null : null;
 }
 
 export interface DataSource {
@@ -350,7 +387,7 @@ export function parseTitleInputs(x: unknown, kind: "record" | "sound" = "sound")
     if (!title) continue;
     const by = kind === "sound" ? undoubled(str(d.credit) ?? str(d.holder) ?? str(d.creator)) : null;
     const archive = kind === "record" ? undoubled(str(d.credit) ?? str(d.holder) ?? str(d.creator)) : null;
-    out.push({ title, by, archive, licence: str(d.licence), url: safeUrl(d.source_page) });
+    out.push({ title, by, archive, licence: str(d.licence), url: safeUrl(d.source_page), kind: kind === "record" ? str(d.credit_kind) : null });
   }
   return out;
 }
@@ -1305,7 +1342,10 @@ export function shotWhat(shot: Shot, footage: Footage): string {
   if (shot.kind === "black") return `Black, under a voice or in silence, ${secs} s`;
   if (shot.kind === "card") return `Text on black, ${secs} s`;
   if (shot.kind === "drawn") return isMapShot(shot) ? `Drawn map, ${secs} s` : `Drawn, ${secs} s`;
-  if (shot.kind === "title_sequence") return `The series titles, drawn from period records, ${secs} s`;
+  if (shot.kind === "title_sequence") {
+    const credit = creditByKind(shot.title_records);
+    return credit ? `The series titles, ${credit}, ${secs} s` : `The series titles, drawn from period records, ${secs} s`;
+  }
   return `${secs} s`;
 }
 
@@ -1343,7 +1383,12 @@ export function shotTreatment(shot: Shot): string | null {
     return floor ? `${shown} ${floor} Nothing else in the picture is changed.` : `${shown} Nothing in the picture is changed.`;
   }
   if (shot.kind === "archive_video") return "Trimmed, shown at its own speed. Nothing in the picture is changed.";
-  if (shot.kind === "title_sequence") return "A model built from scans of period records, then this film's own record, shown whole. No AI.";
+  if (shot.kind === "title_sequence") {
+    const credit = creditByKind(shot.title_records, false);
+    return credit
+      ? `A model ${credit}, then this film's own record, shown whole. No AI.`
+      : "A model built from scans of period records, then this film's own record, shown whole. No AI.";
+  }
   return null;
 }
 

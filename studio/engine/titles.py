@@ -81,21 +81,34 @@ def _count(n: int, noun: str) -> str:
     return f"{word} {noun}" + ("" if n == 1 else "s")
 
 
+def credit_kind_problem(it: dict) -> str | None:
+    """Ruling 18: every picture input of the series titles states its ``credit_kind`` (no default), one of
+    CREDIT_KINDS; the title-provenance lint refuses any other, naming the item."""
+    k = it.get("credit_kind")
+    if k in CREDIT_KINDS:
+        return None
+    return (f"{it.get('id')}: credit_kind {k!r} is not one of {', '.join(CREDIT_KINDS)}" if k is not None
+            else f"{it.get('id')}: no credit_kind (one of {', '.join(CREDIT_KINDS)})")
+
+
 def credit_by_kind(items: list[dict]) -> str:
     """Founder ruling 18 (2026-11-07), the series titles' credit by kind, counted from the provenance ledger's
-    ``credit_kind`` (an item that states none is a period record): "drawn from 14 period records, with six
-    museum-object scans and four studio textures (CC0), no AI". Numbers under ten are words; "(CC0)" when every scan
-    and texture is CC0."""
-    kinds = [str(it.get("credit_kind") or "period record") for it in items]
-    rec = sum(k == "period record" for k in kinds)
-    scans = [it for it, k in zip(items, kinds) if k == "museum-object scan"]
-    tex = [it for it, k in zip(items, kinds) if k == "studio texture"]
-    words = f"drawn from {rec} period record" + ("" if rec == 1 else "s")
+    ``credit_kind`` (stated on every item: title-provenance refuses a missing or unknown one): "drawn from 14 period
+    records, with six museum-object scans and four studio textures (CC0), no AI". Numbers under ten are words; a kind
+    with no item is left out; "(CC0)" when every scan and texture is CC0."""
+    bad = [p for p in (credit_kind_problem(it) for it in items) if p]
+    if bad:
+        raise ValueError("; ".join(bad))
+    by = {k: [it for it in items if it.get("credit_kind") == k] for k in CREDIT_KINDS}
+    rec, scans, tex = by["period record"], by["museum-object scan"], by["studio texture"]
     more = [x for x in (_count(len(scans), "museum-object scan") if scans else "",
                         _count(len(tex), "studio texture") if tex else "") if x]
-    if more:
-        cc0 = all(str(it.get("licence") or "").strip().lower().startswith("cc0") for it in scans + tex)
-        words += ", with " + " and ".join(more) + (" (CC0)" if cc0 else "")
+    cc0 = " (CC0)" if more and all(str(it.get("licence") or "").strip().lower().startswith("cc0")
+                                   for it in scans + tex) else ""
+    if rec:
+        words = "drawn from " + _count(len(rec), "period record") + (", with " + " and ".join(more) + cc0 if more else "")
+    else:
+        words = "drawn from " + " and ".join(more) + cc0
     return words + ", no AI"
 
 
@@ -181,6 +194,13 @@ def select_master(item: dict, fps: float) -> tuple[dict, str]:
                 out["_path"] = str((Path(item["_path"]).parent / alt["file"]).resolve())
             return out, "alternate"
     return item, "conform"
+
+
+def _same_rate(name: str, fps: float) -> bool:
+    try:
+        return abs(float(CAD.parse_rate(name)) - fps) < 1e-6
+    except CAD.RateError:
+        return False
 
 
 def sub_marks(item: dict, start_s: float) -> list[dict]:
@@ -610,6 +630,8 @@ def _provenance_problems(it: dict, *, kind: str, play: dict | None) -> list[str]
         out.append(f"{it.get('id')}: no licence evidence or basis")
     if not it.get("sha256"):
         out.append(f"{it.get('id')}: no sha256 of the file used")
+    if kind == "picture" and credit_kind_problem(it):   # ruling 18: the credit counts every picture input by kind
+        out.append(credit_kind_problem(it))
     return out
 
 
@@ -838,17 +860,26 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
                                      "film's master rate with no speed change", unit=sid, evidence=out[sid]["conform"])
             except Exception as e:
                 ev["error"] = f"{type(e).__name__}: {e}"
-        # Ruling 19 (2026-11-07, BRAND-KIT 15/17, the kit is law): a final render plays the series titles 1:1 at the
-        # film's own rate; with no master at that rate (a conform), only a draft may go on
-        conformed = fmt_ok and not (rate_of(item) is not None and abs(_r(item) - fps) < 1e-6)
-        if conformed and not draft:
+        # Ruling 19 (2026-11-07, BRAND-KIT 15/17, the kit is law; CoS: "drop only"): a final render never drops the
+        # series titles' frames. A master faster than the film (a 29.97 master in a 24 film) is a drop conform: only a
+        # draft may go on. A declared repeat conform (a 24 master in a 29.97 film, one frame in four repeated) stays,
+        # as BRAND-KIT 17 allows.
+        dropped = fmt_ok and rate_of(item) is not None and fps < _r(item) - 1e-6
+        refuse = dropped and not draft
+        drop_fix = None
+        if refuse:
+            want = CAD.rate_str(CAD.Fraction(fps).limit_denominator(100000))
+            alts = item.get("masters") if isinstance(item.get("masters"), dict) else {}
+            named = next((k for k, v in alts.items() if _same_rate(k, fps) and not (isinstance(v, dict) and v.get("file"))),
+                         None)
             ev["no_master_at_film_rate"] = {"film_fps": round(fps, 4), "title_fps": rate_of(item),
-                                            "masters": sorted((item.get("masters") or {}).keys())}
-        fmt_lint_ok = fmt_ok and not (conformed and not draft)
+                                            "masters": sorted(alts.keys()), "method": "drop"}
+            drop_fix = (f"masters['{named}'] names no file: give the {want} fps master's file" if named is not None else
+                        f"no master at the film's rate ({want}): a final render never drops the series titles' frames "
+                        "(ruling 19, BRAND-KIT 15/17); declare one in the item's masters, or render --draft")
+        fmt_lint_ok = fmt_ok and not refuse
         lint("title-format", fmt_lint_ok, unit=sid, grammar="A40, 7.5, A44",
-             evidence=dict(ev, fix=None if fmt_lint_ok else
-                           ("no master at the film's rate: a final render plays the series titles 1:1 (ruling 19, "
-                            "BRAND-KIT 15/17); declare one in the item's masters, or render --draft") if fmt_ok else
+             evidence=dict(ev, fix=None if fmt_lint_ok else drop_fix if fmt_ok else
                            "the master is 1920x1080 at the rate its "
                                                        "ledger states (24 or 30000/1001), its frame count the ledger's, and "
                                                        "the shot's dur_s is frames / that rate (A44)"))
