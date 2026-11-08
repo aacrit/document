@@ -207,7 +207,14 @@ export interface FilmSources {
   /** The film's stated imagery rule, in plain sentences, when sources.json carries one. */
   imagery: string[];
   /** A56: the narrator's computer voice ({engine, voice}), when sources.json records it. */
-  narratorVoice: { engine: string | null; voice: string | null; pitch_shift_st: number | null } | null;
+  narratorVoice: {
+    engine: string | null;
+    voice: string | null;
+    pitch_shift_st: number | null;
+    /** A57: the model and its licence ("Kokoro-82M (hexgrad)", "Apache-2.0"), when sources.json records them. */
+    model?: string | null;
+    licence?: string | null;
+  } | null;
   /** A56: what the record lacks, stated in the sources data (sources.json gaps). */
   gaps: SourceGap[];
   /** A56: the speakers the screen does not name, as the record names them only by role. */
@@ -564,7 +571,13 @@ export function parseSources(json: unknown): FilmSources {
     imagery: imagerySentences(json.imagery_rule),
     narratorVoice:
       narration.length && isObj(json.narrator) && (str(json.narrator.engine) || str(json.narrator.voice))
-        ? { engine: str(json.narrator.engine), voice: str(json.narrator.voice), pitch_shift_st: num(json.narrator.pitch_shift_st) }
+        ? {
+            engine: str(json.narrator.engine),
+            voice: str(json.narrator.voice),
+            pitch_shift_st: num(json.narrator.pitch_shift_st),
+            model: str(json.narrator.model),
+            licence: str(json.narrator.licence),
+          }
         : null,
     gaps: (Array.isArray(json.gaps) ? json.gaps : [])
       .filter(isObj)
@@ -902,6 +915,20 @@ export function voiceName(engine: string | null, voice: string | null): string {
   return e ? `${e} '${voice}'` : `'${voice}'`;
 }
 
+/**
+ * The narrator's voice as printed (studio/engine/description.py narrator_voice_text): with its model recorded,
+ * "Kokoro-82M (hexgrad), the voice af_aoede, Apache-2.0"; else "Orpheus 'tara'".
+ */
+export function narratorVoiceText(nv: {
+  engine: string | null;
+  voice: string | null;
+  model?: string | null;
+  licence?: string | null;
+}): string {
+  if (!nv.model) return voiceName(nv.engine, nv.voice);
+  return [nv.model, nv.voice ? `the voice ${nv.voice}` : "", nv.licence ?? ""].filter((x) => x).join(", ");
+}
+
 const clockOf = (s: number | null): string => (s === null ? "" : formatTime(s));
 
 /** A drawn map, as studio/engine/description.py is_map reads one: it names its data, or its mark says it is drawn from map data. */
@@ -981,7 +1008,7 @@ export function filmNotes(
   const nv = data.narratorVoice;
   if (nv) {
     const shift = nv.pitch_shift_st;
-    const who = voiceName(nv.engine, nv.voice);
+    const who = narratorVoiceText(nv);
     const pitched = shift ? `, pitched ${shift > 0 ? "+" : ""}${shift} semitones` : "";
     voices.push(`Narration: a computer voice, ${who}${pitched}.`);
   }

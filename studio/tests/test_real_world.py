@@ -15,6 +15,7 @@ from conftest import make_film
 from studio.engine import journal as J
 from studio.engine import render as R
 
+AOEDE = {"engine": "kokoro", "voice": "af_aoede", "speed": 0.88}
 ZOE = {"engine": "orpheus", "voice": "zoe", "pitch_shift_st": -2}
 TARA_1ST = {"engine": "orpheus", "voice": "tara", "pitch_shift_st": 0.76}
 DECISION = "docs/DECISIONS.md 2026-10-17: CC BY-SA for Real World only"
@@ -81,7 +82,8 @@ def test_a_declared_film_plans_its_by_sa_still_and_journals_the_decision(tmp_pat
 
 def test_the_committed_profile_holds_zoe_lowered_two_semitones():
     prof = json.loads(R.NARRATOR_PROFILE.read_text(encoding="utf-8"))
-    assert prof["voice"] == {"engine": "orpheus", "voice": "tara"}          # the stock entry is still Tara
+    assert prof["voice"] == AOEDE                                         # the house narrator since 2026-11-07
+    assert [v for v in prof["variants"] if v["voice"] == {"engine": "orpheus", "voice": "tara"}]   # Tara kept
     (zoe,) = [v for v in prof["variants"] if v["voice"].get("voice") == "zoe"]
     assert zoe["voice"] == ZOE and len(zoe["takes"]) >= 5
     assert 140 < zoe["baseline"]["f0_hz"] < 200 and zoe["baseline"]["centroid_hz"] > 0
@@ -107,7 +109,8 @@ def test_zoe_is_chosen_by_voice_and_shift():
 
 def test_the_committed_profile_holds_tara_at_the_films_declared_shift():
     prof = json.loads(R.NARRATOR_PROFILE.read_text(encoding="utf-8"))
-    assert prof["voice"] == {"engine": "orpheus", "voice": "tara"}          # the stock entry is still unshifted Tara
+    assert prof["voice"] == AOEDE                                         # the house narrator since 2026-11-07
+    assert [v for v in prof["variants"] if v["voice"] == {"engine": "orpheus", "voice": "tara"}]   # Tara kept
     (t1,) = [v for v in prof["variants"] if v["voice"] == TARA_1ST]
     assert t1["voice"] == TARA_1ST and len(t1["takes"]) == 4
     assert 140 < t1["baseline"]["f0_hz"] < 200 and t1["baseline"]["centroid_hz"] > 0

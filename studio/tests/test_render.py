@@ -1926,9 +1926,9 @@ def test_two_voices_sharing_the_narrator_are_refused(plan, film, tmp_path):
     assert whole["status"] == "fail" and whole["evidence"]["spread_st"] > R.NARRATOR_SPREAD_MAX_ST
 
 
-def test_the_committed_narrator_profile_is_tara():
+def test_the_committed_narrator_profile_is_aoede():
     prof = json.loads(R.NARRATOR_PROFILE.read_text(encoding="utf-8"))
-    assert prof["voice"] == {"engine": "orpheus", "voice": "tara"} and len(prof["takes"]) == 5
+    assert prof["voice"] == {"engine": "kokoro", "voice": "af_aoede", "speed": 0.88} and len(prof["takes"]) == 5
     assert 150 < prof["baseline"]["f0_hz"] < 210 and 500 < prof["baseline"]["centroid_hz"] < 3000
 
 
