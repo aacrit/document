@@ -46,7 +46,7 @@ def fade_frames(item: dict) -> int:
     return round(M.LABEL["fade"] * (rate_of(item) or FPS))
 HUE_TOL = 2                         # a burned glyph pixel is its class hue within this (the master is lossless RGB)
 RECORD_LIMIT = 6.0                  # A7's low-pass mean difference: the record beat is the film's own scan, held whole
-LOCKUP_MIN_PX = 2000                # bright type pixels in the lockup band at 1080p: the words and the logomark are there
+LOCKUP_MIN_PX = 2000                # lockup pixels in the band at 1080p (bone on black, ink on paper): the words and the mark
 THEME_ROLE = "main_title"           # the main-title theme cue (score.py): over a title_slot placeholder only; a real
                                     # title carries its theme in its own sound (A40 standalone audio)
 PLACE_AFTER = "cold_open"           # the hook
@@ -326,19 +326,65 @@ def _probe_expect(W: int, H: int, cls: str, at: tuple[int, int], bare) -> np.nda
     return np.array(px.getpixel((0, 0))[:3], dtype=int)
 
 
-def _centre_expect(W: int, H: int, cls: str) -> np.ndarray:
-    """The glyph centre as the class draws it: its hue where the shape is solid there, else (the ring) over black,
-    which is what the lockup's CARD sits on."""
-    return _probe_expect(W, H, cls, M.glyph_centre(M.Layout(W, H)), (0, 0, 0))
+def _centre_expect(W: int, H: int, cls: str, ground=(0, 0, 0)) -> np.ndarray:
+    """The glyph centre as the class draws it: its hue where the shape is solid there, else (the ring) over the
+    lockup's ground: film black on the v11 card, the record's paper from title v12 (``local_ground``)."""
+    return _probe_expect(W, H, cls, M.glyph_centre(M.Layout(W, H)), ground)
+
+
+GROUND_GAP = 3                      # px outside the glyph's tile (with its contact disc) where its ground is read ...
+GROUND_BAND = 3                     # ... in strips this many px deep, above, right of and below it
+GROUND_SPREAD_Q = 90                # the ground's grain: this percentile of its pixels' distance from its median
+
+
+def local_ground(arr: np.ndarray) -> tuple[np.ndarray, float]:
+    """The ground the glyph is composed over, read from the frame itself (founder ruling 2026-11-08, Record + lockup:
+    the v12 lockup, and the CARD ring over it, sit on the record's paper): the per-channel median of thin strips just
+    outside the glyph's tile, above, right of and below it (the label's words sit to its left), and the grain there
+    (the GROUND_SPREAD_Q percentile of each strip pixel's largest channel distance from that median). The median
+    holds against a stray fibre or speck in the strips; the grain widens the tolerance only where the ground shows
+    through the glyph. On film black it reads (0, 0, 0) with no grain, so the v11 checks are exactly as before."""
+    H, W = arr.shape[:2]
+    tile, (tx, ty) = M.glyph_tile(W, H, "CARD")
+    s, g, b = tile.size[0], GROUND_GAP, GROUND_BAND
+    boxes = ((tx, ty - g - b, tx + s, ty - g), (tx, ty + s + g, tx + s, ty + s + g + b),
+             (tx + s + g, ty, tx + s + g + b, ty + s))
+    parts = []
+    for x0, y0, x1, y1 in boxes:
+        x0, y0, x1, y1 = max(0, x0), max(0, y0), min(W, x1), min(H, y1)
+        if x1 > x0 and y1 > y0:
+            parts.append(arr[y0:y1, x0:x1, :3].reshape(-1, 3).astype(float))
+    if not parts:
+        return np.zeros(3), 0.0
+    px = np.concatenate(parts)
+    med = np.round(np.median(px, axis=0))
+    spread = float(np.percentile(np.abs(px - med).max(axis=1), GROUND_SPREAD_Q))
+    return med, spread
+
+
+def _probe_alpha(W: int, H: int, cls: str, at: tuple[int, int]) -> float:
+    """How much of the glyph's tile (glyph and contact disc) covers the pixel ``at``: 1 where the ground cannot show."""
+    tile, (ox, oy) = M.glyph_tile(W, H, cls)
+    x, y = at[0] - ox, at[1] - oy
+    if not (0 <= x < tile.size[0] and 0 <= y < tile.size[1]):
+        return 0.0
+    return tile.getpixel((x, y))[3] / 255.0
 
 
 def glyph_shows(arr: np.ndarray, cls: str) -> bool:
     """The frame carries ``cls``'s glyph (A16 refined, A31): the centre (and, for the square, its corner; for the
-    ring over the lockup's black, every shape probe) is what the glyph composes there, within HUE_TOL."""
+    ring over the lockup's ground, every shape probe) is what the glyph composes there, within HUE_TOL. The ring is
+    composed over the frame's own ground (``local_ground``: film black on the v11 card, the record's paper from v12),
+    with the ground's grain allowed in proportion to how much of it shows through at each probe."""
     H, W = arr.shape[:2]
     L = M.Layout(W, H)
     cx, cy = M.glyph_centre(L)
-    if int(np.max(np.abs(arr[cy, cx, :3].astype(int) - _centre_expect(W, H, cls)))) > HUE_TOL:
+    ground, grain = local_ground(arr)
+
+    def tol(at):
+        return HUE_TOL + (1.0 - _probe_alpha(W, H, cls, at)) * grain
+
+    if float(np.max(np.abs(arr[cy, cx, :3].astype(int) - _centre_expect(W, H, cls, ground)))) > tol((cx, cy)):
         return False
     shape = M.GLYPH_SHAPE[cls]
     ox, oy = M.glyph_origin(L)
@@ -348,7 +394,7 @@ def glyph_shows(arr: np.ndarray, cls: str) -> bool:
     if shape == "diamond":                    # AI-GENERATED's diamond leaves the box's corner to the picture
         return not corner_is_hue
     if shape == "ring":
-        return all(int(np.max(np.abs(arr[y, x, :3].astype(int) - _probe_expect(W, H, cls, (x, y), (0, 0, 0))))) <= HUE_TOL
+        return all(float(np.max(np.abs(arr[y, x, :3].astype(int) - _probe_expect(W, H, cls, (x, y), ground)))) <= tol((x, y))
                    for x, y in M.glyph_shape_probes(L))
     return True
 
@@ -403,10 +449,12 @@ def check_frame(arr: np.ndarray, item: dict, k: int, t: float | None = None) -> 
     if prev is not None and mix < 1.0:
         L = M.Layout(W, H)
         cx, cy = M.glyph_centre(L)
-        a, b = _centre_expect(W, H, prev), _centre_expect(W, H, cls)
+        ground, grain = local_ground(arr)          # a ring's hollow centre shows the ground: black, or the paper (v12)
+        a, b = _centre_expect(W, H, prev, ground), _centre_expect(W, H, cls, ground)
         p, d = arr[cy, cx, :3].astype(float), (b - a).astype(float)
         u = float(np.clip(np.dot(p - a, d) / max(float(np.dot(d, d)), 1e-9), 0.0, 1.0))
-        return "fade" if float(np.max(np.abs(p - (a + u * d)))) <= 3.0 else "fail"
+        hollow = max(1.0 - _probe_alpha(W, H, c, (cx, cy)) for c in (prev, cls))
+        return "fade" if float(np.max(np.abs(p - (a + u * d)))) <= 3.0 + hollow * grain else "fail"
     return "burned" if glyph_shows(arr, cls) else "fail"
 
 
@@ -545,11 +593,23 @@ def view_specs(view: dict, master_path: str, n: int, record_path: str, window, f
     return specs, None, ev
 
 
+LOCKUP_CONTRAST = 150               # a lockup pixel stands this far from the band's ground (the v11 bright-type cut) ...
+LOCKUP_CONTRAST_SHARE = 0.6         # ... or this share of the room the ground leaves (its brightness, or 255 less it)
+
+
 def lockup_pixels(arr: np.ndarray) -> int:
-    """Bright pixels in the lockup's band (the middle third of the height): the words and the logomark."""
+    """Lockup pixels in the lockup's band (the middle third of the height): the words and the logomark, whatever they
+    sit on (founder ruling 2026-11-08, Record + lockup). The band's ground is its own per-channel median (film black on
+    the v11 card, the record's paper from v12); a pixel counts when its largest channel distance from that ground is
+    at least min(LOCKUP_CONTRAST, LOCKUP_CONTRAST_SHARE of the room the ground leaves). On black that is the v11 count
+    exactly (channels at 150 or more); on paper it is the ink type and mark, and a blank paper's grain and light fall
+    well short of it. Normalised to 1080p, against LOCKUP_MIN_PX."""
     H, W = arr.shape[:2]
-    band = arr[H // 3: 2 * H // 3, W // 10: 9 * W // 10]
-    n = int((band.max(axis=2) >= 150).sum())
+    band = arr[H // 3: 2 * H // 3, W // 10: 9 * W // 10, :3].astype(np.int16)
+    ground = np.median(band.reshape(-1, 3), axis=0)
+    level = float(ground.max())
+    cut = min(LOCKUP_CONTRAST, LOCKUP_CONTRAST_SHARE * max(level, 255.0 - level))
+    n = int((np.abs(band - ground).max(axis=2) >= cut).sum())
     return round(n * (1080 / H) ** 2)
 
 

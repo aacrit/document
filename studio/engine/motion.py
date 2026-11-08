@@ -30,7 +30,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont, features
+from PIL import Image, ImageDraw, ImageFont, ImageOps, features
 from PIL import __version__ as PIL_VERSION
 
 # --------------------------------------------------------------------------
@@ -48,6 +48,7 @@ PALETTE = {
     "safelight": (237, 162, 60),    # --doc-safelight #eda23c  "this is real"
     "cold": (47, 95, 168),          # --doc-cold   #2f5fa8  AI-GENERATED, DRAWN
     "mark_text": (255, 246, 227),   # --mark-text  oklch(from bone l+0.06)
+    "ink": (28, 23, 18),            # --doc-ink    #1c1712  the lockup's type and mark on the record's paper (title v12)
 }
 MARK_SCRIM_ALPHA = 0.60             # --mark-scrim: black at 60%
 MARK_HUE = {                        # GRAMMAR 4, amendment A1: hue is a bar, never text
@@ -2172,11 +2173,24 @@ def lockup_layout(L: Layout, fonts: Fonts) -> dict:
             "space": sp, "words": words, "widths": widths, "text": LOCKUP_TEXT}
 
 
-def lockup_card_frame(img: Image.Image, t: float, *, start: float, end: float, fonts: Fonts) -> Image.Image:
+def lockup_paper(paper: Image.Image, size: tuple[int, int]) -> Image.Image:
+    """The record's photographed paper as the lockup's ground: resized and cropped to ``size`` (cover, centred,
+    LANCZOS), RGBA."""
+    return ImageOps.fit(paper.convert("RGB"), size, Image.LANCZOS, centering=(0.5, 0.5)).convert("RGBA")
+
+
+def lockup_card_frame(img: Image.Image, t: float, *, start: float, end: float, fonts: Fonts,
+                      paper: Image.Image | None = None) -> Image.Image:
     """The series lockup card (GRAMMAR A40 lockup card, BRAND-KIT 15), cut in and cut out: the words are whole from
     the first frame (no ARRIVE, no fade, no exit); the logomark's corners close on ``drift`` and its ember comes in
-    over the last tenth of that motion. No second wordmark."""
-    base = _black(img.size)
+    over the last tenth of that motion. No second wordmark.
+
+    ``paper=None`` is the v11 form: bone type and mark on film black. With ``paper`` (founder ruling 2026-11-08,
+    Record + lockup: title v12 on), the ground is the record's own photographed paper (``lockup_paper``), the words
+    and the logomark's ring and corners are drawn in ink (--doc-ink), the ember stays the ember; the layout and the
+    timing are the same, and outside [start, end) the frame is the paper."""
+    base = _black(img.size) if paper is None else lockup_paper(paper, img.size)
+    type_rgb = PALETTE["bone"] if paper is None else PALETTE["ink"]
     if t < start or t >= end:
         return base
     L = Layout(*base.size)
@@ -2184,13 +2198,13 @@ def lockup_card_frame(img: Image.Image, t: float, *, start: float, end: float, f
     px, x0, baseline = lay["px"], lay["x0"], lay["baseline"]
     p = clamp01(DRIFT.progress(t - start))
     box = round(px * 24 / 17)                    # the corners span 17 of the mark's 24 units: the type's height
-    mark = draw_logomark(box, spread=0.08 * (1 - p), ember_alpha=clamp01((p - 0.9) / 0.1))
+    mark = draw_logomark(box, stroke_rgb=type_rgb, spread=0.08 * (1 - p), ember_alpha=clamp01((p - 0.9) / 0.1))
     base = base.convert("RGBA")
     base.alpha_composite(mark, (round(x0 - (box - px) / 2), round(baseline - LOCKUP["baseline"] * px - box / 2)))
     d = ImageDraw.Draw(base)
     x = x0 + px + lay["ring_d"]
     for (s, f), w in zip(lay["words"], lay["widths"]):
-        d.text((x, baseline), s, font=f, fill=_rgba(PALETTE["bone"], 1.0), anchor="ls")
+        d.text((x, baseline), s, font=f, fill=_rgba(type_rgb, 1.0), anchor="ls")
         x += w + lay["space"]
     return base
 
