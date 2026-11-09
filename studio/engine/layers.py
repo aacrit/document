@@ -189,7 +189,7 @@ def is_plate_file(name: str) -> bool:
     """A name this pass writes under layers/plates: ``<safe stem>.<16 hex key>.mov``, its
     ``.mov.json`` sidecar or a ``.mov.part`` left by a run that stopped. Only these are ever
     removed as stale; any other file there (a user's own .mov) is left alone."""
-    return bool(PLATE_FILE_RE.match(name))
+    return bool(PLATE_FILE_RE.fullmatch(name))
 
 
 def plate_write_plan(plan: dict, plates_dir: Path, specs: list[dict], asset_hash: dict,
@@ -236,21 +236,11 @@ def remaining_layers_bytes(plan: dict, plates_dir: Path, specs: list[dict], asse
     return max(0, int(need)), wp
 
 
-DRIVE_FLOORS_GB = {"D:": 12.0}       # the house floor per drive (machine rule): D: keeps 12 GB free, others min_free_gb
-
-
-def drive_floor_gb(path: Path, min_free_gb: float) -> float:
-    """The free-space floor for the drive ``path`` sits on: ``min_free_gb``, raised to the
-    drive's own house floor where it has one (D: 12 GB)."""
-    drive = os.path.splitdrive(str(path))[0].upper()
-    return max(float(min_free_gb), DRIVE_FLOORS_GB.get(drive, 0.0))
-
-
 def check_disk(out_dir: Path, need: int, *, min_free_gb: float, disk_usage=shutil.disk_usage) -> dict:
     """Refuse when writing ``need`` bytes would leave the out drive under its floor
     (``drive_floor_gb``: ``min_free_gb``, or D:'s 12 GB when that is higher)."""
     anchor = R._existing(out_dir)
-    floor = drive_floor_gb(anchor, min_free_gb)
+    floor = R.drive_floor_gb(anchor, min_free_gb)
     free = disk_usage(anchor).free
     if free - need < floor * 1024 ** 3:
         raise LayersRefused(f"--layers: the layers need about {need / 1024 ** 3:.2f} GB and the out drive has "

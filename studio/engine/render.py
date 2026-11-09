@@ -58,6 +58,7 @@ import datetime
 import hashlib
 import json
 import math
+import ntpath
 import os
 import queue as queue_mod
 import re
@@ -422,6 +423,16 @@ def frame_size(height: int) -> tuple[int, int]:
 # --------------------------------------------------------------------------
 
 
+DRIVE_FLOORS_GB = {"D:": 12.0}       # machine rule: D: keeps 12 GB free; every other drive keeps min_free_gb
+
+
+def drive_floor_gb(path: Path | str, min_free_gb: float) -> float:
+    """The free-space floor for the drive ``path`` sits on: ``min_free_gb``, raised to the
+    drive's own house floor where it has one (D: 12 GB). Every engine write checks it."""
+    drive = ntpath.splitdrive(str(path))[0].upper()   # ntpath, so a D: path reads the same off Windows (CI)
+    return max(float(min_free_gb), DRIVE_FLOORS_GB.get(drive, 0.0))
+
+
 def _existing(p: Path) -> Path:
     p = Path(p).resolve()
     while not p.exists() and p != p.parent:
@@ -462,12 +473,13 @@ def preflight(out: Path, journal: Journal, *, min_free_gb: float = MIN_FREE_GB, 
     DOCUMENT_ALLOW_UNVERIFIED_DISK=1 (journaled as a human override)."""
     root = _existing(out)
     drive = drive or root.anchor
+    floor = drive_floor_gb(drive, min_free_gb)
     free_gb = disk_usage(root).free / 1024 ** 3
-    ok = free_gb >= min_free_gb
+    ok = free_gb >= floor
     journal.lint("preflight-free-disk", ok, stage="scout", unit="preflight", phase="preflight",
-                 evidence={"drive": drive, "free_gb": round(free_gb, 2), "min_free_gb": min_free_gb})
+                 evidence={"drive": drive, "free_gb": round(free_gb, 2), "min_free_gb": min_free_gb, "floor_gb": floor})
     if not ok:
-        raise Refused(f"output drive {drive} has {free_gb:.1f} GB free, under the {min_free_gb:g} GB floor")
+        raise Refused(f"output drive {drive} has {free_gb:.1f} GB free, under the {floor:g} GB floor")
     if min_free_gb < MIN_FREE_GB:
         journal.human("scout", f"free-disk floor lowered to {min_free_gb:g} GB from {MIN_FREE_GB:g} GB", unit="preflight",
                       override="min_free_gb")
@@ -7071,10 +7083,12 @@ def write_stem_files(run_dir: Path, bus: dict, loud: dict, journal: Journal, *, 
                       "it is left untouched (move or remove it, then render again)")
     # the floor is checked before anything is removed, so a refused run keeps the earlier stems
     need = stem_bytes(bus)
-    free = disk_usage(_existing(run_dir)).free
-    if free - need < min_free_gb * 1024 ** 3:
+    anchor = _existing(run_dir)
+    floor = drive_floor_gb(anchor, min_free_gb)
+    free = disk_usage(anchor).free
+    if free - need < floor * 1024 ** 3:
         raise Refused(f"--stems: the stems need {need / 1024 ** 3:.2f} GB and the out drive has {free / 1024 ** 3:.2f} GB "
-                      f"free; writing them would leave it under the {min_free_gb:g} GB floor")
+                      f"free; writing them would leave it under the {floor:g} GB floor")
     if stems_dir.exists():
         shutil.rmtree(stems_dir)                            # an earlier render's stems never mix with these
     lines_dir.mkdir(parents=True, exist_ok=True)

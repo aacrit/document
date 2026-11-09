@@ -141,9 +141,10 @@ class _Usage:
 
 def test_d_keeps_its_own_12_gb_floor_whatever_min_free_gb_says(monkeypatch):
     """The house floor is 12 GB on D: (10 elsewhere): check_disk raises min_free_gb to it there."""
-    assert LY.drive_floor_gb(Path("D:/document-media/out"), 10) == 12
-    assert LY.drive_floor_gb(Path("d:/x"), 15) == 15                # a higher floor asked for still wins
-    assert LY.drive_floor_gb(Path("C:/work/out"), 10) == 10
+    assert R.drive_floor_gb(Path("D:/document-media/out"), 10) == 12
+    assert R.drive_floor_gb(Path("d:/x"), 15) == 15                 # a higher floor asked for still wins
+    assert R.drive_floor_gb(Path("C:/work/out"), 10) == 10
+    assert R.drive_floor_gb("/tmp/out", 10) == 10                   # a POSIX path has no drive: min_free_gb
     monkeypatch.setattr(LY.R, "_existing", lambda p: Path(p))      # the drive need not exist on the test machine
     need = 1024 ** 3
     seen = []
@@ -174,7 +175,8 @@ def test_the_cli_reports_a_layers_refusal_as_a_refusal(film_safe, tmp_path):
         "_U = collections.namedtuple('usage', 'total used free')\n"
         "shutil.disk_usage = lambda p: _U(10 ** 12, 0, 10 * 1024 ** 3 + 4096)\n", encoding="utf-8")
     root = Path(__file__).resolve().parents[2]
-    env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(site), str(root)]), OMP_NUM_THREADS="2")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("DOCUMENT_")}      # no shared caches written
+    env.update(PYTHONPATH=os.pathsep.join([str(site), str(root)]), OMP_NUM_THREADS="2")
     out = tmp_path / "out"
     p = subprocess.run([sys.executable, "-m", "studio.engine.render", str(film_safe), "--out", str(out),
                         "--res", "720", "--workers", "1", "--layers"],      # refused before any frame at either size

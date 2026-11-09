@@ -431,6 +431,15 @@ def test_preflight_refuses_a_full_disk_and_an_unhealthy_d(tmp_path):
     assert [e["status"] for e in lints(J.read(j.path), "preflight-d-health")] == ["fail", "pass"]
 
 
+def test_preflight_keeps_d_at_its_own_12_gb_floor(tmp_path):
+    j = J.Journal(film="pf")
+    healthy = lambda x: {"health": "Healthy", "operational": "OK"}
+    with pytest.raises(R.Refused, match="under the 12 GB floor"):
+        R.preflight(tmp_path, j, disk_usage=lambda p: _DU(11), drive=D_DRIVE, health=healthy)
+    assert R.preflight(tmp_path, j, disk_usage=lambda p: _DU(12), drive=D_DRIVE, health=healthy)["free_gb"] == 12
+    assert R.preflight(tmp_path, j, disk_usage=lambda p: _DU(11), drive="C:" + chr(92))["free_gb"] == 11
+
+
 def test_an_unreadable_d_refuses_unless_the_override_is_set(tmp_path, monkeypatch):
     j = J.Journal(film="pf")
     monkeypatch.delenv("DOCUMENT_ALLOW_UNVERIFIED_DISK", raising=False)
