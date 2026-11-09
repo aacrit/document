@@ -410,9 +410,10 @@ def test_write_stem_files_refused_for_disk_keeps_the_earlier_stems(tmp_path):
     assert after == before
 
 
-def test_write_stem_files_refuses_past_the_free_disk_floor(tmp_path):
+def test_write_stem_files_refuses_past_the_free_disk_floor(tmp_path, monkeypatch):
     """The stems' size is estimated before any file is written; past the out drive's
     floor the render is refused with the size named, and no stems folder is left."""
+    monkeypatch.setattr(R, "DRIVE_FLOORS_GB", {})                  # the 10 GB floor, wherever the temp root sits
     bus = _bus([{"id": "L1", "start_s": 0.0}])
     need = R.stem_bytes(bus)
     assert need >= 6 * 480 * 4 + 10 * 4

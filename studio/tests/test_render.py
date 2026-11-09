@@ -431,6 +431,15 @@ def test_preflight_refuses_a_full_disk_and_an_unhealthy_d(tmp_path):
     assert [e["status"] for e in lints(J.read(j.path), "preflight-d-health")] == ["fail", "pass"]
 
 
+def test_preflight_keeps_d_at_its_own_12_gb_floor(tmp_path):
+    j = J.Journal(film="pf")
+    healthy = lambda x: {"health": "Healthy", "operational": "OK"}
+    with pytest.raises(R.Refused, match="under the 12 GB floor"):
+        R.preflight(tmp_path, j, disk_usage=lambda p: _DU(11), drive=D_DRIVE, health=healthy)
+    assert R.preflight(tmp_path, j, disk_usage=lambda p: _DU(12), drive=D_DRIVE, health=healthy)["free_gb"] == 12
+    assert R.preflight(tmp_path, j, disk_usage=lambda p: _DU(11), drive="C:" + chr(92))["free_gb"] == 11
+
+
 def test_an_unreadable_d_refuses_unless_the_override_is_set(tmp_path, monkeypatch):
     j = J.Journal(film="pf")
     monkeypatch.delenv("DOCUMENT_ALLOW_UNVERIFIED_DISK", raising=False)
@@ -448,6 +457,23 @@ def test_volume_health_is_read_only_for_d(tmp_path):
     R.preflight(tmp_path, j, min_free_gb=0, health=lambda x: called.append(x), drive="C:" + chr(92))
     assert called == []
     assert [e for e in J.read(j.path) if e["kind"] == "human" and e.get("override") == "min_free_gb"]
+
+
+def test_a_lowered_floor_is_journaled_only_where_it_takes_effect(tmp_path):
+    healthy = lambda x: {"health": "Healthy", "operational": "OK"}
+    j = J.Journal(film="pf-d")
+    R.preflight(tmp_path, j, min_free_gb=5, disk_usage=lambda p: _DU(50), drive=D_DRIVE, health=healthy)
+    assert not [e for e in J.read(j.path) if e["kind"] == "human" and e.get("override") == "min_free_gb"]
+
+
+def test_extended_length_d_paths_are_d_for_the_floor_and_the_health_check(tmp_path):
+    assert R.drive_letter("\\\\?\\D:\\document-media\\out") == "D:"
+    assert R.drive_letter("\\\\.\\d:\\x") == "D:"
+    assert R.drive_letter("\\\\?\\UNC\\srv\\share\\x") == "" and R.drive_letter("/tmp/x") == ""
+    called = []
+    R.preflight(tmp_path, J.Journal(film="pf-x"), disk_usage=lambda p: _DU(50), drive="\\\\?\\D:\\",
+                health=lambda x: called.append(x) or {"health": "Healthy", "operational": "OK"})
+    assert called == ["D"]
 
 
 def test_generated_shots_and_bad_licences_are_refused(tmp_path):
