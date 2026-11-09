@@ -2,7 +2,7 @@
 // uploads to the film's folder in R2 with --remote and sources.json last, and
 // a dry run is plain data that never runs a command.
 import { describe, expect, it } from "vitest";
-import { BUCKET, MAX_PUT_BYTES, PACKET_ROOT, UPLOAD_ORDER, captionReview, cropProblems, parseCrop, commandLine, uploadsCaptions, gopFrames, rateProblems, videoKbps, webEncodeArgs, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease, readLedgers, posterSource, localPathProblems, runCheck } from "../scripts/release-film.mjs";
+import { BUCKET, MAX_PUT_BYTES, PACKET_ROOT, UPLOAD_ORDER, captionReview, cropProblems, parseCrop, commandLine, uploadsCaptions, gopFrames, rateProblems, videoKbps, webEncodeArgs, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease, readLedgers, posterSource, localPathProblems, placeholderProblems, runCheck } from "../scripts/release-film.mjs";
 import { localPathFindings } from "../scripts/lib/local-paths.mjs";
 import { mkdtempSync, readFileSync, writeFileSync as wfs, mkdirSync as mkd } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,7 +16,7 @@ const plan = (argv: string[], durations = { film: 1205, trailer: 120 }) => planR
 describe("release-film", () => {
   it("runs sources-only, the web encode, the poster and packet, the captions check, the upload and the hashes, in that order", () => {
     const { steps } = plan(["r/master.mp4", "--trailer", "t/master.mp4"]);
-    expect(steps.map((s) => s.id)).toEqual(["a", "b", "b", "c", "c", "d", "e", "e", "e", "e", "e", "e", "e", "e", "f"]);
+    expect(steps.map((s) => s.id)).toEqual(["a", "b", "b", "c", "c", "d", "e", "e", "e", "e", "e", "e", "e", "e", "e", "f"]);
     expect(steps[0].args).toEqual(expect.arrayContaining(["-m", "studio.engine.render", "--sources-only"]));
     expect(steps[1].args).toEqual(expect.arrayContaining(webEncodeArgs(1205)));
     expect(steps[2].args).toEqual(expect.arrayContaining(["-maxrate", `${videoKbps(120)}k`]));
@@ -72,6 +72,39 @@ describe("release-film", () => {
     wfs(good, JSON.stringify({ shots: [defect().shots[0]], cues: defect().cues }));
     expect(() => runCheck({ check: "local-paths", sources: good })).not.toThrow();
     expect(localPathProblems(defect())[0]).toBe('sources.json .shots[1].archive names a local drive: "Lok Sabha Secretariat (eparlib), PDF on D:"');
+  });
+
+  // GRAMMAR 11.1: a draft master may keep placeholder media (render.py placeholder-media); its sources.json lists them.
+  const drafted = () => ({
+    slug: "panama-canal", draft: true,
+    shots: [
+      { id: "S3", ledger_id: "FX-STILL-A", placeholder: false },
+      { id: "S4", ledger_id: "FX-STILL-B", placeholder: true },
+      { id: "S9", ledger_id: "PG-07", placeholder: true },
+    ],
+    placeholders: [{ unit: "S4", where: "shot", asset: "FX-STILL-B", why: "placeholder: true" },
+      { unit: "L5", where: "line", asset: "CLIP-2", why: "placeholder: true" }],
+  });
+
+  it("refuses a packet whose sources.json lists placeholder media, before any put, naming each shot and item", () => {
+    const { steps } = plan(["r/master.mp4", "--trailer", "t/master.mp4"]);
+    const check = steps.findIndex((s) => s.check === "placeholders");
+    const firstWrite = steps.findIndex((s) => s.args?.includes("put") || s.args?.includes("delete"));
+    expect(check).toBeGreaterThan(-1);
+    expect(check).toBeLessThan(firstWrite);
+    expect(plan(["r/master.mp4", "--no-upload"]).steps.some((s) => s.check === "placeholders")).toBe(true);
+    // the list and the shots' own flags, each named once (S9 is flagged on its shot only)
+    expect(placeholderProblems(drafted())).toEqual([
+      "shot S4 cites the placeholder FX-STILL-B", "line L5 cites the placeholder CLIP-2", "shot S9 cites the placeholder PG-07"]);
+    expect(placeholderProblems({ shots: [{ id: "S1", placeholder: false }], placeholders: [] })).toEqual([]);
+    expect(placeholderProblems({})).toEqual([]);                    // a sources.json from before the field: nothing listed
+    const dir = mkdtempSync(pjoin(tmpdir(), "release-ph-"));
+    const bad = pjoin(dir, "sources.json");
+    wfs(bad, JSON.stringify(drafted()));
+    expect(() => runCheck({ check: "placeholders", sources: bad })).toThrow(/3 placeholder\(s\)[\s\S]*shot S4 cites the placeholder FX-STILL-B[\s\S]*line L5[\s\S]*shot S9/);
+    const good = pjoin(dir, "good.json");
+    wfs(good, JSON.stringify({ shots: [drafted().shots[0]], placeholders: [] }));
+    expect(() => runCheck({ check: "placeholders", sources: good })).not.toThrow();
   });
 
   it("derives the rate cap from the duration, so the 720p file stays under the put limit with margin", () => {
