@@ -319,3 +319,35 @@ def test_sources_only_refuses_a_master_whose_draft_status_cannot_be_read(film_sa
     with pytest.raises(R.Refused, match=r"cannot tell whether this master was rendered with --draft.*--sources-only --draft"):
         R.sources_only(film_safe, out)
     assert json.loads((out / "sources.json").read_text(encoding="utf-8")) == old
+
+
+def test_a_final_record_beside_another_master_does_not_speak_for_it(film_safe, tmp_path):
+    """Review of #103: a --draft render refused after writing master.mp4 but before sources.json leaves a draft master
+    beside the earlier final's record (draft: false, that master's sha256). The record speaks for a master only when its
+    master_sha256 is that master's, so --sources-only without --draft refuses, with no journal and with the earlier
+    run's final journal alike."""
+    import subprocess
+    from studio.engine.journal import journal_dir, sha256_file
+    out = tmp_path / "out"
+    out.mkdir()
+    subprocess.run([R.ffmpeg(), "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=64x36:rate=24", "-frames:v", "1",
+                    str(out / "master.mp4")], check=True)
+    stale = {"v": 2, "slug": "fixture", "draft": False, "master": "master.mp4", "master_sha256": "0" * 64,
+             "master_run": "r-20261108-earlier-final"}
+    (out / "sources.json").write_text(json.dumps(stale), encoding="utf-8")
+    assert R.master_was_draft(out) is None
+    with pytest.raises(R.Refused, match=r"cannot tell whether this master was rendered with --draft.*another master"):
+        R.sources_only(film_safe, out)
+    # the earlier render's journal says final: it is that master's run, not this one's, so it does not count either
+    journal_dir().mkdir(parents=True, exist_ok=True)
+    (journal_dir() / "r-20261108-earlier-final.jsonl").write_text(
+        json.dumps({"kind": "stage", "lens": "run.start", "status": "start", "settings": {"draft": False}}) + "\n",
+        encoding="utf-8")
+    assert R.master_was_draft(out) is None
+    with pytest.raises(R.Refused, match="cannot tell whether this master was rendered with --draft"):
+        R.sources_only(film_safe, out)
+    assert json.loads((out / "sources.json").read_text(encoding="utf-8")) == stale
+    # the same record with this master's own sha256 speaks for it
+    (out / "sources.json").write_text(json.dumps(dict(stale, master_sha256=sha256_file(out / "master.mp4"))),
+                                      encoding="utf-8")
+    assert R.master_was_draft(out) is False

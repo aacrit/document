@@ -392,7 +392,7 @@ export function placeholderProblems(doc) {
 export function finalProblems(doc, what = "the master") {
   const out = [];
   if (doc?.draft === true) out.push(`${what} is a draft (rendered with --draft): render it again without --draft, then release`);
-  else if (doc?.draft !== false) out.push(`${what}'s sources.json does not record whether it is a draft (no draft field), so it cannot be shown to be final: run --sources-only on its render, or render it again`);
+  else if (doc?.draft !== false) out.push(`${what}'s sources.json does not record whether it is a draft (no draft field), so it cannot be shown to be final: run --sources-only on its render (or --sources-only --draft if its journal is gone), or render it again`);
   if (doc?.partial === true) out.push(`${what} is a check render (partial), not the full film`);
   return out;
 }
@@ -522,9 +522,11 @@ function main() {
         console.log(`  check: ${step.check}${step.file ? ` ${step.file}` : ""}`);
         // the packet as it stands (an earlier publish): what a real run refuses if publish writes it the same way
         if (step.check === "final") {
+          // a dry run never hashes the trailer master (it can be several GiB): it says the real run does
+          if (step.file) console.log(`  a real run hashes ${step.file} against master_sha256`);
           if (existsSync(step.sources)) {
             try {
-              runCheck(step);
+              runCheck({ ...step, file: undefined });
             } catch (e) {
               console.log(`  ${step.sources} as it stands: ${e.message} (a real run refuses)`);
             }

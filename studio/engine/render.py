@@ -9982,11 +9982,18 @@ def master_was_draft(out: Path) -> bool | None:
     """Whether the master in ``out`` was rendered with --draft: its sources.json says so (``draft``, written by the
     render and carried forward by every --sources-only rewrite), else names the master's run (``master_run``, or the
     ``run`` of a file written before it), whose journal opens with run.start and its settings. None when neither can be
-    read."""
+    read. The file speaks for the master only when its ``master_sha256`` is that master.mp4's: a --draft render
+    refused after writing master.mp4 but before sources.json leaves a draft master beside an earlier final's record,
+    and then neither that record's ``draft`` nor its run (the earlier render's) says how this master was made: None.
+    A file with no ``master_sha256`` (written before T7) is read by its run's journal alone."""
     try:
         doc = json.loads((out / "sources.json").read_text(encoding="utf-8"))
-        if isinstance(doc.get("draft"), bool):
-            return doc["draft"]
+        sha = doc.get("master_sha256")
+        if isinstance(sha, str) and sha:
+            if sha256_file(out / "master.mp4") != sha:
+                return None
+            if isinstance(doc.get("draft"), bool):
+                return doc["draft"]
         run = doc.get("master_run") or doc.get("run")
         if not run:
             return None
@@ -10028,8 +10035,9 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
             # neither sources.json nor the master's run journal says how it was rendered: never assumed final (a
             # draft must not be released as one); release-film refuses a master not recorded final, so say it here,
             # before any frame is encoded, rather than write a guess
-            raise Refused("cannot tell whether this master was rendered with --draft: its sources.json has no draft "
-                          "field and its run's journal (run.start) cannot be read. Render the film again for a final "
+            raise Refused("cannot tell whether this master was rendered with --draft: its sources.json does not "
+                          "record it (no draft field, or a master_sha256 that is another master's) and its run's "
+                          "journal (run.start) cannot be read. Render the film again for a final "
                           "master, or run --sources-only --draft to record it as the draft it may be (release refuses "
                           "a draft)")
         if recorded is False and draft:

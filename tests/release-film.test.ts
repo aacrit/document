@@ -137,7 +137,7 @@ describe("release-film", () => {
     expect(plan(["r/master.mp4", "--no-upload"]).steps.some((s) => s.check === "final")).toBe(true);
     // a draft with no placeholders is refused all the same
     expect(final({ slug: "x", draft: true, placeholder_media: [], shots: [] }, "the master")).toThrow(/the master is a draft \(rendered with --draft\)/);
-    expect(final({ slug: "x", shots: [] }, "the master")).toThrow(/does not record whether it is a draft/);
+    expect(final({ slug: "x", shots: [] }, "the master")).toThrow(/does not record whether it is a draft.*--sources-only --draft if its journal is gone/);
     expect(final({ slug: "x", draft: false, partial: true }, "the master")).toThrow(/check render \(partial\)/);
     expect(final({ slug: "x", draft: false, placeholder_media: [] }, "the master")).not.toThrow();
     expect(finalProblems({ draft: false })).toEqual([]);
