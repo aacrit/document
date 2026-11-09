@@ -8,7 +8,7 @@ this adds is the page's own title and source lines (GRAMMAR 2026-11-08, A8 never
 document it is, as the document heads itself, and the source line names the record it is set from. They are the
 page's content, not A56 meta-text, so no meta-text pattern reads them.
 
-The passage is set in Fraunces 300, the title in Fraunces (its later lines italic), the source line in Inter; every
+The passage and the title are set in Fraunces 300 (the title's later lines smaller), the source line in Inter; every
 numeral rides the data face (BRAND-KIT 7, motion.text_spans). Nothing is cut to fit: the body steps down in size until
 the page holds it, and a passage too long for the page is refused (motion.TextOverflow). A character with no glyph is
 refused, never drawn as an empty box. A page's ``reads`` (the words the film reads over it) must stand in its body
@@ -60,7 +60,9 @@ def _faces(fonts: M.Fonts, H: int, body_px: int) -> dict:
     s = max(1, round(H * LAYOUT["source"]))
     return {
         "title": (M._font(fonts.display, t), M.display_data_font(fonts, t)),
-        "title_after": (M._font(fonts.display_italic, t2), M.display_data_font(fonts, t2)),
+        # upright: the self-hosted Fraunces 300 italic draws its wonky alternates (a hooked l, a looped h), which read
+        # on a document's page as misprints of its proper names
+        "title_after": (M._font(fonts.display, t2), M.display_data_font(fonts, t2)),
         "body": (M._font(fonts.display, body_px), M.display_data_font(fonts, body_px)),
         "source": (M._font(fonts.structure, s), M._font(fonts.data, max(1, round(s * STRUCTURE_NUMERALS)))),
     }

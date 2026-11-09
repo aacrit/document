@@ -1,0 +1,145 @@
+{
+ "film": "panama-canal",
+ "_note": "The spec studio.engine.pages typesets the film's DRAWN pages from (python -m studio.engine.pages films/panama-canal/drawn/specs/pages.json --out D:/document-media/panama-canal/pages). Each body is the record's words verbatim; read_from says where each was read. The PNGs and doc-pages.json stay on D: (R-08).",
+ "pages": [
+  {
+   "id": "D-PAGE-FRUS-1903-D273",
+   "reads": [
+    "I am discharging a duty by lodging in advance with your excellency, in the name of my Government, a solemn protest against the attitude assumed in the Department of Panama by the Government of the United States to the injury of Colombia's rights"
+   ],
+   "title": [
+    "Dr. Herran to Mr. Hay.",
+    "[Translation.]",
+    "Legation of Colombia, Washington, D. C, November 7, 1903."
+   ],
+   "body": [
+    "Your excellency will undoubtedly receive the reply of the Colombian Government through the same channel that was used to forward the notice of which your excellency was pleased to send me a copy, but, in the meanwhile, I am discharging a duty by lodging in advance with your excellency, in the name of my Government, a solemn protest against the attitude assumed in the Department of Panama by the Government of the United States to the injury of Colombia’s rights and in disaccord with the stipulations of article 35 of the still existing treaty of 1846–1848 between Colombia and the United States of America."
+   ],
+   "source": "Papers Relating to the Foreign Relations of the United States, 1903, p. 244",
+   "read_from": "State Department TEI, github.com/HistoryAtState/frus volumes/frus1903.xml, div d273: head, opener and dateline; the paragraph after the page break 244, whole"
+  },
+  {
+   "id": "D-PAGE-FRUS-1903-D320A",
+   "reads": [
+    "The Government and people of Colombia consider themselves aggrieved by that of the United States in that they are convinced that the course followed by its administration, in relation to the events that have developed and recently been accomplished at Panama, have worked deep injury to their interests."
+   ],
+   "title": [
+    "General Reyes to Mr. Hay.",
+    "[Translation.]",
+    "Legation of Colombia on Special Mission, Washington, December 23, 1903."
+   ],
+   "body": [
+    "Most Excellent Sir: The Government and people of Colombia consider themselves aggrieved by that of the United States in that they are convinced that the course followed by its administration, in relation to the events that have developed and recently been accomplished at Panama, have worked deep injury to their interests."
+   ],
+   "source": "Papers Relating to the Foreign Relations of the United States, 1903, p. 284",
+   "read_from": "State Department TEI, github.com/HistoryAtState/frus volumes/frus1903.xml, div d320: head, opener and dateline; the note's opening paragraph, whole (p. 284)"
+  },
+  {
+   "id": "D-PAGE-FRUS-1903-D320B",
+   "reads": [
+    "The true character of the new State of Panama is revealed in the fact that it came into existence by a coup de main, effected by the winning over of troops, valorous without doubt, but who have fought against no one, assaulted no intrenchment, captured no fort"
+   ],
+   "title": [
+    "General Reyes to Mr. Hay.",
+    "[Translation.]",
+    "Legation of Colombia on Special Mission, Washington, December 23, 1903."
+   ],
+   "body": [
+    "The true character of the new State of Panama is revealed in the fact that it came into existence by a coup de main, effected by the winning over of troops, valorous without doubt, but who have fought against no one, assaulted no intrenchment, captured no fort—contenting themselves with putting in prison the constituted authorities."
+   ],
+   "source": "Papers Relating to the Foreign Relations of the United States, 1903, p. 291",
+   "read_from": "State Department TEI, github.com/HistoryAtState/frus volumes/frus1903.xml, div d320: head, opener and dateline; the paragraph on p. 291 that holds the reading, whole"
+  },
+  {
+   "id": "D-PAGE-FRUS-1903-PXXXVI",
+   "reads": [
+    "When it became evident that the treaty was hopelessly lost, the people of Panama rose literally as one man. Not a shot was fired by a single man on the Isthmus in the interest of the Colombian Government."
+   ],
+   "title": [
+    "Message of the President",
+    "Theodore Roosevelt. White House, December 7, 1903."
+   ],
+   "body": [
+    "Immediately after the adjournment of the Congress a revolution broke out in Panama. The people of Panama had long been discontented with the Republic of Colombia, and they had been kept quiet only by the prospect of the conclusion of the treaty, which was to them a matter of vital concern. When it became evident that the treaty was hopelessly lost, the people of Panama rose literally as one man. Not a shot was fired by a single man on the Isthmus in the interest of the Colombian Government. Not a life was lost in the accomplishment of the revolution. ..."
+   ],
+   "source": "Papers Relating to the Foreign Relations of the United States, 1903, p. XXXVI",
+   "read_from": "State Department TEI, github.com/HistoryAtState/frus volumes/frus1903.xml, section message-of-the-president: its head and its closer (the signature, set in upper and lower case); the paragraph that opens p. XXXVI, without its margin note 'Revolution in Panama.', from its first sentence to 'Not a life was lost in the accomplishment of the revolution.', the rest of the paragraph marked '...'"
+  },
+  {
+   "id": "D-PAGE-FRUS-1903-D328",
+   "reads": [
+    "the act executed on November 3 last is the logical sequence of a situation already unendurable, the solution of a grave and vexatious problem, the sincere, firm, definite, and irrevocable manifestation of the will of the people."
+   ],
+   "title": [
+    "The Independence of the Isthmus of Panama—Its History, Causes, and Justification.",
+    "Ramon M. Valdes. Panama, November 18, 1903."
+   ],
+   "body": [
+    "This must happen as we predict, and for that reason the time is opportune to state the truth, to reveal facts which it concerns the entire world to know, and to infuse even into the minds of the most incredulous or blind the conviction that the act executed on November 3 last is the logical sequence of a situation already unendurable, the solution of a grave and vexatious problem, the sincere, firm, definite, and irrevocable manifestation of the will of the people."
+   ],
+   "source": "Papers Relating to the Foreign Relations of the United States, 1903, p. 320",
+   "read_from": "State Department TEI, github.com/HistoryAtState/frus volumes/frus1903.xml, div d328, the attachment's head (p. 320) and its closer (p. 333, the signature); the third paragraph of p. 320, whole"
+  },
+  {
+   "id": "D-PAGE-FRUS-1904-D565",
+   "reads": [
+    "Article III of the Varilla-Hay treaty, the only one treating of the rights of sovereignty, stipulates that the United States should (shall) possess and exercise the rights, power, and authority which the Republic of Panama conceded it over the zone, as if it were sovereign in the territory; but this expression implicitly conveys the idea that it is not sovereign"
+   ],
+   "title": [
+    "Mr. de Obaldía to Mr. Hay.",
+    "[Translation.]",
+    "Legation of Panama, Washington, August 11, 1904."
+   ],
+   "body": [
+    "Article III of the Varilla-Hay treaty, the only one treating of the rights of sovereignty, stipulates that the United States should (shall) possess and exercise the rights, power, and authority which the Republic of Panama conceded it over the zone, as if it were sovereign in the territory; but this expression implicitly conveys the idea that it is not sovereign, and although in the final part of the article is added “to the entire exclusion of the exercise by the Republic of Panama of such sovereign rights, power, and authority,” these words, which are in obvious contradiction to those which precede, must be interpreted in accordance with other subsequent articles of the agreement which demonstrate the real intention of the contracting parties."
+   ],
+   "source": "Papers Relating to the Foreign Relations of the United States, 1904, p. 600",
+   "read_from": "State Department TEI, github.com/HistoryAtState/frus volumes/frus1904.xml, div d565: head, opener and dateline; the paragraph on p. 600 that holds the reading, whole"
+  },
+  {
+   "id": "D-PAGE-TR-1906-P10",
+   "reads": [
+    "In October, of the 19,000 negroes on the roll 86 died from disease; pneumonia being the most destructive disease, and malarial fever coming second."
+   ],
+   "title": [
+    "The President’s Message Concerning the Panama Canal",
+    "Theodore Roosevelt. The White House, December 17, 1906."
+   ],
+   "body": [
+    "... In October, of the 19,000 negroes on the roll 86 died from disease; pneumonia being the most destructive disease, and malarial fever coming second. The difficulty of exercising a thorough supervision over the colored laborers is of course greater than is the case among the whites, and they are also less competent to take care of themselves, which accounts for the fact that their death rate is so much higher than that of the whites, in spite of the fact that they have been used to similar climatic conditions. Even among the colored employees it will be seen that the death rate is not high."
+   ],
+   "source": "South Milwaukee, Wis., 1907, p. 10",
+   "read_from": "Internet Archive cu31924022883379, page image n21 (p. 10) and n62 (p. 29, the signature), read by eye on 2026-11-09: the paragraph's sentences on p. 10, from 'In October', whole; the sentence it continues from p. 9 is marked '...'"
+  },
+  {
+   "id": "D-PAGE-TR-1906-P19",
+   "reads": [
+    "I questioned many of these Jamaica laborers as to the conditions of their work and what, if any, changes they wished. I received many complaints from them, but as regards most of these complaints they themselves contradicted one another."
+   ],
+   "title": [
+    "The President’s Message Concerning the Panama Canal",
+    "Theodore Roosevelt. The White House, December 17, 1906."
+   ],
+   "body": [
+    "The West India laborers are fairly, but only fairly, satisfactory. Some of the men do very well indeed; the better class, who are to be found as foremen, as skilled mechanics, as policemen, are good men; and many of the ordinary day laborers are also good. But thousands of those who are brought over under contract (at our expense) go off into the jungle to live, or loaf around Colon, or work so badly after the first three or four days as to cause a serious diminution of the amount of labor performed on Friday and Saturday of each week. I questioned many of these Jamaica laborers as to the conditions of their work and what, if any, changes they wished. I received many complaints from them, but as regards most of these complaints they themselves contradicted one another. In all cases where the complaint was as to their treatment by any individual it proved on examination that this individual was himself a West India man of color, either a policeman, a storekeeper, or an assistant storekeeper. Doubtless there must be many complaints against Americans; but those to whom I spoke did not happen to make any such complaint to me."
+   ],
+   "source": "South Milwaukee, Wis., 1907, p. 19",
+   "read_from": "Internet Archive cu31924022883379, page image n42 (p. 19) and n62 (p. 29, the signature), read by eye on 2026-11-09: the paragraph on p. 19 that holds the reading, whole"
+  },
+  {
+   "id": "D-PAGE-GARRISON-1914-08-15",
+   "reads": [
+    "By the successful passage of vessels through the Canal the dream of the centuries has become a reality."
+   ],
+   "title": [
+    "Washington, D. C., August 15, 1914.",
+    "Col. George W. Goethals, Culebra, Canal Zone."
+   ],
+   "body": [
+    "On behalf of the Government and the people of the United States I express to you and through you to all concerned in the achievement, the intense gratification and pride experienced today. By the successful passage of vessels through the Canal the dream of the centuries has become a reality. Its stupendous undertaking has been finally accomplished and a perpetual memorial to the genius and enterprise of our people has been created. The fully earned and deserved congratulations of a grateful people go out to you and your colaborers."
+   ],
+   "source": "Lindley M. Garrison, Secretary of War. Cable of August 15, 1914",
+   "read_from": "Internet Archive canalrecord7152isth, page image n558 (The Canal Record VII, p. 521), read by eye on 2026-11-09: the cable's heading, its text whole and its signature; nothing of the Record's own masthead, number, date or its introducing sentence is set"
+  }
+ ]
+}

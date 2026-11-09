@@ -83,6 +83,12 @@ def test_the_title_comes_first_and_the_source_last():
     assert lay["drawn_text"][-1]["kind"] == "source"
 
 
+def test_no_title_line_is_set_in_the_italic_whose_alternates_misread_names():
+    lay = PG.layout(page(), size=SMALL)
+    faces = {s["font"].path for ln in lay["lines"] if ln["kind"] == "title" for s in ln["spans"]}
+    assert not any("italic" in f for f in faces)
+
+
 def test_every_word_is_kept_and_everything_sits_inside_the_page():
     long = page(body=["word " * 260])
     lay = PG.layout(long, size=SMALL)
