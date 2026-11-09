@@ -2732,7 +2732,7 @@
           "start_s": 1132.083333,
           "asset": "V-NARA-TAFT-1912",
           "in_s": 460.832,
-          "out_s": 483.433,
+          "out_s": 483.457,
           "native_fps": 60,
           "sound": {
             "mode": "mute",
@@ -2752,7 +2752,7 @@
           "start_s": 1154.708333,
           "asset": "V-NARA-TAFT-1912",
           "in_s": 491.3,
-          "out_s": 498.699,
+          "out_s": 498.675,
           "native_fps": 60,
           "sound": {
             "mode": "mute",
@@ -3128,7 +3128,7 @@
           "kind": "archive_still",
           "start_s": 1317.375,
           "asset": "S-NARA-LAVALLEY-MIRA",
-          "dur_s": 14.875,
+          "dur_s": 14.9,
           "transition_in": {
             "type": "cut"
           },
