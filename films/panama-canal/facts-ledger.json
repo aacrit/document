@@ -1,0 +1,414 @@
+{
+  "_note": "Every fact known or recorded by the horizon, with its period basis (A0). F01-F65 are the brief's (section 6), unchanged; F66-F68 were added by the screenwriter from sources the brief verifies and are flagged for the analyst.",
+  "as_of": "1914-08-15",
+  "facts": [
+    {
+      "id": "F01",
+      "fact": "Convention of 18 Nov 1903; a zone ten miles wide, five miles on each side of the centre line",
+      "known_by": "1903-11-18",
+      "known_by_basis": "Convention text, IA panamacanalmessa00unit, Arts. II-III"
+    },
+    {
+      "id": "F02",
+      "fact": "Art. III: the rights \"which the United States would possess and exercise if it were the sovereign\"",
+      "known_by": "1903-11-18",
+      "known_by_basis": "ibid., Art. III"
+    },
+    {
+      "id": "F03",
+      "fact": "Panama and Colon excluded from the grant",
+      "known_by": "1903-11-18",
+      "known_by_basis": "ibid., Art. II proviso"
+    },
+    {
+      "id": "F04",
+      "fact": "Obaldía to Hay, 11 Aug 1904",
+      "known_by": "1904-08-11",
+      "known_by_basis": "FRUS 1904 docs 564-565"
+    },
+    {
+      "id": "F05",
+      "fact": "Roosevelt received by Amador, 15 Nov 1906",
+      "known_by": "1906-11-20",
+      "known_by_basis": "FRUS 1906 doc 305; LoC mp76000087"
+    },
+    {
+      "id": "F06",
+      "fact": "Three days on the Isthmus; the second in the Culebra Cut; he questioned laborers",
+      "known_by": "1906-12-17",
+      "known_by_basis": "1906 message, pp. 4-5 and 19"
+    },
+    {
+      "id": "F07",
+      "fact": "More than 2 1/3 million cubic yards a month, winter 1908; 103 steam shovels",
+      "known_by": "1908-12-08",
+      "known_by_basis": "Senate Doc. 539, p. 6"
+    },
+    {
+      "id": "F08",
+      "fact": "Lock canal, summit level 85 feet",
+      "known_by": "1909",
+      "known_by_basis": "Goethals 1909; LoC 87694582"
+    },
+    {
+      "id": "F09",
+      "fact": "Goethals's 1909 paper",
+      "known_by": "1909",
+      "known_by_basis": "IA isthmiancanal00goetrich"
+    },
+    {
+      "id": "F10",
+      "fact": "30 Apr 1908: 33,193 at work, 5,831 gold and 27,362 silver",
+      "known_by": "1908-12-08",
+      "known_by_basis": "Senate Doc. 539, p. 7"
+    },
+    {
+      "id": "F11",
+      "fact": "The Canal Record went free to gold roll employees",
+      "known_by": "1913-08-27",
+      "known_by_basis": "Masthead, vol. VII no. 1"
+    },
+    {
+      "id": "F12",
+      "fact": "Gorgas, chief sanitary officer",
+      "known_by": "1907-05-18",
+      "known_by_basis": "Medical Record 1907, byline"
+    },
+    {
+      "id": "F13",
+      "fact": "October 1906 deaths as the message gives them",
+      "known_by": "1906-12-17",
+      "known_by_basis": "1906 message"
+    },
+    {
+      "id": "F14",
+      "fact": "Women in government houses, May 1908: 1,290, 237 and 1,104",
+      "known_by": "1908-12-08",
+      "known_by_basis": "Senate Doc. 539, p. 7"
+    },
+    {
+      "id": "F15",
+      "fact": "Boswell on the Isthmus, Sep-Oct 1907, founding women's clubs",
+      "known_by": "1907-11-06",
+      "known_by_basis": "Canal Record I, nos. 7-10"
+    },
+    {
+      "id": "F16",
+      "fact": "Gamboa dike blown, 10 Oct 1913",
+      "known_by": "1913-10-10",
+      "known_by_basis": "NARA 100996152; Canal Record VII"
+    },
+    {
+      "id": "F17",
+      "fact": "Alexandre La Valley's transit, 7 Jan 1914",
+      "known_by": "1914-01",
+      "known_by_basis": "Canal Record VII, \"First Steam Vessel Through the Canal\"; NARA 100995584 caption"
+    },
+    {
+      "id": "F18",
+      "fact": "The Ancon's official trip, 15 Aug 1914, about 9 hours, Porras aboard",
+      "known_by": "1914-08-15",
+      "known_by_basis": "Canal Record VII no. 52; NARA 100996348"
+    },
+    {
+      "id": "F19",
+      "fact": "Garrison's cable of 15 Aug 1914",
+      "known_by": "1914-08-15",
+      "known_by_basis": "ibid."
+    },
+    {
+      "id": "F20",
+      "fact": "Stock floated Dec 1880; liquidator appointed 4 Feb 1889; work suspended 15 May 1889; New Panama Canal Co. organised Oct 1894",
+      "known_by": "1909",
+      "known_by_basis": "Goethals 1909, pp. 1-2"
+    },
+    {
+      "id": "F21",
+      "fact": "On 9 Feb 1889 Lesseps announced he could not form a new company",
+      "known_by": "1889-02-10",
+      "known_by_basis": "NY Tribune, 10 Feb 1889, p. 1"
+    },
+    {
+      "id": "F22",
+      "fact": "By 24 May 1889 the Jamaican commissioner had sent away about 4,000 people, with 3,000 tickets more",
+      "known_by": "1889-05-25",
+      "known_by_basis": "Seattle P-I, 25 May 1889, p. 1; Freeman, 1 Jun 1889 (OCR digits to confirm)"
+    },
+    {
+      "id": "F23",
+      "fact": "Walker Commission valued the French property at $40,000,000",
+      "known_by": "1901-12-04",
+      "known_by_basis": "Report 1899-1901, p. 70"
+    },
+    {
+      "id": "F24",
+      "fact": "Walker Commission, 16 Nov 1901, favoured Panama and a lock canal",
+      "known_by": "1901-11-16",
+      "known_by_basis": "ibid.; Goethals 1909, p. 3"
+    },
+    {
+      "id": "F25",
+      "fact": "Navy ordered on 2 Nov 1903 to keep the transit open and prevent hostile landings; about 400 Colombian troops at Colon, 3 Nov",
+      "known_by": "1903-11-16",
+      "known_by_basis": "FRUS 1903 d280, d292"
+    },
+    {
+      "id": "F26",
+      "fact": "Uprising, evening of 3 Nov 1903, \"no bloodshed\"; independence proclaimed; Junta of Arango, Boyd and Arias",
+      "known_by": "1903-11-04",
+      "known_by_basis": "FRUS 1903 d229, d232, d259"
+    },
+    {
+      "id": "F27",
+      "fact": "The US entered into relations with the de facto government, 6 Nov 1903",
+      "known_by": "1903-11-06",
+      "known_by_basis": "FRUS 1903 d239"
+    },
+    {
+      "id": "F28",
+      "fact": "Colombia protested on 7 Nov (Herrán) and 23 Dec 1903 (Reyes)",
+      "known_by": "1903-12-23",
+      "known_by_basis": "FRUS 1903 d273, d320"
+    },
+    {
+      "id": "F29",
+      "fact": "1904 Constitution, Art. 136, allows US intervention",
+      "known_by": "1904-02-16",
+      "known_by_basis": "FRUS 1904 d550"
+    },
+    {
+      "id": "F30",
+      "fact": "Taft in Panama, Nov-Dec 1904; banquet on 1 Dec",
+      "known_by": "1904-12-06",
+      "known_by_basis": "FRUS 1904 d576"
+    },
+    {
+      "id": "F31",
+      "fact": "Executive Order of 5 Dec 1912: all Zone land necessary; possession directed",
+      "known_by": "1912-12-05",
+      "known_by_basis": "Canal Record VI no. 17"
+    },
+    {
+      "id": "F32",
+      "fact": "Towns between Gorgona and Gatun cleared; Gorgona district abolished by EO of 2 Sep 1912",
+      "known_by": "1913",
+      "known_by_basis": "ICC Annual Report 1913, Dept. of Law"
+    },
+    {
+      "id": "F33",
+      "fact": "Moving Gorgona: 200 American families, 600 bachelors, several hundred West Indians, Mar-Jun 1913",
+      "known_by": "1913",
+      "known_by_basis": "ICC 1913, p. 55"
+    },
+    {
+      "id": "F34",
+      "fact": "30 Jun 1913: 23,184 in commission quarters (9,173 gold, 4,295 European, 9,716 West Indian)",
+      "known_by": "1913",
+      "known_by_basis": "ICC 1913, p. 55"
+    },
+    {
+      "id": "F35",
+      "fact": "Largest force 44,733 on 26 Mar 1913 (gold 5,993, silver 38,740)",
+      "known_by": "1913",
+      "known_by_basis": "ICC 1913, pp. 53-54, 372-373"
+    },
+    {
+      "id": "F36",
+      "fact": "45,107 laborers brought to the Isthmus since the start, 11,873 from Cuba and Europe, \"the balance from Colombia and the West Indies\"",
+      "known_by": "1913",
+      "known_by_basis": "ICC 1913, p. 372"
+    },
+    {
+      "id": "F37",
+      "fact": "Gatun Lake at elevation 31 on 1 Jul 1912, 56.28 ft on 29 Nov 1912; sluices closed 27 Jun 1913",
+      "known_by": "1913",
+      "known_by_basis": "ICC 1913"
+    },
+    {
+      "id": "F38",
+      "fact": "Gatun Locks first operated 26 Sep 1913 (the tug Gatun, west flight)",
+      "known_by": "1913-10-01",
+      "known_by_basis": "Canal Record VII no. 6 (page to confirm)"
+    },
+    {
+      "id": "F39",
+      "fact": "Gamboa dike fired at 2.02 p.m., 10 Oct 1913, by Wilson at Washington by telegraph; a cayuco passed first",
+      "known_by": "1913-10-15",
+      "known_by_basis": "Canal Record VII, p. 65"
+    },
+    {
+      "id": "F40",
+      "fact": "Central Division removed 100,163,547 cu yd, 4 May 1904 to 31 Aug 1913, with about 38,729,000 lb of explosives",
+      "known_by": "1913-10",
+      "known_by_basis": "Canal Record VII, p. 49 (subtotals do not add in the OCR: check the scan)"
+    },
+    {
+      "id": "F41",
+      "fact": "Gaillard left ill 9 Aug 1913; died at Baltimore 5 Dec 1913",
+      "known_by": "1913-12",
+      "known_by_basis": "Canal Record VII, p. 142"
+    },
+    {
+      "id": "F42",
+      "fact": "The Ancon's timetable, 15 Aug 1914: Cristobal 7.10 a.m.; Gatun 8.00; Gamboa 11.15; Cucaracha 12.20; Pedro Miguel 12.56; Miraflores 1.56-3.20; channel's end 4.30 p.m.; about 200 guests",
+      "known_by": "1914-08-15",
+      "known_by_basis": "Canal Record VII no. 52 (event date)"
+    },
+    {
+      "id": "F43",
+      "fact": "17,949 Barbadians recruited to 7 Jul 1909, of 27,500 West Indians recruited",
+      "known_by": "1909-07-14",
+      "known_by_basis": "Canal Record II, 14 Jul 1909"
+    },
+    {
+      "id": "F44",
+      "fact": "A Barbados medical examiner found taking fees from laborers",
+      "known_by": "1909-07-14",
+      "known_by_basis": "same"
+    },
+    {
+      "id": "F45",
+      "fact": "Barbados prohibited further recruiting",
+      "known_by": "1911-07-19",
+      "known_by_basis": "Canal Record IV, 19 Jul 1911; V, 20 Sep 1911"
+    },
+    {
+      "id": "F46",
+      "fact": "528 laborers recruited in Barbados, Jan-Feb 1913",
+      "known_by": "1913",
+      "known_by_basis": "ICC 1913, Quartermaster"
+    },
+    {
+      "id": "F47",
+      "fact": "Ten cents an hour for all West Indian laborers",
+      "known_by": "1909-04-21",
+      "known_by_basis": "Canal Record II, 21 Apr 1909"
+    },
+    {
+      "id": "F48",
+      "fact": "Europeans paid 16, then 20, cents gold an hour",
+      "known_by": "1909-10-20",
+      "known_by_basis": "Canal Record III, 20 Oct 1909"
+    },
+    {
+      "id": "F49",
+      "fact": "Canal medals cast from copper of old French excavators and locomotives, for two years' service",
+      "known_by": "1908-10-07",
+      "known_by_basis": "Canal Record II, 7 Oct 1908"
+    },
+    {
+      "id": "F50",
+      "fact": "Medal and longevity pay for US citizens only",
+      "known_by": "1909-02-10",
+      "known_by_basis": "Canal Record II, 16 Dec 1908 and 10 Feb 1909"
+    },
+    {
+      "id": "F51",
+      "fact": "14,822 money orders ($429,990.47) issued in Sep 1908",
+      "known_by": "1908-10-07",
+      "known_by_basis": "Canal Record II, 7 Oct 1908"
+    },
+    {
+      "id": "F52",
+      "fact": "Employee deaths: white 123 (15.93 per 1,000), black 1,150 (45.94) in 1906-07; white 94 (7.46), black 389 (9.39) in 1912-13",
+      "known_by": "1913",
+      "known_by_basis": "ICC 1913, App. P (Gorgas); figures from the page image"
+    },
+    {
+      "id": "F53",
+      "fact": "Monthly report printed 1 Jul 1914: whites paid 24 sick days a year, blacks not",
+      "known_by": "1914-07-01",
+      "known_by_basis": "Canal Record VII, 1 Jul 1914"
+    },
+    {
+      "id": "F54",
+      "fact": "Clubhouse for colored men at Culebra opened 3 Nov 1911, used until spring 1913",
+      "known_by": "1913-09-24",
+      "known_by_basis": "Canal Record VII, 24 Sep 1913"
+    },
+    {
+      "id": "F55",
+      "fact": "Lake-area villages (Bohio, Frijoles, San Pablo, Tabernilla) sold or demolished, \"a colored schoolhouse\" among them",
+      "known_by": "1912-02-21",
+      "known_by_basis": "Canal Record V, 21 Feb 1912"
+    },
+    {
+      "id": "F56",
+      "fact": "San Pablo-Tabernilla vacated",
+      "known_by": "1912-01-24",
+      "known_by_basis": "Canal Record V, 24 Jan 1912"
+    },
+    {
+      "id": "F57",
+      "fact": "Joint Land Commission (Federico Boyd, Roland P. Falkner, Samuel Lewis, L. S. Rowe) made awards for houses in Gorgona and Cruces (e.g. Juan Sotillo, Gabriel Jolly)",
+      "known_by": "1913-09-10",
+      "known_by_basis": "Canal Record VII, Aug-Oct 1913"
+    },
+    {
+      "id": "F58",
+      "fact": "Former owners in native Gorgona denied free transport for their houses' material",
+      "known_by": "1913-11-19",
+      "known_by_basis": "Canal Record VII, 19 Nov 1913"
+    },
+    {
+      "id": "F59",
+      "fact": "United Fruit recruited 327 laborers in two weeks, over 90% British West Indians",
+      "known_by": "1913-10-22",
+      "known_by_basis": "Canal Record VII, 22 Oct 1913"
+    },
+    {
+      "id": "F60",
+      "fact": "Five West Indian masons laid 96,000 bricks in a day at Balboa, at 13 cents an hour",
+      "known_by": "1914-06",
+      "known_by_basis": "The Crisis 8:2, June 1914, p. 63"
+    },
+    {
+      "id": "F61",
+      "fact": "Trained female nurses only at the Colon and Ancon hospitals; Ancon had 500 beds, 61 nurses",
+      "known_by": "1907-06",
+      "known_by_basis": "Freeland, AJN, June 1907"
+    },
+    {
+      "id": "F62",
+      "fact": "A committee of Havana's Gallego Society inspected the Spanish laborers",
+      "known_by": "1908-01-22",
+      "known_by_basis": "Canal Record I, 22 Jan 1908"
+    },
+    {
+      "id": "F63",
+      "fact": "Camera flights over the canal by hydro-biplane, 25 and 27 Apr 1913, with R. A. Duhem of the Duhem and Harter Motion Picture Company; Balboa 10.00 to Cristobal 10.57",
+      "known_by": "1913-04-30",
+      "known_by_basis": "Canal Record VI no. 36, pp. 297-298"
+    },
+    {
+      "id": "F64",
+      "fact": "Taft sailed from Key West on the Arkansas on 19 Dec 1912, reached Cristobal on 24 Dec and sailed on 26 Dec",
+      "known_by": "1912-12",
+      "known_by_basis": "Canal Record VI (issues of Dec 1912; page to confirm)"
+    },
+    {
+      "id": "F65",
+      "fact": "The SS Ancon came into Cristobal with 1,500 laborers from Barbados, 2 Sep 1909",
+      "known_by": "1909-09-02",
+      "known_by_basis": "NARA 100996834 (185-G-1127) caption. Reviewer: confirm in Canal Record III, Sep 1909, since a caption's own date is unknown"
+    },
+    {
+      "id": "F66",
+      "fact": "Lesseps visited the Isthmus and wrote his account of the visit in 1885 (\"the voyage which I have just made\")",
+      "known_by": "1887",
+      "known_by_basis": "Lesseps, Recollections of Forty Years, tr. Pitman, London 1887, vol. I, pp. 141-151; the translator's note \"This chapter was written in 1885\" (added from the brief's R10, R11, R33 source)"
+    },
+    {
+      "id": "F67",
+      "fact": "The Canal Record, the Commission's weekly, first issue dated 4 Sep 1907",
+      "known_by": "1907-09-04",
+      "known_by_basis": "The Canal Record vol. I no. 1, 4 Sep 1907, masthead (IA canalrecord1152isth; the brief's section 8 and the 'no distinction' card)"
+    },
+    {
+      "id": "F68",
+      "fact": "Bunau-Varilla was an engineer of the French company at Colon in 1885 (\"my house at Colon\")",
+      "known_by": "1913",
+      "known_by_basis": "Bunau-Varilla, Panama: the Creation, Destruction, and Resurrection, 1913, pp. 43-44 (added from the brief's R13 source)"
+    }
+  ]
+}

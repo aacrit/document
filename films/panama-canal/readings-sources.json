@@ -1,0 +1,154 @@
+{
+  "_note": "The research ledger for the readings and the quote cards: every source, its archive and licence, and whether the extract is a translation (GRAMMAR 6.2; A56 puts the disclosure here, never on a lower third). The voice department writes extracts/<source>.<locator>.<line>.txt from the page images before any take.",
+  "sources": {
+    "P-lesseps-1887-v1": {
+      "title": "Recollections of Forty Years, vol. I",
+      "author": "Ferdinand de Lesseps, tr. C. B. Pitman",
+      "year": 1887,
+      "archive": "Internet Archive",
+      "item": "recollectionsoff01lessrich",
+      "licence": "public domain",
+      "translation": true,
+      "ocr": true,
+      "note": "The translator notes 'This chapter was written in 1885'."
+    },
+    "P-ny-tribune-1889-02-10": {
+      "title": "New-York Tribune, 10 February 1889, p. 1, 'No new Panama Canal Company'",
+      "archive": "Library of Congress, Chronicling America",
+      "item": "sn83030214/1889-02-10/ed-1/seq-1",
+      "licence": "public domain",
+      "translation": true,
+      "ocr": true,
+      "note": "The ALTO reads 'pow' for 'now'; check the page image."
+    },
+    "P-bunau-varilla-1913": {
+      "title": "Panama: the Creation, Destruction, and Resurrection",
+      "author": "Philippe Bunau-Varilla",
+      "year": 1913,
+      "archive": "Internet Archive",
+      "item": "cu31924022882835",
+      "licence": "no known copyright restrictions in the United States",
+      "ocr": true
+    },
+    "P-frus-1903": {
+      "title": "Papers relating to the Foreign Relations of the United States, 1903",
+      "archive": "Office of the Historian (TEI, github.com/HistoryAtState/frus)",
+      "licence": "US government work",
+      "translation": "d273, d320, d328 are the State Department's translations; pXXXVI is Roosevelt's English",
+      "note": "Confirm page breaks on the scan."
+    },
+    "P-frus-1904": {
+      "title": "Foreign Relations of the United States, 1904",
+      "archive": "Office of the Historian (TEI)",
+      "licence": "US government work",
+      "translation": true
+    },
+    "P-frus-1906-pt2": {
+      "title": "Foreign Relations of the United States, 1906, part 2",
+      "archive": "Office of the Historian (TEI)",
+      "licence": "US government work",
+      "translation": "inclosure 1 (Amador) is a translation; inclosure 2 (Roosevelt) is English"
+    },
+    "P-roosevelt-1906-message": {
+      "title": "Special Message of the President, 17 December 1906",
+      "archive": "Internet Archive",
+      "item": "cu31924022883379",
+      "licence": "US government work",
+      "ocr": true
+    },
+    "P-gorgas-1905-harpers": {
+      "title": "Health Conditions in the Canal Zone, reprinted from Harper's Weekly, c1905",
+      "archive": "Internet Archive",
+      "item": "healthconditions00gorg",
+      "licence": "public domain",
+      "ocr": true
+    },
+    "P-gorgas-1907-medical-record": {
+      "title": "Sanitary Work on the Isthmus of Panama during the Last Three Years, Medical Record, 18 May 1907",
+      "archive": "Internet Archive",
+      "item": "101648340.nlm.nih.gov",
+      "licence": "public domain",
+      "ocr": true,
+      "note": "Reprint page to confirm."
+    },
+    "P-freeland-1907-ajn": {
+      "title": "Nursing in the Canal Zone, American Journal of Nursing 7, June 1907",
+      "archive": "Internet Archive (JSTOR early journal content)",
+      "item": "jstor-3403816",
+      "licence": "public domain by date (open question 6: JSTOR non-commercial note)",
+      "ocr": true
+    },
+    "P-ajn-1905-ancon": {
+      "title": "Ancon Hospital, Panama, by the nursing staff, American Journal of Nursing 5, September 1905",
+      "archive": "Internet Archive",
+      "item": "jstor-3402253",
+      "licence": "public domain by date (open question 6)",
+      "ocr": true
+    },
+    "P-chatfield-1908": {
+      "title": "Light on Dark Places at Panama",
+      "author": "Mary A. Chatfield",
+      "year": 1908,
+      "archive": "Internet Archive",
+      "item": "lightondarkplace00chat",
+      "licence": "public domain",
+      "ocr": true
+    },
+    "P-canal-record-1-10": {
+      "title": "The Canal Record I no. 10, 6 November 1907, p. 78, 'Miss Boswell's Observations'",
+      "archive": "Internet Archive",
+      "item": "canalrecord1152isth",
+      "licence": "US government work",
+      "ocr": true
+    },
+    "P-washington-bee-1908-06-20": {
+      "title": "The Washington Bee, 20 June 1908, p. 4",
+      "archive": "Library of Congress, Chronicling America",
+      "item": "sn84025891/1908-06-20/ed-1/seq-4",
+      "licence": "public domain",
+      "ocr": true
+    },
+    "P-mirror-and-farmer-1909-12-02": {
+      "title": "The Mirror and Farmer (Manchester, N.H.), 2 December 1909, p. 2",
+      "archive": "Library of Congress, Chronicling America",
+      "item": "sn84023820/1909-12-02/ed-1/seq-2",
+      "licence": "public domain",
+      "ocr": true
+    },
+    "P-cleveland-gazette-1910-09-24": {
+      "title": "Cleveland Gazette, 24 September 1910, p. 2, '30,000 Negroes at Panama' (from the St. Louis Advance, 20 August 1910)",
+      "archive": "Library of Congress, Chronicling America",
+      "item": "sn83035387/1910-09-24/ed-1/seq-2",
+      "licence": "public domain",
+      "ocr": true
+    },
+    "P-goethals-1909": {
+      "title": "The Isthmian Canal",
+      "author": "George W. Goethals",
+      "year": 1909,
+      "archive": "Internet Archive",
+      "item": "isthmiancanal00goetrich",
+      "licence": "US government work",
+      "ocr": true
+    },
+    "P-canal-record-7-52": {
+      "title": "The Canal Record VII no. 52, 19 August 1914 (Garrison's cable of 15 August)",
+      "archive": "Internet Archive",
+      "licence": "US government work",
+      "ocr": true
+    },
+    "cards": {
+      "Q-R14b": "The Freeman (Indianapolis), 1 June 1889, p. 6 (sn82016211); OCR digits '4,0J0' to check",
+      "Q-R18": "FRUS 1903 d280, p. 247",
+      "Q-R17": "FRUS 1903 d229, p. 231",
+      "Q-R16": "FRUS 1903 d259, p. 238 (translation)",
+      "Q-R27": "FRUS 1904 d550, p. 578 (translation; 'restablish' sic)",
+      "Q-R50": "AJN 5, Sep 1905, pp. 881-882",
+      "Q-SICKPAY": "Canal Record VII, 1 Jul 1914 (month to confirm)",
+      "Q-NODIST": "Canal Record I no. 1, 4 Sep 1907",
+      "Q-MEDAL": "Canal Record II, 10 Feb 1909",
+      "Q-MASTHEAD": "Canal Record VII no. 1",
+      "Q-R31": "Canal Record VII, p. 65 (no. 8, 15 Oct 1913: confirm)"
+    }
+  }
+}
