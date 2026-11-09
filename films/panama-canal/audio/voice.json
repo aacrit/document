@@ -1,0 +1,375 @@
+{
+ "v": 1,
+ "identity": {
+  "engine": "kokoro",
+  "voice": "af_aoede",
+  "speed": 0.88,
+  "pitch_shift_st": 0.0
+ },
+ "model": "1ac13e45b13e2947",
+ "runtime": {
+  "kokoro-onnx": "0.6.1",
+  "onnxruntime": "1.31.1",
+  "numpy": "2.5.4",
+  "phonemizer": "3.6.0",
+  "espeakng-loader": "0.2.4",
+  "espeak-ng": "1.52.0",
+  "python": "3.12.10"
+ },
+ "lines": {
+  "O-1": {
+   "text_sha256": "b2aa7b3eca3606ac59879bc92c08937aa6a8616407a4ceddcfe432cd24071572",
+   "key": "f7ae9c8f5fd7f24bf0f0ac5b5c2b9c090fbdfdf2ca887b601ebb51ccfc42409b",
+   "wav": "films/panama-canal/audio/narration/O-1.wav",
+   "sha256": "7a2218504f6ac7d0402c152ed570008bd6423c527f0d3bfe2c9844b04c31d5c0"
+  },
+  "O-2": {
+   "text_sha256": "f385f785cc5aa7561a6e58c29bff7f7bf7e20a139040ad495af0d7b81d8fb456",
+   "key": "96602f91f2bffb57b086d4a4df23c544424118508d8d6e371dcbc45a91ffd2b8",
+   "wav": "films/panama-canal/audio/narration/O-2.wav",
+   "sha256": "d786cfdf5f7a48c796846feaff21f41256a6b209ae82b2fd0ce5b7d36de53321"
+  },
+  "N1-1": {
+   "text_sha256": "3b92b939796829f6190cab431cda18dbf759034e01a980417a3ec5d0ebb621a1",
+   "key": "0b6b9b2451a0ddda8bd9d05cc4cdc1113f73b62d06af87c334afac7994964ffa",
+   "wav": "films/panama-canal/audio/narration/N1-1.wav",
+   "sha256": "270a8b1b34cb83e9deff578a438aecc3752e9b8a473c8b17db16fbb0b54233e0"
+  },
+  "N1-2": {
+   "text_sha256": "4b30a8d64f48257daab2d5414ccf67ed2cc61700c301f2c5e5d41b03ad22c72d",
+   "key": "93a47f9cbf6fd3409070143b680bb59f0a191883a2417da36751738c139718be",
+   "wav": "films/panama-canal/audio/narration/N1-2.wav",
+   "sha256": "4186d03e0d07ff4ec834701c6b9d973831c893b71beebe1006189080fc803ede"
+  },
+  "N1-3": {
+   "text_sha256": "f9b4ae4059cc7d1be71d47fc58709ce4e2db91ec9fdad954744dc67db0ceaf1e",
+   "key": "1d2a67d7f661c797a8f5aa5cc87d9b7daacdb2c7c69be1a8c458a0627ff205c8",
+   "wav": "films/panama-canal/audio/narration/N1-3.wav",
+   "sha256": "a7e5c03019feb99315470f8125519e9dd07edbcada7f9390fe60a91c3a97a3b5"
+  },
+  "N1-4": {
+   "text_sha256": "1279ddd4bf6a471e37a61349aa9d1af76c3b424d9e65589730be84f23bcdff81",
+   "key": "e8b1b735b11127f43bcbc2137cd9969276a88cd00a0b676c7646ccbf456b5dd1",
+   "wav": "films/panama-canal/audio/narration/N1-4.wav",
+   "sha256": "6b099fed40eddec7109e40b2542a945d98c1e82c8ff0c90c282bb32cf8abb4de"
+  },
+  "N1-5": {
+   "text_sha256": "ad6dd9544bd1a4f771d8eac49ef9c0fbcfa167a34e6c4b38488bdbc84e898864",
+   "key": "99c443e4702136562b5eb30f0cf76973aeef4b7b642d82707a9b359f446c4ffc",
+   "wav": "films/panama-canal/audio/narration/N1-5.wav",
+   "sha256": "d61cfbf45082a2fbabfc4cce674ef788939c019366b6020dc3f41fddd880d06d"
+  },
+  "N1-6": {
+   "text_sha256": "7f5d4b70a15048be6ae54d5df888f1c5b2d059c5364c1c88ca82a5911f11110d",
+   "key": "c162825a0e69b008047e0a72d0a2835824aa904d8c72d89b79c915dabf2187ad",
+   "wav": "films/panama-canal/audio/narration/N1-6.wav",
+   "sha256": "62dd7d74b2af5440dc455c48d3e9d3fc989be11a64ced4ae9efa10abc1a1cc4f"
+  },
+  "N2-1": {
+   "text_sha256": "5c5966a3cf162858522a291708e4cb9750f3a2db0bcdf946d1f263ea6f64f773",
+   "key": "810d6ff99462a85d9fc47ed3d19acde6debfcda23b0b2f8a190e5df6d53542f4",
+   "wav": "films/panama-canal/audio/narration/N2-1.wav",
+   "sha256": "fe9462709796e7ae2aaa7be9bd0533459bc93227f5cb35ce4f3cff11cc7c48bd"
+  },
+  "N2-2": {
+   "text_sha256": "9c744bfd66570f95013a126a49d2bb8b14ade566664bb3a855c22cb0cf50a9bd",
+   "key": "d32bec1db5ca1e4c26778c4724840405ada40b3fb63bf00bd89ce74869d705fa",
+   "wav": "films/panama-canal/audio/narration/N2-2.wav",
+   "sha256": "ce2b1e76ff4e69902a42cd3f7cc0a23e683e8369f016c3a596bf118ea93f1a7a"
+  },
+  "N2-3": {
+   "text_sha256": "00f2da0be6ab882094ca8c5cc350eeeaa88ae90cc98d454cf79508c112972cc0",
+   "key": "cc91d5bb589fe448254a1863b2f69a09798e7b50000d5794a5fbaa915e96a52f",
+   "wav": "films/panama-canal/audio/narration/N2-3.wav",
+   "sha256": "aeae56bc78f1f4c32cc264def63fdfc2756ef8d90299f3f6dc2360586d4a4d15"
+  },
+  "N2-4": {
+   "text_sha256": "c3cb510e7784f7bf600c6418631eab3b25019efab9566ebefe545137432dc6c8",
+   "key": "9cf07fc05bb96149b3cb1d7dfed10d7edde8ed29d2862ea286c40b841ca1c4fe",
+   "wav": "films/panama-canal/audio/narration/N2-4.wav",
+   "sha256": "277a60843aacced25eb3313929383ae327e90bd5a12d355c3ec6456149975be4"
+  },
+  "N2-5": {
+   "text_sha256": "14c4a46848672a3ebcf3074d73eaada122ca66cb67f208e4d6b6efd3a04241f4",
+   "key": "4beb644554e160ddcac30d9b167fd0f0b6190d73daf7df1c1e28f1d6dc256cca",
+   "wav": "films/panama-canal/audio/narration/N2-5.wav",
+   "sha256": "285171238d4855174e537dd5a1bb247043cb20023fd4e9e72c40aa74705ce8aa"
+  },
+  "N2-6": {
+   "text_sha256": "e28013f144792231496dd277ec5765b2e9bb055de6f20b2cb4325dd05ee7ab2c",
+   "key": "4d58c69d41a6ae82cf4623fca5b4a23c8541b734e8d86a5d5c0b365928c2e5ae",
+   "wav": "films/panama-canal/audio/narration/N2-6.wav",
+   "sha256": "6cdafed9317e59a3b3ea9ba602d1dffb5ceff4726c2f00c452b05f8a4f9ac766"
+  },
+  "N2-7": {
+   "text_sha256": "e62de37f5dcae9a4b058a8251289934b4b70471bedfa931a0bf471dd4675f429",
+   "key": "8a3a34f3b53d2d695357e64b4039ec130a44eeaa0cf6ce81e8e4ec1510189b46",
+   "wav": "films/panama-canal/audio/narration/N2-7.wav",
+   "sha256": "152b8e0f37a17ebbcda3664c6f98f19ac166c5b1e618b353cb097815150eefee"
+  },
+  "N2-8": {
+   "text_sha256": "e514015a486d46100757c6dea6b37599d9d4cfdf8b16e7302d9144ddf1187cb8",
+   "key": "ec8acb76c2300ff809946e6d098e6510522a4af70f2e809f96b54183998c90b1",
+   "wav": "films/panama-canal/audio/narration/N2-8.wav",
+   "sha256": "e5dde0bee967042498ff4d0cb170a6ab007ceb90b7e3d285dd9ae537d69681da"
+  },
+  "N2-9": {
+   "text_sha256": "67d7b8078874fddb8c9b84600485f971ebf4dc5d937b3aabd4e93e1e2a324aae",
+   "key": "9ec12d7cbfede0ad2e231d974c3c0e6f2c482f0d9c39ce9f10df5b8524c8f13d",
+   "wav": "films/panama-canal/audio/narration/N2-9.wav",
+   "sha256": "da14d5a8451f1af371a7b9e6d78d11a8e47049e91d9ef105fc62137b0bbea5f4"
+  },
+  "N2-10": {
+   "text_sha256": "6b953c5b7722f78233ca1add65c30c56794fad6b82a38c8ececce604565dadfb",
+   "key": "a9e860a67f9e545e777a49ca32d4c057da861b22eb3891ce458c0b7005e68277",
+   "wav": "films/panama-canal/audio/narration/N2-10.wav",
+   "sha256": "ec707838b23cb66575d0fb68facd133f7fd9e10d6bdcc1e27315a8f6c6689651"
+  },
+  "N3-1": {
+   "text_sha256": "9dfb549d3f3e4208146fce0e4ce75a0b14a5a91513f1e9b5ea68d1177e34862d",
+   "key": "7869be20c8b7e133b9819ec2ff0b204eba51f9664a637914a3bf4f7b46559dfb",
+   "wav": "films/panama-canal/audio/narration/N3-1.wav",
+   "sha256": "783f177e606b50dc18bdb9d95c0b7ecacfbab2b12789ca08fc05ed19af73868e"
+  },
+  "N3-2": {
+   "text_sha256": "48cbcb6cfb6bc0db1f5150da975ec5d4168b013b2b52a39c559b22bd52710cbb",
+   "key": "c997e5bacf851cb6cbabe9ec9e009c4d594dabaf5dee386d087a0d91cd34177d",
+   "wav": "films/panama-canal/audio/narration/N3-2.wav",
+   "sha256": "a21e8f530d2d1515382b3490a3036b97b9b7f46987029a2546eaca163939a693"
+  },
+  "N3-3": {
+   "text_sha256": "a0d82f7bd21875f186446e093e11c731a64b1b1cb0cf36b53f3e02e5873d54a5",
+   "key": "c355bd302265cfa9d4b9827679e5f1cd75ddfe68bde2388b4390d8f1c007e365",
+   "wav": "films/panama-canal/audio/narration/N3-3.wav",
+   "sha256": "344e3994f377c09711f996dc1a2785178bffb4597caa8a704550d1dbf7b06c70"
+  },
+  "N3-4": {
+   "text_sha256": "709522d507d3b3e9da334cc40e171746129eb610f2a2cb42322e2d8b7374929e",
+   "key": "203afa82992c3b8d3bbcb1f8f76244f2b76a6125320934083d6b9b6f5961a5e7",
+   "wav": "films/panama-canal/audio/narration/N3-4.wav",
+   "sha256": "d54e0076d775d8e1f031eb3568d93091318ea36e15e35fca52405a0920a25bfa"
+  },
+  "N3-5": {
+   "text_sha256": "fcb3ea1fb11be64494cf8fa507963599eddb8c34f3a8a371f75e838f77b0a073",
+   "key": "b0da23190d30814dae165c0b4cfbbbfa6ed122fb6aec252dec96660c7f0aff98",
+   "wav": "films/panama-canal/audio/narration/N3-5.wav",
+   "sha256": "9c93f0616a12982612af3f1e56995979551150a7b6ed75a01310485cf4555f97"
+  },
+  "N4-1": {
+   "text_sha256": "bdfc498bbbb1de0f39c349a5692b708875fb6a4a5a2285a8d8f046796624662d",
+   "key": "2b974c3aa6a80241969c7d97a3df22dc39d3c86464161f9ca8537d3d79752c40",
+   "wav": "films/panama-canal/audio/narration/N4-1.wav",
+   "sha256": "8c89a70ae4c51ab765e414e9496a03242c401ac3b982f3313a3aa868ab00c479"
+  },
+  "N4-3": {
+   "text_sha256": "b4f54386d1c53e26e26c1dcad56539fa9ec97f0aee7f666e0a940b5a5c8a6851",
+   "key": "4e635c78846b69be88d9c4585647b45630bb548d1670d0fd99edfab96c1f5e91",
+   "wav": "films/panama-canal/audio/narration/N4-3.wav",
+   "sha256": "f12a6b419d7c546635a439a5c99f01ebf59fa076aaeb0be2ad82193b0f5a0e96"
+  },
+  "N4-2": {
+   "text_sha256": "22cc69a21d01537aab91bac6790522ee55f5386d89f5b6ff8f929dfebc78d1e6",
+   "key": "5cc161ba4d502bb0d214f606c0ccf54d294b51d3ba2ad5e8b21cf67c95f2a1a7",
+   "wav": "films/panama-canal/audio/narration/N4-2.wav",
+   "sha256": "9c1373fbc2321cc2c10341199d17075ce7622d0377919b89c3197290cf7e3f26"
+  },
+  "N4-4": {
+   "text_sha256": "3749b6cb4b852fda3f55a2d09dcb8077b44d5f2e571224407af2d46386a2d6e2",
+   "key": "671773df92fc6860ae1e4441e88d5ceffdf9b7a3b5b339547f9e3e20d56e65c3",
+   "wav": "films/panama-canal/audio/narration/N4-4.wav",
+   "sha256": "b4bb560f2e34606cc3421c0f03875923786086905bd55ee7cbbc2d8502ff4109"
+  },
+  "N4-5": {
+   "text_sha256": "9b2a7efc0999542c95e508c572093dfc223e049798936335d83ecd3063b56085",
+   "key": "d56a86abc1d3bf1d56a826cafd0874fb1dc34462bb9b8f9164667dffa1b0b4c0",
+   "wav": "films/panama-canal/audio/narration/N4-5.wav",
+   "sha256": "5af36e2b2e75cac875528b65b051def0eb66ae39c2ac00da43802b6aeda00f5f"
+  },
+  "N4-6": {
+   "text_sha256": "d3963c0d924af1893bf9a624195021f5d8a3e62dbf2961bfac9de98698754e90",
+   "key": "08346ac2c4f4f6aa926cac1de971ed965ff8e833dedec891d3e3d2f28d5cc6bf",
+   "wav": "films/panama-canal/audio/narration/N4-6.wav",
+   "sha256": "184182d4012e68d8efdc7beea98e47addf1202c06c38d77cdc0b588cfd6e18c9"
+  },
+  "N4-7": {
+   "text_sha256": "4b5d8a74b570b36a1bde059268a29146024a3f0662ea045700c955027c423bb7",
+   "key": "54de64268d41288c6bfdc8f12203c9761551002383cfe1b9914c4b312b7cd75e",
+   "wav": "films/panama-canal/audio/narration/N4-7.wav",
+   "sha256": "fe26872ed8356d3931b12eceff8f0e2ed2dff851dad4061abb694f5cca46295a"
+  },
+  "N5-1": {
+   "text_sha256": "7e62923940f552003507a6d36946c68c807f62ef2ce2683f1554f1e767e03b9c",
+   "key": "f565b787d913d7bb196e7e880d5cc619b732988d9e3a7bab906ee0f22a27b2bd",
+   "wav": "films/panama-canal/audio/narration/N5-1.wav",
+   "sha256": "98738dfd1ddaae7607d5ca2c33604adad01dc3b437d856999266a2afa4378e03"
+  },
+  "N5-2": {
+   "text_sha256": "245feca60e8976b1def987adbb304fcacebbc64e38c55fc5b5b024d473328df9",
+   "key": "4d15c93690b11060274f0152b50c8c97c5de5749aa1443b9d1f11a809a83bab3",
+   "wav": "films/panama-canal/audio/narration/N5-2.wav",
+   "sha256": "ce476fa4df29e67e1312c300efb9d811119a36c26d4eb1956a7a7102d0821836"
+  },
+  "N5-3": {
+   "text_sha256": "b556ec443fc936123418a6b6709c70e99e6c116275a410e57e638742abae58e6",
+   "key": "5158af70c261ad9130a2ff08ec7bdbe9bdfcc43db31067392280d0edc7d0aa47",
+   "wav": "films/panama-canal/audio/narration/N5-3.wav",
+   "sha256": "c21683c8d8eb70d3c8e420b3a71ce25a906eddf3defbd584e763940dcf5821ec"
+  },
+  "N5-4": {
+   "text_sha256": "ffdfd3de24999c3be4ff3e7fc2be1d3ec216febbcdcffeeeb376bcc6dccd2db7",
+   "key": "aeeb87637dbe25c20204313259a0876064b62f9024a96271481802f1dcc3efed",
+   "wav": "films/panama-canal/audio/narration/N5-4.wav",
+   "sha256": "e5ba0bdde67bf79aa5e30488dd2cdf6f36ee315782d0c1eb494008e871cf7029"
+  },
+  "N5-5": {
+   "text_sha256": "0350d5fe813ff6966d4d3fe54c828ba04512502f1d05ccabc86644b80b9583fd",
+   "key": "4648371951b7458a56c87f9f1b09c4b7f16832aeee1e11c9195097e24230e93b",
+   "wav": "films/panama-canal/audio/narration/N5-5.wav",
+   "sha256": "d5c309cafec3867b5ecc842d7a3d5903ef57cced5b96251fdfd517a67a52c9a9"
+  },
+  "N5-6": {
+   "text_sha256": "f86f5a3703b412cf73853711d524e63d8f16764db67b233e436d8650f8b0e5a3",
+   "key": "4079239cf0cb42a3ea6674431c445e05790381441a16aaaa6ebf3ff1bc9edc6b",
+   "wav": "films/panama-canal/audio/narration/N5-6.wav",
+   "sha256": "c86f4462dd8aa404745ce023e51e287d293017ed1f856092d0282448ded39213"
+  },
+  "N5-7": {
+   "text_sha256": "248bb3195ad5ac737d7e9919136ac234af88933ef2d0e6d1c1e92039bdd3e567",
+   "key": "1001317d145667ccdc10a9300ca67201f56789afe39950139219910d1742015c",
+   "wav": "films/panama-canal/audio/narration/N5-7.wav",
+   "sha256": "c48a7bfcb791c9f20a1527030571befea06835c0a294c68f58861e52b9f6516c"
+  },
+  "N5-8": {
+   "text_sha256": "9385e6127d42002f1b5d2ee77cc814bafa046dde9ff0031a4b650fe7ea3ec6a0",
+   "key": "2b172f450cb875650ed9d253d39a1db149e6b692f661f6a13336d03f54530ccf",
+   "wav": "films/panama-canal/audio/narration/N5-8.wav",
+   "sha256": "8c27fd38b9e931602eb6bc9bd21ad4fdf8e1fd0ab3871440e0e2cb31047a58b5"
+  },
+  "N5-9": {
+   "text_sha256": "6a843245b0ccdce4907d1d29033a5f105608c991af8ba1e49778ac4003dbdee3",
+   "key": "7f2dd9593b6fb757fb47419a77082f693e960a79118d56b2178a18688f92b8f0",
+   "wav": "films/panama-canal/audio/narration/N5-9.wav",
+   "sha256": "fc675f7bc204c78809e5642058d6ee3b1853a85aa63d9aaa5a5350bf65c649b3"
+  },
+  "N5-10": {
+   "text_sha256": "35d32a708b4d4f7fa5a9ad77f726ac0a868afb67f1c3f909a0b6e6601b3623f4",
+   "key": "8e19a852933d06f8c9ddc6d9613921676becc4590254840e3e09cdcc3e20df5b",
+   "wav": "films/panama-canal/audio/narration/N5-10.wav",
+   "sha256": "db08fa006db33794d0f1bf71d56c4b05b1abf550b06f646a367b668f33880244"
+  },
+  "N6-1": {
+   "text_sha256": "9d6dba9a4536e289fc4242d6c39cead57d35928e4ea4133e873b5c2a0c8446b1",
+   "key": "d0d4776b25b4411bb36d9d69f99353a7bb977f809d61ccbcd1f94147fdcf31c6",
+   "wav": "films/panama-canal/audio/narration/N6-1.wav",
+   "sha256": "137e61501b40d67d40dd92169d4bcc314d70146312930dd2a0f0245f3a59b80b"
+  },
+  "N6-2": {
+   "text_sha256": "1c5aac42a5b8ec3fa26de91f94d790b811e4b3cd404be9ec46f5b61606c0e439",
+   "key": "ef3431395d534e2965f7e9d37453a47c5c74070295c5b439c56d3a21f463e281",
+   "wav": "films/panama-canal/audio/narration/N6-2.wav",
+   "sha256": "b989211109428a0d95bb5cd68fed36d5ceb20631e2f6af7034f03e3a8ad5c8e3"
+  },
+  "N6-3": {
+   "text_sha256": "36e1275f7d8efed45cee4217aa9d3b9c66cceb3688650761ae1dc187e4262dfa",
+   "key": "8cd93e17fd251e8b14a05a255c8895373f210599da795474f477ab0727d0b2a9",
+   "wav": "films/panama-canal/audio/narration/N6-3.wav",
+   "sha256": "532f3b746598158cc8076053ddf54160858b1b892da089ca34e0bdd71c1523ae"
+  },
+  "N6-4": {
+   "text_sha256": "bfe630036d8b77b558367d9e973c11c725e6ed17e349042295363d79b8ea8bec",
+   "key": "ad22274ee6f1b912fda5d579bd0a1b047ea57a9676c0fa9c66574cf3e58a2788",
+   "wav": "films/panama-canal/audio/narration/N6-4.wav",
+   "sha256": "770e80fe2ba9dfcdc576c12790559fd488dc146c38b3dbeb22711d8444a6d976"
+  },
+  "N6-5": {
+   "text_sha256": "d1b25e98223efeb8a59c0c89da74f516bb9c523b58e1fb47d5cd38c4b668d33c",
+   "key": "2f5c6cfda96ddaadae3f3ae7d6cb6dc03c353706fe8342fad6952e1300bf6586",
+   "wav": "films/panama-canal/audio/narration/N6-5.wav",
+   "sha256": "b47a81fd19a02068a1301e6f5415fcbec7c61bc6f58a3886213de308730aebab"
+  },
+  "N6-6": {
+   "text_sha256": "aed168128666ee176e78e619adf89afe7c7679eb34320bc77fd10bc07668df1e",
+   "key": "8fab90c71bec6e1ba6c3bd8e9f91bf6893ed541e7ddcf945d5f4f8ef16c824b7",
+   "wav": "films/panama-canal/audio/narration/N6-6.wav",
+   "sha256": "3381b4976ece65dcd89051941421e62fbc0422db9271935be89260747a77c5a2"
+  },
+  "N6-7": {
+   "text_sha256": "2a73bf96464592690dab82a8a41ffdbd22fbc1f2471298cd2eb8a3e101477f65",
+   "key": "d1fa69bde2904e76ca1fbad302b62b3fd3147ea52af35fd3fa702365056743a3",
+   "wav": "films/panama-canal/audio/narration/N6-7.wav",
+   "sha256": "b879d73e259c6119534af1ea619bc85e36a7aa6b660c335bcb8dfdc78cabdcd7"
+  },
+  "N6-8": {
+   "text_sha256": "421cf9fbe1ea497c36fe43492949c4bed3527e09fb9cf0586d8e6e72ba514b4c",
+   "key": "db0adf7458ee12d2e897a9bf2e4ec17642ec45efc175c37966af4d2af18e3553",
+   "wav": "films/panama-canal/audio/narration/N6-8.wav",
+   "sha256": "b364a650ec97e2c72fb391bc21aa146ca162261330706fac8a06e397018083d0"
+  },
+  "N6-9": {
+   "text_sha256": "01edc82be7898ffc0ce3093344c56972ca77e277fc8dcbc455c07f58ad96aa7c",
+   "key": "9d84632e5e53f7e6b410bd660c7e930bc4013d42b95a0c5d09b48a42bd55c082",
+   "wav": "films/panama-canal/audio/narration/N6-9.wav",
+   "sha256": "b9ee329bff88470b1b4a4959235f939eedf0c9be0f1ed68c14719edd3c788baf"
+  },
+  "N6-10": {
+   "text_sha256": "dad3216218e0cf4e02532063fa18ac16d29586e8da03628bbec31dde3fa3a9a2",
+   "key": "3f5bd15b9a3c43d314ae0e4f395afc912eab93b36a269dcd28316c27cc30e778",
+   "wav": "films/panama-canal/audio/narration/N6-10.wav",
+   "sha256": "818d816d908341dda91b8ed49547c0f7bd96d86ad561cc811a53f2855328b027"
+  },
+  "N6-11": {
+   "text_sha256": "c3448d28e2d2bdd84136ad05bbdb0f869b3e6a5999c0c845ce01154218a3beb6",
+   "key": "dc98428d599f933b1263de65440d53ab26224d561be8327cde981aba954ce2f2",
+   "wav": "films/panama-canal/audio/narration/N6-11.wav",
+   "sha256": "f00ba9bfe81e0370e3f2bab38d53583e998e5fec28c78e10a888707d94333084"
+  },
+  "N6-12": {
+   "text_sha256": "5cae433fde7e82722e43daf635bfb71b38a3272c87662e09f1068d74ba7d9e8e",
+   "key": "247b375a5aa70d26a27e560220f37e429705feb101d10d3f299a904c9f8c95bc",
+   "wav": "films/panama-canal/audio/narration/N6-12.wav",
+   "sha256": "f8aab6bf8c0aa5abea96fcadeae662151fd1482d26cc1bbbfb0a097104b1e863"
+  },
+  "NC-1": {
+   "text_sha256": "12c65daaac24c11ac049a56e08ab8ffeb203df81398f85344185dd1c5c373a90",
+   "key": "262f5a5588980917dd9f02132f6a4a645cd904c3ad13161bba72c7a8307170f0",
+   "wav": "films/panama-canal/audio/narration/NC-1.wav",
+   "sha256": "19e8187922862dcc2989732fd02b2548f7b68a2b6dc718630655b8e91809f6f3"
+  },
+  "NC-2": {
+   "text_sha256": "5f2a3291c487eea566a03980e274233c26febd0f748f45b4d0f14be3ac1371ab",
+   "key": "d29946e19b09eeea09dd4d123ef2b4d92f070448daf1d8487ff26f5be703204c",
+   "wav": "films/panama-canal/audio/narration/NC-2.wav",
+   "sha256": "9a0ce8960b075e44cfbaeb23d5a24e2aea28a1bba425787b1b57e4a3b494b39f"
+  },
+  "NC-3": {
+   "text_sha256": "c1e45a22df999ec59b940d78a9961f5928653d02641ba0ff11e6020d15300bb2",
+   "key": "0e54559d13f95454e407f2561c805ce83d49d80e867103b5fcf887cc0494920f",
+   "wav": "films/panama-canal/audio/narration/NC-3.wav",
+   "sha256": "32fe9f99a21a6856a1b076f47cab761212aeb3d0687f4e667abd72b2edfd3816"
+  },
+  "NC-4": {
+   "text_sha256": "18cad0abbc425da58f87d6e0d1f317988151959332ba5983752f7a6f46241138",
+   "key": "34b048692a199ef9db53040ad3f176521b6427542dafe3ac6e5552e89d8e899c",
+   "wav": "films/panama-canal/audio/narration/NC-4.wav",
+   "sha256": "2141be6cc79665debda30002ef4b6466ab702644e5c0a93e5fc6e55b779becfc"
+  },
+  "NC-5": {
+   "text_sha256": "1609e1673112dee9ed21c75017f7a0bb691afbb546bec55a42fe4fac878deeab",
+   "key": "7f17ef9f829be915b3a723659b20541e99d3e2cf202444f581ba28b92e4d2b6b",
+   "wav": "films/panama-canal/audio/narration/NC-5.wav",
+   "sha256": "001ef60768b8c2f32f7abdd12a98f7511fdc48f7a4fce24e70b85be9498c3ede"
+  },
+  "NC-6": {
+   "text_sha256": "03e1bc2ff3af29a03b857f9672284f3a1f749cf19e540bc5e0ef38ff87d6986e",
+   "key": "5fb1bcb16194de26071e6716b32a0e884711dd1dce0cea56d1a0b5ad6cfe98e0",
+   "wav": "films/panama-canal/audio/narration/NC-6.wav",
+   "sha256": "09ee63933dfb61a086d22cc2639ddd7eb24481b9938fab84b11c71c8c5d4e87f"
+  },
+  "N22": {
+   "text_sha256": "6e25d0d5d7bffdd281d56ae9192bb9beb1dbc746f9063a2d3e349702feef0361",
+   "key": "3a358aa799f8aaece3ae97575444da6fb23d8be0bf1d58ad011c8d9e3ab70fe2",
+   "wav": "films/panama-canal/audio/narration/N22.wav",
+   "sha256": "f644e4aa7783ad2d8febda7b897b942f410b14f8326159040d085cabf47db7c1"
+  }
+ }
+}
