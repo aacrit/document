@@ -94,7 +94,8 @@ See `CHARTER.md` for its surfaces and kill dates, and `contract.yaml` for what
   `<film>/cache/spans`, or to `DOCUMENT_SPANS_CACHE` when set (keep them off a near-full system disk). The plan judges the takes'
   own sound lints (`render.take_lints`) before any frame, their records cached in `<film>/cache/takes` or `DOCUMENT_TAKES_CACHE`;
   `--stems` writes the mix's buses and voice stems under `<out>/stems`; `--layers` writes clean plates, an alpha overlay
-  and a manifest under `<out>/layers`, after the master.
+  and a manifest under `<out>/layers`, after the master. A ledger item with `placeholder: true` is refused on a final render
+  (`placeholder-media`); `--draft`, `--shots` and sheets warn and record it, and release refuses any draft master.
 - `python -m studio.engine.render <film dir> --shots <id>..<id> [--out <dir>]`: a check render of that span (whole film planned and linted, the full mix cut to it) to `<out>/master.shots-<a>-<b>.mp4`.
   Not read-only: it writes the same film-folder caches a full render does (bounds, spans, the A46 levels record).
 - `python -m studio.engine.score <film dir> [--wavs <dir>]`: the house score standard (GRAMMAR A29) checked offline on the
