@@ -2,7 +2,7 @@
 // uploads to the film's folder in R2 with --remote and sources.json last, and
 // a dry run is plain data that never runs a command.
 import { describe, expect, it } from "vitest";
-import { BUCKET, MAX_PUT_BYTES, PACKET_ROOT, UPLOAD_ORDER, captionReview, cropProblems, parseCrop, commandLine, uploadsCaptions, gopFrames, rateProblems, videoKbps, webEncodeArgs, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease, readLedgers, posterSource, localPathProblems, placeholderProblems, finalProblems, runCheck, sha256, sha256Stream } from "../scripts/release-film.mjs";
+import { BUCKET, MAX_PUT_BYTES, PACKET_ROOT, UPLOAD_ORDER, captionReview, cropProblems, parseCrop, commandLine, uploadsCaptions, gopFrames, rateProblems, videoKbps, webEncodeArgs, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease, readLedgers, posterSource, localPathProblems, placeholderProblems, finalProblems, runCheck, dryRunFinal, sha256, sha256Stream } from "../scripts/release-film.mjs";
 import { localPathFindings } from "../scripts/lib/local-paths.mjs";
 import { mkdtempSync, readFileSync, writeFileSync as wfs, mkdirSync as mkd } from "node:fs";
 import { tmpdir } from "node:os";
@@ -137,7 +137,7 @@ describe("release-film", () => {
     expect(plan(["r/master.mp4", "--no-upload"]).steps.some((s) => s.check === "final")).toBe(true);
     // a draft with no placeholders is refused all the same
     expect(final({ slug: "x", draft: true, placeholder_media: [], shots: [] }, "the master")).toThrow(/the master is a draft \(rendered with --draft\)/);
-    expect(final({ slug: "x", shots: [] }, "the master")).toThrow(/does not record whether it is a draft.*--sources-only --draft if its journal is gone/);
+    expect(final({ slug: "x", shots: [] }, "the master")).toThrow(/does not record whether it is a draft.*--sources-only --draft if its journal is gone; release then refuses it as a draft/);
     expect(final({ slug: "x", draft: false, partial: true }, "the master")).toThrow(/check render \(partial\)/);
     expect(final({ slug: "x", draft: false, placeholder_media: [] }, "the master")).not.toThrow();
     expect(finalProblems({ draft: false })).toEqual([]);
@@ -179,6 +179,25 @@ describe("release-film", () => {
     expect(sha256Stream(master)).toBe(sha256(master));
     wfs(sources, JSON.stringify({ draft: false, master: "master.mp4" }));                       // no hash recorded
     expect(check(master)).toThrow(/records no master_sha256/);
+    // the real run hashes through the given hash; a dry run never hashes the trailer master, and says the real run does
+    const calls: string[] = [];
+    const spy = (f: string) => { calls.push(f); return sha256(f); };
+    wfs(sources, JSON.stringify({ draft: false, master: "master.mp4", master_sha256: sha256(master) }));
+    expect(() => runCheck({ check: "final", what: "the trailer", sources, file: span }, { hash: spy })).toThrow(/is not the master/);
+    expect(calls).toEqual([span]);
+    calls.length = 0;
+    const lines: string[] = [];
+    dryRunFinal({ check: "final", what: "the trailer", sources, file: span }, { log: (l: string) => lines.push(l), hash: spy });
+    expect(calls).toEqual([]);
+    expect(lines).toEqual([`  a real run hashes ${span} against master_sha256`]);
+    wfs(sources, JSON.stringify({ draft: true, master_sha256: sha256(master) }));
+    lines.length = 0;
+    dryRunFinal({ check: "final", what: "the trailer", sources, file: span }, { log: (l: string) => lines.push(l), hash: spy });
+    expect(calls).toEqual([]);
+    expect(lines[1]).toMatch(/the trailer is a draft.*\(a real run refuses\)$/);
+    lines.length = 0;
+    dryRunFinal({ check: "final", what: "the master", sources: pjoin(dir, "none.json") }, { log: (l: string) => lines.push(l) });
+    expect(lines).toEqual([expect.stringMatching(/no sources\.json at .* yet, so nothing to check now/)]);
     // a draft is named even when the hash matches
     wfs(sources, JSON.stringify({ draft: true, master_sha256: sha256(master) }));
     expect(check(master)).toThrow(/the trailer is a draft/);

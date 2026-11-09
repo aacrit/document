@@ -856,12 +856,15 @@ def test_review_sources_only_refills_only_from_this_masters_full_render(film, tm
     doc = json.loads((out / "sources.json").read_text(encoding="utf-8"))
     assert "are 11 percent" in next(x for x in doc["shortfalls"] if x["what"] == "readings")["filled"]
     stale = {"draft": False, "master_sha256": R.sha256_file(master)}
-    for bad, why in ((dict(good, master_sha256="0" * 64), "another master"), (dict(good, partial=True), "partial render"),
-                     (dict(good, card_fills={"values": {"readings": {"share": "x"}}}), "malformed"),
-                     (dict(good, card_fills="x"), "malformed"), (stale, "no card_fills")):
+    # another master's record: its draft field does not speak for this master, so --draft says how it was rendered,
+    # and the card_fills check is what refuses it
+    for bad, why, draft in ((dict(good, master_sha256="0" * 64), "describes another master", True),
+                            (dict(good, partial=True), "partial render", None),
+                            (dict(good, card_fills={"values": {"readings": {"share": "x"}}}), "malformed", None),
+                            (dict(good, card_fills="x"), "malformed", None), (stale, "no card_fills", None)):
         prev(bad)
         with pytest.raises(R.Refused, match=why):
-            R.sources_only(film, out)
+            R.sources_only(film, out, draft=draft)
 
 
 def test_review_telecined_is_a_real_bool(film):

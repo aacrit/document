@@ -392,7 +392,7 @@ export function placeholderProblems(doc) {
 export function finalProblems(doc, what = "the master") {
   const out = [];
   if (doc?.draft === true) out.push(`${what} is a draft (rendered with --draft): render it again without --draft, then release`);
-  else if (doc?.draft !== false) out.push(`${what}'s sources.json does not record whether it is a draft (no draft field), so it cannot be shown to be final: run --sources-only on its render (or --sources-only --draft if its journal is gone), or render it again`);
+  else if (doc?.draft !== false) out.push(`${what}'s sources.json does not record whether it is a draft (no draft field), so it cannot be shown to be final: run --sources-only on its render (or --sources-only --draft if its journal is gone; release then refuses it as a draft), or render it again`);
   if (doc?.partial === true) out.push(`${what} is a check render (partial), not the full film`);
   return out;
 }
@@ -414,7 +414,26 @@ export function sha256Stream(file) {
   return h.digest("hex");
 }
 
-export function runCheck(step) {
+/**
+ * A dry run's look at a "final" step: what a real run would refuse in the sources.json as it stands. It never hashes
+ * the trailer master (it can be several GiB): it says the real run does. `hash` is passed through to runCheck.
+ */
+export function dryRunFinal(step, { log = console.log, hash = sha256Stream } = {}) {
+  if (step.file) log(`  a real run hashes ${step.file} against master_sha256`);
+  if (existsSync(step.sources)) {
+    try {
+      runCheck({ ...step, file: undefined }, { hash });
+    } catch (e) {
+      log(`  ${step.sources} as it stands: ${e.message} (a real run refuses)`);
+    }
+  } else if (step.what === "the trailer") {
+    log(`  no sources.json at ${step.sources}: the trailer cannot be shown to be final (a real run refuses)`);
+  } else {
+    log(`  no sources.json at ${step.sources} yet, so nothing to check now: publish writes it at [c], and a real run checks it here, refusing unless it records a final master`);
+  }
+}
+
+export function runCheck(step, { hash = sha256Stream } = {}) {
   if (step.check === "final") {
     if (!existsSync(step.sources)) throw new Error(`no sources.json at ${step.sources}, so ${step.what ?? "the render"} cannot be shown to be a final render: render it with the engine, without --draft, and release again`);
     const doc = JSON.parse(readFileSync(step.sources, "utf8"));
@@ -423,7 +442,7 @@ export function runCheck(step) {
       // the record must describe this very file: its render's master_sha256 (render.py writes it beside the master)
       if (typeof doc.master_sha256 !== "string" || !doc.master_sha256) problems.push(`${step.sources} records no master_sha256, so it cannot be shown to describe ${step.file}`);
       else if (!existsSync(step.file)) problems.push(`${step.file} does not exist`);
-      else if (sha256Stream(step.file) !== doc.master_sha256) problems.push(`${step.file} is not the master ${step.sources} describes (its sha256 differs from master_sha256${doc.master ? `, which is ${doc.master}'s` : ""}): release the render's own master.mp4`);
+      else if (hash(step.file) !== doc.master_sha256) problems.push(`${step.file} is not the master ${step.sources} describes (its sha256 differs from master_sha256${doc.master ? `, which is ${doc.master}'s` : ""}): release the render's own master.mp4`);
     }
     if (problems.length) throw new Error(problems.join("; "));
     console.log(`  ${step.what ?? "the render"} is a final render`);
@@ -521,21 +540,7 @@ function main() {
       if (o.dryRun) {
         console.log(`  check: ${step.check}${step.file ? ` ${step.file}` : ""}`);
         // the packet as it stands (an earlier publish): what a real run refuses if publish writes it the same way
-        if (step.check === "final") {
-          // a dry run never hashes the trailer master (it can be several GiB): it says the real run does
-          if (step.file) console.log(`  a real run hashes ${step.file} against master_sha256`);
-          if (existsSync(step.sources)) {
-            try {
-              runCheck({ ...step, file: undefined });
-            } catch (e) {
-              console.log(`  ${step.sources} as it stands: ${e.message} (a real run refuses)`);
-            }
-          } else if (step.what === "the trailer") {
-            console.log(`  no sources.json at ${step.sources}: the trailer cannot be shown to be final (a real run refuses)`);
-          } else {
-            console.log(`  no sources.json at ${step.sources} yet, so nothing to check now: publish writes it at [c], and a real run checks it here, refusing unless it records a final master`);
-          }
-        }
+        if (step.check === "final") dryRunFinal(step);
         if (step.check === "placeholders" && existsSync(step.sources)) {
           for (const p of placeholderProblems(JSON.parse(readFileSync(step.sources, "utf8")))) console.log(`  ${step.sources} as it stands: ${p} (a real run refuses)`);
         }

@@ -151,7 +151,7 @@ def packet(render_dir: Path, *, film: Path, poster: Path, poster_id: str, stills
     if not master.exists():
         raise Refused(f"no {master.name} in {render_dir}: the packet is checked against the master it describes")
     if sha256_file(master) != doc["master_sha256"]:
-        raise Refused(f"{master.name} is not the master this sources.json describes: run --sources-only again")
+        raise Refused(f"{master.name} is not the master this sources.json describes: render the film again")
     fps = float(doc.get("fps") or 24)
     pr = probe_video(film)
     # A browser reports the container's duration; the picture's own is checked too.

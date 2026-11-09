@@ -9978,19 +9978,20 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         raise
 
 
-def master_was_draft(out: Path) -> bool | None:
+def master_was_draft(out: Path, *, sha: str | None = None) -> bool | None:
     """Whether the master in ``out`` was rendered with --draft: its sources.json says so (``draft``, written by the
     render and carried forward by every --sources-only rewrite), else names the master's run (``master_run``, or the
     ``run`` of a file written before it), whose journal opens with run.start and its settings. None when neither can be
     read. The file speaks for the master only when its ``master_sha256`` is that master.mp4's: a --draft render
     refused after writing master.mp4 but before sources.json leaves a draft master beside an earlier final's record,
     and then neither that record's ``draft`` nor its run (the earlier render's) says how this master was made: None.
-    A file with no ``master_sha256`` (written before T7) is read by its run's journal alone."""
+    A file with no ``master_sha256`` (written before T7) is read by its run's journal alone. ``sha`` is master.mp4's
+    sha256 when the caller has it (sources_only hashes the master once), else it is hashed here."""
     try:
         doc = json.loads((out / "sources.json").read_text(encoding="utf-8"))
-        sha = doc.get("master_sha256")
+        master_sha, sha = sha, doc.get("master_sha256")
         if isinstance(sha, str) and sha:
-            if sha256_file(out / "master.mp4") != sha:
+            if (master_sha or sha256_file(out / "master.mp4")) != sha:
                 return None
             if isinstance(doc.get("draft"), bool):
                 return doc["draft"]
@@ -10030,7 +10031,8 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
         # the master exists: its takes were judged by its render; sources.json is rewritten from the screenplay
         # the master's own draft-ness is the truth: --draft may only fill in what cannot be read (a sources.json
         # rewritten before the master's draft-ness was recorded), never turn a final master's sources into a draft's
-        recorded = master_was_draft(out)
+        master_sha = sha256_file(master)          # once: the draft-ness record, the new record and the fills read it
+        recorded = master_was_draft(out, sha=master_sha)
         if recorded is None and draft is None:
             # neither sources.json nor the master's run journal says how it was rendered: never assumed final (a
             # draft must not be released as one); release-film refuses a master not recorded final, so say it here,
@@ -10058,9 +10060,11 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
     prev = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     if "loudness" in prev:                  # an earlier render's record, with any absolute path made relative
         extra["loudness"] = public_loudness(prev["loudness"], out)
-    extra.update(master="master.mp4", master_sha256=sha256_file(master),
-                 # carried forward: the master's own run (never this rewrite's) and its draft-ness, as planned here
-                 master_run=prev.get("master_run") or prev.get("run"), draft=bool(draft))
+    # carried forward: the master's own run (never this rewrite's) and its draft-ness, as planned here; a previous
+    # record of another master (its master_sha256 not this one's) names that master's run, so none is carried
+    same = prev.get("master_sha256") in (None, master_sha)
+    extra.update(master="master.mp4", master_sha256=master_sha,
+                 master_run=(prev.get("master_run") or prev.get("run")) if same else None, draft=bool(draft))
     if plan_has_placeholders(plan):
         fills = prev.get("card_fills")
         values = fills.get("values") if isinstance(fills, dict) else None

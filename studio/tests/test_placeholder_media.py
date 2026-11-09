@@ -347,6 +347,15 @@ def test_a_final_record_beside_another_master_does_not_speak_for_it(film_safe, t
     with pytest.raises(R.Refused, match="cannot tell whether this master was rendered with --draft"):
         R.sources_only(film_safe, out)
     assert json.loads((out / "sources.json").read_text(encoding="utf-8")) == stale
+    # --draft says how it was rendered; the rewrite names no run, never the earlier final's (the stale record's)
+    plan, _ = _plan(film_safe, "ph-stale-frames")
+    subprocess.run([R.ffmpeg(), "-v", "error", "-y", "-f", "lavfi", "-i", f"color=c=black:s=64x36:r=24:d={plan['frames'] / 24}",
+                    "-frames:v", str(plan["frames"]), "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                    str(out / "master.mp4")], check=True)
+    R.sources_only(film_safe, out, draft=True)
+    doc = json.loads((out / "sources.json").read_text(encoding="utf-8"))
+    assert doc["draft"] is True and doc["master_run"] is None
+    assert doc["master_sha256"] == sha256_file(out / "master.mp4")
     # the same record with this master's own sha256 speaks for it
     (out / "sources.json").write_text(json.dumps(dict(stale, master_sha256=sha256_file(out / "master.mp4"))),
                                       encoding="utf-8")

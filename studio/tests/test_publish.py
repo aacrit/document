@@ -74,8 +74,12 @@ def test_sources_only_refuses_without_a_master_or_with_a_stale_one(film, rendere
     short = tmp_path / "short.mp4"
     subprocess.run([R.ffmpeg(), "-v", "error", "-y", "-i", str(out / "master.mp4"), "-t", "2", "-c", "copy", str(short)], check=True)
     shutil.copy(short, out / "master.mp4")
-    with pytest.raises(R.Refused, match="stale"):
+    # the copied record's master_sha256 is the full master's, not this short one's: without --draft nothing says how
+    # this master was rendered, so it is refused (review of #103); with --draft the frame count refuses it as stale
+    with pytest.raises(R.Refused, match="another master"):
         R.sources_only(film, out)
+    with pytest.raises(R.Refused, match="stale"):
+        R.sources_only(film, out, draft=True)
 
 
 def test_sources_only_refuses_a_description_it_cannot_publish_before_writing_either_file(film, rendered, tmp_path,
