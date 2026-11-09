@@ -222,7 +222,8 @@
       "media_url": "https://tile.loc.gov/storage-services/master/gmd/gmd4/g4872/g4872p/pcc00003.tif",
       "source_format": "TIFF as delivered (RGB), no conversion or resampling",
       "rights_checked": "2026-11-08: LoC Rights Advisory: (none stated) | rights: The content of the Library of Congress Geography and Map Division digitized collections is free to use and reuse unless a Rights Advisory statement is present that indicates otherwise.\nCredit Line: Library of Congress, Geography and Map Division.\nMore about Copyright and other Restrictions.\nFor guidance about compiling full citations consult Citing Primary Sources.\n",
-      "catalogue_title": "Coupe geologique suivant le profil en long du canal à ecluses du kil. 54.200 au kil. 55.340, echelles de 1/1000 pour les longueurs [et] 1/500 pour les hauteurs : [Panama Canal] ; Profils en travers geologiques, nos. 54.300, 550, 800 et 55.044, 050, 135, 220, echelles de 1/1000 pour les longueurs [et] 1/500 pour les hauteurs"
+      "catalogue_title": "Coupe geologique suivant le profil en long du canal à ecluses du kil. 54.200 au kil. 55.340, echelles de 1/1000 pour les longueurs [et] 1/500 pour les hauteurs : [Panama Canal] ; Profils en travers geologiques, nos. 54.300, 550, 800 et 55.044, 050, 135, 220, echelles de 1/1000 pour les longueurs [et] 1/500 pour les hauteurs",
+      "annotations": "the record notes 'Annotated in pencil for English translation' and a Canal Zone Library checklist number (175): later hands of unknown date on the sheet, a reviewer item under A0"
     },
     {
       "id": "S-LOC-NY-TRIBUNE-1889-02-10",
@@ -271,7 +272,7 @@
       "file": "S-LOC-FRENCH-DWELLINGS-COLON-1903.tif",
       "title": "Dwellings erected for employees of Old French Canal Company, Colon",
       "date": "1903",
-      "creator": "unknown (as the record states)",
+      "creator": "Keystone View Company, publishers (stereograph no. 13320, copyright 1903 by B. L. Singley)",
       "archive": "Library of Congress, Prints and Photographs Division",
       "archive_short": "Library of Congress",
       "item_url": "https://www.loc.gov/item/2021639798/",
@@ -293,14 +294,27 @@
       "media_url": "https://tile.loc.gov/storage-services/master/pnp/stereo/1s30000/1s34000/1s34800/1s34889u.tif",
       "source_format": "TIFF as delivered (RGB), no conversion or resampling",
       "rights_checked": "2026-11-08: LoC Rights Advisory: No known restrictions on publication.",
-      "catalogue_title": "Dwellings erected for employees of Old French Canal Company, Colon, Isthmus of Panama"
+      "catalogue_title": "Dwellings erected for employees of Old French Canal Company, Colon, Isthmus of Panama",
+      "class": "stereograph",
+      "roi": [
+        {
+          "name": "left view",
+          "x": 0.094,
+          "y": 0.047,
+          "w": 0.404,
+          "h": 0.843,
+          "kind": "picture",
+          "source": "human"
+        }
+      ],
+      "framing_note": "a stereograph card: two views and a printed mount; shots frame the left view only"
     },
     {
       "id": "S-LOC-WOMEN-SPRING-1904",
       "file": "S-LOC-WOMEN-SPRING-1904.tif",
       "title": "Native Indian women washing clothes at a spring near Panama City",
       "date": "1904",
-      "creator": "unknown (as the record states)",
+      "creator": "Underwood & Underwood, publishers (stereograph, copyright 1904)",
       "archive": "Library of Congress, Prints and Photographs Division",
       "archive_short": "Library of Congress",
       "item_url": "https://www.loc.gov/item/2021640093/",
@@ -322,7 +336,20 @@
       "media_url": "https://tile.loc.gov/storage-services/master/pnp/stereo/1s30000/1s35000/1s35100/1s35104u.tif",
       "source_format": "TIFF as delivered (RGB), no conversion or resampling",
       "rights_checked": "2026-11-08: LoC Rights Advisory: No known restrictions on publication.",
-      "catalogue_title": "Native Indian women washing clothes at a spring near Panama City, Panama"
+      "catalogue_title": "Native Indian women washing clothes at a spring near Panama City, Panama",
+      "class": "stereograph",
+      "roi": [
+        {
+          "name": "left view",
+          "x": 0.094,
+          "y": 0.047,
+          "w": 0.404,
+          "h": 0.829,
+          "kind": "picture",
+          "source": "human"
+        }
+      ],
+      "framing_note": "a stereograph card: two views and a printed mount; shots frame the left view only"
     },
     {
       "id": "S-LOC-BAIN-ANCON-GATUN-1914",
@@ -382,7 +409,8 @@
       "source_format": "JPEG 2000 as delivered (RGB), no conversion or resampling",
       "rights_checked": "2026-11-08: Internet Archive: possible-copyright-status=NOT_IN_COPYRIGHT; licenseurl=None; rights=None; date=1887 (printed 1887; public domain in the US by date)",
       "leaf": "recollectionsoff01lessrich_0007",
-      "catalogue_title": "Recollections of forty years"
+      "catalogue_title": "Recollections of forty years",
+      "annotations": "the title page carries a later pencil note beside the author's name ('1805-1894'): a reviewer item under A0"
     },
     {
       "id": "S-IA-CONVENTION-1903-ART3",
@@ -436,18 +464,18 @@
       "graphic_medical": false,
       "named_patient": false,
       "minor": false,
-      "date_basis": "issue date computed as 18 Dec 1912: confirm on the scan",
+      "date_basis": "the page header reads 'December 18, 1912', p. 135 (confirmed on the scan, 8 Nov 2026)",
       "roi": [
         {
           "name": "order",
-          "x": 0.0,
-          "y": 0.0,
-          "w": 1.0,
-          "h": 1.0,
+          "x": 0.655,
+          "y": 0.06,
+          "w": 0.32,
+          "h": 0.28,
           "kind": "text",
           "cue": "Executive Order",
           "source": "human",
-          "work_note": "the Order's column, to be boxed on the scan at fetch"
+          "work_note": "the Order's column, boxed on the scan at fetch (heading to the signature)"
         }
       ],
       "class": "document",

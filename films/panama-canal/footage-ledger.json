@@ -21,7 +21,7 @@
       "dar": "4:3",
       "audio": "silent",
       "seen": "Aerial views of the canal from a hydro-biplane, the Culebra Cut among them; the IA blurb's landing in Gatun Lake conflicts with the Record's Cristobal landing.",
-      "people": "not yet viewed",
+      "people": "a hydro-biplane's aerial views; people only in the landing scenes at Colon (not used)",
       "shows_bodies": false,
       "shows_violence": false,
       "segments": [],
@@ -39,7 +39,11 @@
       "catalogue_title": "Panama by Air (Reel 4)",
       "file_audio_streams": [
         "mp2"
-      ]
+      ],
+      "telecined": true,
+      "field_order": "tff",
+      "telecine_basis": "ffmpeg idet on 20 s at 20 s (2026-11-08): repeated fields top 76, bottom 83 of 600 frames, multi-frame TFF 406, BFF 0: a 3:2 pulldown signature on a top-field-first NTSC transfer",
+      "intertitles": "read on viewing: 'Panama Canal Part 4'; '2,500 ft. over Culebra Cut'; 'The towns of Culebra and Empire'; 'Camp Elliott on Gold Hill, the highest point in Culebra Cut'; 'The Panama Railway to the left'; Chagres, Matachin, Gatun Lake, dam, spillway, guide wall, the Atlantic channel, Limon Bay, 'We landed safe and sound in the Atlantic', 'Landing on Limon Bay at Colon'. None postdates the horizon; none is shown (the spans lie between them)"
     },
     {
       "id": "V-LOC-TR-ARRIVAL",
@@ -60,7 +64,7 @@
       "dar": "4:3",
       "audio": "silent",
       "seen": "The procession in Panama City on 15 November 1906; Amador's address on the cathedral steps; Roosevelt speaks. Overlaps mp76000225.",
-      "people": "not yet viewed",
+      "people": "a crowd, a band and a mounted escort in the street; officials on the cathedral steps (not identified on the low-res view)",
       "shows_bodies": false,
       "shows_violence": false,
       "segments": [],
@@ -77,7 +81,9 @@
       "catalogue_title": "TR's arrival in Panama, November 1906. [No. 2]",
       "file_audio_streams": [
         "aac"
-      ]
+      ],
+      "head_titles": "the Library of Congress's own preservation logo and title card, 0 to 13.04 s: never shown",
+      "damage": "a run of flicker and damaged frames, 82.38 to 89.29 s (scdet reads 30 cuts): never shown"
     },
     {
       "id": "V-LOC-TR-SPEAKING",
@@ -98,7 +104,7 @@
       "dar": "4:3",
       "audio": "silent",
       "seen": "The same ceremony; two women arriving (possibly Edith Roosevelt).",
-      "people": "not yet viewed",
+      "people": "officials on the cathedral steps under the TR shield, a mounted escort in the foreground",
       "shows_bodies": false,
       "shows_violence": false,
       "segments": [],
@@ -115,7 +121,8 @@
       "catalogue_title": "TR speaking in Panama, November 1906",
       "file_audio_streams": [
         "aac"
-      ]
+      ],
+      "head_titles": "the Library of Congress's own preservation logo and title card, 0 to 14.33 s, which reads 'TR Speaking in Panama, November 1916' (an error of the card's: the catalogue dates the film 1906 and the stand is the one in mp76000087): never shown"
     },
     {
       "id": "V-LOC-GORGAS",
@@ -137,7 +144,7 @@
       "dar": "4:3",
       "audio": "silent",
       "seen": "Gorgas before a building, then riding a train past Colon's Front Street; 0:22 of picture in a 49 s file.",
-      "people": "not yet viewed",
+      "people": "Gorgas in a portrait shot (13.04 to 17.58 s), then Gorgas and a companion on a train's rear platform",
       "shows_bodies": false,
       "shows_violence": false,
       "segments": [],
@@ -154,7 +161,8 @@
       "catalogue_title": "Dr. William Gorgas",
       "file_audio_streams": [
         "aac"
-      ]
+      ],
+      "head_titles": "the Library of Congress's own preservation logo and title card '(190?)', 0 to 13.04 s: never shown"
     },
     {
       "id": "V-NARA-TAFT-1912",
@@ -167,16 +175,16 @@
       "item_url": "https://catalog.archives.gov/id/35576",
       "media_url": "https://catalog.archives.gov/medialz/mopix/111/m/01/111-m-331.mp4",
       "licence": "public domain",
-      "basis": "a Signal Corps production, a United States government work (founder default of 8 Nov 2026; NARA 'Use Restriction: Undetermined', still to be checked)",
+      "basis": "a United States government work on the founder default of 8 Nov 2026; NARA 'Use Restriction: Undetermined' (read 8 Nov 2026). Viewed: the reel's own intertitles credit 'Feature Film M'f'g Co., Washington, D.C.', a private maker, so the Signal Corps premise needs the founder's ruling",
       "licence_evidence": "https://catalog.archives.gov/id/35576 (Use Restriction: Undetermined); 17 USC 105",
       "credit": "National Archives, 111-M-331 (NAID 35576)",
-      "date_basis": "the catalogue's 1910 is impossible (the Arkansas was commissioned in September 1912); the Canal Record dates the voyage to 19 to 26 December 1912 (F64); content may be mixed, view before use",
+      "date_basis": "the catalogue's 1910 is impossible (the Arkansas was commissioned in September 1912); the Canal Record has Taft reach Cristobal on the Arkansas on 24 December 1912 and sail on the 26th (F64); viewed: Key West, the Arkansas, Culebra Cut, a slide, Miraflores and Pedro Miguel locks, Gatun Lake, the spillway, 'native life'; nothing seen postdates the horizon",
       "fps": "about 60 (transfer)",
       "duration_s": 677.683,
       "dar": "4:3",
       "audio": "silent",
       "seen": "Taft addresses a crowd and embarks on the Arkansas at Key West; excavation, dredging, the Pedro Miguel and Miraflores locks, Gatun Lake, the spillway, 'native dwellings'.",
-      "people": "not yet viewed",
+      "people": "the President's party at Key West and at the locks; crowds of visitors on the lock walls",
       "shows_bodies": false,
       "shows_violence": false,
       "segments": [],
@@ -193,7 +201,13 @@
       "catalogue_title": "(PRES. TAFT INSPECTS PANAMA CANAL CONSTRUCTION.)",
       "file_audio_streams": [
         "aac"
-      ]
+      ],
+      "extra_cuts": [
+        483.433,
+        491.3
+      ],
+      "extra_cuts_basis": "the intertitle 'LAKE GATUN' from 483.43 to 491.30 s, which scdet (threshold 8) misses: placed on per-frame luma differences (2026-11-08)",
+      "intertitles": "'Reception at Mayor's House at Key West'; 'The President leaving Key West for the battleship Arkansas'; 'The President boarding the battleship \"Arkansas\" in Key West harbor'; 'Going into Culabra Cut'; 'Culebra Cut, showing steam-shovel handling a twelve-ton rock'; 'Ride through Culebra Cut on bottom of canal'; 'Slide in Culebra Cut'; 'Inspecting Milaflores lock, lock gates in operation'; 'Lake Gatun'; 'Pedro Miguel Locks'; 'Spillway of Gatun Dam in action'; 'Native life'; each signed Feature Film M'f'g Co., Washington, D.C.; the file ends on 'END OF RECORDING'"
     }
   ],
   "excluded": [

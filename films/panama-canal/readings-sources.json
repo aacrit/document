@@ -10,7 +10,7 @@
       "licence": "public domain",
       "translation": true,
       "ocr": true,
-      "note": "The translator notes 'This chapter was written in 1885'."
+      "note": "The translator's note 'This chapter was written in 1885' (p. 150) is attached to the Suez sentence; the Panama passages (pp. 141-151) are of the visit of February 1886."
     },
     "P-ny-tribune-1889-02-10": {
       "title": "New-York Tribune, 10 February 1889, p. 1, 'No new Panama Canal Company'",
@@ -19,7 +19,9 @@
       "licence": "public domain",
       "translation": true,
       "ocr": true,
-      "note": "The ALTO reads 'pow' for 'now'; check the page image."
+      "note": "The ALTO reads 'pow' for 'now'; the page image reads 'now' (text verification, 8 Nov 2026).",
+      "translator": "not named in the source",
+      "translation_statement": "an unsigned English text printed by the New-York Tribune under the dateline 'Paris, Feb. 9.'; the page names no translator and says neither translation nor cable"
     },
     "P-bunau-varilla-1913": {
       "title": "Panama: the Creation, Destruction, and Resurrection",
@@ -41,13 +43,17 @@
       "title": "Foreign Relations of the United States, 1904",
       "archive": "Office of the Historian (TEI)",
       "licence": "US government work",
-      "translation": true
+      "translation": true,
+      "translator": "not named in the source",
+      "translation_statement": "FRUS 1904 prints d565 and the Constitution (d550) marked '[Translation.]': the State Department's translation; no translator is named"
     },
     "P-frus-1906-pt2": {
       "title": "Foreign Relations of the United States, 1906, part 2",
       "archive": "Office of the Historian (TEI)",
       "licence": "US government work",
-      "translation": "inclosure 1 (Amador) is a translation; inclosure 2 (Roosevelt) is English"
+      "translation": "inclosure 1 (Amador) is a translation; inclosure 2 (Roosevelt) is English",
+      "translator": "not named in the source",
+      "translation_statement": "English text as printed in FRUS 1906; FRUS gives no translation mark on inclosure 1 (Amador spoke in Spanish); inclosure 2 (Roosevelt) is English"
     },
     "P-roosevelt-1906-message": {
       "title": "Special Message of the President, 17 December 1906",

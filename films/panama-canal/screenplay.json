@@ -353,7 +353,7 @@
   ],
   "film_notes": [
     {
-      "text": "Eleven readings are heard in the translations their sources printed: Amador's address and Obaldía's, Valdés's, Herrán's and Reyes's notes in the State Department's Foreign Relations of the United States; Lesseps's Recollections in C. B. Pitman's English of 1887; Lesseps's circular of 9 February 1889 as the New-York Tribune received it by cable. Each is read in English because the extract is itself a translation.",
+      "text": "Ten readings are heard in the translations their sources printed: Amador's address and Obaldía's, Valdés's, Herrán's and Reyes's notes in the State Department's Foreign Relations of the United States; Lesseps's Recollections in C. B. Pitman's English of 1887; Lesseps's circular of 9 February 1889 as the New-York Tribune printed it. Each is read in English because the extract is itself a translation.",
       "noted": "2026-11-08",
       "source": "fable-screenplay-brief.md, open question 12; GRAMMAR 6.2"
     },
@@ -363,7 +363,7 @@
       "source": "open question 6; founder default of 8 Nov 2026"
     },
     {
-      "text": "The Signal Corps reel of President Taft's inspection (NARA 111-M-331) is treated as a United States government work; the catalogue's use restriction reads 'Undetermined' and is still to be checked. Its catalogue date of 1910 is impossible (the Arkansas was commissioned in September 1912); the Canal Record dates the voyage to 19 to 26 December 1912.",
+      "text": "The reel of President Taft's inspection (NARA 111-M-331, Record Group 111) is treated as a United States government work on the founder's default; the catalogue's use restriction read 'Undetermined' on 8 November 2026, and the reel's own intertitles credit the Feature Film Mfg. Co., Washington, D.C. Its catalogue date of 1910 is impossible (the Arkansas was commissioned in September 1912); the Canal Record has the President reach Cristobal on the Arkansas on 24 December 1912 and sail on the 26th.",
       "noted": "2026-11-08",
       "source": "open question 7; F64"
     },
@@ -398,20 +398,38 @@
           "kind": "archive_video",
           "start_s": 0.0,
           "asset": "V-DUHEM-AIR",
-          "in_s": 180.0,
-          "out_s": 232.0,
+          "in_s": 19.686,
+          "out_s": 54.721,
           "native_fps": 29.97,
           "sound": {
             "mode": "mute",
             "reason": "a silent reel; the Internet Archive transfer carries no original track"
           },
           "talking_head": false,
-          "cut_reason": "provisional: the reel is unviewed; the Culebra segment's in and out points are to be set on its measured cuts (A33 natural-out) after viewing",
           "transition_in": {
             "type": "cut"
           },
           "mark": "ARCHIVE",
-          "why": "The hook: the camera's own flight over the Culebra Cut, April 1913, held with nothing over it but a date and a place (GRAMMAR 3: the first words are a date and a place). The span is a placeholder until the reel is viewed."
+          "why": "The hook: the camera's own flight over the Culebra Cut, April 1913, the reel's 'towns of Culebra and Empire' passage between its own intertitles (source 19.69 to 54.72 s, cut to cut), held with nothing over it but a date and a place (GRAMMAR 3). Span set 2026-11-08 on the viewed reel and its measured cuts (python -m studio.engine.clips bounds)."
+        },
+        {
+          "id": "O1b",
+          "kind": "archive_video",
+          "start_s": 35.035,
+          "asset": "V-DUHEM-AIR",
+          "in_s": 61.328,
+          "out_s": 78.293,
+          "native_fps": 29.97,
+          "sound": {
+            "mode": "mute",
+            "reason": "a silent reel; the Internet Archive transfer carries no original track"
+          },
+          "talking_head": false,
+          "transition_in": {
+            "type": "cut"
+          },
+          "mark": "ARCHIVE",
+          "why": "The flight goes on over Gold Hill, the reel's 'Camp Elliott on Gold Hill, the highest point in Culebra Cut' passage, its intertitle left out (source 61.33 to 78.29 s, on its cuts). Cut, not a dip: one flight. Span set 2026-11-08 on the viewed reel and its measured cuts (python -m studio.engine.clips bounds)."
         }
       ],
       "lines": [
@@ -680,7 +698,7 @@
           "id": "N1-2",
           "kind": "narration",
           "start_s": 113.403,
-          "text": "Ferdinand de Lesseps went to the Isthmus and wrote of his visit in eighteen eighty-five.",
+          "text": "Ferdinand de Lesseps went to the Isthmus in eighteen eighty-six and wrote of his visit.",
           "wav": "audio/narration/N1-2.wav",
           "read_by": "v-narrator",
           "sources": [
@@ -696,7 +714,7 @@
           "start_s": 123.403,
           "text": "I intend to act just in the same way at Panama, though many engineers would prefer, on account of the difference in level, not of the seas, but of the tides, to construct a lock. I would not have one at Suez, and I do not intend to at Panama",
           "speaker": "sp-lesseps",
-          "year": 1885,
+          "year": 1886,
           "source": "P-lesseps-1887-v1",
           "locator": "p141",
           "read_by": "v-01",
@@ -708,7 +726,7 @@
           "start_s": 140.873,
           "text": "These are the men who made the Suez and will make the Panama Canal, and Panama will be opened in 1889.",
           "speaker": "sp-lesseps",
-          "year": 1885,
+          "year": 1886,
           "source": "P-lesseps-1887-v1",
           "locator": "p150",
           "read_by": "v-01",
@@ -720,7 +738,7 @@
           "start_s": 150.373,
           "text": "We saw whole mountains blown up with dynamite, blocks of stone measuring more than a hundred cubic yards sent up into the air like so many pebbles. We are delighted to be able to state, after the voyage which I have just made, that the canal will be open in 1889.",
           "speaker": "sp-lesseps",
-          "year": 1885,
+          "year": 1886,
           "source": "P-lesseps-1887-v1",
           "locator": "p151",
           "read_by": "v-01",
@@ -821,7 +839,7 @@
           "end_s": 128.403,
           "lines": [
             "Ferdinand de Lesseps",
-            "Panama Canal Company, 1885"
+            "Panama Canal Company, 1886"
           ]
         },
         {
@@ -883,7 +901,21 @@
             "type": "cut"
           },
           "mark": "ARCHIVE",
-          "why": "Colon in 1903, the year of the cables: dwellings of the old French company. The narration gives the dates; the cables follow as the period's own words."
+          "why": "Colon in 1903, the year of the cables: dwellings of the old French company. The narration gives the dates; the cables follow as the period's own words. Framing: the file is a stereograph card, two views side by side on a printed mount; the camera stays inside the left view (x 0.296 at z 2.4), so neither the second view nor the publisher's mount text is shown.",
+          "camera": [
+            {
+              "t": 0.0,
+              "x": 0.296,
+              "y": 0.6,
+              "z": 2.4
+            },
+            {
+              "t": 20.0,
+              "x": 0.296,
+              "y": 0.42,
+              "z": 2.4
+            }
+          ]
         },
         {
           "id": "2.3",
@@ -1059,7 +1091,21 @@
             "type": "cut"
           },
           "mark": "ARCHIVE",
-          "why": "Women washing clothes at a spring near Panama City, 1904: the republic's own people in its first year, held with no voice (a rest, A10)."
+          "why": "Women washing clothes at a spring near Panama City, 1904: the republic's own people in its first year, held with no voice (a rest, A10). Framing: the file is a stereograph card, two views side by side on a printed mount; the camera stays inside the left view (x 0.296 at z 2.4), so neither the second view nor the publisher's mount text is shown.",
+          "camera": [
+            {
+              "t": 0.0,
+              "x": 0.296,
+              "y": 0.6,
+              "z": 2.4
+            },
+            {
+              "t": 9.0,
+              "x": 0.296,
+              "y": 0.45,
+              "z": 2.4
+            }
+          ]
         },
         {
           "id": "2.14",
@@ -1195,7 +1241,7 @@
           "speaker": "sp-reyes",
           "year": 1903,
           "source": "P-frus-1903",
-          "locator": "d320-p288",
+          "locator": "d320-p291",
           "read_by": "v-04",
           "wav": "audio/readings/R20c.wav"
         },
@@ -1377,40 +1423,57 @@
           "kind": "archive_video",
           "start_s": 520.213,
           "asset": "V-LOC-TR-ARRIVAL",
-          "in_s": 10.0,
-          "out_s": 64.0,
+          "in_s": 66.583,
+          "out_s": 82.375,
           "native_fps": 12,
           "sound": {
             "mode": "mute",
             "reason": "a silent film; the Library of Congress file carries no original track"
           },
           "talking_head": false,
-          "cut_reason": "provisional: the reel is unviewed; the span is to be set on its measured cuts after viewing (A33), the procession first, then Amador on the cathedral steps",
           "transition_in": {
             "type": "cut"
           },
           "mark": "ARCHIVE",
-          "why": "The chapter's anchor: the only moving image of the day. The narration gives the date, then the procession plays with nothing over it; Amador's address is read over his own occasion (A8 rule 2)."
+          "why": "The chapter's anchor: the only moving image of the day. The mounted escort of the procession in the street (source 66.58 to 82.38 s, ending on its cut before the reel's damaged frames at 82.4 to 89.3 s) under the date; the Library of Congress's own head titles (0 to 13 s) are never shown. Span set 2026-11-08 on the viewed reel and its measured cuts (python -m studio.engine.clips bounds)."
+        },
+        {
+          "id": "3.2b",
+          "kind": "archive_video",
+          "start_s": 536.005,
+          "asset": "V-LOC-TR-ARRIVAL",
+          "in_s": 89.292,
+          "out_s": 127.5,
+          "native_fps": 12,
+          "sound": {
+            "mode": "mute",
+            "reason": "a silent film; the Library of Congress file carries no original track"
+          },
+          "talking_head": false,
+          "transition_in": {
+            "type": "cut"
+          },
+          "mark": "ARCHIVE",
+          "why": "The cathedral steps under the TR shield, the same reel (source 89.29 to 127.50 s, cut to the reel's end): Amador's address of welcome is read over his own occasion (A8 rule 2). Span set 2026-11-08 on the viewed reel and its measured cuts (python -m studio.engine.clips bounds)."
         },
         {
           "id": "3.3",
           "kind": "archive_video",
           "start_s": 574.213,
           "asset": "V-LOC-TR-SPEAKING",
-          "in_s": 40.0,
-          "out_s": 80.0,
+          "in_s": 43.7,
+          "out_s": 83.7,
           "native_fps": 14,
           "sound": {
             "mode": "mute",
             "reason": "a silent film; the Library of Congress file carries no original track"
           },
           "talking_head": false,
-          "cut_reason": "provisional: the reel is unviewed; the span is to be set on its measured cuts after viewing (A33), Roosevelt speaking, then the ceremony to its natural end",
           "transition_in": {
             "type": "cut"
           },
           "mark": "ARCHIVE",
-          "why": "Roosevelt's reply read over his own speaking (A8 rule 1), then the ceremony runs on with no voice: half the chapter's film is voiceless (GRAMMAR 2.4)."
+          "why": "Roosevelt's reply read over his own speaking (A8 rule 1): the steps from the second camera roll, a figure speaking at the front (source 43.70 to 83.70 s, 0.075 s inside its in cut and 0.092 s short of its out cut), then the ceremony runs on with no voice. The Library of Congress's head title on this file reads 'November 1916', an error of the title card's (the catalogue and the picture are of 1906); it is never shown. Span set 2026-11-08 on the viewed reel and its measured cuts (python -m studio.engine.clips bounds)."
         },
         {
           "id": "3.4",
@@ -1494,7 +1557,7 @@
           "speaker": "sp-roosevelt",
           "year": 1906,
           "source": "P-frus-1906-pt2",
-          "locator": "d305-incl2-pp1195-1196",
+          "locator": "d305-incl2-p1196",
           "read_by": "v-05",
           "wav": "audio/readings/R0.wav"
         },
@@ -1610,20 +1673,20 @@
           "kind": "archive_video",
           "start_s": 665.033,
           "asset": "V-LOC-GORGAS",
-          "in_s": 0.0,
-          "out_s": 24.0,
+          "in_s": 13.042,
+          "out_s": 37.042,
           "native_fps": 20,
           "sound": {
             "mode": "mute",
             "reason": "a silent film; the Library of Congress file carries no original track"
           },
           "talking_head": false,
-          "cut_reason": "provisional: the reel is unviewed; 0:22 of picture per the catalogue, to be set on its measured cuts after viewing (A33)",
+          "cut_reason": "ends 2.0 s before the train shot's own cut at 39.04 s: the shot's length is R55 and its tail, and the ride goes on in the source; the Library of Congress head titles (0 to 13.04 s) are never shown",
           "transition_in": {
             "type": "cut"
           },
           "mark": "ARCHIVE",
-          "why": "Gorgas on film, under his own words on the French (A8 rule 1: the speaker at the time); the words of about 1905 open the chapter without a verdict of ours."
+          "why": "Gorgas on film, under his own words on the French (A8 rule 1): his portrait (13.04 s) then the ride on the rear platform past the Colon line. Span set 2026-11-08 on the viewed reel and its measured cuts (python -m studio.engine.clips bounds)."
         },
         {
           "id": "4.3",
@@ -1798,7 +1861,7 @@
           "speaker": "sp-gorgas",
           "year": 1907,
           "source": "P-gorgas-1907-medical-record",
-          "locator": "reprint-p1",
+          "locator": "reprint-pp6,12",
           "read_by": "v-09",
           "wav": "audio/readings/R5.wav"
         },
@@ -1862,7 +1925,7 @@
           "speaker": "sp-roosevelt",
           "year": 1906,
           "source": "P-roosevelt-1906-message",
-          "locator": "p12",
+          "locator": "p10",
           "read_by": "v-05",
           "wav": "audio/readings/R6.wav"
         },
@@ -1896,11 +1959,12 @@
           "start_s": 816.183,
           "text": "That women are debarred from taking the examinations for the positions in offices on the Isthmus is most unjust and senseless. The Isthmian Canal Commission sends plenty of trained nurses here, whose chief duty is to take care of colored men when they are sick",
           "speaker": "sp-chatfield",
-          "year": 1906,
+          "year": 1908,
           "source": "P-chatfield-1908",
           "locator": "p183",
           "read_by": "v-15",
-          "wav": "audio/readings/R45.wav"
+          "wav": "audio/readings/R45.wav",
+          "year_basis": "the passage answers a letter of 26 September 1906 and bears no date of its own; it is printed in Light on Dark Places at Panama (1908), so 1906 or later, printed 1908 (text verification, 8 Nov 2026)"
         }
       ],
       "cues": [],
@@ -1952,7 +2016,7 @@
           "end_s": 821.183,
           "lines": [
             "Mary A. Chatfield",
-            "Stenographer, Canal Commission, 1906"
+            "Light on Dark Places at Panama, 1908"
           ]
         }
       ]
@@ -2171,13 +2235,14 @@
           "id": "5.15",
           "kind": "archive_still",
           "start_s": 1070.913,
-          "asset": "S-NARA-GALLEGO-CAMP",
+          "asset": "S-LOC-WASHINGTON-BEE-1908-06-20",
           "dur_s": 11.0,
           "transition_in": {
             "type": "cut"
           },
           "mark": "ARCHIVE",
-          "why": "The mess tents of a Gallego camp, European laborers, under Williams's sentence about white foreigners: the words are about the men the caption names (A8). Reorder stated (M12): Williams's 1908 letter closes the chapter after Wheat (1909) and Wilson (1910) so the chapter's last reading is a Black American, a different side from chapter 4's, and the three rolls end on the line that was drawn."
+          "why": "Williams's own letter on its page of the Washington Bee, 20 June 1908, under his sentence about white foreigners: A8 rule 5 as R12's Tribune page applies it (the real page in place of a typeset one); rules 1 to 3 hold for no picture whose caption names no community (the Gallego camp it replaces names one community under a voice from another: the never-list). Reorder stated (M12): Williams's 1908 letter closes the chapter after Wheat (1909) and Wilson (1910) so the chapter's last reading is a Black American, a different side from chapter 4's, and the three rolls end on the line that was drawn.",
+          "preset": "READ"
         }
       ],
       "lines": [
@@ -2530,20 +2595,40 @@
           "kind": "archive_video",
           "start_s": 1130.043,
           "asset": "V-NARA-TAFT-1912",
-          "in_s": 300.0,
-          "out_s": 330.0,
+          "in_s": 460.832,
+          "out_s": 483.433,
           "native_fps": 60,
           "sound": {
             "mode": "mute",
             "reason": "a silent Signal Corps reel; the transfer carries no original track"
           },
           "talking_head": false,
-          "cut_reason": "provisional: DEPENDS ON THE UNVIEWED REEL V-NARA-TAFT-1912 (founder, 8 Nov 2026: if it fails, the film settles near 22:50); the span (excavation, the locks, Gatun Lake) is to be set on its measured cuts after viewing (A33)",
+          "cut_reason": "ends on the reel's own cut into its intertitle 'LAKE GATUN' at 483.43 s, which scdet misses (the ledger's extra_cuts state it); the inspection party and the Miraflores lock wall before it",
           "transition_in": {
             "type": "cut"
           },
           "mark": "ARCHIVE",
-          "why": "Taft's inspection of December 1912 (re-dated by the Arkansas and the Record, F64): the only moving image of the locks and the lake before the water. The narration gives the date, then the reel plays on its own. Depends on the reel."
+          "why": "Taft's inspection of December 1912 (F64): the party at the Miraflores lock and the lock wall with the visitors' train (source 460.83 to 483.43 s), the reel's intertitles left out. The narration gives the date, then the reel plays on its own. Span set 2026-11-08 on the viewed reel and its measured cuts (python -m studio.engine.clips bounds). The reel's licence basis is a founder item (its own intertitles credit the Feature Film Mfg. Co., Washington)."
+        },
+        {
+          "id": "6.4b",
+          "kind": "archive_video",
+          "start_s": 1152.644,
+          "asset": "V-NARA-TAFT-1912",
+          "in_s": 491.3,
+          "out_s": 498.699,
+          "native_fps": 60,
+          "sound": {
+            "mode": "mute",
+            "reason": "a silent Signal Corps reel; the transfer carries no original track"
+          },
+          "talking_head": false,
+          "transition_in": {
+            "type": "cut"
+          },
+          "mark": "ARCHIVE",
+          "why": "Gatun Lake rising through the forest, the same reel after its 'LAKE GATUN' intertitle (source 491.30 to 498.70 s): the lake before the water reached its height. Span set 2026-11-08 on the viewed reel and its measured cuts (python -m studio.engine.clips bounds).",
+          "cut_reason": "ends 4.65 s before the source's own cut at 503.35 s: the shot is what remains of the scene's 30 s; the drowned forest goes on in the source"
         },
         {
           "id": "6.5",
@@ -2611,7 +2696,7 @@
           "kind": "archive_still",
           "start_s": 1229.073,
           "asset": "S-NARA-CUCARACHA-1913",
-          "dur_s": 13.0,
+          "dur_s": 14.0,
           "transition_in": {
             "type": "cut"
           },
@@ -2621,9 +2706,9 @@
         {
           "id": "6.11",
           "kind": "archive_still",
-          "start_s": 1242.073,
+          "start_s": 1243.073,
           "asset": "S-NARA-SPANISH-TRACKS-1913",
-          "dur_s": 11.0,
+          "dur_s": 10.0,
           "transition_in": {
             "type": "cut"
           },
@@ -2758,7 +2843,7 @@
           "id": "N6-9",
           "kind": "narration",
           "start_s": 1230.073,
-          "text": "Between May, nineteen oh four, and August, nineteen thirteen, the Central Division took one hundred million cubic yards from the Cut, with about thirty-eight million pounds of explosives.",
+          "text": "Between May, nineteen oh four, and August, nineteen thirteen, the Central Division took one hundred and nine million cubic yards from its territory, with about thirty-eight million pounds of explosives.",
           "wav": "audio/narration/N6-9.wav",
           "read_by": "v-narrator",
           "sources": [],
@@ -2769,7 +2854,7 @@
         {
           "id": "N6-10",
           "kind": "narration",
-          "start_s": 1243.073,
+          "start_s": 1244.073,
           "text": "On the twenty-sixth of March, nineteen thirteen, the force was at its largest: forty-four thousand seven hundred and thirty-three.",
           "wav": "audio/narration/N6-10.wav",
           "read_by": "v-narrator",
@@ -3239,14 +3324,14 @@
     {
       "ref": "N1-2",
       "start_s": 113.403,
-      "end_s": 118.187,
-      "en": "Ferdinand de Lesseps went to the Isthmus\nand wrote of his visit in eighteen"
+      "end_s": 118.571,
+      "en": "Ferdinand de Lesseps went to the Isthmus\nin eighteen eighty-six and wrote of his"
     },
     {
       "ref": "N1-2-2",
-      "start_s": 118.187,
-      "end_s": 119.187,
-      "en": "eighty-five."
+      "start_s": 118.571,
+      "end_s": 119.571,
+      "en": "visit."
     },
     {
       "ref": "R33",
@@ -3258,7 +3343,7 @@
       "ref": "LT-R33",
       "start_s": 123.403,
       "end_s": 128.403,
-      "en": "[Ferdinand de Lesseps,\nPanama Canal Company, 1885]"
+      "en": "[Ferdinand de Lesseps,\nPanama Canal Company, 1886]"
     },
     {
       "ref": "R33-2",
@@ -4002,7 +4087,7 @@
       "ref": "LT-R45",
       "start_s": 816.183,
       "end_s": 821.183,
-      "en": "[Mary A. Chatfield,\nStenographer, Canal Commission, 1906]"
+      "en": "[Mary A. Chatfield,\nLight on Dark Places at Panama, 1908]"
     },
     {
       "ref": "R45-2",
@@ -4457,31 +4542,31 @@
     {
       "ref": "N6-9",
       "start_s": 1230.073,
-      "end_s": 1234.663,
+      "end_s": 1234.618,
       "en": "Between May, nineteen oh four, and August,\nnineteen thirteen, the Central Division"
     },
     {
       "ref": "N6-9-2",
-      "start_s": 1234.663,
-      "end_s": 1239.253,
-      "en": "took one hundred million cubic yards from\nthe Cut, with about thirty-eight million"
+      "start_s": 1234.618,
+      "end_s": 1238.826,
+      "en": "took one hundred and nine million cubic\nyards from its territory, with about"
     },
     {
       "ref": "N6-9-3",
-      "start_s": 1239.253,
-      "end_s": 1240.443,
-      "en": "pounds of explosives."
+      "start_s": 1238.826,
+      "end_s": 1241.183,
+      "en": "thirty-eight million pounds of explosives."
     },
     {
       "ref": "N6-10",
-      "start_s": 1243.073,
-      "end_s": 1247.341,
+      "start_s": 1244.073,
+      "end_s": 1248.341,
       "en": "On the twenty-sixth of March, nineteen\nthirteen, the force was at its largest:"
     },
     {
       "ref": "N6-10-2",
-      "start_s": 1247.341,
-      "end_s": 1250.113,
+      "start_s": 1248.341,
+      "end_s": 1251.113,
       "en": "forty-four thousand seven hundred and\nthirty-three."
     },
     {
