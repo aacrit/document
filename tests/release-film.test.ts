@@ -2,7 +2,7 @@
 // uploads to the film's folder in R2 with --remote and sources.json last, and
 // a dry run is plain data that never runs a command.
 import { describe, expect, it } from "vitest";
-import { BUCKET, MAX_PUT_BYTES, PACKET_ROOT, UPLOAD_ORDER, captionReview, cropProblems, parseCrop, commandLine, uploadsCaptions, gopFrames, rateProblems, videoKbps, webEncodeArgs, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease, readLedgers, posterSource, localPathProblems, runCheck } from "../scripts/release-film.mjs";
+import { BUCKET, MAX_PUT_BYTES, PACKET_ROOT, UPLOAD_ORDER, captionReview, cropProblems, parseCrop, commandLine, uploadsCaptions, gopFrames, rateProblems, videoKbps, webEncodeArgs, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease, readLedgers, posterSource, localPathProblems, placeholderProblems, finalProblems, runCheck, dryRunFinal, sha256, sha256Stream } from "../scripts/release-film.mjs";
 import { localPathFindings } from "../scripts/lib/local-paths.mjs";
 import { mkdtempSync, readFileSync, writeFileSync as wfs, mkdirSync as mkd } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,7 +16,7 @@ const plan = (argv: string[], durations = { film: 1205, trailer: 120 }) => planR
 describe("release-film", () => {
   it("runs sources-only, the web encode, the poster and packet, the captions check, the upload and the hashes, in that order", () => {
     const { steps } = plan(["r/master.mp4", "--trailer", "t/master.mp4"]);
-    expect(steps.map((s) => s.id)).toEqual(["a", "b", "b", "c", "c", "d", "e", "e", "e", "e", "e", "e", "e", "e", "f"]);
+    expect(steps.map((s) => s.id)).toEqual(["a", "b", "b", "c", "c", "d", "e", "e", "e", "e", "e", "e", "e", "e", "e", "e", "e", "e", "f"]);
     expect(steps[0].args).toEqual(expect.arrayContaining(["-m", "studio.engine.render", "--sources-only"]));
     expect(steps[1].args).toEqual(expect.arrayContaining(webEncodeArgs(1205)));
     expect(steps[2].args).toEqual(expect.arrayContaining(["-maxrate", `${videoKbps(120)}k`]));
@@ -72,6 +72,135 @@ describe("release-film", () => {
     wfs(good, JSON.stringify({ shots: [defect().shots[0]], cues: defect().cues }));
     expect(() => runCheck({ check: "local-paths", sources: good })).not.toThrow();
     expect(localPathProblems(defect())[0]).toBe('sources.json .shots[1].archive names a local drive: "Lok Sabha Secretariat (eparlib), PDF on D:"');
+  });
+
+  // GRAMMAR 11.1: a draft master may keep placeholder media (render.py placeholder-media); its sources.json lists them.
+  const drafted = () => ({
+    slug: "panama-canal", draft: true,
+    shots: [
+      { id: "S3", ledger_id: "FX-STILL-A", placeholder: false },
+      { id: "S4", ledger_id: "FX-STILL-B", placeholder: true },
+      { id: "S9", ledger_id: "PG-07", placeholder: true },
+    ],
+    placeholder_media: [{ unit: "S4", where: "shot", asset: "FX-STILL-B", why: "placeholder: true" },
+      { unit: "TS1", where: "title-record", asset: "FX-REC", why: "placeholder: true" },
+      { unit: "L5", where: "line", asset: "CLIP-2", why: "placeholder: true" }],
+  });
+
+  it("refuses a packet whose sources.json lists placeholder media, before any put, naming each shot and item", () => {
+    const { steps } = plan(["r/master.mp4", "--trailer", "t/master.mp4"]);
+    const check = steps.findIndex((s) => s.check === "placeholders");
+    const firstWrite = steps.findIndex((s) => s.args?.includes("put") || s.args?.includes("delete"));
+    expect(check).toBeGreaterThan(-1);
+    expect(check).toBeLessThan(firstWrite);
+    expect(plan(["r/master.mp4", "--no-upload"]).steps.some((s) => s.check === "placeholders")).toBe(true);
+    // the list and the shots' own flags, each named once (S9 is flagged on its shot only)
+    expect(placeholderProblems(drafted())).toEqual([
+      "shot S4 cites the placeholder FX-STILL-B", "title record of TS1 cites the placeholder FX-REC",
+      "line L5 cites the placeholder CLIP-2", "shot S9 cites the placeholder PG-07"]);
+    expect(placeholderProblems({ shots: [{ id: "S1", placeholder: false }], placeholder_media: [] })).toEqual([]);
+    expect(placeholderProblems({})).toEqual([]);                    // a sources.json from before the field: nothing listed
+    const dir = mkdtempSync(pjoin(tmpdir(), "release-ph-"));
+    const bad = pjoin(dir, "sources.json");
+    wfs(bad, JSON.stringify(drafted()));
+    expect(() => runCheck({ check: "placeholders", sources: bad })).toThrow(/4 placeholder\(s\)[\s\S]*shot S4 cites the placeholder FX-STILL-B[\s\S]*title record of TS1[\s\S]*line L5[\s\S]*shot S9/);
+    const good = pjoin(dir, "good.json");
+    wfs(good, JSON.stringify({ shots: [drafted().shots[0]], placeholder_media: [] }));
+    expect(() => runCheck({ check: "placeholders", sources: good })).not.toThrow();
+  });
+
+  it("refuses a packet whose poster is one of the placeholders", () => {
+    const poster = (ledger_id: string, extra = {}) => ({ ...drafted(), poster: { ledger_id, file: "poster.jpg", ...extra } });
+    expect(placeholderProblems(poster("PG-07"))).toContain("the poster is the placeholder PG-07");      // flagged on its shot
+    expect(placeholderProblems(poster("FX-STILL-B"))).toContain("the poster is the placeholder FX-STILL-B"); // in the list
+    expect(placeholderProblems(poster("FX-STILL-A"))).not.toContain("the poster is the placeholder FX-STILL-A");
+    const clean = { shots: [{ id: "S3", ledger_id: "FX-STILL-A", placeholder: false }], placeholder_media: [] };
+    expect(placeholderProblems({ ...clean, poster: { ledger_id: "FX-STILL-A" } })).toEqual([]);
+    expect(placeholderProblems({ ...clean, poster: { ledger_id: "S-020", placeholder: true } })).toEqual(["the poster is the placeholder S-020"]);
+  });
+
+  // Founder ruling 2026-11-08: release refuses every draft master, and every draft trailer.
+  type Checked = Step & { sources: string; what?: string };
+  const final = (doc: object, what: string) => {
+    const dir = mkdtempSync(pjoin(tmpdir(), "release-final-"));
+    wfs(pjoin(dir, "sources.json"), JSON.stringify(doc));
+    return () => runCheck({ check: "final", what, sources: pjoin(dir, "sources.json") });
+  };
+
+  it("refuses a draft master before any put, whatever it holds, and passes a final one", () => {
+    const { steps } = plan(["r/master.mp4", "--trailer", "t/master.mp4"]);
+    const check = steps.findIndex((s) => s.check === "final" && (s as Checked).what === "the master");
+    const firstWrite = steps.findIndex((s) => s.args?.includes("put") || s.args?.includes("delete"));
+    expect(check).toBeGreaterThan(-1);
+    expect(check).toBeLessThan(firstWrite);
+    expect((steps[check] as Checked).sources.replace(/\\/g, "/")).toMatch(/\/sources\.json$/);
+    expect(plan(["r/master.mp4", "--no-upload"]).steps.some((s) => s.check === "final")).toBe(true);
+    // a draft with no placeholders is refused all the same
+    expect(final({ slug: "x", draft: true, placeholder_media: [], shots: [] }, "the master")).toThrow(/the master is a draft \(rendered with --draft\)/);
+    expect(final({ slug: "x", shots: [] }, "the master")).toThrow(/does not record whether it is a draft.*--sources-only --draft if its journal is gone; release then refuses it as a draft/);
+    expect(final({ slug: "x", draft: false, partial: true }, "the master")).toThrow(/check render \(partial\)/);
+    expect(final({ slug: "x", draft: false, placeholder_media: [] }, "the master")).not.toThrow();
+    expect(finalProblems({ draft: false })).toEqual([]);
+  });
+
+  it("refuses a draft trailer, and a trailer with no sources.json beside it, since it cannot be shown to be final", () => {
+    const steps = plan(["r/master.mp4", "--trailer", "t/master.mp4"]).steps as Checked[];
+    const trailerFinal = steps.find((s) => s.check === "final" && s.what === "the trailer");
+    const trailerPh = steps.find((s) => s.label === "the trailer's sources.json lists no placeholder media");
+    expect(trailerFinal?.sources.replace(/\\/g, "/")).toMatch(/\/t\/sources\.json$/);
+    expect(trailerPh?.check).toBe("placeholders");
+    expect(steps.indexOf(trailerFinal!)).toBeLessThan(steps.indexOf(trailerPh!));
+    expect(steps.findIndex((s) => s === trailerFinal)).toBeLessThan(steps.findIndex((s) => s.args?.includes("put") ?? false));
+    expect(plan(["r/master.mp4"]).steps.some((s) => s.label.startsWith("the trailer's sources.json"))).toBe(false);
+    expect(trailerFinal && (trailerFinal as Checked & { file: string }).file.replace(/\\/g, "/")).toMatch(/\/t\/master\.mp4$/);
+    expect(final({ draft: true }, "the trailer")).toThrow(/the trailer is a draft/);
+    expect(final({ draft: false }, "the trailer")).not.toThrow();
+    const missing = pjoin(mkdtempSync(pjoin(tmpdir(), "release-trailer-none-")), "sources.json");
+    expect(() => runCheck({ check: "final", what: "the trailer", sources: missing })).toThrow(/no sources\.json at .*the trailer cannot be shown to be a final render/);
+    const dir = mkdtempSync(pjoin(tmpdir(), "release-ph-trailer-"));
+    wfs(pjoin(dir, "sources.json"), JSON.stringify(drafted()));
+    expect(() => runCheck({ check: "placeholders", sources: pjoin(dir, "sources.json") })).toThrow(/placeholder\(s\)/);
+  });
+
+  it("ties the trailer's record to the trailer file: a check render beside a final master.mp4 is refused", () => {
+    const dir = mkdtempSync(pjoin(tmpdir(), "release-trailer-hash-"));
+    const master = pjoin(dir, "master.mp4");
+    const span = pjoin(dir, "master.shots-S4-S6.mp4");
+    const until = pjoin(dir, "master.check-30s.mp4");
+    wfs(master, "the final trailer master");
+    wfs(span, "a --shots check render");
+    wfs(until, "an --until check render");
+    const sources = pjoin(dir, "sources.json");
+    wfs(sources, JSON.stringify({ draft: false, master: "master.mp4", master_sha256: sha256(master) }));
+    const check = (file: string) => () => runCheck({ check: "final", what: "the trailer", sources, file });
+    expect(check(master)).not.toThrow();
+    expect(check(span)).toThrow(/master\.shots-S4-S6\.mp4 is not the master .* describes .*master\.mp4's/);
+    expect(check(until)).toThrow(/master\.check-30s\.mp4 is not the master/);
+    expect(sha256Stream(master)).toBe(sha256(master));
+    wfs(sources, JSON.stringify({ draft: false, master: "master.mp4" }));                       // no hash recorded
+    expect(check(master)).toThrow(/records no master_sha256/);
+    // the real run hashes through the given hash; a dry run never hashes the trailer master, and says the real run does
+    const calls: string[] = [];
+    const spy = (f: string) => { calls.push(f); return sha256(f); };
+    wfs(sources, JSON.stringify({ draft: false, master: "master.mp4", master_sha256: sha256(master) }));
+    expect(() => runCheck({ check: "final", what: "the trailer", sources, file: span }, { hash: spy })).toThrow(/is not the master/);
+    expect(calls).toEqual([span]);
+    calls.length = 0;
+    const lines: string[] = [];
+    dryRunFinal({ check: "final", what: "the trailer", sources, file: span }, { log: (l: string) => lines.push(l), hash: spy });
+    expect(calls).toEqual([]);
+    expect(lines).toEqual([`  a real run hashes ${span} against master_sha256`]);
+    wfs(sources, JSON.stringify({ draft: true, master_sha256: sha256(master) }));
+    lines.length = 0;
+    dryRunFinal({ check: "final", what: "the trailer", sources, file: span }, { log: (l: string) => lines.push(l), hash: spy });
+    expect(calls).toEqual([]);
+    expect(lines[1]).toMatch(/the trailer is a draft.*\(a real run refuses\)$/);
+    lines.length = 0;
+    dryRunFinal({ check: "final", what: "the master", sources: pjoin(dir, "none.json") }, { log: (l: string) => lines.push(l) });
+    expect(lines).toEqual([expect.stringMatching(/no sources\.json at .* yet, so nothing to check now/)]);
+    // a draft is named even when the hash matches
+    wfs(sources, JSON.stringify({ draft: true, master_sha256: sha256(master) }));
+    expect(check(master)).toThrow(/the trailer is a draft/);
   });
 
   it("derives the rate cap from the duration, so the 720p file stays under the put limit with margin", () => {

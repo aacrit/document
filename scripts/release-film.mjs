@@ -8,6 +8,8 @@
 //   d. the captions                      captions-en.vtt, written by publish (studio/engine/captions.py); checked here
 //   e. the upload                        wrangler r2 object put document-media/<slug>/<file> --remote, sources.json last;
 //                                        refused first if any field of sources.json names a local drive (lib/local-paths.mjs)
+//                                        or if it lists placeholder media (a draft's stand-ins, GRAMMAR 11.1); a draft
+//                                        master, or a draft trailer or one with no sources.json, is refused too
 //   f. the hashes                        sha256 of every file, checked against what sources.json records
 //
 //   node scripts/release-film.mjs <render dir>/master.mp4 [--dry-run] [--trailer <trailer master.mp4>]
@@ -33,7 +35,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -283,6 +285,21 @@ export function planRelease(o, { python = studioPython(), ffmpeg = process.env.D
   steps.push({ id: "d", label: "the captions (captions-en.vtt, written by publish from the render's screenplay)", check: "captions", file: at("captions-en.vtt") });
   const files = UPLOAD_ORDER.filter((f) => (f !== "trailer.mp4" || o.trailer) && (f !== "captions-en.vtt" || uploadsCaptions(captionsReview)));
   // sources.json is public and the site prints it: a drive path in it ("PDF on D:", Partition 2026-11) is refused before any put.
+  // A draft master may keep placeholder media (render.py placeholder-media, GRAMMAR 11.1); its sources.json lists them
+  // (placeholder_media), and none goes up. --sources-only (step a) already refuses a placeholder under a master recorded as final.
+  // Founder ruling 2026-11-08: release refuses every draft master (--draft), and every draft trailer.
+  steps.push({ id: "e", label: "sources.json records a final master, not a draft", check: "final", what: "the master", sources: at("sources.json") });
+  steps.push({ id: "e", label: "sources.json lists no placeholder media", check: "placeholders", sources: at("sources.json") });
+  // The trailer is its own render, with its own sources.json beside its master. With none there it cannot be shown to be
+  // final, so it is refused, as a draft trailer is.
+  if (o.trailer) {
+    const trailerSources = path.join(path.dirname(path.resolve(o.trailer)), "sources.json");
+    // tied to the trailer file by the master_sha256 its render recorded: a check render (master.shots-*.mp4,
+    // master.check-*.mp4) beside a final master.mp4 does not pass on that master's record
+    steps.push({ id: "e", label: "the trailer's sources.json records a final render of this trailer, not a draft", check: "final", what: "the trailer",
+      sources: trailerSources, file: path.resolve(o.trailer) });
+    steps.push({ id: "e", label: "the trailer's sources.json lists no placeholder media", check: "placeholders", sources: trailerSources });
+  }
   steps.push({ id: "e", label: "sources.json names no local drive", check: "local-paths", sources: at("sources.json") });
   steps.push({ id: "e", label: "every file under the put limit", check: "sizes", files: files.map(at) });
   // Every hash is checked against sources.json before the first put, so nothing goes up that the record does not describe.
@@ -338,12 +355,102 @@ export function localPathProblems(doc) {
   return localPathFindings(doc).map((f) => `sources.json ${f.path} names a local drive: ${JSON.stringify(f.value)}`);
 }
 
+/**
+ * The refusals for a sources.json that records placeholder media: one line per shot, series title record or heard
+ * line that cites a placeholder, from its `placeholder_media` list and any shot marked `placeholder: true`
+ * (render.py, GRAMMAR 11.1), and the poster when its ledger id is one of those placeholders (publish.py refuses a
+ * placeholder poster itself; this catches a packet made before it did).
+ */
+export function placeholderProblems(doc) {
+  const WHERE = { line: "line", "title-record": "title record of", shot: "shot" };
+  const seen = new Map();
+  const assets = new Set();
+  for (const x of Array.isArray(doc?.placeholder_media) ? doc.placeholder_media : []) {
+    const where = WHERE[x?.where] ?? "shot";
+    const unit = String(x?.unit ?? "?");
+    const asset = String(x?.asset ?? "?");
+    assets.add(asset);
+    seen.set(`${where} ${unit} ${asset}`, `${where} ${unit} cites the placeholder ${asset}`);
+  }
+  for (const s of Array.isArray(doc?.shots) ? doc.shots : []) {
+    if (s?.placeholder !== true) continue;
+    const asset = String(s.ledger_id ?? "?");
+    const key = `shot ${String(s.id ?? "?")} ${asset}`;
+    assets.add(asset);
+    if (!seen.has(key)) seen.set(key, `shot ${String(s.id ?? "?")} cites the placeholder ${asset}`);
+  }
+  const poster = doc?.poster?.ledger_id;
+  if (poster != null && (assets.has(String(poster)) || doc.poster.placeholder === true)) seen.set("poster", `the poster is the placeholder ${String(poster)}`);
+  return [...seen.values()];
+}
+
+/**
+ * Why a render's sources.json does not show a final render (founder ruling 2026-11-08: release refuses every draft):
+ * `draft: true` (rendered with --draft), no `draft` field at all (nothing says it is final), or a check render's
+ * partial file. Empty when it records a final, full render.
+ */
+export function finalProblems(doc, what = "the master") {
+  const out = [];
+  if (doc?.draft === true) out.push(`${what} is a draft (rendered with --draft): render it again without --draft, then release`);
+  else if (doc?.draft !== false) out.push(`${what}'s sources.json does not record whether it is a draft (no draft field), so it cannot be shown to be final: run --sources-only on its render (or --sources-only --draft if its journal is gone; release then refuses it as a draft), or render it again`);
+  if (doc?.partial === true) out.push(`${what} is a check render (partial), not the full film`);
+  return out;
+}
+
 export function sha256(file) {
   return createHash("sha256").update(readFileSync(file)).digest("hex");
 }
 
-export function runCheck(step) {
-  if (step.check === "local-paths") {
+/** sha256 of a file read in 8 MiB chunks, so a master over 2 GiB (past one Buffer) hashes too. */
+export function sha256Stream(file) {
+  const h = createHash("sha256");
+  const fd = openSync(file, "r");
+  try {
+    const buf = Buffer.allocUnsafe(8 * 1024 * 1024);
+    for (let n; (n = readSync(fd, buf, 0, buf.length, null)) > 0;) h.update(buf.subarray(0, n));
+  } finally {
+    closeSync(fd);
+  }
+  return h.digest("hex");
+}
+
+/**
+ * A dry run's look at a "final" step: what a real run would refuse in the sources.json as it stands. It never hashes
+ * the trailer master (it can be several GiB): it says the real run does. `hash` is passed through to runCheck.
+ */
+export function dryRunFinal(step, { log = console.log, hash = sha256Stream } = {}) {
+  if (step.file) log(`  a real run hashes ${step.file} against master_sha256`);
+  if (existsSync(step.sources)) {
+    try {
+      runCheck({ ...step, file: undefined }, { hash });
+    } catch (e) {
+      log(`  ${step.sources} as it stands: ${e.message} (a real run refuses)`);
+    }
+  } else if (step.what === "the trailer") {
+    log(`  no sources.json at ${step.sources}: the trailer cannot be shown to be final (a real run refuses)`);
+  } else {
+    log(`  no sources.json at ${step.sources} yet, so nothing to check now: publish writes it at [c], and a real run checks it here, refusing unless it records a final master`);
+  }
+}
+
+export function runCheck(step, { hash = sha256Stream } = {}) {
+  if (step.check === "final") {
+    if (!existsSync(step.sources)) throw new Error(`no sources.json at ${step.sources}, so ${step.what ?? "the render"} cannot be shown to be a final render: render it with the engine, without --draft, and release again`);
+    const doc = JSON.parse(readFileSync(step.sources, "utf8"));
+    const problems = finalProblems(doc, step.what);
+    if (step.file) {
+      // the record must describe this very file: its render's master_sha256 (render.py writes it beside the master)
+      if (typeof doc.master_sha256 !== "string" || !doc.master_sha256) problems.push(`${step.sources} records no master_sha256, so it cannot be shown to describe ${step.file}`);
+      else if (!existsSync(step.file)) problems.push(`${step.file} does not exist`);
+      else if (hash(step.file) !== doc.master_sha256) problems.push(`${step.file} is not the master ${step.sources} describes (its sha256 differs from master_sha256${doc.master ? `, which is ${doc.master}'s` : ""}): release the render's own master.mp4`);
+    }
+    if (problems.length) throw new Error(problems.join("; "));
+    console.log(`  ${step.what ?? "the render"} is a final render`);
+  } else if (step.check === "placeholders") {
+    const problems = placeholderProblems(JSON.parse(readFileSync(step.sources, "utf8")));
+    if (problems.length) throw new Error(`${step.sources} lists ${problems.length} placeholder(s) (make the media and render without --draft):\n  ${problems.join("\n  ")}`);
+    console.log("  no placeholder media");
+  } else if (step.check === "local-paths") {
     const problems = localPathProblems(JSON.parse(readFileSync(step.sources, "utf8")));
     if (problems.length) throw new Error(`${problems.length} field(s) name a local drive (fix the ledger or screenplay, publish again):\n  ${problems.join("\n  ")}`);
     console.log("  no local drive in any field");
@@ -433,6 +540,10 @@ function main() {
       if (o.dryRun) {
         console.log(`  check: ${step.check}${step.file ? ` ${step.file}` : ""}`);
         // the packet as it stands (an earlier publish): what a real run refuses if publish writes it the same way
+        if (step.check === "final") dryRunFinal(step);
+        if (step.check === "placeholders" && existsSync(step.sources)) {
+          for (const p of placeholderProblems(JSON.parse(readFileSync(step.sources, "utf8")))) console.log(`  ${step.sources} as it stands: ${p} (a real run refuses)`);
+        }
         if (step.check === "local-paths" && existsSync(step.sources)) {
           for (const p of localPathProblems(JSON.parse(readFileSync(step.sources, "utf8")))) console.log(`  the packet's current ${p} (a real run refuses)`);
         }

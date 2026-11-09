@@ -845,7 +845,8 @@ def test_review_sources_only_refills_only_from_this_masters_full_render(film, tm
     master = _master(out, plan["frames"])
     values = {"readings": {"share": 0.11, "floor": 0.2}, "voiceless": {"share": 0.5, "floor": 0.1},
               "women": {"share": 0.0, "floor": 0.3, "unknown_s": 0}}
-    good = {"master_sha256": R.sha256_file(master), "card_fills": {"values": values, "texts": {}}}
+    # a final master's record: draft false, tied to this master by its sha256 (--sources-only never guesses final)
+    good = {"draft": False, "master_sha256": R.sha256_file(master), "card_fills": {"values": values, "texts": {}}}
 
     def prev(doc):
         (out / "sources.json").write_text(json.dumps(doc), encoding="utf-8")
@@ -854,13 +855,16 @@ def test_review_sources_only_refills_only_from_this_masters_full_render(film, tm
     R.sources_only(film, out)
     doc = json.loads((out / "sources.json").read_text(encoding="utf-8"))
     assert "are 11 percent" in next(x for x in doc["shortfalls"] if x["what"] == "readings")["filled"]
-    stale = {"master_sha256": R.sha256_file(master)}
-    for bad, why in ((dict(good, master_sha256="0" * 64), "another master"), (dict(good, partial=True), "partial render"),
-                     (dict(good, card_fills={"values": {"readings": {"share": "x"}}}), "malformed"),
-                     (dict(good, card_fills="x"), "malformed"), (stale, "no card_fills")):
+    stale = {"draft": False, "master_sha256": R.sha256_file(master)}
+    # another master's record: its draft field does not speak for this master, so --draft says how it was rendered,
+    # and the card_fills check is what refuses it
+    for bad, why, draft in ((dict(good, master_sha256="0" * 64), "describes another master", True),
+                            (dict(good, partial=True), "partial render", None),
+                            (dict(good, card_fills={"values": {"readings": {"share": "x"}}}), "malformed", None),
+                            (dict(good, card_fills="x"), "malformed", None), (stale, "no card_fills", None)):
         prev(bad)
         with pytest.raises(R.Refused, match=why):
-            R.sources_only(film, out)
+            R.sources_only(film, out, draft=draft)
 
 
 def test_review_telecined_is_a_real_bool(film):

@@ -74,8 +74,12 @@ def test_sources_only_refuses_without_a_master_or_with_a_stale_one(film, rendere
     short = tmp_path / "short.mp4"
     subprocess.run([R.ffmpeg(), "-v", "error", "-y", "-i", str(out / "master.mp4"), "-t", "2", "-c", "copy", str(short)], check=True)
     shutil.copy(short, out / "master.mp4")
-    with pytest.raises(R.Refused, match="stale"):
+    # the copied record's master_sha256 is the full master's, not this short one's: without --draft nothing says how
+    # this master was rendered, so it is refused (review of #103); with --draft the frame count refuses it as stale
+    with pytest.raises(R.Refused, match="another master"):
         R.sources_only(film, out)
+    with pytest.raises(R.Refused, match="stale"):
+        R.sources_only(film, out, draft=True)
 
 
 def test_sources_only_refuses_a_description_it_cannot_publish_before_writing_either_file(film, rendered, tmp_path,
@@ -372,12 +376,13 @@ def test_sources_only_plans_as_its_master_was_rendered(film, rendered, tmp_path,
     recorded = R.master_was_draft(out)
     assert recorded is False                         # the fixture's master is a final render, read from its file
     R.sources_only(film, out)
-    monkeypatch.setattr(R, "master_was_draft", lambda o: True)
+    monkeypatch.setattr(R, "master_was_draft", lambda o, **kw: True)
     R.sources_only(film, out)                         # a master recorded as a draft plans as one
-    monkeypatch.setattr(R, "master_was_draft", lambda o: None)
+    monkeypatch.setattr(R, "master_was_draft", lambda o, **kw: None)
     R.sources_only(film, out, draft=True)             # unreadable: --draft fills in
-    R.sources_only(film, out)                         # unreadable and no flag: final
-    assert seen == [False, True, True, False]
+    with pytest.raises(R.Refused, match="cannot tell whether this master was rendered with --draft"):
+        R.sources_only(film, out)                     # unreadable and no flag: never assumed final (review of #103)
+    assert seen == [False, True, True]
 
 
 def test_sources_only_draft_never_turns_a_final_master_into_a_draft(film, rendered, tmp_path):
