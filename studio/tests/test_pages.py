@@ -136,7 +136,7 @@ def test_the_cli_writes_each_png_and_a_record_that_makes_it_a_page(tmp_path):
     rec = json.loads((out / PG.RECORD).read_text(encoding="utf-8"))["D-PAGE-TEST"]
     assert rec["sha256"] == hashlib.sha256(png.read_bytes()).hexdigest()
     assert rec["pixels_sha256"] == hashlib.sha256(Image.open(png).convert("RGB").tobytes()).hexdigest()
-    assert rec["spec_sha256"] == hashlib.sha256(spec.read_bytes()).hexdigest()
+    assert rec["spec_sha256"] == PG.spec_sha256(spec.read_bytes())
     assert rec["title"] == page()["title"] and rec["source"] == page()["source"]
     assert [d["kind"] for d in rec["drawn_text"]][0] == "title"
     assert (rec["width"], rec["height"]) == SMALL
@@ -162,3 +162,44 @@ def test_the_cli_refuses_duplicate_ids(tmp_path):
     spec = _spec(tmp_path, [page(), page()])
     with pytest.raises(SystemExit):
         PG.main([str(spec), "--out", str(tmp_path / "o"), "--width", str(SMALL[0]), "--height", str(SMALL[1])])
+
+
+# ---- fix round of PR #105: dashes, the spec's hash, unbreakable words -----------------------------------------------
+
+EM = "—"
+
+
+def test_a_verbatim_record_dash_is_kept_in_the_body_and_a_verbatim_title_line():
+    """Founder ruling 2026-11-09 (DECISIONS; GRAMMAR 9 amendment): a typeset page sets its record's dashes verbatim."""
+    p = page(title=[{"text": f"The Independence of the Isthmus of Panama{EM}Its History.", "verbatim": True}],
+             body=[f"captured no fort{EM}contenting themselves; I am lodging a solemn protest"])
+    assert PG.page_problems(p) == []
+    lay = PG.layout(p, size=SMALL)
+    assert lay["drawn_text"][0] == {"kind": "title", "text": f"The Independence of the Isthmus of Panama{EM}Its "
+                                                             f"History.", "verbatim": True}
+
+
+def test_a_dash_in_the_studios_own_words_is_refused():
+    in_source = PG.page_problems(page(source=f"Papers Relating to the Foreign Relations{EM}1903"))
+    assert in_source and "em dash" in in_source[0] and "source" in in_source[0]
+    in_title = PG.page_problems(page(title=[f"Herran to Hay{EM}a protest"]))           # a plain string: studio-written
+    assert in_title and "em dash" in in_title[0]
+    flagged = PG.page_problems(page(title=[{"text": f"Herran{EM}Hay", "verbatim": False}]))
+    assert flagged and "em dash" in flagged[0]
+
+
+def test_a_title_line_object_must_hold_text():
+    assert any("title" in p for p in PG.page_problems(page(title=[{"verbatim": True}])))
+
+
+def test_the_spec_hash_does_not_depend_on_the_checkouts_line_endings():
+    lf = b'{\n "pages": []\n}\n'
+    assert PG.spec_sha256(lf) == PG.spec_sha256(lf.replace(b"\n", b"\r\n"))
+    assert PG.spec_sha256(lf) == hashlib.sha256(lf).hexdigest()
+
+
+def test_a_word_wider_than_its_measure_is_refused_never_drawn_past_it():
+    with pytest.raises(M.TextOverflow):
+        PG.layout(page(body=["x" * 400]), size=SMALL)
+    with pytest.raises(M.TextOverflow):
+        PG.layout(page(source="y" * 400), size=SMALL)
