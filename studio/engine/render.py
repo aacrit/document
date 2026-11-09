@@ -10058,11 +10058,12 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
     extra: dict = {}
     path = out / "sources.json"
     prev = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    if "loudness" in prev:                  # an earlier render's record, with any absolute path made relative
-        extra["loudness"] = public_loudness(prev["loudness"], out)
-    # carried forward: the master's own run (never this rewrite's) and its draft-ness, as planned here; a previous
-    # record of another master (its master_sha256 not this one's) names that master's run, so none is carried
+    # a previous record of another master (its master_sha256 not this one's) describes that master: its run and its
+    # loudness (that master's mix) are not carried, the same as a record that has none
     same = prev.get("master_sha256") in (None, master_sha)
+    if "loudness" in prev and same:         # an earlier render's record, with any absolute path made relative
+        extra["loudness"] = public_loudness(prev["loudness"], out)
+    # carried forward: the master's own run (never this rewrite's) and its draft-ness, as planned here
     extra.update(master="master.mp4", master_sha256=master_sha,
                  master_run=(prev.get("master_run") or prev.get("run")) if same else None, draft=bool(draft))
     if plan_has_placeholders(plan):

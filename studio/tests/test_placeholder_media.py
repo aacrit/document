@@ -333,7 +333,7 @@ def test_a_final_record_beside_another_master_does_not_speak_for_it(film_safe, t
     subprocess.run([R.ffmpeg(), "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=64x36:rate=24", "-frames:v", "1",
                     str(out / "master.mp4")], check=True)
     stale = {"v": 2, "slug": "fixture", "draft": False, "master": "master.mp4", "master_sha256": "0" * 64,
-             "master_run": "r-20261108-earlier-final"}
+             "master_run": "r-20261108-earlier-final", "loudness": {"output_i": -16.0, "output_tp": -1.5}}
     (out / "sources.json").write_text(json.dumps(stale), encoding="utf-8")
     assert R.master_was_draft(out) is None
     with pytest.raises(R.Refused, match=r"cannot tell whether this master was rendered with --draft.*another master"):
@@ -355,6 +355,7 @@ def test_a_final_record_beside_another_master_does_not_speak_for_it(film_safe, t
     R.sources_only(film_safe, out, draft=True)
     doc = json.loads((out / "sources.json").read_text(encoding="utf-8"))
     assert doc["draft"] is True and doc["master_run"] is None
+    assert "loudness" not in doc                       # the earlier master's mix levels do not describe this one
     assert doc["master_sha256"] == sha256_file(out / "master.mp4")
     # the same record with this master's own sha256 speaks for it
     (out / "sources.json").write_text(json.dumps(dict(stale, master_sha256=sha256_file(out / "master.mp4"))),
