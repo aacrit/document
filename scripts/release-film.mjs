@@ -8,7 +8,8 @@
 //   d. the captions                      captions-en.vtt, written by publish (studio/engine/captions.py); checked here
 //   e. the upload                        wrangler r2 object put document-media/<slug>/<file> --remote, sources.json last;
 //                                        refused first if any field of sources.json names a local drive (lib/local-paths.mjs)
-//                                        or if it lists placeholder media (a draft's stand-ins, GRAMMAR 11.1)
+//                                        or if it lists placeholder media (a draft's stand-ins, GRAMMAR 11.1); a draft
+//                                        master, or a draft trailer or one with no sources.json, is refused too
 //   f. the hashes                        sha256 of every file, checked against what sources.json records
 //
 //   node scripts/release-film.mjs <render dir>/master.mp4 [--dry-run] [--trailer <trailer master.mp4>]
@@ -286,11 +287,16 @@ export function planRelease(o, { python = studioPython(), ffmpeg = process.env.D
   // sources.json is public and the site prints it: a drive path in it ("PDF on D:", Partition 2026-11) is refused before any put.
   // A draft master may keep placeholder media (render.py placeholder-media, GRAMMAR 11.1); its sources.json lists them
   // (placeholder_media), and none goes up. --sources-only (step a) already refuses a placeholder under a master recorded as final.
+  // Founder ruling 2026-11-08: release refuses every draft master (--draft), and every draft trailer.
+  steps.push({ id: "e", label: "sources.json records a final master, not a draft", check: "final", what: "the master", sources: at("sources.json") });
   steps.push({ id: "e", label: "sources.json lists no placeholder media", check: "placeholders", sources: at("sources.json") });
-  // The trailer is its own render: its sources.json, when it sits beside the trailer's master, is checked the same way.
-  // A trailer with none beside it (made outside the engine) cannot be checked here, and the step says so.
-  if (o.trailer) steps.push({ id: "e", label: "the trailer's sources.json lists no placeholder media", check: "placeholders", optional: true,
-    sources: path.join(path.dirname(path.resolve(o.trailer)), "sources.json") });
+  // The trailer is its own render, with its own sources.json beside its master. With none there it cannot be shown to be
+  // final, so it is refused, as a draft trailer is.
+  if (o.trailer) {
+    const trailerSources = path.join(path.dirname(path.resolve(o.trailer)), "sources.json");
+    steps.push({ id: "e", label: "the trailer's sources.json records a final render, not a draft", check: "final", what: "the trailer", sources: trailerSources });
+    steps.push({ id: "e", label: "the trailer's sources.json lists no placeholder media", check: "placeholders", sources: trailerSources });
+  }
   steps.push({ id: "e", label: "sources.json names no local drive", check: "local-paths", sources: at("sources.json") });
   steps.push({ id: "e", label: "every file under the put limit", check: "sizes", files: files.map(at) });
   // Every hash is checked against sources.json before the first put, so nothing goes up that the record does not describe.
@@ -375,16 +381,30 @@ export function placeholderProblems(doc) {
   return [...seen.values()];
 }
 
+/**
+ * Why a render's sources.json does not show a final render (founder ruling 2026-11-08: release refuses every draft):
+ * `draft: true` (rendered with --draft), no `draft` field at all (nothing says it is final), or a check render's
+ * partial file. Empty when it records a final, full render.
+ */
+export function finalProblems(doc, what = "the master") {
+  const out = [];
+  if (doc?.draft === true) out.push(`${what} is a draft (rendered with --draft): render it again without --draft, then release`);
+  else if (doc?.draft !== false) out.push(`${what}'s sources.json does not record whether it is a draft (no draft field), so it cannot be shown to be final: run --sources-only on its render, or render it again`);
+  if (doc?.partial === true) out.push(`${what} is a check render (partial), not the full film`);
+  return out;
+}
+
 export function sha256(file) {
   return createHash("sha256").update(readFileSync(file)).digest("hex");
 }
 
 export function runCheck(step) {
-  if (step.check === "placeholders") {
-    if (step.optional && !existsSync(step.sources)) {
-      console.log(`  no sources.json at ${step.sources}: its placeholders cannot be checked here`);
-      return;
-    }
+  if (step.check === "final") {
+    if (!existsSync(step.sources)) throw new Error(`no sources.json at ${step.sources}, so ${step.what ?? "the render"} cannot be shown to be a final render: render it with the engine, without --draft, and release again`);
+    const problems = finalProblems(JSON.parse(readFileSync(step.sources, "utf8")), step.what);
+    if (problems.length) throw new Error(problems.join("; "));
+    console.log(`  ${step.what ?? "the render"} is a final render`);
+  } else if (step.check === "placeholders") {
     const problems = placeholderProblems(JSON.parse(readFileSync(step.sources, "utf8")));
     if (problems.length) throw new Error(`${step.sources} lists ${problems.length} placeholder(s) (make the media and render without --draft):\n  ${problems.join("\n  ")}`);
     console.log("  no placeholder media");
@@ -478,6 +498,13 @@ function main() {
       if (o.dryRun) {
         console.log(`  check: ${step.check}${step.file ? ` ${step.file}` : ""}`);
         // the packet as it stands (an earlier publish): what a real run refuses if publish writes it the same way
+        if (step.check === "final") {
+          if (existsSync(step.sources)) {
+            for (const p of finalProblems(JSON.parse(readFileSync(step.sources, "utf8")), step.what)) console.log(`  ${step.sources} as it stands: ${p} (a real run refuses)`);
+          } else if (step.what === "the trailer") {
+            console.log(`  no sources.json at ${step.sources}: the trailer cannot be shown to be final (a real run refuses)`);
+          }
+        }
         if (step.check === "placeholders" && existsSync(step.sources)) {
           for (const p of placeholderProblems(JSON.parse(readFileSync(step.sources, "utf8")))) console.log(`  ${step.sources} as it stands: ${p} (a real run refuses)`);
         }
