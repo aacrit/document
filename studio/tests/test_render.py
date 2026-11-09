@@ -459,6 +459,23 @@ def test_volume_health_is_read_only_for_d(tmp_path):
     assert [e for e in J.read(j.path) if e["kind"] == "human" and e.get("override") == "min_free_gb"]
 
 
+def test_a_lowered_floor_is_journaled_only_where_it_takes_effect(tmp_path):
+    healthy = lambda x: {"health": "Healthy", "operational": "OK"}
+    j = J.Journal(film="pf-d")
+    R.preflight(tmp_path, j, min_free_gb=5, disk_usage=lambda p: _DU(50), drive=D_DRIVE, health=healthy)
+    assert not [e for e in J.read(j.path) if e["kind"] == "human" and e.get("override") == "min_free_gb"]
+
+
+def test_extended_length_d_paths_are_d_for_the_floor_and_the_health_check(tmp_path):
+    assert R.drive_letter("\\\\?\\D:\\document-media\\out") == "D:"
+    assert R.drive_letter("\\\\.\\d:\\x") == "D:"
+    assert R.drive_letter("\\\\?\\UNC\\srv\\share\\x") == "" and R.drive_letter("/tmp/x") == ""
+    called = []
+    R.preflight(tmp_path, J.Journal(film="pf-x"), disk_usage=lambda p: _DU(50), drive="\\\\?\\D:\\",
+                health=lambda x: called.append(x) or {"health": "Healthy", "operational": "OK"})
+    assert called == ["D"]
+
+
 def test_generated_shots_and_bad_licences_are_refused(tmp_path):
     film = make_film(tmp_path / "film")
     led = json.loads((film / "stills-ledger.json").read_text(encoding="utf-8"))

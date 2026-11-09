@@ -426,14 +426,20 @@ def frame_size(height: int) -> tuple[int, int]:
 DRIVE_FLOORS_GB = {"D:": 12.0}       # machine rule: D: keeps 12 GB free; every other drive keeps min_free_gb
 
 
+def drive_letter(path: Path | str) -> str:
+    """``path``'s drive as "D:" (upper case), or "" when it has none (POSIX, UNC). Extended-length
+    and device paths (``\\\\?\\D:``, ``\\\\.\\D:``) name the same drive; ntpath reads it the same off Windows."""
+    s = str(path)
+    if s[:4] in ("\\\\?\\", "//?/", "\\\\.\\", "//./"):
+        s = s[4:]
+    drive = ntpath.splitdrive(s)[0].upper()
+    return drive if len(drive) == 2 and drive[1] == ":" else ""
+
+
 def drive_floor_gb(path: Path | str, min_free_gb: float) -> float:
     """The free-space floor for the drive ``path`` sits on: ``min_free_gb``, raised to the
     drive's own house floor where it has one (D: 12 GB). Every engine write checks it."""
-    s = str(path)
-    if s[:4] in ("\\\\?\\", "//?/"):                   # an extended-length path names the same drive
-        s = s[4:]
-    drive = ntpath.splitdrive(s)[0].upper()          # ntpath, so a D: path reads the same off Windows (CI)
-    return max(float(min_free_gb), DRIVE_FLOORS_GB.get(drive, 0.0))
+    return max(float(min_free_gb), DRIVE_FLOORS_GB.get(drive_letter(path), 0.0))
 
 
 def _existing(p: Path) -> Path:
@@ -487,7 +493,7 @@ def preflight(out: Path, journal: Journal, *, min_free_gb: float = MIN_FREE_GB, 
         journal.human("scout", f"free-disk floor lowered to {floor:g} GB from {MIN_FREE_GB:g} GB", unit="preflight",
                       override="min_free_gb")
     result = {"drive": drive, "free_gb": round(free_gb, 2), "volume": None}
-    if drive.upper().startswith("D:"):
+    if drive_letter(drive) == "D:":
         if allow_unverified is None:
             allow_unverified = os.environ.get("DOCUMENT_ALLOW_UNVERIFIED_DISK") == "1"
         v = health("D")

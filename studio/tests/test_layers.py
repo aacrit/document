@@ -148,6 +148,7 @@ def test_d_keeps_its_own_12_gb_floor_whatever_min_free_gb_says(monkeypatch):
     assert R.drive_floor_gb(Path("C:/work/out"), 10) == 10
     assert R.drive_floor_gb("/tmp/out", 10) == 10                   # a POSIX path has no drive: min_free_gb
     assert R.drive_floor_gb("\\\\?\\D:\\document-media\\out", 10) == 12   # an extended-length path is still D:
+    assert R.drive_floor_gb("\\\\.\\D:\\out", 10) == 12                    # so is a device path
     monkeypatch.setattr(LY.R, "_existing", lambda p: Path(p))      # the drive need not exist on the test machine
     need = 1024 ** 3
     seen = []
