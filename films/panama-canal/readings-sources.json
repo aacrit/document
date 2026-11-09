@@ -1,0 +1,200 @@
+{
+  "_note": "The research ledger for the readings and the quote cards: every source, its archive and licence, and whether the extract is a translation (GRAMMAR 6.2; A56 puts the disclosure here, never on a lower third). The voice department writes extracts/<source>.<locator>.<line>.txt from the page images before any take.",
+  "sources": {
+    "P-lesseps-1887-v1": {
+      "title": "Recollections of Forty Years, vol. I",
+      "author": "Ferdinand de Lesseps, tr. C. B. Pitman",
+      "year": 1887,
+      "archive": "Internet Archive",
+      "item": "recollectionsoff01lessrich",
+      "licence": "public domain",
+      "translation": true,
+      "ocr": true,
+      "note": "The translator's note 'This chapter was written in 1885' (p. 150) is attached to the Suez sentence; the Panama passages (pp. 141-151) are of the visit of February 1886.",
+      "basis": "published 1887: public domain in the US by date",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+    },
+    "P-ny-tribune-1889-02-10": {
+      "title": "New-York Tribune, 10 February 1889, p. 1, 'No new Panama Canal Company'",
+      "archive": "Library of Congress, Chronicling America",
+      "item": "sn83030214/1889-02-10/ed-1/seq-1",
+      "licence": "public domain",
+      "translation": true,
+      "ocr": true,
+      "note": "The ALTO reads 'pow' for 'now'; the page image reads 'now' (text verification, 8 Nov 2026).",
+      "translator": "not named in the source",
+      "translation_statement": "an unsigned English text printed by the New-York Tribune under the dateline 'Paris, Feb. 9.'; the page names no translator and says neither translation nor cable",
+      "basis": "published 1889: public domain in the US by date",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+    },
+    "P-bunau-varilla-1913": {
+      "title": "Panama: the Creation, Destruction, and Resurrection",
+      "author": "Philippe Bunau-Varilla",
+      "year": 1913,
+      "archive": "Internet Archive",
+      "item": "cu31924022882835",
+      "licence": "public domain",
+      "ocr": true,
+      "basis": "published 1913 (London, Constable): public domain in the US by date",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+    },
+    "P-frus-1903": {
+      "title": "Papers relating to the Foreign Relations of the United States, 1903",
+      "archive": "Office of the Historian (TEI, github.com/HistoryAtState/frus)",
+      "licence": "public domain",
+      "translation": "d273 and d320 are marked '[Translation.]', the State Department's; d328 (Valdés) carries no mark, and its English is read as a translation of a Spanish original, inferred; d280 (card 2.3) is marked '[Translation.]' as a decoded Navy cipher, not a language translation; pXXXVI is Roosevelt's English",
+      "note": "Texts verified word for word against the State Department's TEI (text verification, 8 Nov 2026); the page numbers are the TEI's page-break markers. The 1903 scan was not reached (history.state.gov 403; HathiTrust refused automated access): the page breaks are confirmed on the images by browser before the extracts and the typeset pages are made.",
+      "basis": "a US government publication (17 USC 105), published 1904: public domain",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+    },
+    "P-frus-1904": {
+      "title": "Foreign Relations of the United States, 1904",
+      "archive": "Office of the Historian (TEI)",
+      "licence": "public domain",
+      "translation": true,
+      "translator": "not named in the source",
+      "translation_statement": "FRUS 1904 prints d565 and the Constitution (d550) marked '[Translation.]': the State Department's translation; no translator is named",
+      "basis": "a US government publication (17 USC 105), published 1905: public domain",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)",
+      "note": "Texts verified word for word against the State Department's TEI (text verification, 8 Nov 2026); the page numbers are the TEI's page-break markers. The 1904 scan was not reached (history.state.gov 403; HathiTrust refused automated access): the page breaks are confirmed on the images by browser before the extracts and the typeset pages are made."
+    },
+    "P-frus-1906-pt2": {
+      "title": "Foreign Relations of the United States, 1906, part 2",
+      "archive": "Office of the Historian (TEI)",
+      "licence": "public domain",
+      "translation": "inclosure 1 (Amador) is a translation; inclosure 2 (Roosevelt) is English",
+      "translator": "not named in the source",
+      "translation_statement": "English text as printed in FRUS 1906; FRUS gives no translation mark on inclosure 1 (Amador spoke in Spanish); inclosure 2 (Roosevelt) is English",
+      "basis": "a US government publication (17 USC 105), published in FRUS 1906 (printed 1909): public domain; the foreign letters it prints were published there, and the State Department's translations are government works",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+    },
+    "P-roosevelt-1906-message": {
+      "title": "Special Message of the President, 17 December 1906",
+      "archive": "Internet Archive",
+      "item": "cu31924022883379",
+      "licence": "public domain",
+      "ocr": true,
+      "basis": "a US government publication (17 USC 105), published 1906: public domain; the Internet Archive copy is a private reprint published 1907",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+    },
+    "P-gorgas-1905-harpers": {
+      "title": "Health Conditions in the Canal Zone, reprinted from Harper's Weekly, c1905",
+      "archive": "Internet Archive",
+      "item": "healthconditions00gorg",
+      "licence": "public domain",
+      "ocr": true,
+      "basis": "published 1905: public domain in the US by date",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+    },
+    "P-gorgas-1907-medical-record": {
+      "title": "Sanitary Work on the Isthmus of Panama during the Last Three Years, Medical Record, 18 May 1907",
+      "archive": "Internet Archive",
+      "item": "101648340.nlm.nih.gov",
+      "licence": "public domain",
+      "ocr": true,
+      "note": "Pages confirmed on the image (text verification, 8 Nov 2026): p. 6 and p. 12; the reading's second span begins at the top of p. 12.",
+      "basis": "published 1907: public domain in the US by date",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+    },
+    "P-freeland-1907-ajn": {
+      "title": "Nursing in the Canal Zone, American Journal of Nursing 7, June 1907",
+      "archive": "Internet Archive (JSTOR early journal content)",
+      "item": "jstor-3403816",
+      "licence": "public domain",
+      "ocr": true,
+      "basis": "published in the American Journal of Nursing, June 1907, in the US: public domain by date; JSTOR's 'non-commercial' line governs its scan, not the text, and its cover sheet is not used",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+    },
+    "P-ajn-1905-ancon": {
+      "title": "Ancon Hospital, Panama, by the nursing staff, American Journal of Nursing 5, September 1905",
+      "archive": "Internet Archive",
+      "item": "jstor-3402253",
+      "licence": "public domain",
+      "ocr": true,
+      "basis": "published in the American Journal of Nursing, September 1905, in the US: public domain by date; JSTOR's 'non-commercial' line governs its scan, not the text, and its cover sheet is not used",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+    },
+    "P-chatfield-1908": {
+      "title": "Light on Dark Places at Panama",
+      "author": "Mary A. Chatfield",
+      "year": 1908,
+      "archive": "Internet Archive",
+      "item": "lightondarkplace00chat",
+      "licence": "public domain",
+      "ocr": true,
+      "basis": "published 1908: public domain in the US by date",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+    },
+    "P-canal-record-1-10": {
+      "title": "The Canal Record I no. 10, 6 November 1907, p. 78, 'Miss Boswell's Observations'",
+      "archive": "Internet Archive",
+      "item": "canalrecord1152isth",
+      "licence": "public domain",
+      "ocr": true,
+      "basis": "a US government publication (17 USC 105), published 1907: public domain",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)",
+      "note": "The Record reprints extracts of an interview printed in the New York Tribune of 24 October 1907: Boswell's words as the Tribune's reporter quoted them. Founder ruling, 8 Nov 2026: the reading stays and its lower third says it is quoted."
+    },
+    "P-washington-bee-1908-06-20": {
+      "title": "The Washington Bee, 20 June 1908, p. 4",
+      "archive": "Library of Congress, Chronicling America",
+      "item": "sn84025891/1908-06-20/ed-1/seq-4",
+      "licence": "public domain",
+      "ocr": true,
+      "basis": "published 1908: public domain in the US by date",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+    },
+    "P-mirror-and-farmer-1909-12-02": {
+      "title": "The Mirror and Farmer (Manchester, N.H.), 2 December 1909, p. 2",
+      "archive": "Library of Congress, Chronicling America",
+      "item": "sn84023820/1909-12-02/ed-1/seq-2",
+      "licence": "public domain",
+      "ocr": true,
+      "basis": "published 1909: public domain in the US by date",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+    },
+    "P-cleveland-gazette-1910-09-24": {
+      "title": "Cleveland Gazette, 24 September 1910, p. 2, '30,000 Negroes at Panama' (from the St. Louis Advance, 20 August 1910)",
+      "archive": "Library of Congress, Chronicling America",
+      "item": "sn83035387/1910-09-24/ed-1/seq-2",
+      "licence": "public domain",
+      "ocr": true,
+      "basis": "published 1910: public domain in the US by date",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+    },
+    "P-goethals-1909": {
+      "title": "The Isthmian Canal",
+      "author": "George W. Goethals",
+      "year": 1909,
+      "archive": "Internet Archive",
+      "item": "isthmiancanal00goetrich",
+      "licence": "public domain",
+      "ocr": true,
+      "basis": "a US government publication (17 USC 105), published 1909: public domain",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+    },
+    "P-canal-record-7-52": {
+      "title": "The Canal Record VII no. 52, 19 August 1914 (Garrison's cable of 15 August)",
+      "archive": "Internet Archive",
+      "licence": "public domain",
+      "ocr": true,
+      "item": "canalrecord7152isth",
+      "note": "p. 521; the cable is headed Washington, D. C., August 15, 1914 (text verification, 8 Nov 2026). The issue postdates as_of: the film cites the cable's date, never the issue's.",
+      "basis": "a US government publication (17 USC 105), published 1914: public domain",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+    },
+    "cards": {
+      "Q-R14b": "The Freeman (Indianapolis), 1 June 1889, p. 6, 'A Smash at Panama' (sn82016211; page image: the digits 4,000 and 3,000, broken type read against the Seattle P-I of 25 May 1889, p. 1)",
+      "Q-R18": "FRUS 1903 d280, p. 247",
+      "Q-R17": "FRUS 1903 d229, p. 231",
+      "Q-R16": "FRUS 1903 d259, p. 238 (FRUS marks it '[Translation.]')",
+      "Q-R27": "FRUS 1904 d550, p. 578 (FRUS marks it '[Translation.]'; 'restablish' sic)",
+      "Q-R50": "AJN 5, Sep 1905, p. 881 (page image)",
+      "Q-SICKPAY": "Canal Record VII no. 45, 1 Jul 1914, p. 450: 'Canal Work in May. Monthly Report of the Governor to the Secretary of War' (Culebra, 18 June 1914), Department of Health; the whole sentence is quoted",
+      "Q-NODIST": "Canal Record I no. 1, 4 Sep 1907, p. 7 (page image)",
+      "Q-MEDAL": "Canal Record II, 10 Feb 1909",
+      "Q-MASTHEAD": "Canal Record VII no. 1",
+      "Q-R31": "Canal Record VII no. 8, 15 Oct 1913, p. 65 (page image)"
+    }
+  }
+}
