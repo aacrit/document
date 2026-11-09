@@ -429,7 +429,10 @@ DRIVE_FLOORS_GB = {"D:": 12.0}       # machine rule: D: keeps 12 GB free; every 
 def drive_floor_gb(path: Path | str, min_free_gb: float) -> float:
     """The free-space floor for the drive ``path`` sits on: ``min_free_gb``, raised to the
     drive's own house floor where it has one (D: 12 GB). Every engine write checks it."""
-    drive = ntpath.splitdrive(str(path))[0].upper()   # ntpath, so a D: path reads the same off Windows (CI)
+    s = str(path)
+    if s[:4] in ("\\\\?\\", "//?/"):                   # an extended-length path names the same drive
+        s = s[4:]
+    drive = ntpath.splitdrive(s)[0].upper()          # ntpath, so a D: path reads the same off Windows (CI)
     return max(float(min_free_gb), DRIVE_FLOORS_GB.get(drive, 0.0))
 
 
@@ -480,8 +483,8 @@ def preflight(out: Path, journal: Journal, *, min_free_gb: float = MIN_FREE_GB, 
                  evidence={"drive": drive, "free_gb": round(free_gb, 2), "min_free_gb": min_free_gb, "floor_gb": floor})
     if not ok:
         raise Refused(f"output drive {drive} has {free_gb:.1f} GB free, under the {floor:g} GB floor")
-    if min_free_gb < MIN_FREE_GB:
-        journal.human("scout", f"free-disk floor lowered to {min_free_gb:g} GB from {MIN_FREE_GB:g} GB", unit="preflight",
+    if floor < MIN_FREE_GB:
+        journal.human("scout", f"free-disk floor lowered to {floor:g} GB from {MIN_FREE_GB:g} GB", unit="preflight",
                       override="min_free_gb")
     result = {"drive": drive, "free_gb": round(free_gb, 2), "volume": None}
     if drive.upper().startswith("D:"):

@@ -122,7 +122,9 @@ def test_the_estimate_counts_every_plate_frame_and_the_overlay():
     assert LY.layers_bytes(busy, specs) > LY.layers_bytes(plan, specs)
 
 
-def test_the_disk_floor_refuses_one_byte_short_and_passes_at_the_floor(tmp_path):
+def test_the_disk_floor_refuses_one_byte_short_and_passes_at_the_floor(tmp_path, monkeypatch):
+    monkeypatch.setattr(R, "DRIVE_FLOORS_GB", {})                  # the 10 GB floor, wherever the temp root sits
+
     class Usage:
         def __init__(self, free):
             self.free = free
@@ -145,6 +147,7 @@ def test_d_keeps_its_own_12_gb_floor_whatever_min_free_gb_says(monkeypatch):
     assert R.drive_floor_gb(Path("d:/x"), 15) == 15                 # a higher floor asked for still wins
     assert R.drive_floor_gb(Path("C:/work/out"), 10) == 10
     assert R.drive_floor_gb("/tmp/out", 10) == 10                   # a POSIX path has no drive: min_free_gb
+    assert R.drive_floor_gb("\\\\?\\D:\\document-media\\out", 10) == 12   # an extended-length path is still D:
     monkeypatch.setattr(LY.R, "_existing", lambda p: Path(p))      # the drive need not exist on the test machine
     need = 1024 ** 3
     seen = []
@@ -165,7 +168,7 @@ def test_the_cli_reports_a_layers_refusal_as_a_refusal(film_safe, tmp_path):
     """``python -m studio.engine.render`` runs render.py as __main__; layers.py's LayersRefused must still be
     the CLI's Refused: exit 2 and "render: refused" on stderr, never a traceback. The cheapest refusal that
     comes from layers.py: its scout disk check, before any frame, with the drive made to report just over
-    the render's own 10 GB floor (which passes) and under it once the layers are counted (which refuses)."""
+    the render's own floor (12 GB on D:, 10 elsewhere: passes) and under it once the layers are counted (refuses)."""
     import subprocess
     import sys
     site = tmp_path / "site"
@@ -173,9 +176,10 @@ def test_the_cli_reports_a_layers_refusal_as_a_refusal(film_safe, tmp_path):
     (site / "sitecustomize.py").write_text(
         "import collections, shutil\n"
         "_U = collections.namedtuple('usage', 'total used free')\n"
-        "shutil.disk_usage = lambda p: _U(10 ** 12, 0, 10 * 1024 ** 3 + 4096)\n", encoding="utf-8")
+        "shutil.disk_usage = lambda p: _U(10 ** 12, 0, 12 * 1024 ** 3 + 4096)\n", encoding="utf-8")
     root = Path(__file__).resolve().parents[2]
-    env = {k: v for k, v in os.environ.items() if not k.startswith("DOCUMENT_")}      # no shared caches written
+    caches = {"DOCUMENT_SPANS_CACHE", "DOCUMENT_TAKES_CACHE", "DOCUMENT_BOUNDS_CACHE", "DOCUMENT_VOICE_CACHE"}
+    env = {k: v for k, v in os.environ.items() if k not in caches}     # keeps the suite's journal and timings isolation
     env.update(PYTHONPATH=os.pathsep.join([str(site), str(root)]), OMP_NUM_THREADS="2")
     out = tmp_path / "out"
     p = subprocess.run([sys.executable, "-m", "studio.engine.render", str(film_safe), "--out", str(out),
