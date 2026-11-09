@@ -1401,3 +1401,28 @@ def test_ruling_18_title_provenance_refuses_a_missing_or_misspelt_credit_kind(tm
     probs = next(e for e in lints(j, "title-provenance") if e["status"] == "fail")["evidence"]["problems"]
     assert any(p.startswith("SCAN-1: credit_kind 'museum object scan' is not one of") for p in probs)
     assert any(p.startswith("TEX-1: no credit_kind") for p in probs)
+
+
+def test_a40_the_crossfade_into_the_card_ring_on_paper_reads_as_a_fade():
+    """Panama v12 (24 fps): ARCHIVE's dot crossfading into CARD's ring over the lockup's paper. mark_frame blends the
+    two tiles and composites the blend, so the centre leaves the straight line from dot to paper; the check models
+    the drawn blend (a solid-into-hollow fade on film black is unchanged), and paper alone mid-fade still fails."""
+    W, H = TS.SIZE
+    fonts = M.Fonts()
+    fps = 24.0
+    marks = [{"frame": 0, "cls": "DRAWN", "label": "Drawn"}, {"frame": 509, "cls": "ARCHIVE", "label": "Archive · 1914"},
+             {"frame": 539, "cls": "CARD", "label": ""}]
+    item = {"marks": marks, "frames": 683, "fps": 24}
+    paper = _paper(W, H, (196, 182, 156))
+    fades = 0
+    for k in range(539, 545):
+        t = k / fps
+        cls, prev, mix = TS.expected_class(item, k, t)
+        frame = np.asarray(M.mark_frame(paper, t, [{"start": m["frame"] / fps, "cls": m["cls"], "label": m["label"]}
+                                                   for m in marks], fonts).convert("RGB"))
+        got = TS.check_frame(frame, item, k, t)
+        assert got in ("fade", "burned"), (k, got, prev, mix)
+        if prev is not None and mix < 1.0:
+            fades += 1
+            assert TS.check_frame(np.asarray(paper.convert("RGB")), item, k, t) == "fail", k
+    assert fades >= 1
