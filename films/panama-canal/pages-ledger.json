@@ -38,12 +38,17 @@
       "page_source_line": "Papers Relating to the Foreign Relations of the United States, 1903, p. 244",
       "read_from": "State Department TEI, github.com/HistoryAtState/frus volumes/frus1903.xml, div d273: head, opener and dateline; the paragraph after the page break 244, whole",
       "source_file": "drawn/specs/pages.json",
-      "spec_sha256": "fb98e205b6c0a2025dbd32be8ecb90e42df3a9c0a64b0ff2196e414b8cc426a1",
+      "spec_sha256": "c8c0eecb9eb26c13416a2d279334f4fe2ae083d3dccf7bf9b475c579180ab65c",
       "sha256": "0f3dddd5146c9b60436579e79bd26f8bd87a405518516f24c2d22de198552339",
       "pixels_sha256": "2e82b074901012ac5ee0944d40fb2f1fefba46abe37dccbd81a406fe9937ca51",
       "file_bytes": 6288837,
       "width": 3840,
-      "height": 2160
+      "height": 2160,
+      "page_title_verbatim": [
+        true,
+        true,
+        true
+      ]
     },
     {
       "id": "D-PAGE-FRUS-1903-D320A",
@@ -81,12 +86,17 @@
       "page_source_line": "Papers Relating to the Foreign Relations of the United States, 1903, p. 284",
       "read_from": "State Department TEI, github.com/HistoryAtState/frus volumes/frus1903.xml, div d320: head, opener and dateline; the note's opening paragraph, whole (p. 284)",
       "source_file": "drawn/specs/pages.json",
-      "spec_sha256": "fb98e205b6c0a2025dbd32be8ecb90e42df3a9c0a64b0ff2196e414b8cc426a1",
+      "spec_sha256": "c8c0eecb9eb26c13416a2d279334f4fe2ae083d3dccf7bf9b475c579180ab65c",
       "sha256": "71fd8d9c8e65d328e03d93a3e745abfe62e9a1f8eadda16f1aa6dd98f9e630ea",
       "pixels_sha256": "2b1da9700928dea00ec0371200fdb8a7f740c4d9393939372819170ec87f8c83",
       "file_bytes": 6136537,
       "width": 3840,
-      "height": 2160
+      "height": 2160,
+      "page_title_verbatim": [
+        true,
+        true,
+        true
+      ]
     },
     {
       "id": "D-PAGE-FRUS-1903-D320B",
@@ -124,12 +134,17 @@
       "page_source_line": "Papers Relating to the Foreign Relations of the United States, 1903, p. 291",
       "read_from": "State Department TEI, github.com/HistoryAtState/frus volumes/frus1903.xml, div d320: head, opener and dateline; the paragraph on p. 291 that holds the reading, whole",
       "source_file": "drawn/specs/pages.json",
-      "spec_sha256": "fb98e205b6c0a2025dbd32be8ecb90e42df3a9c0a64b0ff2196e414b8cc426a1",
+      "spec_sha256": "c8c0eecb9eb26c13416a2d279334f4fe2ae083d3dccf7bf9b475c579180ab65c",
       "sha256": "9279188add3168197185be38c7c6399422460ec0d450023d77cb79f80fca6372",
       "pixels_sha256": "c311ad4694a31214e77c074962c658ab875e51b559d85dc2b3f4b8cafd59a6b3",
       "file_bytes": 6138014,
       "width": 3840,
-      "height": 2160
+      "height": 2160,
+      "page_title_verbatim": [
+        true,
+        true,
+        true
+      ]
     },
     {
       "id": "D-PAGE-FRUS-1903-PXXXVI",
@@ -166,12 +181,16 @@
       "page_source_line": "Papers Relating to the Foreign Relations of the United States, 1903, p. XXXVI",
       "read_from": "State Department TEI, github.com/HistoryAtState/frus volumes/frus1903.xml, section message-of-the-president: its head and its closer (the signature, set in upper and lower case); the paragraph that opens p. XXXVI, without its margin note 'Revolution in Panama.', from its first sentence to 'Not a life was lost in the accomplishment of the revolution.', the rest of the paragraph marked '...'",
       "source_file": "drawn/specs/pages.json",
-      "spec_sha256": "fb98e205b6c0a2025dbd32be8ecb90e42df3a9c0a64b0ff2196e414b8cc426a1",
+      "spec_sha256": "c8c0eecb9eb26c13416a2d279334f4fe2ae083d3dccf7bf9b475c579180ab65c",
       "sha256": "d14fd52ef96b2d3249d2475f87c510424a4c9cc8f18115caf058932d31e836ff",
       "pixels_sha256": "4f4b1b81485b275e788b92d1979dad784b221a4ceb3ad33acfb7d56ec4901e13",
       "file_bytes": 6253143,
       "width": 3840,
-      "height": 2160
+      "height": 2160,
+      "page_title_verbatim": [
+        true,
+        true
+      ]
     },
     {
       "id": "D-PAGE-FRUS-1903-D328",
@@ -208,12 +227,16 @@
       "page_source_line": "Papers Relating to the Foreign Relations of the United States, 1903, p. 320",
       "read_from": "State Department TEI, github.com/HistoryAtState/frus volumes/frus1903.xml, div d328, the attachment's head (p. 320) and its closer (p. 333, the signature); the third paragraph of p. 320, whole",
       "source_file": "drawn/specs/pages.json",
-      "spec_sha256": "fb98e205b6c0a2025dbd32be8ecb90e42df3a9c0a64b0ff2196e414b8cc426a1",
+      "spec_sha256": "c8c0eecb9eb26c13416a2d279334f4fe2ae083d3dccf7bf9b475c579180ab65c",
       "sha256": "625eb6c25a961507be8f535252849367585a9881f51f1367ee6cc01bb5d39b7c",
       "pixels_sha256": "ee703f8808b42a9c401a1fc264cd66fe7e5292147142de29e2670b1c494c1fe0",
       "file_bytes": 6225525,
       "width": 3840,
-      "height": 2160
+      "height": 2160,
+      "page_title_verbatim": [
+        true,
+        true
+      ]
     },
     {
       "id": "D-PAGE-FRUS-1904-D565",
@@ -251,12 +274,17 @@
       "page_source_line": "Papers Relating to the Foreign Relations of the United States, 1904, p. 600",
       "read_from": "State Department TEI, github.com/HistoryAtState/frus volumes/frus1904.xml, div d565: head, opener and dateline; the paragraph on p. 600 that holds the reading, whole",
       "source_file": "drawn/specs/pages.json",
-      "spec_sha256": "fb98e205b6c0a2025dbd32be8ecb90e42df3a9c0a64b0ff2196e414b8cc426a1",
+      "spec_sha256": "c8c0eecb9eb26c13416a2d279334f4fe2ae083d3dccf7bf9b475c579180ab65c",
       "sha256": "5116cb8c58e7193d469d29e014793c5b4d6126e9247cbca4745af026d61b17f6",
       "pixels_sha256": "4cc7d7af250f4fc6490c6aa306f3b7b4f679960b6b3b69268d3db8d9e2de7fd8",
       "file_bytes": 6328022,
       "width": 3840,
-      "height": 2160
+      "height": 2160,
+      "page_title_verbatim": [
+        true,
+        true,
+        true
+      ]
     },
     {
       "id": "D-PAGE-TR-1906-P10",
@@ -276,7 +304,7 @@
       "data_source": "The President's Message Concerning the Panama Canal, 17 December 1906 (South Milwaukee, Wis., 1907), p. 10 (Internet Archive cu31924022883379)",
       "source_short": "Special Message, 1906",
       "licence": "CC0",
-      "basis": "the text is a United States government publication (17 USC 105); the typesetting is the studio's own, CC0",
+      "basis": "a work of the United States government (17 USC 105), here in a 1907 private printing (South Milwaukee, Wis.); the typesetting is the studio's own, CC0",
       "seen": "A typeset page: The President’s Message Concerning the Panama Canal / Theodore Roosevelt. The White House, December 17, 1906.; the passage; and the source line 'South Milwaukee, Wis., 1907, p. 10'.",
       "people": [],
       "shows_bodies": false,
@@ -292,12 +320,16 @@
       "page_source_line": "South Milwaukee, Wis., 1907, p. 10",
       "read_from": "Internet Archive cu31924022883379, page image n21 (p. 10) and n62 (p. 29, the signature), read by eye on 2026-11-09: the paragraph's sentences on p. 10, from 'In October', whole; the sentence it continues from p. 9 is marked '...'",
       "source_file": "drawn/specs/pages.json",
-      "spec_sha256": "fb98e205b6c0a2025dbd32be8ecb90e42df3a9c0a64b0ff2196e414b8cc426a1",
+      "spec_sha256": "c8c0eecb9eb26c13416a2d279334f4fe2ae083d3dccf7bf9b475c579180ab65c",
       "sha256": "6c3b3c7b666e65af1bda135620a98246d3b5723b571da3fa9f1b33055e5cf5c6",
       "pixels_sha256": "3470886fc9104c923e429c206f50c36d0bf5c29cb16e8b65bc5a87cbd2139c65",
       "file_bytes": 6283124,
       "width": 3840,
-      "height": 2160
+      "height": 2160,
+      "page_title_verbatim": [
+        true,
+        true
+      ]
     },
     {
       "id": "D-PAGE-GARRISON-1914-08-15",
@@ -313,12 +345,12 @@
       "generator": "studio.engine.pages from drawn/specs/pages.json (no ML)",
       "synthetic": true,
       "content_date": "1914-08-15",
-      "content_basis": "the page sets the cable headed Washington, D. C., August 15, 1914, to Col. George W. Goethals, Culebra, Canal Zone, its text whole and its signature, as the Canal Record prints it, with nothing of the Record's own masthead, number, date or introducing sentence, verbatim, under its own title lines and source line (GRAMMAR 2026-11-08: the page's content, naming the author and the record); nothing on it postdates the cable",
+      "content_basis": "the page sets the cable headed Washington, D. C., August 15, 1914, to Col. George W. Goethals, Culebra, Canal Zone, its text whole and its signature, as the Canal Record prints it, with nothing of the Record's own masthead, issue number, date or introducing sentence; its source line names the volume and page only (founder ruling 2026-11-09), verbatim, under its own title lines and source line (GRAMMAR 2026-11-08: the page's content, naming the author and the record); nothing on it postdates the cable",
       "data_source": "The Canal Record VII no. 52, 19 August 1914, p. 521, 'Canal Opened to Traffic: Message of Congratulation from the Secretary of War'",
       "source_short": "Canal Record VII",
       "licence": "CC0",
       "basis": "the text is a United States government publication (17 USC 105); the typesetting is the studio's own, CC0",
-      "seen": "A typeset page: Washington, D. C., August 15, 1914. / Col. George W. Goethals, Culebra, Canal Zone.; the passage; and the source line 'Lindley M. Garrison, Secretary of War. Cable of August 15, 1914'.",
+      "seen": "A typeset page: Washington, D. C., August 15, 1914. / Col. George W. Goethals, Culebra, Canal Zone.; the passage; and the source line 'The Canal Record, vol. VII, p. 521'.",
       "people": [],
       "shows_bodies": false,
       "shows_violence": false,
@@ -330,15 +362,19 @@
         "Washington, D. C., August 15, 1914.",
         "Col. George W. Goethals, Culebra, Canal Zone."
       ],
-      "page_source_line": "Lindley M. Garrison, Secretary of War. Cable of August 15, 1914",
-      "read_from": "Internet Archive canalrecord7152isth, page image n558 (The Canal Record VII, p. 521), read by eye on 2026-11-09: the cable's heading, its text whole and its signature; nothing of the Record's own masthead, number, date or its introducing sentence is set",
+      "page_source_line": "The Canal Record, vol. VII, p. 521",
+      "read_from": "Internet Archive canalrecord7152isth, page image n558 (The Canal Record VII, p. 521), read by eye on 2026-11-09: the cable's heading, its text whole and its signature; nothing of the Record's own masthead, issue number, date or introducing sentence is set (the source line names the volume and page only, founder ruling 2026-11-09)",
       "source_file": "drawn/specs/pages.json",
-      "spec_sha256": "fb98e205b6c0a2025dbd32be8ecb90e42df3a9c0a64b0ff2196e414b8cc426a1",
-      "sha256": "559e79d0432e5d955a7706fbd0c414c6f751e293eda23b440658add2c2e84eb0",
-      "pixels_sha256": "8da775455c330d4f1fd81b8a980059a2b90e8576af4192af1b63587da044a5f8",
-      "file_bytes": 6261415,
+      "spec_sha256": "c8c0eecb9eb26c13416a2d279334f4fe2ae083d3dccf7bf9b475c579180ab65c",
+      "sha256": "3d5bc5479a9442bf5bdb797c687b28365a9c464589b4dfbd307cff7631fc8277",
+      "pixels_sha256": "b3104ec7e28333678e9725d94e122599bd267d157e3eb2d8fa81e3d2a1152511",
+      "file_bytes": 6262654,
       "width": 3840,
-      "height": 2160
+      "height": 2160,
+      "page_title_verbatim": [
+        true,
+        true
+      ]
     },
     {
       "id": "D-PAGE-TR-1906-P19",
@@ -358,7 +394,7 @@
       "data_source": "The President's Message Concerning the Panama Canal, 17 December 1906 (South Milwaukee, Wis., 1907), p. 19 (Internet Archive cu31924022883379)",
       "source_short": "Special Message, 1906",
       "licence": "CC0",
-      "basis": "the text is a United States government publication (17 USC 105); the typesetting is the studio's own, CC0",
+      "basis": "a work of the United States government (17 USC 105), here in a 1907 private printing (South Milwaukee, Wis.); the typesetting is the studio's own, CC0",
       "seen": "A typeset page: The President’s Message Concerning the Panama Canal / Theodore Roosevelt. The White House, December 17, 1906.; the passage; and the source line 'South Milwaukee, Wis., 1907, p. 19'.",
       "people": [],
       "shows_bodies": false,
@@ -374,12 +410,16 @@
       "page_source_line": "South Milwaukee, Wis., 1907, p. 19",
       "read_from": "Internet Archive cu31924022883379, page image n42 (p. 19) and n62 (p. 29, the signature), read by eye on 2026-11-09: the paragraph on p. 19 that holds the reading, whole",
       "source_file": "drawn/specs/pages.json",
-      "spec_sha256": "fb98e205b6c0a2025dbd32be8ecb90e42df3a9c0a64b0ff2196e414b8cc426a1",
+      "spec_sha256": "c8c0eecb9eb26c13416a2d279334f4fe2ae083d3dccf7bf9b475c579180ab65c",
       "sha256": "3bd5988e2a855bb8327b4cefeb319121e1a3a62efd94a9d46736d97062f02a1b",
       "pixels_sha256": "ef37ac6b7466f4317b0e76e77a1fd7e7fe2559b775265787ac566a139ed43c21",
       "file_bytes": 6442913,
       "width": 3840,
-      "height": 2160
+      "height": 2160,
+      "page_title_verbatim": [
+        true,
+        true
+      ]
     }
   ]
 }
