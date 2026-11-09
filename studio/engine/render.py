@@ -721,31 +721,46 @@ def is_synthetic(item: dict | None) -> bool:
 
 def is_placeholder(item: dict | None) -> bool:
     """A ledger item that stands in for media not made yet (a grey slate for a table render or a typeset page): it
-    says so with ``placeholder: true``, or a ``generator`` that begins "PLACEHOLDER". A synthetic item that is not
-    one (a DRAWN map or typeset page a program made) is the real thing, not a placeholder."""
+    says so with ``placeholder: true``, a ``standin`` block (what it stands in for), or a ``generator`` that begins
+    "PLACEHOLDER". Any one is enough, whatever the others say. A synthetic item that is none of these (a DRAWN map or
+    typeset page a program made) is the real thing, not a placeholder."""
+    return placeholder_why(item) is not None
+
+
+def placeholder_why(item: dict | None) -> str | None:
+    """Which of is_placeholder's signs the item carries, in words, or None."""
     if not item:
-        return False
+        return None
+    if item.get("placeholder"):
+        return "placeholder: true"
+    if item.get("standin") is not None:
+        return "standin: " + json.dumps(item["standin"], ensure_ascii=False, default=str)[:80]
     gen = item.get("generator")
-    return bool(item.get("placeholder")) or (isinstance(gen, str) and gen.strip().upper().startswith("PLACEHOLDER"))
+    if isinstance(gen, str) and gen.strip().upper().startswith("PLACEHOLDER"):
+        return "generator: " + gen[:80]
+    return None
 
 
 def placeholder_media(play: dict, assets: dict) -> list[dict]:
-    """Every shot, and every line heard from a clip, that cites a placeholder item (is_placeholder), in screenplay
-    order: ``{"unit", "where" ("shot" or "line"), "asset", "why"}``. Pure."""
+    """Every shot, every series title's burned-in record (A40: a title_sequence item's ``record``), and every line
+    heard from a clip, that cites a placeholder item (is_placeholder), in screenplay order:
+    ``{"unit", "where" ("shot", "title-record" or "line"), "asset", "why"}``. Pure."""
     found = []
 
-    def why(it):
-        return "placeholder: true" if it.get("placeholder") else "generator: " + str(it.get("generator"))[:80]
+    def add(unit, where, aid, it):
+        why = placeholder_why(it)
+        if why:
+            found.append({"unit": unit, "where": where, "asset": aid, "why": why})
 
     for part in play.get("parts") or []:
         for s in part.get("shots") or []:
             it = assets.get(s.get("asset")) if s.get("asset") else None
-            if is_placeholder(it):
-                found.append({"unit": s.get("id"), "where": "shot", "asset": s.get("asset"), "why": why(it)})
+            add(s.get("id"), "shot", s.get("asset"), it)
+            rid = (it or {}).get("record") if s.get("kind") == TS.KIND else None
+            if rid:
+                add(s.get("id"), "title-record", rid, assets.get(rid))
         for ln in part.get("lines") or []:
-            it = assets.get(ln.get("clip")) if ln.get("clip") else None
-            if is_placeholder(it):
-                found.append({"unit": ln.get("id"), "where": "line", "asset": ln.get("clip"), "why": why(it)})
+            add(ln.get("id"), "line", ln.get("clip"), assets.get(ln.get("clip")) if ln.get("clip") else None)
     return found
 
 
@@ -2958,12 +2973,12 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     # draft master's sources.json lists it (``placeholders``), so it cannot pass as a final
     placeholders = placeholder_media(play, assets)
     lint("placeholder-media", not placeholders, unit="ledger", severity="warn" if draft or check else "block",
-         grammar="11.1", evidence={"placeholders": placeholders,
-                                   "shots": [x["unit"] for x in placeholders if x["where"] == "shot"],
+         grammar="11.1", evidence={"placeholder_media": placeholders,
+                                   "shots": list(dict.fromkeys(x["unit"] for x in placeholders if x["where"] != "line")),
                                    "lines": [x["unit"] for x in placeholders if x["where"] == "line"],
                                    "items": sorted({x["asset"] for x in placeholders}),
                                    "fix": "make the media and cite it, or render with --draft (a draft is never released)"}
-         if placeholders else {"placeholders": []})
+         if placeholders else {"placeholder_media": []})
     if lint_fail:
         raise Refused("lint failed: " + "; ".join(lint_fail))
 
@@ -3692,7 +3707,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         "score_standard": score_std, "score_standard_stated": score_stated,
         "balance": play.get("balance"), "sides": film_sides(play),
         "clip_integrity": clip_integrity,
-        "placeholders": placeholders,        # 11.1: the stand-ins a draft or check render kept (placeholder-media)
+        "placeholder_media": placeholders,   # 11.1: the stand-ins a draft or check render kept (placeholder-media)
     }
     plan["dark_voice"] = dark_voice_runs(plan)          # A30: judged by black_dip_lints, printed in sources.json
     plan["dips"] = dip_list(plan)
@@ -9296,7 +9311,7 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
                                   for s in r["shots"] if isinstance(s.get("intent"), str) and s["intent"] in BLACK_INTENTS],
             "score_standard": plan.get("score_standard") or dict(SC.STANDARD),
             # 11.1: every shot or heard line that cites a placeholder (placeholder-media); release-film refuses any
-            "placeholders": list(plan.get("placeholders") or []), **extra}
+            "placeholder_media": list(plan.get("placeholder_media") or []), **extra}
 
 
 def readings_doc(plan: dict, *, durations: bool = True) -> list[dict]:
@@ -9486,17 +9501,17 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
             plan = build_plan(film, W=W, H=H, burn_subtitles=burn_subtitles, journal=journal, play=play, draft=draft,
                               until_s=until_s, check=shots is not None or until_s is not None or audio_only)
             u.size = {"driver": "items", "value": len(plan["shots"])}
-        if plan["placeholders"]:   # kept only by a draft or a check render (placeholder-media blocks a final one)
+        if plan["placeholder_media"]:   # kept only by a draft or a check render (placeholder-media blocks a final one)
             # what this run writes, said as it is: a span writes no sources file, --audio-only no master
             record = ("no master is written" if audio_only else
                       "the span's master is never published and no sources file is written" if shots is not None else
                       "its partial sources file, once written, lists them (a check file, never published)"
                       if until_s is not None else "the master's sources.json, once written, lists them")
             journal.human("scout", f"placeholder media kept ({'draft' if draft else 'check render'}): "
-                          + ", ".join(f"{x['unit']} ({x['asset']})" for x in plan["placeholders"]) + f"; {record}",
+                          + ", ".join(f"{x['unit']} ({x['asset']})" for x in plan["placeholder_media"]) + f"; {record}",
                           override="--draft" if draft else "--shots" if shots is not None else
                           "--until" if until_s is not None else "--audio-only",
-                          placeholders=plan["placeholders"])
+                          placeholder_media=plan["placeholder_media"])
         # E15: binding on a run that renders the final frames; --draft, --audio-only (no frames) and --until (a check
         # render) journal them as warnings
         advisory = draft or audio_only or until_s is not None
@@ -9669,7 +9684,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         if audio_only:                       # --audio-only: the pre-flight and the sound, no frames and no master
             journal.stage("assembly", "done", detail={"audio_only": True})
             summary = {"run": journal.run, "journal": str(journal.path), "mix": str(work / "mix-norm.wav"), "loudness": loud,
-                       "partial": bool(check), "until_s": until_s, "placeholders": plan["placeholders"],
+                       "partial": bool(check), "until_s": until_s, "placeholder_media": plan["placeholder_media"],
                        "frames": 0, "duration_s": plan["duration_s"], "wall_s": round(time.perf_counter() - run_t0, 2)}
             journal.event("stage", "run", None, lens="run.end", status="done", outcome="ok", audio_only=True,
                           **{k: v for k, v in summary.items() if k != "loudness"})
@@ -9946,7 +9961,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
                    "cached": [ids[i] for i in cached], "workers": n, "partial": bool(check), "until_s": until_s,
                    "shots": {k: span[k] for k in ("a", "b", "f0", "f1", "t0_s", "t1_s", "edge_in", "edge_out")} if span else None,
                    "clip_warnings": plan.get("clip_integrity", {}).get("warnings", []),     # A33(3): listed in the report
-                   "draft": bool(draft), "placeholders": plan["placeholders"]}             # 11.1: kept by a draft or check
+                   "draft": bool(draft), "placeholder_media": plan["placeholder_media"]}             # 11.1: kept by a draft or check
         if layers_manifest is not None:
             summary["layers"] = str(layers_manifest)
         journal.event("stage", "run", None, lens="run.end", status="done", outcome="ok", **summary)
@@ -10113,9 +10128,9 @@ def main(argv=None) -> int:
         print(f"render: journal {s['journal']}")
         return 0
     print(f"render: {s['frames']} frames, {s['duration_s']:.2f} s of film in {s['wall_s']} s -> {s['master']}")
-    if s.get("placeholders"):
+    if s.get("placeholder_media"):
         print(f"render: placeholder media kept ({'draft' if a.draft else 'check render'}, never released): "
-              + ", ".join(f"{x['unit']} ({x['asset']})" for x in s["placeholders"]))
+              + ", ".join(f"{x['unit']} ({x['asset']})" for x in s["placeholder_media"]))
     print(f"render: journal {s['journal']}")
     return 0
 

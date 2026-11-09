@@ -16,7 +16,7 @@ const plan = (argv: string[], durations = { film: 1205, trailer: 120 }) => planR
 describe("release-film", () => {
   it("runs sources-only, the web encode, the poster and packet, the captions check, the upload and the hashes, in that order", () => {
     const { steps } = plan(["r/master.mp4", "--trailer", "t/master.mp4"]);
-    expect(steps.map((s) => s.id)).toEqual(["a", "b", "b", "c", "c", "d", "e", "e", "e", "e", "e", "e", "e", "e", "e", "f"]);
+    expect(steps.map((s) => s.id)).toEqual(["a", "b", "b", "c", "c", "d", "e", "e", "e", "e", "e", "e", "e", "e", "e", "e", "f"]);
     expect(steps[0].args).toEqual(expect.arrayContaining(["-m", "studio.engine.render", "--sources-only"]));
     expect(steps[1].args).toEqual(expect.arrayContaining(webEncodeArgs(1205)));
     expect(steps[2].args).toEqual(expect.arrayContaining(["-maxrate", `${videoKbps(120)}k`]));
@@ -82,7 +82,8 @@ describe("release-film", () => {
       { id: "S4", ledger_id: "FX-STILL-B", placeholder: true },
       { id: "S9", ledger_id: "PG-07", placeholder: true },
     ],
-    placeholders: [{ unit: "S4", where: "shot", asset: "FX-STILL-B", why: "placeholder: true" },
+    placeholder_media: [{ unit: "S4", where: "shot", asset: "FX-STILL-B", why: "placeholder: true" },
+      { unit: "TS1", where: "title-record", asset: "FX-REC", why: "placeholder: true" },
       { unit: "L5", where: "line", asset: "CLIP-2", why: "placeholder: true" }],
   });
 
@@ -95,16 +96,40 @@ describe("release-film", () => {
     expect(plan(["r/master.mp4", "--no-upload"]).steps.some((s) => s.check === "placeholders")).toBe(true);
     // the list and the shots' own flags, each named once (S9 is flagged on its shot only)
     expect(placeholderProblems(drafted())).toEqual([
-      "shot S4 cites the placeholder FX-STILL-B", "line L5 cites the placeholder CLIP-2", "shot S9 cites the placeholder PG-07"]);
-    expect(placeholderProblems({ shots: [{ id: "S1", placeholder: false }], placeholders: [] })).toEqual([]);
+      "shot S4 cites the placeholder FX-STILL-B", "title record of TS1 cites the placeholder FX-REC",
+      "line L5 cites the placeholder CLIP-2", "shot S9 cites the placeholder PG-07"]);
+    expect(placeholderProblems({ shots: [{ id: "S1", placeholder: false }], placeholder_media: [] })).toEqual([]);
     expect(placeholderProblems({})).toEqual([]);                    // a sources.json from before the field: nothing listed
     const dir = mkdtempSync(pjoin(tmpdir(), "release-ph-"));
     const bad = pjoin(dir, "sources.json");
     wfs(bad, JSON.stringify(drafted()));
-    expect(() => runCheck({ check: "placeholders", sources: bad })).toThrow(/3 placeholder\(s\)[\s\S]*shot S4 cites the placeholder FX-STILL-B[\s\S]*line L5[\s\S]*shot S9/);
+    expect(() => runCheck({ check: "placeholders", sources: bad })).toThrow(/4 placeholder\(s\)[\s\S]*shot S4 cites the placeholder FX-STILL-B[\s\S]*title record of TS1[\s\S]*line L5[\s\S]*shot S9/);
     const good = pjoin(dir, "good.json");
-    wfs(good, JSON.stringify({ shots: [drafted().shots[0]], placeholders: [] }));
+    wfs(good, JSON.stringify({ shots: [drafted().shots[0]], placeholder_media: [] }));
     expect(() => runCheck({ check: "placeholders", sources: good })).not.toThrow();
+  });
+
+  it("refuses a packet whose poster is one of the placeholders", () => {
+    const poster = (ledger_id: string, extra = {}) => ({ ...drafted(), poster: { ledger_id, file: "poster.jpg", ...extra } });
+    expect(placeholderProblems(poster("PG-07"))).toContain("the poster is the placeholder PG-07");      // flagged on its shot
+    expect(placeholderProblems(poster("FX-STILL-B"))).toContain("the poster is the placeholder FX-STILL-B"); // in the list
+    expect(placeholderProblems(poster("FX-STILL-A"))).not.toContain("the poster is the placeholder FX-STILL-A");
+    const clean = { shots: [{ id: "S3", ledger_id: "FX-STILL-A", placeholder: false }], placeholder_media: [] };
+    expect(placeholderProblems({ ...clean, poster: { ledger_id: "FX-STILL-A" } })).toEqual([]);
+    expect(placeholderProblems({ ...clean, poster: { ledger_id: "S-020", placeholder: true } })).toEqual(["the poster is the placeholder S-020"]);
+  });
+
+  it("checks the trailer's own sources.json when it sits beside the trailer, and says so when it does not", () => {
+    const steps = plan(["r/master.mp4", "--trailer", "t/master.mp4"]).steps;
+    const trailer = steps.find((s) => s.label === "the trailer's sources.json lists no placeholder media") as Step & { sources: string; optional: boolean };
+    expect(trailer.check).toBe("placeholders");
+    expect(trailer.optional).toBe(true);
+    expect(trailer.sources.replace(/\\/g, "/")).toMatch(/\/t\/sources\.json$/);
+    expect(plan(["r/master.mp4"]).steps.some((s) => s.label.startsWith("the trailer's sources.json"))).toBe(false);
+    const dir = mkdtempSync(pjoin(tmpdir(), "release-ph-trailer-"));
+    expect(() => runCheck({ check: "placeholders", optional: true, sources: pjoin(dir, "sources.json") })).not.toThrow();
+    wfs(pjoin(dir, "sources.json"), JSON.stringify(drafted()));
+    expect(() => runCheck({ check: "placeholders", optional: true, sources: pjoin(dir, "sources.json") })).toThrow(/placeholder\(s\)/);
   });
 
   it("derives the rate cap from the duration, so the 720p file stays under the put limit with margin", () => {

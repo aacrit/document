@@ -284,9 +284,13 @@ export function planRelease(o, { python = studioPython(), ffmpeg = process.env.D
   steps.push({ id: "d", label: "the captions (captions-en.vtt, written by publish from the render's screenplay)", check: "captions", file: at("captions-en.vtt") });
   const files = UPLOAD_ORDER.filter((f) => (f !== "trailer.mp4" || o.trailer) && (f !== "captions-en.vtt" || uploadsCaptions(captionsReview)));
   // sources.json is public and the site prints it: a drive path in it ("PDF on D:", Partition 2026-11) is refused before any put.
-  // A draft master may keep placeholder media (render.py placeholder-media, GRAMMAR 11.1); its sources.json lists them,
-  // and none goes up. --sources-only (step a) already refuses a placeholder under a master recorded as final.
+  // A draft master may keep placeholder media (render.py placeholder-media, GRAMMAR 11.1); its sources.json lists them
+  // (placeholder_media), and none goes up. --sources-only (step a) already refuses a placeholder under a master recorded as final.
   steps.push({ id: "e", label: "sources.json lists no placeholder media", check: "placeholders", sources: at("sources.json") });
+  // The trailer is its own render: its sources.json, when it sits beside the trailer's master, is checked the same way.
+  // A trailer with none beside it (made outside the engine) cannot be checked here, and the step says so.
+  if (o.trailer) steps.push({ id: "e", label: "the trailer's sources.json lists no placeholder media", check: "placeholders", optional: true,
+    sources: path.join(path.dirname(path.resolve(o.trailer)), "sources.json") });
   steps.push({ id: "e", label: "sources.json names no local drive", check: "local-paths", sources: at("sources.json") });
   steps.push({ id: "e", label: "every file under the put limit", check: "sizes", files: files.map(at) });
   // Every hash is checked against sources.json before the first put, so nothing goes up that the record does not describe.
@@ -343,20 +347,31 @@ export function localPathProblems(doc) {
 }
 
 /**
- * The refusals for a sources.json that records placeholder media: one line per shot or heard line that cites a
- * placeholder, from its `placeholders` list and from any shot marked `placeholder: true` (render.py, GRAMMAR 11.1).
+ * The refusals for a sources.json that records placeholder media: one line per shot, series title record or heard
+ * line that cites a placeholder, from its `placeholder_media` list and any shot marked `placeholder: true`
+ * (render.py, GRAMMAR 11.1), and the poster when its ledger id is one of those placeholders (publish.py refuses a
+ * placeholder poster itself; this catches a packet made before it did).
  */
 export function placeholderProblems(doc) {
+  const WHERE = { line: "line", "title-record": "title record of", shot: "shot" };
   const seen = new Map();
-  for (const x of Array.isArray(doc?.placeholders) ? doc.placeholders : []) {
-    const where = x?.where === "line" ? "line" : "shot";
+  const assets = new Set();
+  for (const x of Array.isArray(doc?.placeholder_media) ? doc.placeholder_media : []) {
+    const where = WHERE[x?.where] ?? "shot";
     const unit = String(x?.unit ?? "?");
-    seen.set(`${where} ${unit}`, `${where} ${unit} cites the placeholder ${String(x?.asset ?? "?")}`);
+    const asset = String(x?.asset ?? "?");
+    assets.add(asset);
+    seen.set(`${where} ${unit} ${asset}`, `${where} ${unit} cites the placeholder ${asset}`);
   }
   for (const s of Array.isArray(doc?.shots) ? doc.shots : []) {
-    const key = `shot ${String(s?.id ?? "?")}`;
-    if (s?.placeholder === true && !seen.has(key)) seen.set(key, `${key} cites the placeholder ${String(s.ledger_id ?? "?")}`);
+    if (s?.placeholder !== true) continue;
+    const asset = String(s.ledger_id ?? "?");
+    const key = `shot ${String(s.id ?? "?")} ${asset}`;
+    assets.add(asset);
+    if (!seen.has(key)) seen.set(key, `shot ${String(s.id ?? "?")} cites the placeholder ${asset}`);
   }
+  const poster = doc?.poster?.ledger_id;
+  if (poster != null && (assets.has(String(poster)) || doc.poster.placeholder === true)) seen.set("poster", `the poster is the placeholder ${String(poster)}`);
   return [...seen.values()];
 }
 
@@ -366,8 +381,12 @@ export function sha256(file) {
 
 export function runCheck(step) {
   if (step.check === "placeholders") {
+    if (step.optional && !existsSync(step.sources)) {
+      console.log(`  no sources.json at ${step.sources}: its placeholders cannot be checked here`);
+      return;
+    }
     const problems = placeholderProblems(JSON.parse(readFileSync(step.sources, "utf8")));
-    if (problems.length) throw new Error(`sources.json lists ${problems.length} placeholder(s) (make the media and render the film without --draft):\n  ${problems.join("\n  ")}`);
+    if (problems.length) throw new Error(`${step.sources} lists ${problems.length} placeholder(s) (make the media and render without --draft):\n  ${problems.join("\n  ")}`);
     console.log("  no placeholder media");
   } else if (step.check === "local-paths") {
     const problems = localPathProblems(JSON.parse(readFileSync(step.sources, "utf8")));
@@ -460,7 +479,7 @@ function main() {
         console.log(`  check: ${step.check}${step.file ? ` ${step.file}` : ""}`);
         // the packet as it stands (an earlier publish): what a real run refuses if publish writes it the same way
         if (step.check === "placeholders" && existsSync(step.sources)) {
-          for (const p of placeholderProblems(JSON.parse(readFileSync(step.sources, "utf8")))) console.log(`  the packet's current sources.json: ${p} (a real run refuses)`);
+          for (const p of placeholderProblems(JSON.parse(readFileSync(step.sources, "utf8")))) console.log(`  ${step.sources} as it stands: ${p} (a real run refuses)`);
         }
         if (step.check === "local-paths" && existsSync(step.sources)) {
           for (const p of localPathProblems(JSON.parse(readFileSync(step.sources, "utf8")))) console.log(`  the packet's current ${p} (a real run refuses)`);

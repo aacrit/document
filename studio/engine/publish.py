@@ -40,7 +40,7 @@ from pathlib import Path
 from studio.engine import captions as C
 from studio.engine import policy as POL
 from studio.engine.journal import sha256_file
-from studio.engine.render import Refused, probe_video
+from studio.engine.render import Refused, placeholder_why, probe_video
 
 UPLOAD = ("film.mp4", "poster.jpg", "trailer.mp4", "sources.json", "captions-en.vtt")   # trailer.mp4 only when declared
 
@@ -101,7 +101,10 @@ def poster_record(ledger: Path, poster_id: str, poster: Path, rule: dict | None 
     item = next((x for x in items if isinstance(x, dict) and x.get("id") == poster_id), None)
     if item is None:
         raise Refused(f"{poster_id} is not in {ledger}")
-    rule = {**POL.DEFAULT_IMAGERY_RULE, "declared": False, **(rule or {})}
+    why = placeholder_why(item)          # GRAMMAR 11.1: a stand-in is never the poster (render.py placeholder-media)
+    if why:
+        raise Refused(f"{poster_id} is a placeholder ({why}), never the poster: make the media, or choose another still")
+    rule ={**POL.DEFAULT_IMAGERY_RULE, "declared": False, **(rule or {})}
     problem = POL.poster_problem(item, rule)
     if problem:
         raise Refused(f"{poster_id} {problem}")
