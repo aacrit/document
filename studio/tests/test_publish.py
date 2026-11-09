@@ -376,9 +376,9 @@ def test_sources_only_plans_as_its_master_was_rendered(film, rendered, tmp_path,
     recorded = R.master_was_draft(out)
     assert recorded is False                         # the fixture's master is a final render, read from its file
     R.sources_only(film, out)
-    monkeypatch.setattr(R, "master_was_draft", lambda o: True)
+    monkeypatch.setattr(R, "master_was_draft", lambda o, **kw: True)
     R.sources_only(film, out)                         # a master recorded as a draft plans as one
-    monkeypatch.setattr(R, "master_was_draft", lambda o: None)
+    monkeypatch.setattr(R, "master_was_draft", lambda o, **kw: None)
     R.sources_only(film, out, draft=True)             # unreadable: --draft fills in
     with pytest.raises(R.Refused, match="cannot tell whether this master was rendered with --draft"):
         R.sources_only(film, out)                     # unreadable and no flag: never assumed final (review of #103)
