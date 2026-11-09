@@ -28,7 +28,11 @@
       "shows_violence": false,
       "graphic_medical": false,
       "named_patient": false,
-      "minor": false
+      "minor": false,
+      "standin": {
+        "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the drawn-pages unit's typeset page replaces it with the real picture under the same name",
+        "sha256": "f14c91df70b12d3d580bf83ad0c6872d793c1674e44b3308adc811646325b392"
+      }
     },
     {
       "id": "D-PAGE-FRUS-1903-D320A",
@@ -56,7 +60,11 @@
       "shows_violence": false,
       "graphic_medical": false,
       "named_patient": false,
-      "minor": false
+      "minor": false,
+      "standin": {
+        "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the drawn-pages unit's typeset page replaces it with the real picture under the same name",
+        "sha256": "fd7b1f7978d8c8307fc8446d413cfd6be610d5e1c330bdcd422943bd50f9792f"
+      }
     },
     {
       "id": "D-PAGE-FRUS-1903-D320B",
@@ -84,7 +92,11 @@
       "shows_violence": false,
       "graphic_medical": false,
       "named_patient": false,
-      "minor": false
+      "minor": false,
+      "standin": {
+        "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the drawn-pages unit's typeset page replaces it with the real picture under the same name",
+        "sha256": "09c6510c4044c86001e31f4f99f1c73abc4413c4d19801f4a976f4710c80902a"
+      }
     },
     {
       "id": "D-PAGE-FRUS-1903-PXXXVI",
@@ -112,7 +124,11 @@
       "shows_violence": false,
       "graphic_medical": false,
       "named_patient": false,
-      "minor": false
+      "minor": false,
+      "standin": {
+        "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the drawn-pages unit's typeset page replaces it with the real picture under the same name",
+        "sha256": "a54ce28aac5fd53005e1f477f30f4857f49c2a69ef3353b9d35cfa1b9a8a6087"
+      }
     },
     {
       "id": "D-PAGE-FRUS-1903-D328",
@@ -140,7 +156,11 @@
       "shows_violence": false,
       "graphic_medical": false,
       "named_patient": false,
-      "minor": false
+      "minor": false,
+      "standin": {
+        "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the drawn-pages unit's typeset page replaces it with the real picture under the same name",
+        "sha256": "fffa3c97c15b7eadc49878f78904704c80d28b7f0cd5d1f4e3a45ec6e0d651e2"
+      }
     },
     {
       "id": "D-PAGE-FRUS-1904-D565",
@@ -168,7 +188,11 @@
       "shows_violence": false,
       "graphic_medical": false,
       "named_patient": false,
-      "minor": false
+      "minor": false,
+      "standin": {
+        "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the drawn-pages unit's typeset page replaces it with the real picture under the same name",
+        "sha256": "26ad21fd9f38c5aed270e3734d7c90287fe5ddf2873a18f3ddd4ae027e100e8a"
+      }
     }
   ]
 }

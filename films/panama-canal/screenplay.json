@@ -25,7 +25,7 @@
     },
     "pages": {
       "path": "pages-ledger.json",
-      "media": "drawn/pages"
+      "media": "D:/document-media/panama-canal/pages"
     }
   },
   "facts_ledger": "facts-ledger.json",

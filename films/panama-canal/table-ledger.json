@@ -4,7 +4,7 @@
   "items": [
     {
       "id": "TBL-MURET-1881",
-      "file": "TBL-MURET-1881.mp4",
+      "file": "TBL-MURET-1881.png",
       "kind": "table",
       "placeholder": true,
       "title": "Table: the Muret relief panorama of the canal",
@@ -28,11 +28,15 @@
       "shows_violence": false,
       "graphic_medical": false,
       "named_patient": false,
-      "minor": false
+      "minor": false,
+      "standin": {
+        "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the title builder's v12 table render (a still; the engine's drawn shot reads a picture, not a clip) replaces it with the real picture under the same name",
+        "sha256": "fa8a06a32ef3bec11d1008c843a08b433f65a62b9236801551e0bae42bd68439"
+      }
     },
     {
       "id": "TBL-FRUS-1903-TELEGRAMS",
-      "file": "TBL-FRUS-1903-TELEGRAMS.mp4",
+      "file": "TBL-FRUS-1903-TELEGRAMS.png",
       "kind": "table",
       "placeholder": true,
       "title": "Table: the FRUS 1903 telegram pages",
@@ -56,11 +60,15 @@
       "shows_violence": false,
       "graphic_medical": false,
       "named_patient": false,
-      "minor": false
+      "minor": false,
+      "standin": {
+        "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the title builder's v12 table render (a still; the engine's drawn shot reads a picture, not a clip) replaces it with the real picture under the same name",
+        "sha256": "c22b8232b1d6e547b7fe37aeb8d949074785a2c46236554962b292d61fe768aa"
+      }
     },
     {
       "id": "TBL-CANAL-RECORD-1907-09-04",
-      "file": "TBL-CANAL-RECORD-1907-09-04.mp4",
+      "file": "TBL-CANAL-RECORD-1907-09-04.png",
       "kind": "table",
       "placeholder": true,
       "title": "Table: The Canal Record, vol. I no. 1, first page",
@@ -84,11 +92,15 @@
       "shows_violence": false,
       "graphic_medical": false,
       "named_patient": false,
-      "minor": false
+      "minor": false,
+      "standin": {
+        "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the title builder's v12 table render (a still; the engine's drawn shot reads a picture, not a clip) replaces it with the real picture under the same name",
+        "sha256": "7a53763adf2f90cd54160af5ed442c3fcb0c7e85e5a28476034d3ff2d49ba983"
+      }
     },
     {
       "id": "TBL-ICC-SURVEYS-1908",
-      "file": "TBL-ICC-SURVEYS-1908.mp4",
+      "file": "TBL-ICC-SURVEYS-1908.png",
       "kind": "table",
       "placeholder": true,
       "title": "Table: the ICC 'Surveys of the Panama Canal'",
@@ -112,11 +124,15 @@
       "shows_violence": false,
       "graphic_medical": false,
       "named_patient": false,
-      "minor": false
+      "minor": false,
+      "standin": {
+        "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the title builder's v12 table render (a still; the engine's drawn shot reads a picture, not a clip) replaces it with the real picture under the same name",
+        "sha256": "d2f6ff0d5837aa6c9ee0a1d8d8dd58b59dd32161c2116b449a1cae5f028d37ef"
+      }
     },
     {
       "id": "TBL-ZONE-MAP-1909",
-      "file": "TBL-ZONE-MAP-1909.mp4",
+      "file": "TBL-ZONE-MAP-1909.png",
       "kind": "table",
       "placeholder": true,
       "title": "Table: the ICC map of the Canal Zone, 1909, with the Ancon's timetable traced",
@@ -140,7 +156,11 @@
       "shows_violence": false,
       "graphic_medical": false,
       "named_patient": false,
-      "minor": false
+      "minor": false,
+      "standin": {
+        "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the title builder's v12 table render (a still; the engine's drawn shot reads a picture, not a clip) replaces it with the real picture under the same name",
+        "sha256": "8741222af7040d4722953873f4f4ee931f473949f0bb4284518bc2098f110755"
+      }
     }
   ]
 }
