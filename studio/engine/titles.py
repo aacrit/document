@@ -268,18 +268,32 @@ def slot_length(item: dict | None, fps: float = FPS) -> int:
 
 
 def slot_lockup_start(item: dict | None, fps: float = FPS) -> int:
-    """Frames from the series-title slot's first frame to where its lockup begins, at ``fps`` (A44): derived from
-    the played master's own dip (A11's ``centre_frame`` plus half its own ``s``, in its own frames and rate) to
-    where it ends, conformed; or, with no item, or an item with no declared dip (A40 title slot has neither), the
-    house default slot length less the house lockup dwell (founder ruling 2026-11-08: 144 frames at 24 fps, 6.0 s,
-    unchanged). Was derived from title.json's own dip (52.0 s plus half 0.75 s) for every master; each master's
-    own design, old or new, now states its own."""
+    """Frames from the series-title slot's first frame to where its lockup begins, at ``fps`` (A44), in order:
+    the played master's own dip (A11's ``centre_frame`` plus half its own ``s``, where it ends, in its own frames
+    and rate), conformed; else its own last CARD mark in ``marks`` (the declared class boundary read everywhere
+    else in this module, by ``timeline``/``classes``), conformed; else its ``lockup_frame`` (a cruder estimate: in
+    practice a pixel-probe point near the CARD span's own middle, as the in-master title-lockup check's own
+    fallback computes it when no mark is given, not a boundary; kept as a last resort before an item is treated as
+    having none); else, with no item, or none of the three (A40 title slot has none), the house default slot
+    length less the house lockup dwell (founder ruling 2026-11-08: 144 frames at 24 fps, 6.0 s, unchanged). The
+    real v11 ledger (``C:/Users/aacri/document-work/title-sequence/masters-ledger.json``) carries no ``dip``: its
+    lockup starts on its own CARD mark (1091 of 1271 frames at 30000/1001), not its ``lockup_frame`` (1181, that
+    span's own midpoint). Was derived from title.json's own dip (52.0 s plus half 0.75 s) for every master; each
+    master's own design, old or new, now states its own."""
     if item is not None:
         played, _ = select_master(item, fps)
-        d, r = played.get("dip"), rate_of(played)
-        if isinstance(d, dict) and d.get("centre_frame") is not None and r:
-            end_k = int(round(float(d["centre_frame"]) + float(d.get("s", 0.75)) / 2 * r))
-            return film_frame(end_k, fps, r)
+        r = rate_of(played)
+        if r:
+            d = played.get("dip")
+            if isinstance(d, dict) and d.get("centre_frame") is not None:
+                end_k = int(round(float(d["centre_frame"]) + float(d.get("s", 0.75)) / 2 * r))
+                return film_frame(end_k, fps, r)
+            cards = [m for m in timeline(played) if m["cls"] == "CARD"]
+            if cards:
+                return film_frame(cards[-1]["frame"], fps, r)
+            lf = played.get("lockup_frame")
+            if isinstance(lf, (int, float)) and not isinstance(lf, bool):
+                return film_frame(int(lf), fps, r)
     return house_slot_frames(fps) - house_lockup_frames(fps)
 
 

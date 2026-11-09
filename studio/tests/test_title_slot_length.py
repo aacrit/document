@@ -132,6 +132,37 @@ def test_slot_lockup_start_reads_the_items_own_dip_not_a_fixed_offset():
     assert TS.slot_lockup_start({"record": "R"}, 24) == 683 - 144
 
 
+# The real v11 ledger's own shape (C:/Users/aacri/document-work/title-sequence/masters-ledger.json, TS-v11-*):
+# no ``dip`` key at all, only a CARD mark and a ``lockup_frame`` that is that span's own rough midpoint, not its
+# start. Reviewer finding on PR #104: the helpers fell through to the house default for these real items, so
+# every live film's lint shipped false evidence (lockup_card_min_s ~19.95 s instead of ~6.0 s).
+V11_LEDGER_ITEM = {
+    "frames": 1271, "fps": "30000/1001",
+    "marks": [{"frame": 0, "cls": "DRAWN", "label": "Drawn · from period records"},
+              {"frame": 878, "cls": "ARCHIVE", "label": "Archive · 1947"},
+              {"frame": 1091, "cls": "CARD", "label": ""}],
+    "lockup_frame": 1181,                   # (1091 + 1271) // 2: the CARD span's own midpoint, not its start
+}
+
+
+def test_slot_lockup_start_reads_the_real_ledgers_card_mark_with_no_dip_at_its_own_rate():
+    """No ``dip``: the start is the last CARD mark (1091), not ``lockup_frame`` (1181, that span's own midpoint).
+    Before the fix this fell through to the house default (slot_lockup_start 673, lockup_card_min_s ~19.95 s)."""
+    r = Fraction(30000, 1001)
+    assert TS.slot_lockup_start(V11_LEDGER_ITEM, r) == 1091
+    assert TS.slot_length(V11_LEDGER_ITEM, r) == 1271
+    assert TS.lockup_card_min_s(V11_LEDGER_ITEM, r) == pytest.approx(180 / float(r), abs=1e-6)   # 6.006 s, its own
+    assert TS.lockup_card_min_s(V11_LEDGER_ITEM, r) == pytest.approx(6.0, abs=0.01)
+
+
+def test_slot_lockup_start_reads_the_real_ledgers_card_mark_conformed_to_24_fps():
+    """The same item, drop-conformed into a 24 fps film (A44): its own CARD mark's frame conformed (874 of 1018),
+    not the house default's (539 of 683) and not its ``lockup_frame`` either."""
+    assert TS.slot_length(V11_LEDGER_ITEM, 24) == 1018            # the live films' own v11 length, exactly
+    assert TS.slot_lockup_start(V11_LEDGER_ITEM, 24) == 874
+    assert TS.lockup_card_min_s(V11_LEDGER_ITEM, 24) == pytest.approx(6.0, abs=1e-6)
+
+
 def test_lockup_card_min_s_is_derived_from_the_items_own_dip_not_the_old_title_json_4_625():
     # a one-frame dip (s small), so its own min dwell is (almost) exactly the house 6.0 s split used here
     tl, dip = _tl_dip(300, HOUSE_PICTURE)
