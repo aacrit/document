@@ -224,6 +224,73 @@ def film_frame(j: int, fps: float = FPS, src: float = FPS) -> int:
     return CAD.output_slot(j, src, fps)
 
 
+# --------------------------------------------------------------------------
+# The slot's length (founder ruling 2026-11-08: the series title is 683 frames at 24 fps, 28.4583 s, not the old
+# 1018, 42.4167 s; the bar grid stays 2 s a bar, and the ember bar moves from 19 to 12). Point 1: the slot's length
+# is data-driven, an item's own frames and fps (A44), never a new fixed constant; HOUSE_SLOT_FRAMES is the one
+# house default, used only where no item states its own (a title_slot placeholder with nothing yet spliced in).
+# --------------------------------------------------------------------------
+
+HOUSE_SLOT_FPS = 24
+HOUSE_SLOT_FRAMES = 683              # the house default series-title length at 24 fps (28.4583 s)
+HOUSE_LOCKUP_FRAMES = 144            # the house default lockup dwell at 24 fps (6.0 s), unchanged by this ruling
+
+
+def _house_frames(n: int, fps: float) -> int:
+    return n if abs(float(fps) - HOUSE_SLOT_FPS) < 1e-6 else CAD.output_slot(n - 1, HOUSE_SLOT_FPS, fps) + 1
+
+
+def house_slot_frames(fps: float = HOUSE_SLOT_FPS) -> int:
+    """The house default series-title slot length at ``fps`` (A44): 683 frames at 24 fps (founder ruling
+    2026-11-08, 28.4583 s), conformed by frame repeat or drop when the film masters at another rate, exactly as a
+    24 fps-only title master would be (852 frames at 30000/1001 is a separately authored native master's own
+    count, not this conform; a real item's own declared frames, select_master's, always win: slot_length)."""
+    return _house_frames(HOUSE_SLOT_FRAMES, fps)
+
+
+def house_lockup_frames(fps: float = HOUSE_SLOT_FPS) -> int:
+    """The house default lockup dwell at ``fps`` (A44): 144 frames at 24 fps, 6.0 s, unchanged by the founder's
+    2026-11-08 ruling on the slot's length. Used only where no item states its own dip (slot_lockup_start)."""
+    return _house_frames(HOUSE_LOCKUP_FRAMES, fps)
+
+
+def slot_length(item: dict | None, fps: float = FPS) -> int:
+    """The series-title slot's length in the film's own frames at ``fps`` (A44): a real item's own declared frame
+    count, at its own rate or an alternate master's (select_master), conformed when the film masters at a rate
+    none of them states; the house default (founder ruling 2026-11-08: 683 frames at 24 fps) only with no item, or
+    an item with no usable frame count or rate. The one house default beside each item's own declared length."""
+    if item is not None:
+        played, _ = select_master(item, fps)
+        n, r = int(played.get("frames") or 0), rate_of(played)
+        if n > 0 and r:
+            return CAD.output_slot(n - 1, r, fps) + 1
+    return house_slot_frames(fps)
+
+
+def slot_lockup_start(item: dict | None, fps: float = FPS) -> int:
+    """Frames from the series-title slot's first frame to where its lockup begins, at ``fps`` (A44): derived from
+    the played master's own dip (A11's ``centre_frame`` plus half its own ``s``, in its own frames and rate) to
+    where it ends, conformed; or, with no item, or an item with no declared dip (A40 title slot has neither), the
+    house default slot length less the house lockup dwell (founder ruling 2026-11-08: 144 frames at 24 fps, 6.0 s,
+    unchanged). Was derived from title.json's own dip (52.0 s plus half 0.75 s) for every master; each master's
+    own design, old or new, now states its own."""
+    if item is not None:
+        played, _ = select_master(item, fps)
+        d, r = played.get("dip"), rate_of(played)
+        if isinstance(d, dict) and d.get("centre_frame") is not None and r:
+            end_k = int(round(float(d["centre_frame"]) + float(d.get("s", 0.75)) / 2 * r))
+            return film_frame(end_k, fps, r)
+    return house_slot_frames(fps) - house_lockup_frames(fps)
+
+
+def lockup_card_min_s(item: dict | None, fps: float = FPS) -> float:
+    """The lockup card's least dwell, in seconds at ``fps`` (A40 lockup card): slot_length less slot_lockup_start.
+    Was a fixed 4.625 s for every master (title.json's own dip, 52.0 s plus half 0.75 s, to its 57.0 s design);
+    each master's own dip and frame count (or, with none, the house default) now states its own (point 1 of the
+    founder's 2026-11-08 ruling: data-driven, not a new fixed constant)."""
+    return (slot_length(item, fps) - slot_lockup_start(item, fps)) / fps
+
+
 def spans(item: dict, f0: int, f1: int, fps: float = FPS) -> list[tuple[int, int, str, str]]:
     """The title's frames by class: (from_frame, to_frame, cls, label), film frames at the film's master rate ``fps``,
     for the mark track and the share."""
@@ -1103,13 +1170,14 @@ def plan_lints(lint, journal, play: dict, shots: list[dict], assets: dict, *, li
             lp = 0
         in_master = lp >= LOCKUP_MIN_PX
         lk_ok = in_master or card_why is None
+        card_min_s = lockup_card_min_s(item, fps)
         lint("title-lockup", lk_ok, unit=sid, grammar="A40, BRAND-KIT 2, BRAND-KIT 15",
              evidence={"frame": lf, "bright_px": lp, "min_px": LOCKUP_MIN_PX, "lockup": SERIES,
                        "in_master": in_master, "lockup_card": card_id, "card_problem": card_why,
-                       "card_bright_px": card_px, "card_min_s": LOCKUP_CARD_MIN_S,
+                       "card_bright_px": card_px, "card_min_s": round(card_min_s, 3),
                        "fix": None if lk_ok else ("the master ends on the series lockup, or the series-title part ends on "
                                                   "the lockup card ({kind: card, card: lockup}, at least "
-                                                  f"{LOCKUP_CARD_MIN_S:g} s, cut in after the title and its record "
+                                                  f"{card_min_s:.3f} s, cut in after the title and its record "
                                                   "holds, and cut out)")})
     return out
 
@@ -1453,9 +1521,9 @@ def audio_plan(lint, s: dict, item: dict, probe: dict, ffmpeg: str, ffprobe: str
 
 LOCKUP_CARD_KIND = "lockup"
 HOLD_KINDS = ("archive_still", "drawn")    # a hold of the title's record: the still kinds a film's own record is held as
-# The lockup card's least dwell: the master lockup's own, from its cut-in to its end (title.json: the dip's centre
-# 52.0 s plus half its 0.75 s, to 57.0 s; design/title-sequence/blender/assemble.py)
-LOCKUP_CARD_MIN_S = 57.0 - (52.0 + 0.75 / 2)
+# The lockup card's least dwell is lockup_card_min_s(item, fps): the played master's own dip to its end, or, with
+# no item or no declared dip, the house default (founder ruling 2026-11-08). Was a fixed 4.625 s for every master
+# (title.json's own dip, 52.0 s plus half 0.75 s, to 57.0 s; design/title-sequence/blender/assemble.py).
 
 
 def _words(text) -> str:
@@ -1475,8 +1543,8 @@ def lockup_card(shots: list[dict], i: int, item: dict, card_kind, fps: float = F
     bright lockup pixels) when the series-title part holding the title shot ``i`` ends on the house lockup card, else
     (its last shot's id or None, why not, the pixels or None). The card is ``{kind: card, card: lockup}`` (BRAND-KIT
     15's lockup, drawn by motion.lockup_card_frame; its text, if stated, is the lockup alone), last in the same part,
-    at least LOCKUP_CARD_MIN_S long, after the title and only holds of the title's own record (archive_still or drawn,
-    the record's asset), every one of them and the card joined by a cut, and cut out of."""
+    at least lockup_card_min_s(item, fps) long, after the title and only holds of the title's own record
+    (archive_still or drawn, the record's asset), every one of them and the card joined by a cut, and cut out of."""
     part = shots[i].get("_part")
     own = [j for j, s in enumerate(shots) if s.get("_part") == part]
     last = own[-1] if own else i
@@ -1507,8 +1575,9 @@ def lockup_card(shots: list[dict], i: int, item: dict, card_kind, fps: float = F
         return c["id"], (f"between the title and its lockup card only holds of the title's record ({rec}, as "
                          f"{' or '.join(HOLD_KINDS)}) may stand: {stray}"), None
     dur = (c["f1"] - c["f0"]) / fps if "f0" in c and "f1" in c else float(c.get("dur_s") or 0.0)
-    if dur < LOCKUP_CARD_MIN_S - 0.5 / fps:
-        return c["id"], f"{c['id']} holds {dur:.3f} s: the lockup dwells at least {LOCKUP_CARD_MIN_S:g} s, as the master's", None
+    min_s = lockup_card_min_s(item, fps)
+    if dur < min_s - 0.5 / fps:
+        return c["id"], f"{c['id']} holds {dur:.3f} s: the lockup dwells at least {min_s:.3f} s, as the master's", None
     px = lockup_card_pixels(dur, fps)
     if px < LOCKUP_MIN_PX:
         return c["id"], f"{c['id']}'s drawn frame shows {px} lockup pixels (at least {LOCKUP_MIN_PX})", px
