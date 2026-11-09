@@ -193,6 +193,70 @@
         "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the drawn-pages unit's typeset page replaces it with the real picture under the same name",
         "sha256": "26ad21fd9f38c5aed270e3734d7c90287fe5ddf2873a18f3ddd4ae027e100e8a"
       }
+    },
+    {
+      "id": "D-PAGE-TR-1906-P10",
+      "file": "D-PAGE-TR-1906-P10.png",
+      "kind": "page",
+      "drawn_kind": "page",
+      "placeholder": true,
+      "title": "Roosevelt, Special Message to Congress, 17 December 1906, p. 10 (typeset)",
+      "date": null,
+      "creator": "void document studio",
+      "archive": "void document studio",
+      "archive_short": "void document studio",
+      "item_url": null,
+      "generator": "PLACEHOLDER: a DRAWN plate typesetting the cited document verbatim in the house data face (the drawn-pages unit), as the Real World METAR plates were made; nothing here is drawn yet",
+      "synthetic": true,
+      "content_date": "1906-12-17",
+      "content_basis": "the plate sets the passage of p. 10 of the Special Message of 17 December 1906 that carries the read sentence, as the Government Printing Office printed it, verbatim; nothing on it postdates the message",
+      "data_source": "Special Message of the President, 17 December 1906, p. 10 (Internet Archive cu31924022883379)",
+      "source_short": "Special Message, 1906",
+      "licence": "CC0",
+      "basis": "the text is a United States government publication (17 USC 105); the typesetting is the studio's own, CC0",
+      "seen": "PLACEHOLDER: the typeset page of the Special Message of 17 December 1906, p. 10.",
+      "people": [],
+      "shows_bodies": false,
+      "shows_violence": false,
+      "graphic_medical": false,
+      "named_patient": false,
+      "minor": false,
+      "standin": {
+        "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the drawn-pages unit's typeset page replaces it under the same name",
+        "sha256": "7b7444075ba9ff22bd6daef067beca4e384b6d253d8fb0ae2d5ea17095af92f2"
+      }
+    },
+    {
+      "id": "D-PAGE-GARRISON-1914-08-15",
+      "file": "D-PAGE-GARRISON-1914-08-15.png",
+      "kind": "page",
+      "drawn_kind": "page",
+      "placeholder": true,
+      "title": "Garrison to Goethals, cable of 15 August 1914 (typeset)",
+      "date": null,
+      "creator": "void document studio",
+      "archive": "void document studio",
+      "archive_short": "void document studio",
+      "item_url": null,
+      "generator": "PLACEHOLDER: a DRAWN plate typesetting the cited document verbatim in the house data face (the drawn-pages unit), as the Real World METAR plates were made; nothing here is drawn yet",
+      "synthetic": true,
+      "content_date": "1914-08-15",
+      "content_basis": "the plate sets the cable headed Washington, D. C., August 15, 1914, to Col. George W. Goethals, Culebra, Canal Zone, as the Canal Record prints it, verbatim, with its signature and nothing of the Record's own masthead, number or date; nothing on it postdates the cable",
+      "data_source": "The Canal Record VII no. 52, 19 August 1914, p. 521, 'Canal Opened to Traffic: Message of Congratulation from the Secretary of War'",
+      "source_short": "Canal Record VII",
+      "licence": "CC0",
+      "basis": "the text is a United States government publication (17 USC 105); the typesetting is the studio's own, CC0",
+      "seen": "PLACEHOLDER: the typeset cable of 15 August 1914.",
+      "people": [],
+      "shows_bodies": false,
+      "shows_violence": false,
+      "graphic_medical": false,
+      "named_patient": false,
+      "minor": false,
+      "standin": {
+        "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the drawn-pages unit's typeset page replaces it under the same name",
+        "sha256": "f35f6947032f64acebc0136862884e2c2b5d8696caa037b6226929650f65750b"
+      }
     }
   ]
 }

@@ -75,7 +75,7 @@
       "item": "101648340.nlm.nih.gov",
       "licence": "public domain",
       "ocr": true,
-      "note": "Reprint page to confirm."
+      "note": "Pages confirmed on the image (text verification, 8 Nov 2026): p. 6 and p. 12; the reading's second span begins at the top of p. 12."
     },
     "P-freeland-1907-ajn": {
       "title": "Nursing in the Canal Zone, American Journal of Nursing 7, June 1907",
@@ -141,7 +141,9 @@
       "title": "The Canal Record VII no. 52, 19 August 1914 (Garrison's cable of 15 August)",
       "archive": "Internet Archive",
       "licence": "US government work",
-      "ocr": true
+      "ocr": true,
+      "item": "canalrecord7152isth",
+      "note": "p. 521; the cable is headed Washington, D. C., August 15, 1914 (text verification, 8 Nov 2026). The issue postdates as_of: the film cites the cable's date, never the issue's."
     },
     "cards": {
       "Q-R14b": "The Freeman (Indianapolis), 1 June 1889, p. 6 (sn82016211); OCR digits '4,0J0' to check",
@@ -150,7 +152,7 @@
       "Q-R16": "FRUS 1903 d259, p. 238 (translation)",
       "Q-R27": "FRUS 1904 d550, p. 578 (translation; 'restablish' sic)",
       "Q-R50": "AJN 5, Sep 1905, pp. 881-882",
-      "Q-SICKPAY": "Canal Record VII, 1 Jul 1914 (month to confirm)",
+      "Q-SICKPAY": "Canal Record VII no. 45, 1 Jul 1914, p. 450: 'Canal Work in May. Monthly Report of the Governor to the Secretary of War' (Culebra, 18 June 1914), Department of Health; the whole sentence is quoted",
       "Q-NODIST": "Canal Record I no. 1, 4 Sep 1907",
       "Q-MEDAL": "Canal Record II, 10 Feb 1909",
       "Q-MASTHEAD": "Canal Record VII no. 1",

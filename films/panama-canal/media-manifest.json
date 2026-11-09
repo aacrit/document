@@ -1002,12 +1002,46 @@
       "licence_note": "published 1908-06-20; public domain in the US by date (before 1929); LoC states no restriction",
       "source_title": "The Washington bee (Washington, D.C.), June 20, 1908",
       "fetched_at": "2026-11-08T19:03:56"
+    },
+    {
+      "id": "S-NARA-BATTLEALLEY-1906",
+      "kind": "still",
+      "status": "fetched",
+      "file": "S-NARA-BATTLEALLEY-1906.jpg",
+      "item_url": "https://catalog.archives.gov/id/100996876",
+      "media_url": "https://catalog.archives.gov/medialz/stillpix/185-G/99290310/185-G-1148.jpg",
+      "sha256": "3f4c65f854b1126e36f3bfed159efb77be60a6a9b030cafd7cee5a2b33d91f3e",
+      "bytes": 306509,
+      "width": 1424,
+      "height": 1184,
+      "rights_at_source": "NARA catalog Use Restriction(s): Unrestricted",
+      "source_title": "Battle Alley Before Paving - Colon, September 1906",
+      "source_local_identifier": "185-G-1148",
+      "naid": 100996876,
+      "fetched_at": "2026-11-08T20:01:01"
+    },
+    {
+      "id": "S-NARA-PAYCAR-INTERIOR",
+      "kind": "still",
+      "status": "fetched",
+      "file": "S-NARA-PAYCAR-INTERIOR.jpg",
+      "item_url": "https://catalog.archives.gov/id/100997802",
+      "media_url": "https://catalog.archives.gov/medialz/stillpix/185-G/99290315/185-G-1615.jpg",
+      "sha256": "5ba8b7b73a08026fc80dec49330b6c044ac9b7dee1e7350a42594953bea4e032",
+      "bytes": 333720,
+      "width": 1752,
+      "height": 1419,
+      "rights_at_source": "NARA catalog Use Restriction(s): Unrestricted",
+      "source_title": "Interior of ICC Pay Car",
+      "source_local_identifier": "185-G-1615",
+      "naid": 100997802,
+      "fetched_at": "2026-11-08T20:01:04"
     }
   ],
   "totals": {
-    "fetched": 59,
+    "fetched": 61,
     "refused": 0,
     "failed": 0,
-    "bytes": 2254082689
+    "bytes": 2254722918
   }
 }
