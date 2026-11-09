@@ -609,6 +609,19 @@ Appended, so the rows above keep their text and are read with this. The founder:
 | v11 form | bone type and mark on film black stays valid for masters already released with it (Not a Free Agent, The Next Village and Market Street release with their v11 titles) |
 | Checks | `title-lockup` counts lockup pixels against the band's own ground (bone on black or ink on paper; a blank paper frame fails), and the CARD ring is read over the frame's own ground beside the glyph (film black or the paper), so both forms pass and a paper frame without the ring fails (GRAMMAR A40 lockup on paper) |
 
+### 15b. The slot shortens (2026-11-08, founder ruling; GRAMMAR A40 the slot shortens)
+
+Appended, so the rows above (15, 15a) keep their text and are read with this. The founder: the series title becomes shorter.
+
+| | at 24 fps | at 30000/1001 |
+|---|---|---|
+| Total | 683 frames, 28.4583 s (was 1018, 42.4167 s) | 852 frames, 28.4284 s (a separately authored native master, its own frame count; was 1271) |
+| Picture, to the cut | 539 frames (was 874) | 672 frames |
+| Lockup, unchanged | 144 frames, 6.0 s | 180 frames, 6.0 s |
+| Bar grid | unchanged, 2 s a bar; the ember bar moves from bar 19 to bar 12, the cut falling 0.87 s before it | |
+
+The slot's length is data-driven (`studio/engine/titles.py`): an item's own declared frames and fps, never a fixed constant tied to one length; the lockup card's least dwell is likewise the played master's own dip to its end, not the one 4.625 s every master shared before. The house default above (683 frames at 24 fps, a 144-frame lockup split off it) stands in only where no item states its own, for a `title_slot` placeholder (GRAMMAR A40 title slot). The main-title theme still ends with the slot, and the film's own score still starts after the lockup card that ends it (GRAMMAR A40 standalone audio, unchanged); only how long that is now follows each item's own length. The live films (Not a Free Agent, The Next Village, Market Street) keep their 1018-frame v11 title and validate against it as before, until each is re-released with the shorter one; their own later shots do not move until that release (a separate ticket per film).
+
 ## 16. Legible on a phone (2026-10-17, founder; cinematography pass, ticket 8)
 
 The house's small screen is a landscape phone, the 16:9 frame about 693 px wide. A portrait phone shows a thumbnail. Every text a viewer must read renders at 7 px or more there. The glyphs are marks, not text, and stay as section 12 sets them. The rows below supersede section 4's source size and section 12's label sizes. Exception, for now: the map renderer's note, legend and source text (1.5% to 1.75%, 5.8 to 6.8 px) is reported under the floor and follows in a maps ticket.

@@ -1002,7 +1002,9 @@ def _S(id_, kind, f0, f1, **kw):
 def _part(*middle, card=None, after=None):
     shots = [_S("TS1", "title_sequence", 0, 96)] + list(middle)
     end = shots[-1]["f1"]
-    shots.append(card or _S("TS1b", "card", end, end + 120, card="lockup"))
+    # 150 frames (6.25 s): item={"record": "R"} declares no dip, so lockup_card_min_s falls back to the house
+    # default (founder ruling 2026-11-08: 144 frames at 24 fps, 6.0 s), with margin over it.
+    shots.append(card or _S("TS1b", "card", end, end + 150, card="lockup"))
     shots.append(after or dict(_S("P1", "card", shots[-1]["f1"], shots[-1]["f1"] + 24, card="title"), _part="title"))
     return shots
 
