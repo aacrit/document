@@ -303,3 +303,19 @@ def test_an_until_check_render_proceeds_and_its_partial_sources_file_lists_the_p
     (ev,) = [e for e in evs if e.get("rule") == "placeholder-media"]
     assert ev["severity"] == "warn"
     assert [e for e in evs if e["kind"] == "human" and e.get("override") == "--until" and "partial sources file" in e["what"]]
+
+
+def test_sources_only_refuses_a_master_whose_draft_status_cannot_be_read(film_safe, tmp_path):
+    """Review of #103: an old sources.json with no draft field, whose run has no journal, once became draft: false (a
+    guess written as final). It is refused, naming --draft, and the file is left as it was."""
+    import subprocess
+    out = tmp_path / "out"
+    out.mkdir()
+    subprocess.run([R.ffmpeg(), "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=64x36:rate=24", "-frames:v", "1",
+                    str(out / "master.mp4")], check=True)
+    old = {"v": 2, "slug": "fixture", "run": "r-20260101-gone"}     # before the draft field; its journal is gone
+    (out / "sources.json").write_text(json.dumps(old), encoding="utf-8")
+    assert R.master_was_draft(out) is None
+    with pytest.raises(R.Refused, match=r"cannot tell whether this master was rendered with --draft.*--sources-only --draft"):
+        R.sources_only(film_safe, out)
+    assert json.loads((out / "sources.json").read_text(encoding="utf-8")) == old

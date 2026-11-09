@@ -10008,8 +10008,8 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
     rendering a frame. It uses the render's own fitted screenplay when there is one, takes the frame size
     from the master, refuses when the master's frame count differs from the plan's (the master is then
     stale: render again), keeps the previous file's loudness, and records the master's sha256. It plans as the
-    master was rendered: the master's own draft-ness (master_was_draft), else ``draft`` when given, else final; a
-    ``draft`` that contradicts a master recorded as final is refused."""
+    master was rendered: the master's own draft-ness (master_was_draft), else ``draft`` when given; when neither
+    can say, it is refused (never assumed final). A ``draft`` that contradicts a master recorded as final is refused."""
     film = Path(film).resolve()
     out = Path(out).resolve() if out else film / "out"
     master = out / "master.mp4"
@@ -10024,6 +10024,14 @@ def sources_only(film: Path | str, out: Path | str | None = None, *, journal: Jo
         # the master's own draft-ness is the truth: --draft may only fill in what cannot be read (a sources.json
         # rewritten before the master's draft-ness was recorded), never turn a final master's sources into a draft's
         recorded = master_was_draft(out)
+        if recorded is None and draft is None:
+            # neither sources.json nor the master's run journal says how it was rendered: never assumed final (a
+            # draft must not be released as one); release-film refuses a master not recorded final, so say it here,
+            # before any frame is encoded, rather than write a guess
+            raise Refused("cannot tell whether this master was rendered with --draft: its sources.json has no draft "
+                          "field and its run's journal (run.start) cannot be read. Render the film again for a final "
+                          "master, or run --sources-only --draft to record it as the draft it may be (release refuses "
+                          "a draft)")
         if recorded is False and draft:
             raise Refused("--draft on a final master: its sources.json records it as rendered final, so its sources are "
                           "planned as a final (the final-only checks apply). Run --sources-only without --draft, or "

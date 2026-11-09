@@ -376,8 +376,9 @@ def test_sources_only_plans_as_its_master_was_rendered(film, rendered, tmp_path,
     R.sources_only(film, out)                         # a master recorded as a draft plans as one
     monkeypatch.setattr(R, "master_was_draft", lambda o: None)
     R.sources_only(film, out, draft=True)             # unreadable: --draft fills in
-    R.sources_only(film, out)                         # unreadable and no flag: final
-    assert seen == [False, True, True, False]
+    with pytest.raises(R.Refused, match="cannot tell whether this master was rendered with --draft"):
+        R.sources_only(film, out)                     # unreadable and no flag: never assumed final (review of #103)
+    assert seen == [False, True, True]
 
 
 def test_sources_only_draft_never_turns_a_final_master_into_a_draft(film, rendered, tmp_path):

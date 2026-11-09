@@ -2,7 +2,7 @@
 // uploads to the film's folder in R2 with --remote and sources.json last, and
 // a dry run is plain data that never runs a command.
 import { describe, expect, it } from "vitest";
-import { BUCKET, MAX_PUT_BYTES, PACKET_ROOT, UPLOAD_ORDER, captionReview, cropProblems, parseCrop, commandLine, uploadsCaptions, gopFrames, rateProblems, videoKbps, webEncodeArgs, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease, readLedgers, posterSource, localPathProblems, placeholderProblems, finalProblems, runCheck } from "../scripts/release-film.mjs";
+import { BUCKET, MAX_PUT_BYTES, PACKET_ROOT, UPLOAD_ORDER, captionReview, cropProblems, parseCrop, commandLine, uploadsCaptions, gopFrames, rateProblems, videoKbps, webEncodeArgs, dirtyVerdict, driveOf, driveProblems, parseArgs, planRelease, readLedgers, posterSource, localPathProblems, placeholderProblems, finalProblems, runCheck, sha256, sha256Stream } from "../scripts/release-film.mjs";
 import { localPathFindings } from "../scripts/lib/local-paths.mjs";
 import { mkdtempSync, readFileSync, writeFileSync as wfs, mkdirSync as mkd } from "node:fs";
 import { tmpdir } from "node:os";
@@ -152,6 +152,7 @@ describe("release-film", () => {
     expect(steps.indexOf(trailerFinal!)).toBeLessThan(steps.indexOf(trailerPh!));
     expect(steps.findIndex((s) => s === trailerFinal)).toBeLessThan(steps.findIndex((s) => s.args?.includes("put") ?? false));
     expect(plan(["r/master.mp4"]).steps.some((s) => s.label.startsWith("the trailer's sources.json"))).toBe(false);
+    expect(trailerFinal && (trailerFinal as Checked & { file: string }).file.replace(/\\/g, "/")).toMatch(/\/t\/master\.mp4$/);
     expect(final({ draft: true }, "the trailer")).toThrow(/the trailer is a draft/);
     expect(final({ draft: false }, "the trailer")).not.toThrow();
     const missing = pjoin(mkdtempSync(pjoin(tmpdir(), "release-trailer-none-")), "sources.json");
@@ -159,6 +160,28 @@ describe("release-film", () => {
     const dir = mkdtempSync(pjoin(tmpdir(), "release-ph-trailer-"));
     wfs(pjoin(dir, "sources.json"), JSON.stringify(drafted()));
     expect(() => runCheck({ check: "placeholders", sources: pjoin(dir, "sources.json") })).toThrow(/placeholder\(s\)/);
+  });
+
+  it("ties the trailer's record to the trailer file: a check render beside a final master.mp4 is refused", () => {
+    const dir = mkdtempSync(pjoin(tmpdir(), "release-trailer-hash-"));
+    const master = pjoin(dir, "master.mp4");
+    const span = pjoin(dir, "master.shots-S4-S6.mp4");
+    const until = pjoin(dir, "master.check-30s.mp4");
+    wfs(master, "the final trailer master");
+    wfs(span, "a --shots check render");
+    wfs(until, "an --until check render");
+    const sources = pjoin(dir, "sources.json");
+    wfs(sources, JSON.stringify({ draft: false, master: "master.mp4", master_sha256: sha256(master) }));
+    const check = (file: string) => () => runCheck({ check: "final", what: "the trailer", sources, file });
+    expect(check(master)).not.toThrow();
+    expect(check(span)).toThrow(/master\.shots-S4-S6\.mp4 is not the master .* describes .*master\.mp4's/);
+    expect(check(until)).toThrow(/master\.check-30s\.mp4 is not the master/);
+    expect(sha256Stream(master)).toBe(sha256(master));
+    wfs(sources, JSON.stringify({ draft: false, master: "master.mp4" }));                       // no hash recorded
+    expect(check(master)).toThrow(/records no master_sha256/);
+    // a draft is named even when the hash matches
+    wfs(sources, JSON.stringify({ draft: true, master_sha256: sha256(master) }));
+    expect(check(master)).toThrow(/the trailer is a draft/);
   });
 
   it("derives the rate cap from the duration, so the 720p file stays under the put limit with margin", () => {

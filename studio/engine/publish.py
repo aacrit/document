@@ -104,7 +104,7 @@ def poster_record(ledger: Path, poster_id: str, poster: Path, rule: dict | None 
     why = placeholder_why(item)          # GRAMMAR 11.1: a stand-in is never the poster (render.py placeholder-media)
     if why:
         raise Refused(f"{poster_id} is a placeholder ({why}), never the poster: make the media, or choose another still")
-    rule ={**POL.DEFAULT_IMAGERY_RULE, "declared": False, **(rule or {})}
+    rule = {**POL.DEFAULT_IMAGERY_RULE, "declared": False, **(rule or {})}
     problem = POL.poster_problem(item, rule)
     if problem:
         raise Refused(f"{poster_id} {problem}")
