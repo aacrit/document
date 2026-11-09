@@ -986,6 +986,16 @@ def test_voices_closer_than_0_8_s_collide_without_overlapping():
     assert R.voice_collisions(lines) == [{"a": "A", "b": "B", "overlap_s": 0.0, "gap_s": 0.5, "short_by_s": 0.3}]
 
 
+def test_a_gap_short_only_by_the_fitted_times_rounding_is_the_gap():
+    # --fit-voices writes times to 4 decimals: a line it placed at the gap can land 3.3e-5 s short of it (seen on
+    # the Panama draft, N2-2 to N2-3); that is the gap, not a collision. A tenth of a millisecond more is one.
+    take = 6.421333333333333
+    lines = [{"id": "A", "start": 265.9091, "dur": take}, {"id": "B", "start": 273.1304, "dur": 1.0}]
+    assert R.voice_collisions(lines) == []
+    lines = [{"id": "A", "start": 265.9091, "dur": take}, {"id": "B", "start": 273.1302, "dur": 1.0}]
+    assert [c["b"] for c in R.voice_collisions(lines)] == ["B"]
+
+
 def test_fit_voices_moves_lines_and_grows_their_shots(tmp_path):
     film = _with_voices(tmp_path)
     play = json.loads((film / "screenplay.json").read_text(encoding="utf-8"))

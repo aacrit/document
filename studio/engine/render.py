@@ -2636,6 +2636,8 @@ def credits_blocks(plan: dict) -> list:
 
 VOICE_KINDS = ("narration", "testimony")
 VOICE_GAP_S = 0.8                   # founder ruling 2026-10-10: voices never overlap, 0.8 s between lines
+VOICE_GAP_TOL_S = 1e-4              # fit_voices writes times to 4 decimals, so a line it places at the gap can land up
+                                    # to 5e-5 s short of it; that rounding is the gap, not a collision
 
 
 def voice_wav(film: Path, ln: dict) -> Path:
@@ -2675,7 +2677,7 @@ def voice_collisions(lines: list[dict], gap: float = VOICE_GAP_S) -> list[dict]:
         if prev is not None:
             prev_end = prev["start"] + prev["dur"]
             g = v["start"] - prev_end
-            if g < gap - 1e-9:
+            if g < gap - VOICE_GAP_TOL_S:
                 out.append({"a": prev["id"], "b": v["id"], "overlap_s": round(max(0.0, -g), 3), "gap_s": round(g, 3),
                             "short_by_s": round(gap - g, 3)})
         if prev is None or v["start"] + v["dur"] > prev["start"] + prev["dur"]:
