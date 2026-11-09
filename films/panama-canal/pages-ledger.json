@@ -263,6 +263,38 @@
         "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the drawn-pages unit's typeset page replaces it under the same name",
         "sha256": "f35f6947032f64acebc0136862884e2c2b5d8696caa037b6226929650f65750b"
       }
+    },
+    {
+      "id": "D-PAGE-TR-1906-P19",
+      "file": "D-PAGE-TR-1906-P19.png",
+      "kind": "page",
+      "drawn_kind": "page",
+      "placeholder": true,
+      "title": "Roosevelt, Special Message to Congress, 17 December 1906, p. 19 (typeset)",
+      "date": null,
+      "creator": "void document studio",
+      "archive": "void document studio",
+      "archive_short": "void document studio",
+      "item_url": null,
+      "generator": "PLACEHOLDER: a DRAWN plate typesetting the cited document verbatim in the house data face (the drawn-pages unit), as the Real World METAR plates were made; nothing here is drawn yet",
+      "synthetic": true,
+      "content_date": "1906-12-17",
+      "content_basis": "the plate sets the passage of p. 19 of the Special Message of 17 December 1906 that carries the read sentences, as the Government Printing Office printed it, verbatim; nothing on it postdates the message",
+      "data_source": "Special Message of the President, 17 December 1906, p. 19 (Internet Archive cu31924022883379)",
+      "source_short": "Special Message, 1906",
+      "licence": "CC0",
+      "basis": "the text is a United States government publication (17 USC 105); the typesetting is the studio's own, CC0",
+      "seen": "PLACEHOLDER: the typeset page of the Special Message of 17 December 1906, p. 19.",
+      "people": [],
+      "shows_bodies": false,
+      "shows_violence": false,
+      "graphic_medical": false,
+      "named_patient": false,
+      "minor": false,
+      "standin": {
+        "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the drawn-pages unit's typeset page replaces it under the same name",
+        "sha256": "cca1d539f91af60ebfbad504ff550ae146f1df8e5ddf4fc818af7dd0221270da"
+      }
     }
   ]
 }

@@ -42,8 +42,8 @@
       "title": "Papers relating to the Foreign Relations of the United States, 1903",
       "archive": "Office of the Historian (TEI, github.com/HistoryAtState/frus)",
       "licence": "public domain",
-      "translation": "d273, d320, d328 are the State Department's translations; pXXXVI is Roosevelt's English",
-      "note": "Confirm page breaks on the scan.",
+      "translation": "d273 and d320 are marked '[Translation.]', the State Department's; d328 (Valdés) carries no mark, and its English is read as a translation of a Spanish original, inferred; d280 (card 2.3) is marked '[Translation.]' as a decoded Navy cipher, not a language translation; pXXXVI is Roosevelt's English",
+      "note": "Texts verified word for word against the State Department's TEI (text verification, 8 Nov 2026); the page numbers are the TEI's page-break markers. The 1903 scan was not reached (history.state.gov 403; HathiTrust refused automated access): the page breaks are confirmed on the images by browser before the extracts and the typeset pages are made.",
       "basis": "a US government publication (17 USC 105), published 1904: public domain",
       "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
@@ -55,7 +55,8 @@
       "translator": "not named in the source",
       "translation_statement": "FRUS 1904 prints d565 and the Constitution (d550) marked '[Translation.]': the State Department's translation; no translator is named",
       "basis": "a US government publication (17 USC 105), published 1905: public domain",
-      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)",
+      "note": "Texts verified word for word against the State Department's TEI (text verification, 8 Nov 2026); the page numbers are the TEI's page-break markers. The 1904 scan was not reached (history.state.gov 403; HathiTrust refused automated access): the page breaks are confirmed on the images by browser before the extracts and the typeset pages are made."
     },
     "P-frus-1906-pt2": {
       "title": "Foreign Relations of the United States, 1906, part 2",
@@ -131,7 +132,8 @@
       "licence": "public domain",
       "ocr": true,
       "basis": "a US government publication (17 USC 105), published 1907: public domain",
-      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)",
+      "note": "The Record reprints extracts of an interview printed in the New York Tribune of 24 October 1907: Boswell's words as the Tribune's reporter quoted them. Founder ruling, 8 Nov 2026: the reading stays and its lower third says it is quoted."
     },
     "P-washington-bee-1908-06-20": {
       "title": "The Washington Bee, 20 June 1908, p. 4",
@@ -182,17 +184,17 @@
       "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     "cards": {
-      "Q-R14b": "The Freeman (Indianapolis), 1 June 1889, p. 6 (sn82016211); OCR digits '4,0J0' to check",
+      "Q-R14b": "The Freeman (Indianapolis), 1 June 1889, p. 6, 'A Smash at Panama' (sn82016211; page image: the digits 4,000 and 3,000, broken type read against the Seattle P-I of 25 May 1889, p. 1)",
       "Q-R18": "FRUS 1903 d280, p. 247",
       "Q-R17": "FRUS 1903 d229, p. 231",
-      "Q-R16": "FRUS 1903 d259, p. 238 (translation)",
-      "Q-R27": "FRUS 1904 d550, p. 578 (translation; 'restablish' sic)",
-      "Q-R50": "AJN 5, Sep 1905, pp. 881-882",
+      "Q-R16": "FRUS 1903 d259, p. 238 (FRUS marks it '[Translation.]')",
+      "Q-R27": "FRUS 1904 d550, p. 578 (FRUS marks it '[Translation.]'; 'restablish' sic)",
+      "Q-R50": "AJN 5, Sep 1905, p. 881 (page image)",
       "Q-SICKPAY": "Canal Record VII no. 45, 1 Jul 1914, p. 450: 'Canal Work in May. Monthly Report of the Governor to the Secretary of War' (Culebra, 18 June 1914), Department of Health; the whole sentence is quoted",
-      "Q-NODIST": "Canal Record I no. 1, 4 Sep 1907",
+      "Q-NODIST": "Canal Record I no. 1, 4 Sep 1907, p. 7 (page image)",
       "Q-MEDAL": "Canal Record II, 10 Feb 1909",
       "Q-MASTHEAD": "Canal Record VII no. 1",
-      "Q-R31": "Canal Record VII, p. 65 (no. 8, 15 Oct 1913: confirm)"
+      "Q-R31": "Canal Record VII no. 8, 15 Oct 1913, p. 65 (page image)"
     }
   }
 }

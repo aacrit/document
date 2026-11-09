@@ -1036,12 +1036,29 @@
       "source_local_identifier": "185-G-1615",
       "naid": 100997802,
       "fetched_at": "2026-11-08T20:01:04"
+    },
+    {
+      "id": "S-NARA-COMMISSARY-GATUN-1911",
+      "kind": "still",
+      "status": "fetched",
+      "file": "S-NARA-COMMISSARY-GATUN-1911.jpg",
+      "item_url": "https://catalog.archives.gov/id/100997084",
+      "media_url": "https://catalog.archives.gov/medialz/stillpix/185-G/99290311/185-G-1252.jpg",
+      "sha256": "30bbdd2c15df9af131b67e9e131df489cdea769d11f24db40dd746b4c4d3ed1f",
+      "bytes": 248257,
+      "width": 1404,
+      "height": 1172,
+      "rights_at_source": "NARA catalog Use Restriction(s): Unrestricted",
+      "source_title": "Interior of Commissary, Gatun - 1911",
+      "source_local_identifier": "185-G-1252",
+      "naid": 100997084,
+      "fetched_at": "2026-11-08T21:28:33"
     }
   ],
   "totals": {
-    "fetched": 61,
+    "fetched": 62,
     "refused": 0,
     "failed": 0,
-    "bytes": 2254722918
+    "bytes": 2254971175
   }
 }

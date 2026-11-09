@@ -1,5 +1,5 @@
 {
-  "_note": "Every fact known or recorded by the horizon, with its period basis (A0). F01-F65 are the brief's (section 6), unchanged; F66-F68 were added by the screenwriter from sources the brief verifies and are flagged for the analyst.",
+  "_note": "Every fact known or recorded by the horizon, with its period basis (A0). F01-F65 are the brief's (section 6), unchanged; F66-F68 were added by the screenwriter from sources the brief verifies and are flagged for the analyst; F69 was added in fix round 2 from the Commission's own report of 16 November 1901.",
   "as_of": "1914-08-15",
   "facts": [
     {
@@ -100,9 +100,9 @@
     },
     {
       "id": "F17",
-      "fact": "Alexandre La Valley's transit, 7 Jan 1914",
-      "known_by": "1914-01",
-      "known_by_basis": "Canal Record VII, \"First Steam Vessel Through the Canal\"; NARA 100995584 caption"
+      "fact": "The crane boat Alex. LaValley (the Record's form) passed through the locks at Pedro Miguel and Miraflores, 7 Jan 1914, the first steam vessel through from ocean to ocean",
+      "known_by": "1914-01-07",
+      "known_by_basis": "Canal Record VII no. 20, 7 January 1914, 'First Steam Vessel Through the Canal' (OCR; masthead confirmed, text verification 8 Nov 2026); NARA 100995584 caption"
     },
     {
       "id": "F18",
@@ -132,7 +132,7 @@
       "id": "F22",
       "fact": "By 24 May 1889 the Jamaican commissioner had sent away about 4,000 people, with 3,000 tickets more",
       "known_by": "1889-05-25",
-      "known_by_basis": "Seattle P-I, 25 May 1889, p. 1; Freeman, 1 Jun 1889 (OCR digits to confirm)"
+      "known_by_basis": "Seattle Post-Intelligencer, 25 May 1889, p. 1, 'PANAMA, May 24.' (page image: 4,000 and 3,000); The Freeman, 1 June 1889, p. 6, 'A Smash at Panama' (page image; its digits are broken type, read against the P-I; text verification, 8 Nov 2026)"
     },
     {
       "id": "F23",
@@ -142,9 +142,9 @@
     },
     {
       "id": "F24",
-      "fact": "Walker Commission, 16 Nov 1901, favoured Panama and a lock canal",
-      "known_by": "1901-11-16",
-      "known_by_basis": "ibid.; Goethals 1909, p. 3"
+      "fact": "The Isthmian Canal Commission's supplementary report of 18 January 1902, after the New Panama Canal Company offered its rights, property and unfinished work for $40,000,000, found \"the most practicable and feasible route\" to be the Panama route, with the lock plan of its former report",
+      "known_by": "1902-01-20",
+      "known_by_basis": "Report of the Isthmian Canal Commission upon the proposition of the New Panama Canal Company, dated Washington, D. C., 18 January 1902, transmitted to Congress 20 January 1902 (57th Congress, 1st session, Senate Document 123): the offer p. 2, the recital of the report of 16 November 1901 pp. 6-7, the opinion and signatures p. 10 (govinfo SERIALSET-04230_00_00-026-0123-0000, page images). Goethals 1909, p. 3 compresses the two reports into one and is not the basis (round 2, 8 Nov 2026)"
     },
     {
       "id": "F25",
@@ -228,7 +228,7 @@
       "id": "F38",
       "fact": "Gatun Locks first operated 26 Sep 1913 (the tug Gatun, west flight)",
       "known_by": "1913-10-01",
-      "known_by_basis": "Canal Record VII no. 6 (page to confirm)"
+      "known_by_basis": "Canal Record VII no. 6, 1 October 1913 (page image; masthead confirmed, text verification 8 Nov 2026)"
     },
     {
       "id": "F39",
@@ -366,7 +366,7 @@
       "id": "F61",
       "fact": "Trained female nurses only at the Colon and Ancon hospitals; Ancon had 500 beds, 61 nurses",
       "known_by": "1907-06",
-      "known_by_basis": "Freeland, AJN, June 1907"
+      "known_by_basis": "Freeland, 'Nursing in the Canal Zone', AJN 7, June 1907: trained female nurses only at Colon and Ancon, p. 697; 500 beds and 61 nurses, p. 699 as read on the image (the IA OCR's leaf numbering places the sentence a page earlier; the image governs) (text verification, 8 Nov 2026)"
     },
     {
       "id": "F62",
@@ -390,7 +390,7 @@
       "id": "F65",
       "fact": "The SS Ancon came into Cristobal with 1,500 laborers from Barbados, 2 Sep 1909",
       "known_by": "1909-09-02",
-      "known_by_basis": "NARA 100996834 (185-G-1127) caption. Reviewer: confirm in Canal Record III, Sep 1909, since a caption's own date is unknown"
+      "known_by_basis": "NARA 100996834 (185-G-1127) caption; Canal Record III, September 1909: \"The steamship Ancon, which arrived on September 2, brought 1,500 Barbadian laborers\" (OCR; text verification, 8 Nov 2026)"
     },
     {
       "id": "F66",
@@ -409,6 +409,12 @@
       "fact": "Bunau-Varilla was an engineer of the French company at Colon in 1885 (\"my house at Colon\")",
       "known_by": "1913",
       "known_by_basis": "Bunau-Varilla, Panama: the Creation, Destruction, and Resurrection, 1913, pp. 43-44 (added from the brief's R13 source)"
+    },
+    {
+      "id": "F69",
+      "fact": "The Isthmian Canal Commission's report of 16 November 1901 found \"the most practicable and feasible route\" to be the Nicaragua route, the New Panama Canal Company's price of $109,141,500 for its property being \"so unreasonable that its acceptance can not be recommended\"; a canal with locks on either route",
+      "known_by": "1901-11-16",
+      "known_by_basis": "Report of the Isthmian Canal Commission, 1899-1901 (57th Congress, 1st session, Senate Document 54), p. 263, the conclusion and signatures dated 16 November 1901 (IA reportofisthmian07unit, OCR; the signatures' page break to confirm on the image)"
     }
   ]
 }
