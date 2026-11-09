@@ -901,21 +901,7 @@
             "type": "cut"
           },
           "mark": "ARCHIVE",
-          "why": "Colon in 1903, the year of the cables: dwellings of the old French company. The narration gives the dates; the cables follow as the period's own words. Framing: the file is a stereograph card, two views side by side on a printed mount; the camera stays inside the left view (x 0.296 at z 2.4), so neither the second view nor the publisher's mount text is shown.",
-          "camera": [
-            {
-              "t": 0.0,
-              "x": 0.296,
-              "y": 0.6,
-              "z": 2.4
-            },
-            {
-              "t": 20.0,
-              "x": 0.296,
-              "y": 0.42,
-              "z": 2.4
-            }
-          ]
+          "why": "Colon in 1903, the year of the cables: dwellings of the old French company. The narration gives the dates; the cables follow as the period's own words. Framing: a stereograph card, shown whole by the engine's camera (a single-view framing is a founder item)."
         },
         {
           "id": "2.3",
@@ -1091,21 +1077,7 @@
             "type": "cut"
           },
           "mark": "ARCHIVE",
-          "why": "Women washing clothes at a spring near Panama City, 1904: the republic's own people in its first year, held with no voice (a rest, A10). Framing: the file is a stereograph card, two views side by side on a printed mount; the camera stays inside the left view (x 0.296 at z 2.4), so neither the second view nor the publisher's mount text is shown.",
-          "camera": [
-            {
-              "t": 0.0,
-              "x": 0.296,
-              "y": 0.6,
-              "z": 2.4
-            },
-            {
-              "t": 9.0,
-              "x": 0.296,
-              "y": 0.45,
-              "z": 2.4
-            }
-          ]
+          "why": "Women washing clothes at a spring near Panama City, 1904: the republic's own people in its first year, held with no voice (a rest, A10). Framing: a stereograph card, shown whole by the engine's camera (a single-view framing is a founder item)."
         },
         {
           "id": "2.14",
@@ -2982,7 +2954,7 @@
           "kind": "archive_still",
           "start_s": 1315.303,
           "asset": "S-NARA-LAVALLEY-MIRA",
-          "dur_s": 14.0,
+          "dur_s": 14.9,
           "transition_in": {
             "type": "cut"
           },
@@ -3157,7 +3129,7 @@
           "start_s": 1396.213,
           "text": "By the successful passage of vessels through the Canal the dream of the centuries has become a reality.",
           "speaker": "sp-garrison",
-          "year": 1914,
+          "year": "1914-08-15",
           "source": "P-canal-record-7-52",
           "locator": "cable-1914-08-15",
           "read_by": "v-13",

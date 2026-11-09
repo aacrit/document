@@ -43,7 +43,10 @@
       "telecined": true,
       "field_order": "tff",
       "telecine_basis": "ffmpeg idet on 20 s at 20 s (2026-11-08): repeated fields top 76, bottom 83 of 600 frames, multi-frame TFF 406, BFF 0: a 3:2 pulldown signature on a top-field-first NTSC transfer",
-      "intertitles": "read on viewing: 'Panama Canal Part 4'; '2,500 ft. over Culebra Cut'; 'The towns of Culebra and Empire'; 'Camp Elliott on Gold Hill, the highest point in Culebra Cut'; 'The Panama Railway to the left'; Chagres, Matachin, Gatun Lake, dam, spillway, guide wall, the Atlantic channel, Limon Bay, 'We landed safe and sound in the Atlantic', 'Landing on Limon Bay at Colon'. None postdates the horizon; none is shown (the spans lie between them)"
+      "intertitles": "read on viewing: 'Panama Canal Part 4'; '2,500 ft. over Culebra Cut'; 'The towns of Culebra and Empire'; 'Camp Elliott on Gold Hill, the highest point in Culebra Cut'; 'The Panama Railway to the left'; Chagres, Matachin, Gatun Lake, dam, spillway, guide wall, the Atlantic channel, Limon Bay, 'We landed safe and sound in the Atlantic', 'Landing on Limon Bay at Colon'. None postdates the horizon; none is shown (the spans lie between them)",
+      "graphic_medical": false,
+      "named_patient": false,
+      "content_flags_basis": "the whole reel viewed on contact sheets on 8 Nov 2026: no medical picture, no named patient (children appear in the 1906 street crowds, unnamed), no bodies or violence"
     },
     {
       "id": "V-LOC-TR-ARRIVAL",
@@ -83,7 +86,10 @@
         "aac"
       ],
       "head_titles": "the Library of Congress's own preservation logo and title card, 0 to 13.04 s: never shown",
-      "damage": "a run of flicker and damaged frames, 82.38 to 89.29 s (scdet reads 30 cuts): never shown"
+      "damage": "a run of flicker and damaged frames, 82.38 to 89.29 s (scdet reads 30 cuts): never shown",
+      "graphic_medical": false,
+      "named_patient": false,
+      "content_flags_basis": "the whole reel viewed on contact sheets on 8 Nov 2026: no medical picture, no named patient (children appear in the 1906 street crowds, unnamed), no bodies or violence"
     },
     {
       "id": "V-LOC-TR-SPEAKING",
@@ -122,7 +128,10 @@
       "file_audio_streams": [
         "aac"
       ],
-      "head_titles": "the Library of Congress's own preservation logo and title card, 0 to 14.33 s, which reads 'TR Speaking in Panama, November 1916' (an error of the card's: the catalogue dates the film 1906 and the stand is the one in mp76000087): never shown"
+      "head_titles": "the Library of Congress's own preservation logo and title card, 0 to 14.33 s, which reads 'TR Speaking in Panama, November 1916' (an error of the card's: the catalogue dates the film 1906 and the stand is the one in mp76000087): never shown",
+      "graphic_medical": false,
+      "named_patient": false,
+      "content_flags_basis": "the whole reel viewed on contact sheets on 8 Nov 2026: no medical picture, no named patient (children appear in the 1906 street crowds, unnamed), no bodies or violence"
     },
     {
       "id": "V-LOC-GORGAS",
@@ -162,7 +171,10 @@
       "file_audio_streams": [
         "aac"
       ],
-      "head_titles": "the Library of Congress's own preservation logo and title card '(190?)', 0 to 13.04 s: never shown"
+      "head_titles": "the Library of Congress's own preservation logo and title card '(190?)', 0 to 13.04 s: never shown",
+      "graphic_medical": false,
+      "named_patient": false,
+      "content_flags_basis": "the whole reel viewed on contact sheets on 8 Nov 2026: no medical picture, no named patient (children appear in the 1906 street crowds, unnamed), no bodies or violence"
     },
     {
       "id": "V-NARA-TAFT-1912",
@@ -207,7 +219,10 @@
         491.3
       ],
       "extra_cuts_basis": "the intertitle 'LAKE GATUN' from 483.43 to 491.30 s, which scdet (threshold 8) misses: placed on per-frame luma differences (2026-11-08)",
-      "intertitles": "'Reception at Mayor's House at Key West'; 'The President leaving Key West for the battleship Arkansas'; 'The President boarding the battleship \"Arkansas\" in Key West harbor'; 'Going into Culabra Cut'; 'Culebra Cut, showing steam-shovel handling a twelve-ton rock'; 'Ride through Culebra Cut on bottom of canal'; 'Slide in Culebra Cut'; 'Inspecting Milaflores lock, lock gates in operation'; 'Lake Gatun'; 'Pedro Miguel Locks'; 'Spillway of Gatun Dam in action'; 'Native life'; each signed Feature Film M'f'g Co., Washington, D.C.; the file ends on 'END OF RECORDING'"
+      "intertitles": "'Reception at Mayor's House at Key West'; 'The President leaving Key West for the battleship Arkansas'; 'The President boarding the battleship \"Arkansas\" in Key West harbor'; 'Going into Culabra Cut'; 'Culebra Cut, showing steam-shovel handling a twelve-ton rock'; 'Ride through Culebra Cut on bottom of canal'; 'Slide in Culebra Cut'; 'Inspecting Milaflores lock, lock gates in operation'; 'Lake Gatun'; 'Pedro Miguel Locks'; 'Spillway of Gatun Dam in action'; 'Native life'; each signed Feature Film M'f'g Co., Washington, D.C.; the file ends on 'END OF RECORDING'",
+      "graphic_medical": false,
+      "named_patient": false,
+      "content_flags_basis": "the whole reel viewed on contact sheets on 8 Nov 2026: no medical picture, no named patient (children appear in the 1906 street crowds, unnamed), no bodies or violence"
     }
   ],
   "excluded": [
