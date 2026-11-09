@@ -6,14 +6,13 @@
       "id": "TBL-MURET-1881",
       "file": "TBL-MURET-1881.png",
       "kind": "table",
-      "placeholder": true,
       "title": "Table: the Muret relief panorama of the canal",
       "date": null,
       "creator": "void document studio (title builder, v12 table)",
       "archive": "void document studio",
       "archive_short": "void document studio",
-      "item_url": null,
-      "generator": "PLACEHOLDER: to be rendered by the title builder on the v12 Blender table from the scan named in data_source; nothing about its contents is decided here",
+      "item_url": "https://www.loc.gov/item/2011590001/",
+      "generator": "the title session v12 table render (chain_pn_table.py), from the real scan; see table-shots-handoff.md",
       "synthetic": true,
       "drawn_kind": "image",
       "content_date": "1881",
@@ -29,11 +28,8 @@
       "graphic_medical": false,
       "named_patient": false,
       "minor": false,
-      "standin": {
-        "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the title builder's v12 table render (a still; the engine's drawn shot reads a picture, not a clip) replaces it with the real picture under the same name",
-        "sha256": "fa8a06a32ef3bec11d1008c843a08b433f65a62b9236801551e0bae42bd68439"
-      },
-      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)",
+      "sha256": "5760452c6a356315c69739aae8a7ffea1d4a2faf936002d5648fa75a6d389691"
     },
     {
       "id": "TBL-FRUS-1903-TELEGRAMS",
@@ -71,14 +67,13 @@
       "id": "TBL-CANAL-RECORD-1907-09-04",
       "file": "TBL-CANAL-RECORD-1907-09-04.png",
       "kind": "table",
-      "placeholder": true,
       "title": "Table: The Canal Record, vol. I no. 1, first page",
       "date": null,
       "creator": "void document studio (title builder, v12 table)",
       "archive": "void document studio",
       "archive_short": "void document studio",
-      "item_url": null,
-      "generator": "PLACEHOLDER: to be rendered by the title builder on the v12 Blender table from the scan named in data_source; nothing about its contents is decided here",
+      "item_url": "https://archive.org/details/canalrecord1152isth",
+      "generator": "the title session v12 table render (chain_pn_table.py), from the real scan; see table-shots-handoff.md",
       "synthetic": true,
       "drawn_kind": "image",
       "content_date": "1907-09-04",
@@ -94,24 +89,20 @@
       "graphic_medical": false,
       "named_patient": false,
       "minor": false,
-      "standin": {
-        "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the title builder's v12 table render (a still; the engine's drawn shot reads a picture, not a clip) replaces it with the real picture under the same name",
-        "sha256": "7a53763adf2f90cd54160af5ed442c3fcb0c7e85e5a28476034d3ff2d49ba983"
-      },
-      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)",
+      "sha256": "31be29b5941fe9c54b5d7e6023857062bb45e5ed0ddfb67834c7cdceeca06d60"
     },
     {
       "id": "TBL-ICC-SURVEYS-1908",
       "file": "TBL-ICC-SURVEYS-1908.png",
       "kind": "table",
-      "placeholder": true,
       "title": "Table: the ICC 'Surveys of the Panama Canal'",
       "date": null,
       "creator": "void document studio (title builder, v12 table)",
       "archive": "void document studio",
       "archive_short": "void document studio",
-      "item_url": null,
-      "generator": "PLACEHOLDER: to be rendered by the title builder on the v12 Blender table from the scan named in data_source; nothing about its contents is decided here",
+      "item_url": "https://www.loc.gov/item/2023593530/",
+      "generator": "the title session v12 table render (chain_pn_table.py), from the real scan; see table-shots-handoff.md",
       "synthetic": true,
       "drawn_kind": "image",
       "content_date": "1908",
@@ -127,11 +118,8 @@
       "graphic_medical": false,
       "named_patient": false,
       "minor": false,
-      "standin": {
-        "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the title builder's v12 table render (a still; the engine's drawn shot reads a picture, not a clip) replaces it with the real picture under the same name",
-        "sha256": "d2f6ff0d5837aa6c9ee0a1d8d8dd58b59dd32161c2116b449a1cae5f028d37ef"
-      },
-      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)",
+      "sha256": "efc8701e0cfd618a2568d83f085dd8a99d712c782f4d791d4ffc130120ec98d3"
     }
   ]
 }
