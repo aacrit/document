@@ -719,6 +719,36 @@ def is_synthetic(item: dict | None) -> bool:
     return bool(item) and bool(item.get("synthetic") or item.get("test_fixture") or item.get("generator"))
 
 
+def is_placeholder(item: dict | None) -> bool:
+    """A ledger item that stands in for media not made yet (a grey slate for a table render or a typeset page): it
+    says so with ``placeholder: true``, or a ``generator`` that begins "PLACEHOLDER". A synthetic item that is not
+    one (a DRAWN map or typeset page a program made) is the real thing, not a placeholder."""
+    if not item:
+        return False
+    gen = item.get("generator")
+    return bool(item.get("placeholder")) or (isinstance(gen, str) and gen.strip().upper().startswith("PLACEHOLDER"))
+
+
+def placeholder_media(play: dict, assets: dict) -> list[dict]:
+    """Every shot, and every line heard from a clip, that cites a placeholder item (is_placeholder), in screenplay
+    order: ``{"unit", "where" ("shot" or "line"), "asset", "why"}``. Pure."""
+    found = []
+
+    def why(it):
+        return "placeholder: true" if it.get("placeholder") else "generator: " + str(it.get("generator"))[:80]
+
+    for part in play.get("parts") or []:
+        for s in part.get("shots") or []:
+            it = assets.get(s.get("asset")) if s.get("asset") else None
+            if is_placeholder(it):
+                found.append({"unit": s.get("id"), "where": "shot", "asset": s.get("asset"), "why": why(it)})
+        for ln in part.get("lines") or []:
+            it = assets.get(ln.get("clip")) if ln.get("clip") else None
+            if is_placeholder(it):
+                found.append({"unit": ln.get("id"), "where": "line", "asset": ln.get("clip"), "why": why(it)})
+    return found
+
+
 def neutralise_cast(shot: dict, item: dict | None) -> bool:
     """A14: the shot's ``neutralise_cast`` when it states one, else its
     ledger item's (a whole derivative carries a transfer cast)."""
@@ -2842,14 +2872,16 @@ def text_zone_timeline(play: dict, texts: list[dict]) -> list[dict]:
 
 def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Journal, play: dict | None = None,
                write_overlays: bool = True, draft: bool = False, voice_lints: str = "run",
-               until_s: float | None = None) -> dict:
+               until_s: float | None = None, check: bool = False) -> dict:
     """The film's plan, every plan-time lint journaled and every blocking
     one refused. Last, the take-only sound lints (take_lints: A13, A14,
     A19, A38 on the takes) at the severity the mix gives them, ``draft``
     making them warnings as it does there; ``voice_lints`` "off" skips them
     (a preview tool's plan, which also passes ``write_overlays`` False).
     ``until_s`` (a check render's --until) only words a take refusal: the
-    plan is the whole film's, and a refused take past the span is named so."""
+    plan is the whole film's, and a refused take past the span is named so.
+    ``check`` (a check render: --shots, --until, --audio-only) makes
+    placeholder-media a warning, as ``draft`` does; it changes nothing else."""
     play = play if play is not None else json.loads((film / "screenplay.json").read_text(encoding="utf-8"))
     if "parts" not in play:
         raise Refused("screenplay.json has no parts: it is not format v2 (GRAMMAR 12); studio/sketch.py renders v1")
@@ -2921,6 +2953,17 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
     # A0 (founder, 2026-10-11), the founding principle: show as was, not as is, and never tell (studio/engine/aswas.py)
     for c in AW.checks(play, assets, film=film):
         lint(c["rule"], c["ok"], unit=c["unit"], severity=c["severity"], evidence=c["evidence"], grammar=c["grammar"])
+    # 11.1: a cited asset is the item itself, never its stand-in. A placeholder (a grey slate for media not made yet) is
+    # refused on a final render; a draft, a check render and the contact sheets (draft) keep it as a warning, and a
+    # draft master's sources.json lists it (``placeholders``), so it cannot pass as a final
+    placeholders = placeholder_media(play, assets)
+    lint("placeholder-media", not placeholders, unit="ledger", severity="warn" if draft or check else "block",
+         grammar="11.1", evidence={"placeholders": placeholders,
+                                   "shots": [x["unit"] for x in placeholders if x["where"] == "shot"],
+                                   "lines": [x["unit"] for x in placeholders if x["where"] == "line"],
+                                   "items": sorted({x["asset"] for x in placeholders}),
+                                   "fix": "make the media and cite it, or render with --draft (a draft is never released)"}
+         if placeholders else {"placeholders": []})
     if lint_fail:
         raise Refused("lint failed: " + "; ".join(lint_fail))
 
@@ -3649,6 +3692,7 @@ def build_plan(film: Path, *, W: int, H: int, burn_subtitles: bool, journal: Jou
         "score_standard": score_std, "score_standard_stated": score_stated,
         "balance": play.get("balance"), "sides": film_sides(play),
         "clip_integrity": clip_integrity,
+        "placeholders": placeholders,        # 11.1: the stand-ins a draft or check render kept (placeholder-media)
     }
     plan["dark_voice"] = dark_voice_runs(plan)          # A30: judged by black_dip_lints, printed in sources.json
     plan["dips"] = dip_list(plan)
@@ -9184,6 +9228,7 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
             "levels": s.get("_levels"),          # A46: the black floor applied (non-material), or the stated opt-out
             "neutralise_cast": (s.get("_video") or {}).get("neutralise_cast"),
             "test_fixture": sources_test_fixture(s, it),
+            "placeholder": is_placeholder(it),          # 11.1: a stand-in (only a draft or check render keeps one)
             **OV.sources_fields(s),
             **title_sources_fields(s),
             "text": s.get("text"),
@@ -9249,7 +9294,9 @@ def sources_doc(plan: dict, journal: Journal, extra: dict) -> dict:
                                    "voice_s": s["voice_s"], "lines": r["lines"]}
                                   for r in plan.get("dark_voice") or [] if r["voice_s"] > BLACK_VOICE_MAX_S
                                   for s in r["shots"] if isinstance(s.get("intent"), str) and s["intent"] in BLACK_INTENTS],
-            "score_standard": plan.get("score_standard") or dict(SC.STANDARD), **extra}
+            "score_standard": plan.get("score_standard") or dict(SC.STANDARD),
+            # 11.1: every shot or heard line that cites a placeholder (placeholder-media); release-film refuses any
+            "placeholders": list(plan.get("placeholders") or []), **extra}
 
 
 def readings_doc(plan: dict, *, durations: bool = True) -> list[dict]:
@@ -9413,7 +9460,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
             raise Refused("--layers with --shots, --until or --audio-only: not supported (the layers are the whole "
                           "film's: every shot's plate and one full-length overlay pass)")
         if draft:
-            journal.human("scout", "draft render: missing voice WAVs become silence; dynamic loudness, a compressing master limiter, A13 bad takes and narrator-consistency are warnings instead of refusing the run",
+            journal.human("scout", "draft render: missing voice WAVs become silence; dynamic loudness, a compressing master limiter, A13 bad takes, narrator-consistency and placeholder media are warnings instead of refusing the run",
                           override="--draft")
         with journal.unit("scout", "preflight", size={"driver": "items", "value": 1}):
             pf = preflight(out, journal, min_free_gb=min_free_gb)
@@ -9437,8 +9484,19 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
                 f"{b['unit']}: {b['file']} ({b['why']})" for b in bad_sources))
         with journal.unit("scout", "plan", size={"driver": "items", "value": 0}) as u:
             plan = build_plan(film, W=W, H=H, burn_subtitles=burn_subtitles, journal=journal, play=play, draft=draft,
-                              until_s=until_s)
+                              until_s=until_s, check=shots is not None or until_s is not None or audio_only)
             u.size = {"driver": "items", "value": len(plan["shots"])}
+        if plan["placeholders"]:   # kept only by a draft or a check render (placeholder-media blocks a final one)
+            # what this run writes, said as it is: a span writes no sources file, --audio-only no master
+            record = ("no master is written" if audio_only else
+                      "the span's master is never published and no sources file is written" if shots is not None else
+                      "its partial sources file, once written, lists them (a check file, never published)"
+                      if until_s is not None else "the master's sources.json, once written, lists them")
+            journal.human("scout", f"placeholder media kept ({'draft' if draft else 'check render'}): "
+                          + ", ".join(f"{x['unit']} ({x['asset']})" for x in plan["placeholders"]) + f"; {record}",
+                          override="--draft" if draft else "--shots" if shots is not None else
+                          "--until" if until_s is not None else "--audio-only",
+                          placeholders=plan["placeholders"])
         # E15: binding on a run that renders the final frames; --draft, --audio-only (no frames) and --until (a check
         # render) journal them as warnings
         advisory = draft or audio_only or until_s is not None
@@ -9611,7 +9669,7 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
         if audio_only:                       # --audio-only: the pre-flight and the sound, no frames and no master
             journal.stage("assembly", "done", detail={"audio_only": True})
             summary = {"run": journal.run, "journal": str(journal.path), "mix": str(work / "mix-norm.wav"), "loudness": loud,
-                       "partial": bool(check), "until_s": until_s,
+                       "partial": bool(check), "until_s": until_s, "placeholders": plan["placeholders"],
                        "frames": 0, "duration_s": plan["duration_s"], "wall_s": round(time.perf_counter() - run_t0, 2)}
             journal.event("stage", "run", None, lens="run.end", status="done", outcome="ok", audio_only=True,
                           **{k: v for k, v in summary.items() if k != "loudness"})
@@ -9887,7 +9945,8 @@ def render(film: Path | str, out: Path | str | None = None, *, height: int = 108
                    "sources": None if span else str(sources_path), "frames": n_frames, "duration_s": dur, "wall_s": round(wall, 2), "rendered": [ids[i] for i in todo],
                    "cached": [ids[i] for i in cached], "workers": n, "partial": bool(check), "until_s": until_s,
                    "shots": {k: span[k] for k in ("a", "b", "f0", "f1", "t0_s", "t1_s", "edge_in", "edge_out")} if span else None,
-                   "clip_warnings": plan.get("clip_integrity", {}).get("warnings", [])}     # A33(3): listed in the report
+                   "clip_warnings": plan.get("clip_integrity", {}).get("warnings", []),     # A33(3): listed in the report
+                   "draft": bool(draft), "placeholders": plan["placeholders"]}             # 11.1: kept by a draft or check
         if layers_manifest is not None:
             summary["layers"] = str(layers_manifest)
         journal.event("stage", "run", None, lens="run.end", status="done", outcome="ok", **summary)
@@ -10009,8 +10068,9 @@ def main(argv=None) -> int:
     ap.add_argument("--from", dest="from_shot", default=None, help="re-render from this shot; earlier shots come from the cache")
     ap.add_argument("--workers", type=int, default=DEFAULT_WORKERS, help=f"CPU worker processes (default {DEFAULT_WORKERS}, max {MAX_WORKERS})")
     ap.add_argument("--burn-subtitles", action="store_true", help="burn the English subtitles into the picture (off by default)")
-    ap.add_argument("--draft", action="store_true", help="place silence for missing voice WAVs and accept dynamic loudness, a compressing limiter, a bad take or an "
-                         "inconsistent narrator line instead of refusing (journaled)")
+    ap.add_argument("--draft", action="store_true", help="place silence for missing voice WAVs and accept dynamic loudness, a compressing limiter, a bad take, an "
+                         "inconsistent narrator line or placeholder media instead of refusing (journaled; sources.json "
+                         "records draft and its placeholders)")
     ap.add_argument("--fit-voices", action="store_true",
                     help="move overlapping voice lines later (0.8 s apart) and lengthen their shots (journaled)")
     ap.add_argument("--until", dest="until_s", type=float, default=None,
@@ -10053,6 +10113,9 @@ def main(argv=None) -> int:
         print(f"render: journal {s['journal']}")
         return 0
     print(f"render: {s['frames']} frames, {s['duration_s']:.2f} s of film in {s['wall_s']} s -> {s['master']}")
+    if s.get("placeholders"):
+        print(f"render: placeholder media kept ({'draft' if a.draft else 'check render'}, never released): "
+              + ", ".join(f"{x['unit']} ({x['asset']})" for x in s["placeholders"]))
     print(f"render: journal {s['journal']}")
     return 0
 
