@@ -413,6 +413,19 @@ def _centre_expect(W: int, H: int, cls: str, ground=(0, 0, 0)) -> np.ndarray:
     return _probe_expect(W, H, cls, M.glyph_centre(M.Layout(W, H)), ground)
 
 
+def _fade_expect(W: int, H: int, prev: str, cls: str, mix: float, ground) -> np.ndarray:
+    """The glyph centre inside a class change's crossfade as motion.mark_frame draws it: the two tiles blended at
+    ``mix`` (straight alpha), composited over ``ground``."""
+    L = M.Layout(W, H)
+    cx, cy = M.glyph_centre(L)
+    ta, (ox, oy) = M.glyph_tile(W, H, prev)
+    tb, _ = M.glyph_tile(W, H, cls)
+    t = Image.blend(ta, tb, mix)
+    px = Image.new("RGBA", (1, 1), tuple(int(v) for v in ground[:3]) + (255,))
+    px.alpha_composite(t.crop((cx - ox, cy - oy, cx - ox + 1, cy - oy + 1)))
+    return np.array(px.getpixel((0, 0))[:3], dtype=int)
+
+
 GROUND_GAP = 3                      # px outside the glyph's tile (with its contact disc) where its ground is read ...
 GROUND_BAND = 3                     # ... in strips this many px deep, above, right of and below it
 GROUND_SPREAD_Q = 90                # the ground's grain: this percentile of its pixels' distance from its median
@@ -535,7 +548,18 @@ def check_frame(arr: np.ndarray, item: dict, k: int, t: float | None = None) -> 
         p, d = arr[cy, cx, :3].astype(float), (b - a).astype(float)
         u = float(np.clip(np.dot(p - a, d) / max(float(np.dot(d, d)), 1e-9), 0.0, 1.0))
         hollow = max(1.0 - _probe_alpha(W, H, c, (cx, cy)) for c in (prev, cls))
-        return "fade" if float(np.max(np.abs(p - (a + u * d)))) <= 3.0 + hollow * grain else "fail"
+        tol = 3.0 + hollow * grain
+        if float(np.max(np.abs(p - (a + u * d)))) <= tol:
+            return "fade"
+        # motion.mark_frame blends the two RGBA tiles (straight alpha) and composites the blend over the frame, so
+        # where one glyph is solid and the other hollow at the centre (a dot or square into the CARD ring) the pixel
+        # leaves the straight line from a to b once the ground is not black (the ring on the v12 lockup's paper): it
+        # is the blend composed over the ground, for some mix in the crossfade
+        m0 = float(np.clip(mix, 0.0, 1.0))
+        for m in sorted({m0, *np.linspace(0.0, 1.0, 21)}, key=lambda v: abs(v - m0)):
+            if float(np.max(np.abs(p - _fade_expect(W, H, prev, cls, m, ground)))) <= tol:
+                return "fade"
+        return "fail"
     return "burned" if glyph_shows(arr, cls) else "fail"
 
 
