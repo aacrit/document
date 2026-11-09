@@ -2728,8 +2728,8 @@
           "kind": "archive_video",
           "start_s": 1132.083333,
           "asset": "V-NARA-TAFT-1912",
-          "in_s": 460.832,
-          "out_s": 483.457,
+          "in_s": 460.808,
+          "out_s": 483.433,
           "native_fps": 60,
           "sound": {
             "mode": "mute",
