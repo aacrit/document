@@ -2716,7 +2716,7 @@
           "kind": "archive_still",
           "start_s": 1108.958333,
           "asset": "S-NARA-MULE-1913a",
-          "dur_s": 23.125,
+          "dur_s": 23.149,
           "transition_in": {
             "type": "cut"
           },
@@ -2726,9 +2726,9 @@
         {
           "id": "6.4",
           "kind": "archive_video",
-          "start_s": 1132.083333,
+          "start_s": 1132.107333,
           "asset": "V-NARA-TAFT-1912",
-          "in_s": 460.808,
+          "in_s": 460.832,
           "out_s": 483.433,
           "native_fps": 60,
           "sound": {
@@ -2901,7 +2901,7 @@
         {
           "id": "N6-3",
           "kind": "narration",
-          "start_s": 1135.083333,
+          "start_s": 1135.107333,
           "text": "December, nineteen twelve. President Taft reached Cristobal on the twenty-fourth, aboard the Arkansas.",
           "wav": "audio/narration/N6-3.wav",
           "read_by": "v-narrator",
@@ -4701,14 +4701,14 @@
     },
     {
       "ref": "N6-3",
-      "start_s": 1135.083333,
-      "end_s": 1138.916667,
+      "start_s": 1135.107333,
+      "end_s": 1138.940667,
       "en": "December, nineteen twelve. President Taft\nreached Cristobal on the twenty-fourth,"
     },
     {
       "ref": "N6-3-2",
-      "start_s": 1138.916667,
-      "end_s": 1139.916667,
+      "start_s": 1138.940667,
+      "end_s": 1139.940667,
       "en": "aboard the Arkansas."
     },
     {
