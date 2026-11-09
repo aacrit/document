@@ -167,16 +167,19 @@ def test_d_keeps_its_own_12_gb_floor_whatever_min_free_gb_says(monkeypatch):
 def test_the_cli_reports_a_layers_refusal_as_a_refusal(film_safe, tmp_path):
     """``python -m studio.engine.render`` runs render.py as __main__; layers.py's LayersRefused must still be
     the CLI's Refused: exit 2 and "render: refused" on stderr, never a traceback. The cheapest refusal that
-    comes from layers.py: its scout disk check, before any frame, with the drive made to report just over
-    the render's own floor (12 GB on D:, 10 elsewhere: passes) and under it once the layers are counted (refuses)."""
+    comes from layers.py: its scout disk check, before any frame, with the drive made to report 4 KB over
+    its own floor (12 GB on D:, 10 elsewhere: preflight passes) and under it once the layers are counted."""
     import subprocess
     import sys
     site = tmp_path / "site"
     site.mkdir()
     (site / "sitecustomize.py").write_text(
-        "import collections, shutil\n"
+        "import collections, ntpath, shutil\n"
         "_U = collections.namedtuple('usage', 'total used free')\n"
-        "shutil.disk_usage = lambda p: _U(10 ** 12, 0, 12 * 1024 ** 3 + 4096)\n", encoding="utf-8")
+        "def _du(p):\n"
+        "    floor = 12 if ntpath.splitdrive(str(p))[0].upper() == 'D:' else 10\n"
+        "    return _U(10 ** 12, 0, floor * 1024 ** 3 + 4096)\n"
+        "shutil.disk_usage = _du\n", encoding="utf-8")
     root = Path(__file__).resolve().parents[2]
     caches = {"DOCUMENT_SPANS_CACHE", "DOCUMENT_TAKES_CACHE", "DOCUMENT_BOUNDS_CACHE", "DOCUMENT_VOICE_CACHE"}
     env = {k: v for k, v in os.environ.items() if k not in caches}     # keeps the suite's journal and timings isolation
