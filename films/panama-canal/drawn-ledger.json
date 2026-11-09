@@ -1,0 +1,64 @@
+{
+  "built_at": "2026-11-08",
+  "film": "panama-canal",
+  "_note": "DRAWN maps made by studio.engine.maps; each item copies its credit fields from the engine's maps-render.json record beside the PNG (A56). The PNGs, the record and the spec live on D: (R-08); a copy of each spec is kept in films/panama-canal/drawn/specs for review.",
+  "items": [
+    {
+      "id": "D-ZONE-ROUTE-1914",
+      "file": "D-ZONE-ROUTE-1914.png",
+      "title": "The Canal Zone's boundary lines and the Ancon's passage of 15 August 1914 (drawn map)",
+      "date": null,
+      "generator": "studio.engine.maps from drawn/specs/D-ZONE-ROUTE-1914.json",
+      "synthetic": true,
+      "ai": false,
+      "content_date": "1914-08-15",
+      "content_basis": "the Zone's two boundary lines and the places as the Isthmian Canal Commission's sheet of 1 July 1909 draws them, read against its printed graticule; the line joins the places of the Ancon's passage of 15 August 1914 in their order (Canal Record VII no. 52, p. 521; F42), straight between them, never a course. Coast and land from Natural Earth. The boundary around the cities of Colon and Panama, outside the Zone, is not drawn; the west line is drawn from offshore, as the sheet draws it, to its last milepost at the Pacific shore, the east line to its last milepost (100) north of Panama.",
+      "creator": "void document studio",
+      "archive": "void document studio",
+      "archive_short": "void document studio",
+      "source_short": "ICC map, 1909; Canal Record, 1914",
+      "data_source": "Natural Earth; Isthmian Canal Commission, Map showing Canal Zone, 1 July 1909 (LoC 92685993); The Canal Record VII no. 52 (ICC)",
+      "source_file": "specs/D-ZONE-ROUTE-1914.json",
+      "sha256": "74e2f4008ebded7495f876eba6ee83f9ad7d80468649793e168ecb0b3225b8cc",
+      "image_sha256": "afd3158cf511614bff8912b57a3403efa4c90d384238e5d827c14f0d0a5c129d",
+      "basis": "studio-made map from public-domain data: Natural Earth and two US government works of 1909 and 1914",
+      "drawn_precision_m": 400,
+      "precision_basis": "the sheet's graticule fit: rms 72 m, max 364 m over 77 printed intersections; points read on a 25% copy",
+      "facts": [
+        "F42"
+      ],
+      "people": [],
+      "shows_bodies": false,
+      "shows_violence": false,
+      "graphic_medical": false,
+      "named_patient": false,
+      "minor": false,
+      "licence": "CC0",
+      "licence_note": "Natural Earth public domain",
+      "source_line": "Data: Natural Earth; Isthmian Canal Commission, Map showing Canal Zone, 1 July 1909 (LoC 92685993); The Canal Record VII no. 52 (ICC)",
+      "credit": "void document studio, drawn from Natural Earth; Isthmian Canal Commission, Map showing Canal Zone, 1 July 1909 (LoC 92685993); The Canal Record VII no. 52 (ICC)",
+      "data_sources": [
+        {
+          "id": "Natural Earth",
+          "licence": "public domain",
+          "url": "https://www.naturalearthdata.com/",
+          "used_for": "land and coasts (1:10m) only; no border, lake or later place of Natural Earth is drawn"
+        },
+        {
+          "id": "Isthmian Canal Commission, Map showing Canal Zone, 1 July 1909 (LoC 92685993)",
+          "licence": "public domain",
+          "url": "https://www.loc.gov/item/92685993/",
+          "used_for": "the Canal Zone's two boundary lines and the positions of Cristobal, Gatun, Gamboa, Cucaracha, Pedro Miguel, Miraflores and the channel's end, read off the sheet against its own printed graticule (77 intersections, affine fit, rms 72 m, max 364 m); the sheet is a US government work of 1909",
+          "file": "D:/document-media/panama-canal/sources/LOC-92685993.jp2",
+          "sha256": "a6fb439fdad7654cf86a624fdc5711b9c1607542de220e7d48ad9b3f21058e42"
+        },
+        {
+          "id": "The Canal Record VII no. 52 (ICC)",
+          "licence": "public domain",
+          "url": "https://archive.org/details/canalrecord7152isth",
+          "used_for": "the Ancon's passage of 15 August 1914 and the order of its places (F42), p. 521; a US government publication"
+        }
+      ]
+    }
+  ]
+}

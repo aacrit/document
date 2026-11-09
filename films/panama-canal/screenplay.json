@@ -26,6 +26,10 @@
     "pages": {
       "path": "pages-ledger.json",
       "media": "D:/document-media/panama-canal/pages"
+    },
+    "drawn": {
+      "path": "drawn-ledger.json",
+      "media": "D:/document-media/panama-canal/drawn"
     }
   },
   "facts_ledger": "facts-ledger.json",
@@ -3095,14 +3099,13 @@
           "id": "C12",
           "kind": "drawn",
           "start_s": 1420.303,
-          "asset": "TBL-ZONE-MAP-1909",
+          "asset": "D-ZONE-ROUTE-1914",
           "dur_s": 16.697,
-          "placeholder": true,
           "transition_in": {
             "type": "cut"
           },
           "mark": "DRAWN",
-          "why": "PLACEHOLDER table close: the ICC map of the Canal Zone, 1909 (LoC 92685993), on the v12 table with the Ancon's timetable traced in pencil; the title builder renders it. The one question, asked from inside 1914 (A0), then about eight seconds of room with no voice."
+          "why": "The Canal Zone's boundary lines and the places of the Ancon's passage of 15 August 1914, drawn by the house maps engine from the Isthmian Canal Commission's own sheet of 1909 (founder ruling: a DRAWN map). The one question, asked from inside 1914 (A0), then about eight seconds of room with no voice."
         }
       ],
       "lines": [
