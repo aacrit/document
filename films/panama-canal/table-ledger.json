@@ -21,7 +21,7 @@
       "data_source": "Library of Congress 2011590001, 'Panoramic view of the canal of Panama' (Muret relief panorama, 1881?)",
       "source_short": "Muret panorama, 1881",
       "licence": "public domain",
-      "basis": "the scan is public domain (its own record states it); the table render is the studio's own",
+      "basis": "the scan: Muret relief panorama, printed [1881?], public domain by date (LoC 2011590001: no known restrictions); the table render is the studio's own",
       "seen": "PLACEHOLDER: the v12 table with Library of Congress 2011590001, 'Panoramic view of the canal of Panama' (Muret relief panorama, 1881?) on it.",
       "people": [],
       "shows_bodies": false,
@@ -32,7 +32,8 @@
       "standin": {
         "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the title builder's v12 table render (a still; the engine's drawn shot reads a picture, not a clip) replaces it with the real picture under the same name",
         "sha256": "fa8a06a32ef3bec11d1008c843a08b433f65a62b9236801551e0bae42bd68439"
-      }
+      },
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     {
       "id": "TBL-FRUS-1903-TELEGRAMS",
@@ -85,7 +86,7 @@
       "data_source": "Internet Archive canalrecord1152isth, The Canal Record I no. 1, 4 September 1907, p. 1",
       "source_short": "Canal Record, 1907",
       "licence": "public domain",
-      "basis": "the scan is public domain (its own record states it); the table render is the studio's own",
+      "basis": "the scan: The Canal Record I no. 1 (ICC, 1907), a US government work (IA canalrecord1152isth); the table render is the studio's own",
       "seen": "PLACEHOLDER: the v12 table with Internet Archive canalrecord1152isth, The Canal Record I no. 1, 4 September 1907, p. 1 on it.",
       "people": [],
       "shows_bodies": false,
@@ -96,7 +97,8 @@
       "standin": {
         "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the title builder's v12 table render (a still; the engine's drawn shot reads a picture, not a clip) replaces it with the real picture under the same name",
         "sha256": "7a53763adf2f90cd54160af5ed442c3fcb0c7e85e5a28476034d3ff2d49ba983"
-      }
+      },
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     {
       "id": "TBL-ICC-SURVEYS-1908",
@@ -117,7 +119,7 @@
       "data_source": "Library of Congress 2023593530, Isthmian Canal Commission, 'Surveys of the Panama Canal' (hand coloured), [1908]",
       "source_short": "ICC surveys, 1908",
       "licence": "public domain",
-      "basis": "the scan is public domain (its own record states it); the table render is the studio's own",
+      "basis": "the scan: an Isthmian Canal Commission map of 1908, a US government work (LoC 2023593530); the table render is the studio's own",
       "seen": "PLACEHOLDER: the v12 table with Library of Congress 2023593530, Isthmian Canal Commission, 'Surveys of the Panama Canal' (hand coloured), [1908] on it.",
       "people": [],
       "shows_bodies": false,
@@ -128,7 +130,8 @@
       "standin": {
         "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the title builder's v12 table render (a still; the engine's drawn shot reads a picture, not a clip) replaces it with the real picture under the same name",
         "sha256": "d2f6ff0d5837aa6c9ee0a1d8d8dd58b59dd32161c2116b449a1cae5f028d37ef"
-      }
+      },
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     {
       "id": "TBL-ZONE-MAP-1909",
@@ -149,7 +152,7 @@
       "data_source": "Library of Congress 92685993, Isthmian Canal Commission map of the Canal Zone, 1909; the pencil line follows the Ancon's timetable of 15 August 1914 (F42)",
       "source_short": "Canal Zone map, 1909",
       "licence": "public domain",
-      "basis": "the scan is public domain (its own record states it); the table render is the studio's own",
+      "basis": "the scan: an Isthmian Canal Commission map of 1909, a US government work (LoC 92685993); the table render is the studio's own",
       "seen": "PLACEHOLDER: the v12 table with Library of Congress 92685993, Isthmian Canal Commission map of the Canal Zone, 1909; the pencil line follows the Ancon's timetable of 15 August 1914 (F42) on it.",
       "people": [],
       "shows_bodies": false,
@@ -160,7 +163,8 @@
       "standin": {
         "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the title builder's v12 table render (a still; the engine's drawn shot reads a picture, not a clip) replaces it with the real picture under the same name",
         "sha256": "8741222af7040d4722953873f4f4ee931f473949f0bb4284518bc2098f110755"
-      }
+      },
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     }
   ]
 }

@@ -12,7 +12,7 @@
       "archive_short": "Internet Archive",
       "item_url": "https://archive.org/details/Panamaby1914",
       "licence": "public domain",
-      "basis": "Internet Archive public domain mark; released 1914",
+      "basis": "released 1914 by the Duhem and Harter Motion Picture Co. (US): published before 1931, public domain by date; Internet Archive public domain mark",
       "licence_evidence": "https://archive.org/details/Panamaby1914 (PD mark)",
       "credit": "Internet Archive, Panamaby1914",
       "date_basis": "flights of 25 and 27 April 1913, Canal Record VI no. 36, pp. 297-298 (F63); released 1914: read every intertitle for post-August wording before use",
@@ -46,7 +46,8 @@
       "intertitles": "read on viewing: 'Panama Canal Part 4'; '2,500 ft. over Culebra Cut'; 'The towns of Culebra and Empire'; 'Camp Elliott on Gold Hill, the highest point in Culebra Cut'; 'The Panama Railway to the left'; Chagres, Matachin, Gatun Lake, dam, spillway, guide wall, the Atlantic channel, Limon Bay, 'We landed safe and sound in the Atlantic', 'Landing on Limon Bay at Colon'. None postdates the horizon; none is shown (the spans lie between them)",
       "graphic_medical": false,
       "named_patient": false,
-      "content_flags_basis": "the whole reel viewed on contact sheets on 8 Nov 2026: no medical picture, no named patient (children appear in the 1906 street crowds, unnamed), no bodies or violence"
+      "content_flags_basis": "the whole reel viewed on contact sheets on 8 Nov 2026: no medical picture, no named patient (children appear in the 1906 street crowds, unnamed), no bodies or violence",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     {
       "id": "V-LOC-TR-ARRIVAL",
@@ -59,7 +60,7 @@
       "item_url": "https://www.loc.gov/item/mp76000087/",
       "media_url": "https://tile.loc.gov/storage-services/service/mbrs/ntscrm/01203929/01203929.mov",
       "licence": "public domain",
-      "basis": "Library of Congress: not aware of any U.S. copyright or other restrictions; free to use and reuse",
+      "basis": "a US topical of 15 November 1906, no registration (LoC); published, public domain by date; even if unpublished, 120 years from creation end on 31 December 2026; LoC: not aware of any U.S. copyright",
       "licence_evidence": "https://www.loc.gov/item/mp76000087/ (Rights Advisory)",
       "credit": "Library of Congress, mp76000087",
       "fps": 12,
@@ -89,7 +90,8 @@
       "damage": "a run of flicker and damaged frames, 82.38 to 89.29 s (scdet reads 30 cuts): never shown",
       "graphic_medical": false,
       "named_patient": false,
-      "content_flags_basis": "the whole reel viewed on contact sheets on 8 Nov 2026: no medical picture, no named patient (children appear in the 1906 street crowds, unnamed), no bodies or violence"
+      "content_flags_basis": "the whole reel viewed on contact sheets on 8 Nov 2026: no medical picture, no named patient (children appear in the 1906 street crowds, unnamed), no bodies or violence",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     {
       "id": "V-LOC-TR-SPEAKING",
@@ -102,7 +104,7 @@
       "item_url": "https://www.loc.gov/item/mp76000225/",
       "media_url": "https://tile.loc.gov/storage-services/service/mbrs/ntscrm/00013087/00013087.mov",
       "licence": "public domain",
-      "basis": "Library of Congress: not aware of any U.S. copyright or other restrictions; free to use and reuse",
+      "basis": "a US topical of 15 November 1906, 'Copyright: no reg.' (LoC); published, public domain by date; even if unpublished, 120 years from creation end on 31 December 2026",
       "licence_evidence": "https://www.loc.gov/item/mp76000225/ (Rights Advisory)",
       "credit": "Library of Congress, mp76000225",
       "fps": 14,
@@ -131,7 +133,8 @@
       "head_titles": "the Library of Congress's own preservation logo and title card, 0 to 14.33 s, which reads 'TR Speaking in Panama, November 1916' (an error of the card's: the catalogue dates the film 1906 and the stand is the one in mp76000087): never shown",
       "graphic_medical": false,
       "named_patient": false,
-      "content_flags_basis": "the whole reel viewed on contact sheets on 8 Nov 2026: no medical picture, no named patient (children appear in the 1906 street crowds, unnamed), no bodies or violence"
+      "content_flags_basis": "the whole reel viewed on contact sheets on 8 Nov 2026: no medical picture, no named patient (children appear in the 1906 street crowds, unnamed), no bodies or violence",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     {
       "id": "V-LOC-GORGAS",
@@ -144,7 +147,7 @@
       "item_url": "https://www.loc.gov/item/mp76000276/",
       "media_url": "https://tile.loc.gov/storage-services/service/mbrs/ntscrm/00012966/00012966.mov",
       "licence": "public domain",
-      "basis": "Library of Congress: not aware of any U.S. copyright or other restrictions; free to use and reuse",
+      "basis": "a US film made between 1904 and 1913, in distribution by Apollo Pictures (1916-17) per LoC; published before 1931, public domain by date; LoC: not aware of any U.S. copyright",
       "licence_evidence": "https://www.loc.gov/item/mp76000276/ (Rights Advisory)",
       "credit": "Library of Congress, mp76000276",
       "date_basis": "LoC: [between 1904 and 1913]; the engine's label reads the first year; a reviewer item",
@@ -174,21 +177,22 @@
       "head_titles": "the Library of Congress's own preservation logo and title card '(190?)', 0 to 13.04 s: never shown",
       "graphic_medical": false,
       "named_patient": false,
-      "content_flags_basis": "the whole reel viewed on contact sheets on 8 Nov 2026: no medical picture, no named patient (children appear in the 1906 street crowds, unnamed), no bodies or violence"
+      "content_flags_basis": "the whole reel viewed on contact sheets on 8 Nov 2026: no medical picture, no named patient (children appear in the 1906 street crowds, unnamed), no bodies or violence",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     {
       "id": "V-NARA-TAFT-1912",
       "file": "nara-111-m-331.mp4",
       "title": "President Taft's inspection of the Panama Canal (Signal Corps 111-M-331)",
       "date": "1912-12",
-      "creator": "United States Army Signal Corps",
+      "creator": "Feature Film Manufacturing Co., Washington, D.C. (camera: L. J. Simons), as the reel's intertitles and Moving Picture News state; held by the Signal Corps (RG 111)",
       "archive": "National Archives, Record Group 111 (Signal Corps)",
       "archive_short": "National Archives",
       "item_url": "https://catalog.archives.gov/id/35576",
       "media_url": "https://catalog.archives.gov/medialz/mopix/111/m/01/111-m-331.mp4",
       "licence": "public domain",
-      "basis": "a United States government work on the founder default of 8 Nov 2026; NARA 'Use Restriction: Undetermined' (read 8 Nov 2026). Viewed: the reel's own intertitles credit 'Feature Film M'f'g Co., Washington, D.C.', a private maker, so the Signal Corps premise needs the founder's ruling",
-      "licence_evidence": "https://catalog.archives.gov/id/35576 (Use Restriction: Undetermined); 17 USC 105",
+      "basis": "a US work published in January 1913: offered to exhibitors by the Feature Film Manufacturing Co. of Washington, D.C., 'ready for the market by January 6' (Moving Picture News VII no. 1, 4 January 1913); no registration in the Catalog of Copyright Entries, Motion Pictures 1912-1939; every US work published before 1931 is public domain. Not a government work: NARA holds it (Use Restriction: Undetermined)",
+      "licence_evidence": "https://archive.org/details/movingpicturenew07unse (4 Jan 1913, 'Washington, D. C.'); https://archive.org/details/motionpict19121939librrich (no entry); https://catalog.archives.gov/id/35576 (Use Restriction: Undetermined)",
       "credit": "National Archives, 111-M-331 (NAID 35576)",
       "date_basis": "the catalogue's 1910 is impossible (the Arkansas was commissioned in September 1912); the Canal Record has Taft reach Cristobal on the Arkansas on 24 December 1912 and sail on the 26th (F64); viewed: Key West, the Arkansas, Culebra Cut, a slide, Miraflores and Pedro Miguel locks, Gatun Lake, the spillway, 'native life'; nothing seen postdates the horizon",
       "fps": "about 60 (transfer)",
@@ -209,7 +213,7 @@
       "dar_file": "15:11",
       "file_fps": "60/1",
       "source_format": "MP4 as delivered (the largest file the source offers)",
-      "rights_checked": "2026-11-08: NARA catalog Use Restriction(s): Undetermined (Access: Unrestricted) (holds only on the founder default of 8 Nov 2026 (a Signal Corps production, a US government work); NARA itself says Undetermined)",
+      "rights_checked": "2026-11-08: NARA Use Restriction Undetermined (series 35442: Restricted - Possibly, copyright); published Jan 1913 per Moving Picture News; CCE MP 1912-1939 no entry",
       "catalogue_title": "(PRES. TAFT INSPECTS PANAMA CANAL CONSTRUCTION.)",
       "file_audio_streams": [
         "aac"
@@ -222,7 +226,8 @@
       "intertitles": "'Reception at Mayor's House at Key West'; 'The President leaving Key West for the battleship Arkansas'; 'The President boarding the battleship \"Arkansas\" in Key West harbor'; 'Going into Culabra Cut'; 'Culebra Cut, showing steam-shovel handling a twelve-ton rock'; 'Ride through Culebra Cut on bottom of canal'; 'Slide in Culebra Cut'; 'Inspecting Milaflores lock, lock gates in operation'; 'Lake Gatun'; 'Pedro Miguel Locks'; 'Spillway of Gatun Dam in action'; 'Native life'; each signed Feature Film M'f'g Co., Washington, D.C.; the file ends on 'END OF RECORDING'",
       "graphic_medical": false,
       "named_patient": false,
-      "content_flags_basis": "the whole reel viewed on contact sheets on 8 Nov 2026: no medical picture, no named patient (children appear in the 1906 street crowds, unnamed), no bodies or violence"
+      "content_flags_basis": "the whole reel viewed on contact sheets on 8 Nov 2026: no medical picture, no named patient (children appear in the 1906 street crowds, unnamed), no bodies or violence",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     }
   ],
   "excluded": [

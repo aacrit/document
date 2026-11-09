@@ -14,7 +14,7 @@
       "item_url": "https://catalog.archives.gov/id/100996090",
       "local_identifier": "185-G-756",
       "licence": "public domain",
-      "basis": "US government work; NARA catalog: Use Restriction(s): Unrestricted",
+      "basis": "a French-period photograph of 1888 held by the ICC (RG 185): not a US government work; created more than 120 years ago, public domain whether or not published; NARA: Use Restriction(s): Unrestricted",
       "licence_evidence": "https://catalog.archives.gov/id/100996090 (Use Restriction(s): Unrestricted, read 2026-11-08)",
       "credit": "National Archives, 185-G-756 (NAID 100996090)",
       "seen": "The French cut at Bas Obispo in 1888, looking north.",
@@ -32,7 +32,8 @@
       "source_format": "JPEG as delivered (L), no conversion or resampling",
       "rights_checked": "2026-11-08: NARA catalog Use Restriction(s): Unrestricted",
       "naid": 100996090,
-      "catalogue_title": "Culebra Cut Bas Obispo Looking north 1888"
+      "catalogue_title": "Culebra Cut Bas Obispo Looking north 1888",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     {
       "id": "S-NARA-FR-CANAL-TABERNILLA",
@@ -79,7 +80,7 @@
       "item_url": "https://catalog.archives.gov/id/100998944",
       "local_identifier": "185-G-2189",
       "licence": "public domain",
-      "basis": "US government work; NARA catalog: Use Restriction(s): Unrestricted",
+      "basis": "a woodcut of 1885: published before 1931 and created more than 120 years ago; not a US government work; NARA: Unrestricted",
       "licence_evidence": "https://catalog.archives.gov/id/100998944 (Use Restriction(s): Unrestricted, read 2026-11-08)",
       "credit": "National Archives, 185-G-2189 (NAID 100998944)",
       "seen": "A woodcut of the French company's village at Aspinwall (Colon) in 1885.",
@@ -97,7 +98,8 @@
       "source_format": "JPEG as delivered (L), no conversion or resampling",
       "rights_checked": "2026-11-08: NARA catalog Use Restriction(s): Unrestricted",
       "naid": 100998944,
-      "catalogue_title": "Woodcut: French Village at Aspinwall in 1885"
+      "catalogue_title": "Woodcut: French Village at Aspinwall in 1885",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     {
       "id": "S-NARA-FR-LADDERDREDGE",
@@ -141,7 +143,7 @@
       "item_url": "https://catalog.archives.gov/id/100998592",
       "local_identifier": "185-G-2012",
       "licence": "public domain",
-      "basis": "US government work; NARA catalog: Use Restriction(s): Unrestricted",
+      "basis": "a French-period photograph (before May 1904) held by the ICC: not a US government work; created more than 120 years ago, public domain whether or not published; NARA: Unrestricted",
       "licence_evidence": "https://catalog.archives.gov/id/100998592 (Use Restriction(s): Unrestricted, read 2026-11-08)",
       "credit": "National Archives, 185-G-2012 (NAID 100998592)",
       "seen": "Gatun railroad station as it stood in the French period.",
@@ -161,7 +163,8 @@
       "source_format": "JPEG as delivered (L), no conversion or resampling",
       "rights_checked": "2026-11-08: NARA catalog Use Restriction(s): Unrestricted",
       "naid": 100998592,
-      "catalogue_title": "Gatun Railroad Station, During French Period"
+      "catalogue_title": "Gatun Railroad Station, During French Period",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     {
       "id": "S-NARA-FR-DUMPCARS-1904",
@@ -204,7 +207,7 @@
       "archive_short": "Library of Congress",
       "item_url": "https://www.loc.gov/item/83694740/",
       "licence": "public domain",
-      "basis": "Library of Congress: no known restrictions on publication; free to use and reuse",
+      "basis": "an unpublished drawing of 1890 by the Compagnie universelle: created more than 120 years ago, public domain; LoC: free to use and reuse",
       "licence_evidence": "https://www.loc.gov/item/83694740/ (Rights Advisory)",
       "credit": "Library of Congress, 83694740",
       "seen": "The French company's geological section and lock-canal profile, kilometres 54.2 to 55.34, 1890.",
@@ -223,7 +226,8 @@
       "source_format": "TIFF as delivered (RGB), no conversion or resampling",
       "rights_checked": "2026-11-08: LoC Rights Advisory: (none stated) | rights: The content of the Library of Congress Geography and Map Division digitized collections is free to use and reuse unless a Rights Advisory statement is present that indicates otherwise.\nCredit Line: Library of Congress, Geography and Map Division.\nMore about Copyright and other Restrictions.\nFor guidance about compiling full citations consult Citing Primary Sources.\n",
       "catalogue_title": "Coupe geologique suivant le profil en long du canal à ecluses du kil. 54.200 au kil. 55.340, echelles de 1/1000 pour les longueurs [et] 1/500 pour les hauteurs : [Panama Canal] ; Profils en travers geologiques, nos. 54.300, 550, 800 et 55.044, 050, 135, 220, echelles de 1/1000 pour les longueurs [et] 1/500 pour les hauteurs",
-      "annotations": "the record notes 'Annotated in pencil for English translation' and a Canal Zone Library checklist number (175): later hands of unknown date on the sheet, a reviewer item under A0"
+      "annotations": "the record notes 'Annotated in pencil for English translation' and a Canal Zone Library checklist number (175): later hands of unknown date on the sheet, a reviewer item under A0",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     {
       "id": "S-LOC-NY-TRIBUNE-1889-02-10",
@@ -235,7 +239,7 @@
       "archive_short": "Library of Congress",
       "item_url": "https://chroniclingamerica.loc.gov/lccn/sn83030214/1889-02-10/ed-1/seq-1/",
       "licence": "public domain",
-      "basis": "Library of Congress: no known restrictions on publication; free to use and reuse",
+      "basis": "newspaper published 10 February 1889: public domain in the US by date",
       "licence_evidence": "Chronicling America: published before 1929, public domain",
       "credit": "Library of Congress, Chronicling America, sn83030214",
       "seen": "The front page of the New-York Tribune of 10 February 1889, with Lesseps's circular letter cabled from Paris.",
@@ -265,7 +269,8 @@
       "media_url": "https://tile.loc.gov/storage-services/service/ndnp/dlc/batch_dlc_dodge_ver02/data/sn83030214/00175038292/1889021001/0441.jp2",
       "source_format": "JPEG 2000 as delivered (L), no conversion or resampling",
       "rights_checked": "2026-11-08: Chronicling America (LoC):  | <p>The Library of Congress believes that the newspapers in Chronicling America are in the public domain or have no known copyright restrictions.  Newspapers published in the United States more than 95 years ago are in the public domain in their entirety. Any newspapers in Chronicling America that were published less than 95 years ago are also believed to be in the public domain, but may contain so (published 10 Feb 1889; public domain in the US by date; LoC states no restriction)",
-      "catalogue_title": "New-York tribune (New York [N.Y.]), February 10, 1889"
+      "catalogue_title": "New-York tribune (New York [N.Y.]), February 10, 1889",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     {
       "id": "S-LOC-FRENCH-DWELLINGS-COLON-1903",
@@ -277,7 +282,7 @@
       "archive_short": "Library of Congress",
       "item_url": "https://www.loc.gov/item/2021639798/",
       "licence": "public domain",
-      "basis": "Library of Congress: no known restrictions on publication; free to use and reuse",
+      "basis": "stereograph published 1903 (copyright 1903, B. L. Singley; Keystone View Co.): published before 1931, public domain; LoC: no known restrictions on publication",
       "licence_evidence": "https://www.loc.gov/item/2021639798/ (Rights Advisory)",
       "credit": "Library of Congress, 2021639798",
       "seen": "Dwellings built for the old French company's employees at Colon, 1903.",
@@ -335,7 +340,8 @@
       "class": "place",
       "framing_note": "a stereograph card: two views side by side on a printed mount. Shown as the card (the engine's camera); one view alone needs z 2.4 on the card, over the A54 face cap of 1.3, so a single-view framing waits on a ruling (a declared crop of the left view, or engine support)",
       "mount": "stereograph card (two views on a printed mount)",
-      "people_basis": "located by eye in the card's left view on 8 Nov 2026 (no one is named by the caption); the A45 vision pass may refine them"
+      "people_basis": "located by eye in the card's left view on 8 Nov 2026 (no one is named by the caption); the A45 vision pass may refine them",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     {
       "id": "S-LOC-WOMEN-SPRING-1904",
@@ -347,7 +353,7 @@
       "archive_short": "Library of Congress",
       "item_url": "https://www.loc.gov/item/2021640093/",
       "licence": "public domain",
-      "basis": "Library of Congress: no known restrictions on publication; free to use and reuse",
+      "basis": "stereograph published 1904 (Underwood & Underwood, copyright 1904): published before 1931, public domain; LoC: no known restrictions on publication",
       "licence_evidence": "https://www.loc.gov/item/2021640093/ (Rights Advisory)",
       "credit": "Library of Congress, 2021640093",
       "seen": "Women washing clothes at a spring near Panama City, 1904.",
@@ -423,7 +429,8 @@
       "class": "crowd",
       "framing_note": "a stereograph card: two views side by side on a printed mount. Shown as the card (the engine's camera); one view alone needs z 2.4 on the card, over the A54 face cap of 1.3, so a single-view framing waits on a ruling (a declared crop of the left view, or engine support)",
       "mount": "stereograph card (two views on a printed mount)",
-      "people_basis": "located by eye in the card's left view on 8 Nov 2026 (no one is named by the caption); the A45 vision pass may refine them"
+      "people_basis": "located by eye in the card's left view on 8 Nov 2026 (no one is named by the caption); the A45 vision pass may refine them",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     {
       "id": "S-LOC-BAIN-ANCON-GATUN-1914",
@@ -435,7 +442,7 @@
       "archive_short": "Library of Congress",
       "item_url": "https://www.loc.gov/item/2014697346/",
       "licence": "public domain",
-      "basis": "Library of Congress: no known restrictions on publication; free to use and reuse",
+      "basis": "Bain News Service photograph of 15 August 1914, distributed to the press: published before 1931, public domain; LoC: no known restrictions on publication (Bain Collection rights statement)",
       "licence_evidence": "https://www.loc.gov/item/2014697346/ (Rights Advisory)",
       "credit": "Library of Congress, Bain News Service, 2014697346",
       "seen": "The steamer Ancon in the Gatun locks on the day of the official opening transit.",
@@ -452,7 +459,8 @@
       "media_url": "https://tile.loc.gov/storage-services/master/pnp/ggbain/17000/17084u.tif",
       "source_format": "TIFF as delivered (L), no conversion or resampling",
       "rights_checked": "2026-11-08: LoC Rights Advisory: No known restrictions on publication. For more information, see George Grantham Bain Collection - Rights and Restrictions Information https://www.loc.gov/rr/print/res/274_bain.html",
-      "catalogue_title": "\"ANCON\" in Gatun locks"
+      "catalogue_title": "\"ANCON\" in Gatun locks",
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     {
       "id": "S-IA-LESSEPS-1887-TITLE",

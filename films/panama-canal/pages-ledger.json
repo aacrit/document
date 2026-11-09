@@ -21,7 +21,7 @@
       "data_source": "FRUS 1903, document 273, p. 244",
       "source_short": "FRUS 1903",
       "licence": "CC0",
-      "basis": "the text is a United States government publication (17 USC 105); the typesetting is the studio's own, CC0",
+      "basis": "the text as printed in FRUS 1903 (published 1904): public domain by date, the State Department's translation a US government work; the typesetting is the studio's own, CC0",
       "seen": "PLACEHOLDER: the typeset page of FRUS 1903, document 273, p. 244.",
       "people": [],
       "shows_bodies": false,
@@ -32,7 +32,8 @@
       "standin": {
         "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the drawn-pages unit's typeset page replaces it with the real picture under the same name",
         "sha256": "f14c91df70b12d3d580bf83ad0c6872d793c1674e44b3308adc811646325b392"
-      }
+      },
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     {
       "id": "D-PAGE-FRUS-1903-D320A",
@@ -53,7 +54,7 @@
       "data_source": "FRUS 1903, document 320, p. 284",
       "source_short": "FRUS 1903",
       "licence": "CC0",
-      "basis": "the text is a United States government publication (17 USC 105); the typesetting is the studio's own, CC0",
+      "basis": "the text as printed in FRUS 1903 (published 1904): public domain by date, the State Department's translation a US government work; the typesetting is the studio's own, CC0",
       "seen": "PLACEHOLDER: the typeset page of FRUS 1903, document 320, p. 284.",
       "people": [],
       "shows_bodies": false,
@@ -64,7 +65,8 @@
       "standin": {
         "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the drawn-pages unit's typeset page replaces it with the real picture under the same name",
         "sha256": "fd7b1f7978d8c8307fc8446d413cfd6be610d5e1c330bdcd422943bd50f9792f"
-      }
+      },
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     {
       "id": "D-PAGE-FRUS-1903-D320B",
@@ -85,7 +87,7 @@
       "data_source": "FRUS 1903, document 320, p. 291",
       "source_short": "FRUS 1903",
       "licence": "CC0",
-      "basis": "the text is a United States government publication (17 USC 105); the typesetting is the studio's own, CC0",
+      "basis": "the text as printed in FRUS 1903 (published 1904): public domain by date, the State Department's translation a US government work; the typesetting is the studio's own, CC0",
       "seen": "PLACEHOLDER: the typeset page of FRUS 1903, document 320, p. 291.",
       "people": [],
       "shows_bodies": false,
@@ -96,7 +98,8 @@
       "standin": {
         "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the drawn-pages unit's typeset page replaces it with the real picture under the same name",
         "sha256": "09c6510c4044c86001e31f4f99f1c73abc4413c4d19801f4a976f4710c80902a"
-      }
+      },
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     {
       "id": "D-PAGE-FRUS-1903-PXXXVI",
@@ -128,7 +131,8 @@
       "standin": {
         "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the drawn-pages unit's typeset page replaces it with the real picture under the same name",
         "sha256": "a54ce28aac5fd53005e1f477f30f4857f49c2a69ef3353b9d35cfa1b9a8a6087"
-      }
+      },
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md): a government work outright (Roosevelt's message); unchanged"
     },
     {
       "id": "D-PAGE-FRUS-1903-D328",
@@ -149,7 +153,7 @@
       "data_source": "FRUS 1903, document 328, p. 320",
       "source_short": "FRUS 1903",
       "licence": "CC0",
-      "basis": "the text is a United States government publication (17 USC 105); the typesetting is the studio's own, CC0",
+      "basis": "the text as printed in FRUS 1903 (published 1904): public domain by date, the State Department's translation a US government work; the typesetting is the studio's own, CC0",
       "seen": "PLACEHOLDER: the typeset page of FRUS 1903, document 328, p. 320.",
       "people": [],
       "shows_bodies": false,
@@ -160,7 +164,8 @@
       "standin": {
         "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the drawn-pages unit's typeset page replaces it with the real picture under the same name",
         "sha256": "fffa3c97c15b7eadc49878f78904704c80d28b7f0cd5d1f4e3a45ec6e0d651e2"
-      }
+      },
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     {
       "id": "D-PAGE-FRUS-1904-D565",
@@ -181,7 +186,7 @@
       "data_source": "FRUS 1904, document 565, p. 600",
       "source_short": "FRUS 1904",
       "licence": "CC0",
-      "basis": "the text is a United States government publication (17 USC 105); the typesetting is the studio's own, CC0",
+      "basis": "the text as printed in FRUS 1904 (published 1905): public domain by date, the State Department's translation a US government work; the typesetting is the studio's own, CC0",
       "seen": "PLACEHOLDER: the typeset page of FRUS 1904, document 565, p. 600.",
       "people": [],
       "shows_bodies": false,
@@ -192,7 +197,8 @@
       "standin": {
         "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the drawn-pages unit's typeset page replaces it with the real picture under the same name",
         "sha256": "26ad21fd9f38c5aed270e3734d7c90287fe5ddf2873a18f3ddd4ae027e100e8a"
-      }
+      },
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
     },
     {
       "id": "D-PAGE-TR-1906-P10",
