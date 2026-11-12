@@ -28,7 +28,7 @@ import re
 
 from studio.engine import motion as M
 
-RULEBOOK_VERSION = "10"    # 2: a bare title is one name; 3: a run is a place by its first or last word only;
+RULEBOOK_VERSION = "11"    # 2: a bare title is one name; 3: a run is a place by its first or last word only;
                            # 4: a VL place or object region named by a cue or the caption is the subject
                            # 5: people words that are only names count one person per name
                            # 6: a cue and a VL label match through SYNONYMS (plume and smoke, A47)
@@ -43,6 +43,9 @@ RULEBOOK_VERSION = "10"    # 2: a bare title is one name; 3: a run is a place by
                            #    caption naming two things prefers the event after "and the"/"with the" (smoke, a
                            #    plume, fire); a monument the caption places the photographer at is the vantage,
                            #    never the subject
+                           # 11 (A53): every emitted box (a located person, its face, and each ``roi`` entry) is
+                           #    clamped to the picture [0, 1] before it reaches the sidecar, so a measurement or a
+                           #    union of boxes landing a hair past the edge never fails the cine-schema check
 CLASSES = ("person", "crowd", "place", "document", "map", "painting", "object")
 RECORDS = ("document", "map", "painting", "object")       # composed centred: the picture is a record
 FLOOR = M.CINE["auto_confidence_floor"]                   # a box under it is not a subject (A43)
@@ -547,6 +550,38 @@ _VANTAGE = re.compile(r"(?<![\w-])(?:(?:seen|viewed|photographed|taken|shot) fro
 _VANTAGE_END = {"and", "with", "over", "toward", "towards", "as", "while", "after", "before", "in", "on", "into",
                 "across", "to", "under", "behind", "during"}
 BOXK = ("x", "y", "w", "h")
+
+
+def clamp_box(b: dict) -> dict:
+    """A {x, y, w, h} box (picture fractions) pulled back onto the picture:
+    x and y land in [0, 1], then w and h are capped so x + w and y + h never
+    pass 1. A box already inside the picture comes back unchanged (``b``
+    itself), so this never perturbs an in-range box; one a measurement
+    pushed a hair past the edge (A52/A53) is clamped, deterministically."""
+    x, y = max(0.0, min(1.0, b["x"])), max(0.0, min(1.0, b["y"]))
+    w, h = max(0.0, min(b["w"], 1.0 - x)), max(0.0, min(b["h"], 1.0 - y))
+    if x == b["x"] and y == b["y"] and w == b["w"] and h == b["h"]:
+        return b
+    return {**b, "x": round(x, 4), "y": round(y, 4), "w": round(w, 4), "h": round(h, 4)}
+
+
+def _clamp_boxes(entries) -> None:
+    """Clamp every box on a rulebook-emitted list in place: each entry's own
+    {x, y, w, h} and, on a person, the {x, y, w, h} face found inside it."""
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        if all(k in e for k in BOXK):
+            cb = clamp_box(e)
+            if cb is not e:
+                e["x"], e["y"], e["w"], e["h"] = cb["x"], cb["y"], cb["w"], cb["h"]
+        face = e.get("face")
+        if isinstance(face, dict) and all(k in face for k in BOXK):
+            cb = clamp_box(face)
+            if cb is not face:
+                e["face"] = cb
+
+
 # A quote is VISIBLE LETTERING (review, 2026-10-18) only when the item's own words say so: one of these right before it
 # ("a sign reading", "the words"), "on the <thing>" right after it, or the item's ``seen`` (what the editor saw in the
 # picture) naming lettering. Quoted speech is never written in the picture (A0): a speech word round the quote
@@ -907,6 +942,10 @@ def fields(item: dict, meas: dict | None, model: str, vl: dict | None = None, cu
                                           "source": "auto", "confidence": VL_CONFIDENCE,
                                           "model": vl_model or model, "must_show": True})
     out["compose"] = "golden" if cls in ("person", "crowd", "place") else f"centred:{cls}"
+    # A53: clamp every emitted box to the picture before it ever reaches the sidecar or the cine-schema check
+    # (a measurer, or a union of its boxes, can land a hair past the edge; never a hand-drawn box, founder ruling 2)
+    _clamp_boxes(out.get("people") or [])
+    _clamp_boxes(out.get("roi") or [])
     return {"fields": out, "why": why}
 
 

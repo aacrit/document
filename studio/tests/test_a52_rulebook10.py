@@ -61,8 +61,8 @@ def _fields(item, vl, size=(3000, 2033), cues=()):
     return RB.fields(json.loads(json.dumps(item)), _meas(size), "mp:test", vl=vl, cues=cues, vl_model=VLM)
 
 
-def test_rulebook_version_is_10():
-    assert RB.RULEBOOK_VERSION == "10"
+def test_rulebook_version_is_11():
+    assert RB.RULEBOOK_VERSION == "11"
 
 
 def test_quoted_reads_double_curly_and_single_quotes_but_never_an_apostrophe():
