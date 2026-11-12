@@ -557,12 +557,11 @@
           "start_s": 89.458333,
           "asset": "TBL-MURET-1881",
           "dur_s": 9.0,
-          "placeholder": true,
           "transition_in": {
             "type": "cut"
           },
           "mark": "DRAWN",
-          "why": "PLACEHOLDER table opener: the Muret relief panorama of the canal (LoC 2011590001) on the v12 table, the sea-level line in pencil; the title builder renders it. Under it, the first fact of the French attempt."
+          "why": "Table opener: the Muret relief panorama of the canal (LoC 2011590001) on the v12 table, the sea-level line in pencil; rendered by the title session on the v12 table from the real scan. Under it, the first fact of the French attempt."
         },
         {
           "id": "1.2",
@@ -2127,12 +2126,11 @@
           "start_s": 839.291667,
           "asset": "TBL-CANAL-RECORD-1907-09-04",
           "dur_s": 10.0,
-          "placeholder": true,
           "transition_in": {
             "type": "cut"
           },
           "mark": "DRAWN",
-          "why": "PLACEHOLDER table opener: the first page of The Canal Record, 4 September 1907 (IA canalrecord1152isth), on the v12 table; the title builder renders it."
+          "why": "Table opener: the first page of The Canal Record, 4 September 1907 (IA canalrecord1152isth), on the v12 table; rendered by the title session on the v12 table from the real scan."
         },
         {
           "id": "5.2",
@@ -2695,12 +2693,11 @@
           "start_s": 1087.958333,
           "asset": "TBL-ICC-SURVEYS-1908",
           "dur_s": 13.0,
-          "placeholder": true,
           "transition_in": {
             "type": "cut"
           },
           "mark": "DRAWN",
-          "why": "PLACEHOLDER table opener: the ICC 'Surveys of the Panama Canal' (LoC 2023593530, hand coloured) on the v12 table, the route in pencil; the title builder renders it."
+          "why": "Table opener: the ICC 'Surveys of the Panama Canal' (LoC 2023593530, hand coloured) on the v12 table, the route in pencil; rendered by the title session on the v12 table from the real scan."
         },
         {
           "id": "6.2",
@@ -2719,7 +2716,7 @@
           "kind": "archive_still",
           "start_s": 1108.958333,
           "asset": "S-NARA-MULE-1913a",
-          "dur_s": 23.125,
+          "dur_s": 23.149,
           "transition_in": {
             "type": "cut"
           },
@@ -2729,7 +2726,7 @@
         {
           "id": "6.4",
           "kind": "archive_video",
-          "start_s": 1132.083333,
+          "start_s": 1132.107333,
           "asset": "V-NARA-TAFT-1912",
           "in_s": 460.832,
           "out_s": 483.433,
@@ -2752,7 +2749,7 @@
           "start_s": 1154.708333,
           "asset": "V-NARA-TAFT-1912",
           "in_s": 491.3,
-          "out_s": 498.699,
+          "out_s": 498.675,
           "native_fps": 60,
           "sound": {
             "mode": "mute",
@@ -2904,7 +2901,7 @@
         {
           "id": "N6-3",
           "kind": "narration",
-          "start_s": 1135.083333,
+          "start_s": 1135.107333,
           "text": "December, nineteen twelve. President Taft reached Cristobal on the twenty-fourth, aboard the Arkansas.",
           "wav": "audio/narration/N6-3.wav",
           "read_by": "v-narrator",
@@ -3128,7 +3125,7 @@
           "kind": "archive_still",
           "start_s": 1317.375,
           "asset": "S-NARA-LAVALLEY-MIRA",
-          "dur_s": 14.875,
+          "dur_s": 14.9,
           "transition_in": {
             "type": "cut"
           },
@@ -4704,14 +4701,14 @@
     },
     {
       "ref": "N6-3",
-      "start_s": 1135.083333,
-      "end_s": 1138.916667,
+      "start_s": 1135.107333,
+      "end_s": 1138.940667,
       "en": "December, nineteen twelve. President Taft\nreached Cristobal on the twenty-fourth,"
     },
     {
       "ref": "N6-3-2",
-      "start_s": 1138.916667,
-      "end_s": 1139.916667,
+      "start_s": 1138.940667,
+      "end_s": 1139.940667,
       "en": "aboard the Arkansas."
     },
     {

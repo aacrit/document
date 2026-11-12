@@ -199,7 +199,7 @@
     },
     {
       "id": "S-LOC-FR-LOCK-PROFILE-1890",
-      "file": "S-LOC-FR-LOCK-PROFILE-1890.tif",
+      "file": "S-LOC-FR-LOCK-PROFILE-1890.7680.tif",
       "title": "Coupe géologique ... canal à écluses du kil. 54.200 au kil. 55.340 (Compagnie universelle du canal interocéanique)",
       "date": "1890",
       "creator": "Compagnie universelle du canal interocéanique de Panama",
@@ -217,17 +217,25 @@
       "graphic_medical": false,
       "named_patient": false,
       "minor": false,
-      "width": 15301,
-      "height": 11152,
+      "width": 7680,
+      "height": 5598,
       "class": "map",
-      "sha256": "887375927a768f8e665fd10fbd1af35c11ceb237b8371a751394db91c9f89e2e",
+      "sha256": "55f1c72bf9eae3164ad2fe98f74c38f34fc8315b10f5fb7f18b18af0d89c0a11",
       "file_bytes": 511935428,
       "media_url": "https://tile.loc.gov/storage-services/master/gmd/gmd4/g4872/g4872p/pcc00003.tif",
       "source_format": "TIFF as delivered (RGB), no conversion or resampling",
       "rights_checked": "2026-11-08: LoC Rights Advisory: (none stated) | rights: The content of the Library of Congress Geography and Map Division digitized collections is free to use and reuse unless a Rights Advisory statement is present that indicates otherwise.\nCredit Line: Library of Congress, Geography and Map Division.\nMore about Copyright and other Restrictions.\nFor guidance about compiling full citations consult Citing Primary Sources.\n",
       "catalogue_title": "Coupe geologique suivant le profil en long du canal à ecluses du kil. 54.200 au kil. 55.340, echelles de 1/1000 pour les longueurs [et] 1/500 pour les hauteurs : [Panama Canal] ; Profils en travers geologiques, nos. 54.300, 550, 800 et 55.044, 050, 135, 220, echelles de 1/1000 pour les longueurs [et] 1/500 pour les hauteurs",
       "annotations": "the record notes 'Annotated in pencil for English translation' and a Canal Zone Library checklist number (175): later hands of unknown date on the sheet, a reviewer item under A0",
-      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)"
+      "basis_checked": "rights check of 8 Nov 2026 (rights-check.md)",
+      "derived_from": {
+        "file": "S-LOC-FR-LOCK-PROFILE-1890.tif",
+        "sha256": "887375927a768f8e665fd10fbd1af35c11ceb237b8371a751394db91c9f89e2e",
+        "width": 15301,
+        "height": 11152,
+        "note": "the LoC master as served, kept on D:"
+      },
+      "derivation": "reduced from the master by Lanczos to a 7680 px long edge (4x the film width) so the render plan fits in memory; no crop, no other change"
     },
     {
       "id": "S-LOC-NY-TRIBUNE-1889-02-10",
