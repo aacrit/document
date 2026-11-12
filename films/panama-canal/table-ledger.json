@@ -32,38 +32,6 @@
       "sha256": "5760452c6a356315c69739aae8a7ffea1d4a2faf936002d5648fa75a6d389691"
     },
     {
-      "id": "TBL-FRUS-1903-TELEGRAMS",
-      "file": "TBL-FRUS-1903-TELEGRAMS.png",
-      "kind": "table",
-      "placeholder": true,
-      "title": "Table: the FRUS 1903 telegram pages",
-      "date": null,
-      "creator": "void document studio (title builder, v12 table)",
-      "archive": "void document studio",
-      "archive_short": "void document studio",
-      "item_url": null,
-      "generator": "PLACEHOLDER: to be rendered by the title builder on the v12 Blender table from the scan named in data_source; nothing about its contents is decided here",
-      "synthetic": true,
-      "drawn_kind": "image",
-      "content_date": "1903-11",
-      "content_basis": "the pages print the telegrams of 2 to 4 November 1903; nothing on the table postdates them",
-      "data_source": "Foreign Relations of the United States, 1903, pp. 231, 238 and 247 (documents 229, 259 and 280; the page images are still to be located)",
-      "source_short": "FRUS 1903",
-      "licence": "public domain",
-      "basis": "the scan is public domain (its own record states it); the table render is the studio's own",
-      "seen": "PLACEHOLDER: the v12 table with Foreign Relations of the United States, 1903, pp. 231, 238 and 247 (documents 229, 259 and 280; the page images are still to be located) on it.",
-      "people": [],
-      "shows_bodies": false,
-      "shows_violence": false,
-      "graphic_medical": false,
-      "named_patient": false,
-      "minor": false,
-      "standin": {
-        "what": "a grey slate reading PLACEHOLDER and this id, made on 2026-11-08 so the engine's plan can open a file for this shot; the title builder's v12 table render (a still; the engine's drawn shot reads a picture, not a clip) replaces it with the real picture under the same name",
-        "sha256": "c22b8232b1d6e547b7fe37aeb8d949074785a2c46236554962b292d61fe768aa"
-      }
-    },
-    {
       "id": "TBL-CANAL-RECORD-1907-09-04",
       "file": "TBL-CANAL-RECORD-1907-09-04.png",
       "kind": "table",
