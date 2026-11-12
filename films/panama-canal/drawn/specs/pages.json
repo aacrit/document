@@ -3,6 +3,52 @@
  "_note": "The spec studio.engine.pages typesets the film's DRAWN pages from (python -m studio.engine.pages films/panama-canal/drawn/specs/pages.json --out D:/document-media/panama-canal/pages). Each body is the record's words verbatim; read_from says where each was read. The PNGs and doc-pages.json stay on D: (R-08). A title line marked verbatim is the record's own words (GRAMMAR 9 as amended 2026-11-09: its em dashes kept); the source line is the studio's.",
  "pages": [
   {
+   "id": "D-PAGE-FRUS-1903-TELEGRAMS",
+   "reads": [
+    "Uprising occurred to-night, 6; no bloodshed. Army and navy officials taken prisoners. Government will be organized to-night, consisting three consuls, also cabinet.",
+    "We take the liberty of bringing to the knowledge of your Government that on yesterday afternoon, in consequence of a popular and spontaneous movement of the people of this city, the independence of the Isthmus was proclaimed",
+    "Maintain free and uninterrupted transit. If interruption threatened by armed force, occupy the line of railroad. Prevent landing of any armed force with hostile intent, either Government or insurgent, either at Colon, Porto Bello, or other point."
+   ],
+   "title": [
+    {
+     "text": "Mr. Ehrman to Mr. Hay.",
+     "verbatim": true
+    },
+    {
+     "text": "Panama, November 3, 1903. (Received 9.50 p.m.)",
+     "verbatim": true
+    },
+    {
+     "text": "[Telegram.—Translation.]",
+     "verbatim": true
+    },
+    {
+     "text": "Panama, November 4, 1903. (Received 8.45 p.m.)",
+     "verbatim": true
+    },
+    {
+     "text": "[Translation.]",
+     "verbatim": true
+    },
+    {
+     "text": "Navy Department, Washington, D. C., November 2, 1903.",
+     "verbatim": true
+    }
+   ],
+   "body": [
+    "Uprising occurred to-night, 6; no bloodshed. Army and navy officials taken prisoners. Government will be organized to-night, consisting three consuls, also cabinet. Soldiers changed. Supposed same movement will be effected in Colon. Order prevails so far. Situation serious. Four hundred soldiers landed Colon to-day Barranquilla.",
+    "Ehrman.",
+    "Secretary of State, Washington:",
+    "We take the liberty of bringing to the knowledge of your Government that on yesterday afternoon, in consequence of a popular and spontaneous movement of the people of this city, the independence of the Isthmus was proclaimed and, the Republic of Panama being instituted, its provisional government organizes an (executive) board consisting of ourselves, who are assured of the military strength necessary to carry out our determination.",
+    "José A. Arango. Federico Boyd. Tomas Arias.",
+    "Nashville (care American Consul, Colon):",
+    "Maintain free and uninterrupted transit. If interruption threatened by armed force, occupy the line of railroad. Prevent landing of any armed force with hostile intent, either Government or insurgent, either at Colon, Porto Bello, or other point. Send copy of instructions to the senior officer present at Panama upon arrival of Boston. Have sent copy of instructions and have telegraphed Dixie to proceed with all possible dispatch from Kingston to Colon. Government force reported approaching the Isthmus in vessels. Prevent their landing if in your judgment this would precipitate a conflict. Acknowledgment is required.",
+    "Darling, Acting."
+   ],
+   "source": "Papers Relating to the Foreign Relations of the United States, 1903, pp. 231, 238 and 247",
+   "read_from": "State Department TEI, github.com/HistoryAtState/frus volumes/frus1903.xml, divs d229, d259, d280 (documents 229, 259 and 280): each head, opener and dateline, and its paragraph whole with its signature; set in page order 231, 238, 247"
+  },
+  {
    "id": "D-PAGE-FRUS-1903-D273",
    "reads": [
     "I am discharging a duty by lodging in advance with your excellency, in the name of my Government, a solemn protest against the attitude assumed in the Department of Panama by the Government of the United States to the injury of Colombia's rights"

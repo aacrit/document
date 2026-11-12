@@ -498,7 +498,7 @@
         {
           "id": "T1",
           "kind": "card",
-          "start_s": 80.458333,
+          "start_s": 80.4583,
           "dur_s": 5.0,
           "text": [
             "If It Were the Sovereign",
@@ -537,7 +537,7 @@
         {
           "id": "1.0",
           "kind": "card",
-          "start_s": 85.458333,
+          "start_s": 85.4583,
           "dur_s": 4.0,
           "text": [
             "1  The French canal",
@@ -554,7 +554,7 @@
         {
           "id": "1.1",
           "kind": "drawn",
-          "start_s": 89.458333,
+          "start_s": 89.4583,
           "asset": "TBL-MURET-1881",
           "dur_s": 9.0,
           "transition_in": {
@@ -566,7 +566,7 @@
         {
           "id": "1.2",
           "kind": "archive_still",
-          "start_s": 98.458333,
+          "start_s": 98.4583,
           "asset": "S-IA-LESSEPS-1887-TITLE",
           "dur_s": 10.0,
           "preset": "READ",
@@ -579,7 +579,7 @@
         {
           "id": "1.3",
           "kind": "archive_still",
-          "start_s": 108.458333,
+          "start_s": 108.4583,
           "asset": "S-NARA-BASOBISPO-1888",
           "dur_s": 26.958334,
           "transition_in": {
@@ -591,7 +591,7 @@
         {
           "id": "1.4",
           "kind": "archive_still",
-          "start_s": 135.416667,
+          "start_s": 135.4167,
           "asset": "S-NARA-FR-CANAL-TABERNILLA",
           "dur_s": 20.0,
           "transition_in": {
@@ -603,9 +603,9 @@
         {
           "id": "1.5",
           "kind": "archive_still",
-          "start_s": 155.416667,
+          "start_s": 155.4167,
           "asset": "S-NARA-ASPINWALL-1885",
-          "dur_s": 24.833333,
+          "dur_s": 25.22,
           "transition_in": {
             "type": "cut"
           },
@@ -615,9 +615,9 @@
         {
           "id": "1.6",
           "kind": "archive_still",
-          "start_s": 180.25,
+          "start_s": 180.6367,
           "asset": "S-LOC-NY-TRIBUNE-1889-02-10",
-          "dur_s": 29.0,
+          "dur_s": 29.6057,
           "preset": "READ",
           "transition_in": {
             "type": "cut"
@@ -628,7 +628,7 @@
         {
           "id": "1.7",
           "kind": "archive_still",
-          "start_s": 209.25,
+          "start_s": 210.2424,
           "asset": "S-NARA-FR-LADDERDREDGE",
           "dur_s": 10.0,
           "transition_in": {
@@ -640,7 +640,7 @@
         {
           "id": "1.8",
           "kind": "card",
-          "start_s": 219.25,
+          "start_s": 220.2424,
           "dur_s": 9.0,
           "text": [
             "“The commissioner sent by the Jamaican government has already sent away 4,000 people, and he has issued 3,000 tickets more, and these will leave by earliest steamers.”",
@@ -662,7 +662,7 @@
         {
           "id": "1.9",
           "kind": "archive_still",
-          "start_s": 228.25,
+          "start_s": 229.2424,
           "asset": "S-NARA-GATUNSTA-FRENCH",
           "dur_s": 11.0,
           "transition_in": {
@@ -674,7 +674,7 @@
         {
           "id": "1.10",
           "kind": "archive_still",
-          "start_s": 239.25,
+          "start_s": 240.2424,
           "asset": "S-LOC-FR-LOCK-PROFILE-1890",
           "dur_s": 9.0,
           "transition_in": {
@@ -764,7 +764,7 @@
         {
           "id": "R13",
           "kind": "testimony",
-          "start_s": 164.083333,
+          "start_s": 164.47,
           "text": "Meanwhile death was constantly gathering its harvest all about me. Never had the yellow fever been more deadly. Some fathoms only from my house at Colon, ships were anchored in the Company's harbour without a single soul on board. All the crew had died.",
           "speaker": "sp-bunau-varilla",
           "year": 1913,
@@ -776,7 +776,7 @@
         {
           "id": "N1-4",
           "kind": "narration",
-          "start_s": 181.25,
+          "start_s": 181.6367,
           "text": "On the fourth of February, eighteen eighty-nine, a liquidator was appointed. On the ninth, from Paris, Lesseps wrote to the subscribers.",
           "wav": "audio/narration/N1-4.wav",
           "read_by": "v-narrator",
@@ -789,7 +789,7 @@
         {
           "id": "R12",
           "kind": "testimony",
-          "start_s": 190.041667,
+          "start_s": 191.0341,
           "text": "I cannot, therefore, constitute a company for the completion of the Panama Canal. It will now be necessary to leave to the liquidator the care of our interests and the directing of a work which must yet be completed. We will show our confidence by calmly awaiting the decision of the liquidator.",
           "speaker": "sp-lesseps",
           "year": 1889,
@@ -801,7 +801,7 @@
         {
           "id": "N1-5",
           "kind": "narration",
-          "start_s": 210.25,
+          "start_s": 211.2424,
           "text": "Work was suspended on the fifteenth of May.",
           "wav": "audio/narration/N1-5.wav",
           "read_by": "v-narrator",
@@ -813,7 +813,7 @@
         {
           "id": "N1-6",
           "kind": "narration",
-          "start_s": 229.25,
+          "start_s": 230.2424,
           "text": "In October, eighteen ninety-four, a New Panama Canal Company was organised.",
           "wav": "audio/narration/N1-6.wav",
           "read_by": "v-narrator",
@@ -848,8 +848,8 @@
         {
           "id": "LT-R13",
           "kind": "lower_third",
-          "start_s": 164.083333,
-          "end_s": 169.083333,
+          "start_s": 164.47,
+          "end_s": 169.47,
           "lines": [
             "Philippe Bunau-Varilla",
             "Engineer at Colon, 1885; written 1913"
@@ -878,8 +878,8 @@
         {
           "id": "PL-1.5",
           "kind": "lower_third",
-          "start_s": 169.083333,
-          "end_s": 174.083333,
+          "start_s": 169.47,
+          "end_s": 174.47,
           "lines": [
             "Aspinwall",
             "1885"
@@ -897,7 +897,7 @@
         {
           "id": "2.0",
           "kind": "card",
-          "start_s": 248.25,
+          "start_s": 249.2424,
           "dur_s": 4.0,
           "text": [
             "2  Separation",
@@ -914,22 +914,21 @@
         {
           "id": "2.1",
           "kind": "drawn",
-          "start_s": 252.25,
-          "asset": "TBL-FRUS-1903-TELEGRAMS",
+          "start_s": 253.2424,
+          "asset": "D-PAGE-FRUS-1903-TELEGRAMS",
           "dur_s": 11.666667,
-          "placeholder": true,
           "transition_in": {
             "type": "cut"
           },
           "mark": "DRAWN",
-          "why": "PLACEHOLDER table opener: the FRUS 1903 telegram pages (d229, d259, d280) on the v12 table; the page images are still to be located (brief, section 11). Under it, the Walker Commission's two reports."
+          "why": "A government's statement is read over a DRAWN typeset page, never a photograph (A8 never-list): the three FRUS 1903 telegrams (d229, d259, d280) of 2 to 4 November, typeset verbatim on one page."
         },
         {
           "id": "2.2",
           "kind": "archive_still",
-          "start_s": 263.916667,
+          "start_s": 264.9091,
           "asset": "S-LOC-FRENCH-DWELLINGS-COLON-1903",
-          "dur_s": 20.0,
+          "dur_s": 20.138,
           "transition_in": {
             "type": "cut"
           },
@@ -939,7 +938,7 @@
         {
           "id": "2.3",
           "kind": "card",
-          "start_s": 283.916667,
+          "start_s": 285.0471,
           "dur_s": 10.0,
           "text": [
             "“Maintain free and uninterrupted transit. If interruption threatened by armed force, occupy the line of railroad. Prevent landing of any armed force with hostile intent, either Government or insurgent, either at Colon, Porto Bello, or other point.”",
@@ -961,7 +960,7 @@
         {
           "id": "2.4",
           "kind": "card",
-          "start_s": 293.916667,
+          "start_s": 295.0471,
           "dur_s": 8.0,
           "text": [
             "“Uprising occurred to-night, 6; no bloodshed. Army and navy officials taken prisoners. Government will be organized to-night, consisting three consuls, also cabinet.”",
@@ -982,7 +981,7 @@
         {
           "id": "2.5",
           "kind": "card",
-          "start_s": 301.916667,
+          "start_s": 303.0471,
           "dur_s": 10.0,
           "text": [
             "“We take the liberty of bringing to the knowledge of your Government that on yesterday afternoon, in consequence of a popular and spontaneous movement of the people of this city, the independence of the Isthmus was proclaimed”",
@@ -1003,7 +1002,7 @@
         {
           "id": "2.6",
           "kind": "archive_still",
-          "start_s": 311.916667,
+          "start_s": 313.0471,
           "asset": "S-IA-CONVENTION-1903-ART3",
           "dur_s": 21.791666,
           "preset": "READ",
@@ -1016,9 +1015,9 @@
         {
           "id": "2.7",
           "kind": "drawn",
-          "start_s": 333.708333,
+          "start_s": 334.8387,
           "asset": "D-PAGE-FRUS-1903-D273",
-          "dur_s": 23.791667,
+          "dur_s": 23.884,
           "transition_in": {
             "type": "cut"
           },
@@ -1028,7 +1027,7 @@
         {
           "id": "2.8",
           "kind": "drawn",
-          "start_s": 357.5,
+          "start_s": 358.7227,
           "asset": "D-PAGE-FRUS-1903-D320A",
           "dur_s": 23.208333,
           "transition_in": {
@@ -1040,7 +1039,7 @@
         {
           "id": "2.9",
           "kind": "drawn",
-          "start_s": 380.708333,
+          "start_s": 381.931,
           "asset": "D-PAGE-FRUS-1903-D320B",
           "dur_s": 18.166667,
           "transition_in": {
@@ -1052,7 +1051,7 @@
         {
           "id": "2.10",
           "kind": "drawn",
-          "start_s": 398.875,
+          "start_s": 400.0977,
           "asset": "D-PAGE-FRUS-1903-PXXXVI",
           "dur_s": 20.208333,
           "transition_in": {
@@ -1064,7 +1063,7 @@
         {
           "id": "2.11",
           "kind": "drawn",
-          "start_s": 419.083333,
+          "start_s": 420.306,
           "asset": "D-PAGE-FRUS-1903-D328",
           "dur_s": 23.25,
           "transition_in": {
@@ -1076,7 +1075,7 @@
         {
           "id": "2.12",
           "kind": "card",
-          "start_s": 442.333333,
+          "start_s": 443.556,
           "dur_s": 10.0,
           "text": [
             "“The Government of the United States of America may intervene in any part of the Republic of Panama to restablish public peace and constitutional order in the event of their being disturbed”",
@@ -1098,7 +1097,7 @@
         {
           "id": "2.13",
           "kind": "archive_still",
-          "start_s": 452.333333,
+          "start_s": 453.556,
           "asset": "S-LOC-WOMEN-SPRING-1904",
           "dur_s": 9.0,
           "transition_in": {
@@ -1110,9 +1109,9 @@
         {
           "id": "2.14",
           "kind": "drawn",
-          "start_s": 461.333333,
+          "start_s": 462.556,
           "asset": "D-PAGE-FRUS-1904-D565",
-          "dur_s": 29.791667,
+          "dur_s": 30.2334,
           "transition_in": {
             "type": "cut"
           },
@@ -1124,7 +1123,7 @@
         {
           "id": "N2-1",
           "kind": "narration",
-          "start_s": 253.25,
+          "start_s": 254.2424,
           "text": "In January, nineteen oh two, after reporting for Nicaragua in November, the Isthmian Canal Commission reported for the Panama route and a canal with locks.",
           "wav": "audio/narration/N2-1.wav",
           "read_by": "v-narrator",
@@ -1137,7 +1136,7 @@
         {
           "id": "N2-2",
           "kind": "narration",
-          "start_s": 264.916667,
+          "start_s": 265.9091,
           "text": "On the second of November, nineteen oh three, the Navy Department cabled the gunboat Nashville, at Colon.",
           "wav": "audio/narration/N2-2.wav",
           "read_by": "v-narrator",
@@ -1149,7 +1148,7 @@
         {
           "id": "N2-3",
           "kind": "narration",
-          "start_s": 272.0,
+          "start_s": 273.1304,
           "text": "On the evening of the third, in the city of Panama, the independence of the Isthmus was proclaimed. About four hundred Colombian troops were at Colon.",
           "wav": "audio/narration/N2-3.wav",
           "read_by": "v-narrator",
@@ -1162,7 +1161,7 @@
         {
           "id": "N2-4",
           "kind": "narration",
-          "start_s": 312.916667,
+          "start_s": 314.0471,
           "text": "On the eighteenth of November, at Washington, a convention was signed.",
           "wav": "audio/narration/N2-4.wav",
           "read_by": "v-narrator",
@@ -1174,7 +1173,7 @@
         {
           "id": "N2-5",
           "kind": "narration",
-          "start_s": 317.791667,
+          "start_s": 318.9221,
           "text": "A zone ten miles wide, five miles on each side of the canal, the cities of Panama and Colon excepted, in which the United States would hold the rights it “would possess and exercise if it were the sovereign”.",
           "wav": "audio/narration/N2-5.wav",
           "read_by": "v-narrator",
@@ -1188,7 +1187,7 @@
         {
           "id": "N2-6",
           "kind": "narration",
-          "start_s": 334.708333,
+          "start_s": 335.8387,
           "text": "Colombia protested: on the seventh of November through its chargé at Washington, Tomás Herrán,",
           "wav": "audio/narration/N2-6.wav",
           "read_by": "v-narrator",
@@ -1200,7 +1199,7 @@
         {
           "id": "R23",
           "kind": "testimony",
-          "start_s": 341.666667,
+          "start_s": 342.8894,
           "text": "I am discharging a duty by lodging in advance with your excellency, in the name of my Government, a solemn protest against the attitude assumed in the Department of Panama by the Government of the United States to the injury of Colombia's rights",
           "speaker": "sp-herran",
           "year": 1903,
@@ -1212,7 +1211,7 @@
         {
           "id": "N2-7",
           "kind": "narration",
-          "start_s": 358.5,
+          "start_s": 359.7227,
           "text": "and on the twenty-third of December through General Rafael Reyes.",
           "wav": "audio/narration/N2-7.wav",
           "read_by": "v-narrator",
@@ -1224,7 +1223,7 @@
         {
           "id": "R20b",
           "kind": "testimony",
-          "start_s": 363.208333,
+          "start_s": 364.431,
           "text": "The Government and people of Colombia consider themselves aggrieved by that of the United States in that they are convinced that the course followed by its administration, in relation to the events that have developed and recently been accomplished at Panama, have worked deep injury to their interests.",
           "speaker": "sp-reyes",
           "year": 1903,
@@ -1236,7 +1235,7 @@
         {
           "id": "R20c",
           "kind": "testimony",
-          "start_s": 381.708333,
+          "start_s": 382.931,
           "text": "The true character of the new State of Panama is revealed in the fact that it came into existence by a coup de main, effected by the winning over of troops, valorous without doubt, but who have fought against no one, assaulted no intrenchment, captured no fort",
           "speaker": "sp-reyes",
           "year": 1903,
@@ -1248,7 +1247,7 @@
         {
           "id": "N2-8",
           "kind": "narration",
-          "start_s": 399.875,
+          "start_s": 401.0977,
           "text": "Roosevelt, in his message to Congress of the seventh of December:",
           "wav": "audio/narration/N2-8.wav",
           "read_by": "v-narrator",
@@ -1260,7 +1259,7 @@
         {
           "id": "R19",
           "kind": "testimony",
-          "start_s": 404.916667,
+          "start_s": 406.1394,
           "text": "When it became evident that the treaty was hopelessly lost, the people of Panama rose literally as one man. Not a shot was fired by a single man on the Isthmus in the interest of the Colombian Government.",
           "speaker": "sp-roosevelt",
           "year": 1903,
@@ -1272,7 +1271,7 @@
         {
           "id": "N2-9",
           "kind": "narration",
-          "start_s": 420.083333,
+          "start_s": 421.306,
           "text": "In Panama, Ramón Valdés's account of the separation was approved by the Junta on the eighteenth of December.",
           "wav": "audio/narration/N2-9.wav",
           "read_by": "v-narrator",
@@ -1284,7 +1283,7 @@
         {
           "id": "R21",
           "kind": "testimony",
-          "start_s": 428.5,
+          "start_s": 429.7227,
           "text": "the act executed on November 3 last is the logical sequence of a situation already unendurable, the solution of a grave and vexatious problem, the sincere, firm, definite, and irrevocable manifestation of the will of the people.",
           "speaker": "sp-valdes",
           "year": 1903,
@@ -1296,7 +1295,7 @@
         {
           "id": "N2-10",
           "kind": "narration",
-          "start_s": 462.333333,
+          "start_s": 463.556,
           "text": "On the eleventh of August, nineteen oh four, Obaldía, Panama's minister at Washington, to Secretary Hay:",
           "wav": "audio/narration/N2-10.wav",
           "read_by": "v-narrator",
@@ -1308,7 +1307,7 @@
         {
           "id": "R3",
           "kind": "testimony",
-          "start_s": 469.625,
+          "start_s": 471.2894,
           "text": "Article III of the Varilla-Hay treaty, the only one treating of the rights of sovereignty, stipulates that the United States should (shall) possess and exercise the rights, power, and authority which the Republic of Panama conceded it over the zone, as if it were sovereign in the territory; but this expression implicitly conveys the idea that it is not sovereign",
           "speaker": "sp-obaldia",
           "year": 1904,
@@ -1323,8 +1322,8 @@
         {
           "id": "TX-2.0",
           "kind": "chapter_card",
-          "start_s": 248.25,
-          "end_s": 252.25,
+          "start_s": 249.2424,
+          "end_s": 253.2424,
           "lines": [
             "2  Separation",
             "November 1901 to August 1904"
@@ -1333,8 +1332,8 @@
         {
           "id": "LT-R23",
           "kind": "lower_third",
-          "start_s": 341.666667,
-          "end_s": 346.666667,
+          "start_s": 342.8894,
+          "end_s": 347.8894,
           "lines": [
             "Tomás Herrán",
             "Colombian chargé, Washington, 1903"
@@ -1343,8 +1342,8 @@
         {
           "id": "LT-R20b",
           "kind": "lower_third",
-          "start_s": 363.208333,
-          "end_s": 368.208333,
+          "start_s": 364.431,
+          "end_s": 369.431,
           "lines": [
             "Rafael Reyes",
             "Envoy of Colombia, Washington, 1903"
@@ -1353,8 +1352,8 @@
         {
           "id": "LT-R19",
           "kind": "lower_third",
-          "start_s": 404.916667,
-          "end_s": 409.916667,
+          "start_s": 406.1394,
+          "end_s": 411.1394,
           "lines": [
             "Theodore Roosevelt",
             "President of the United States, 1903"
@@ -1363,8 +1362,8 @@
         {
           "id": "LT-R21",
           "kind": "lower_third",
-          "start_s": 428.5,
-          "end_s": 433.5,
+          "start_s": 429.7227,
+          "end_s": 434.7227,
           "lines": [
             "Ramón M. Valdés",
             "Panama, approved by the Junta, 1903"
@@ -1373,8 +1372,8 @@
         {
           "id": "LT-R3",
           "kind": "lower_third",
-          "start_s": 469.625,
-          "end_s": 474.625,
+          "start_s": 471.2894,
+          "end_s": 476.2894,
           "lines": [
             "José Domingo de Obaldía",
             "Minister of Panama, Washington, 1904"
@@ -1392,7 +1391,7 @@
         {
           "id": "3.0",
           "kind": "card",
-          "start_s": 491.125,
+          "start_s": 492.7894,
           "dur_s": 4.0,
           "text": [
             "3  The visit",
@@ -1409,7 +1408,7 @@
         {
           "id": "3.1",
           "kind": "archive_still",
-          "start_s": 495.125,
+          "start_s": 496.7894,
           "asset": "S-NARA-FR-DUMPCARS-1904",
           "dur_s": 12.125,
           "transition_in": {
@@ -1421,7 +1420,7 @@
         {
           "id": "3.2",
           "kind": "archive_video",
-          "start_s": 507.25,
+          "start_s": 508.9144,
           "asset": "V-LOC-TR-ARRIVAL",
           "in_s": 66.583,
           "out_s": 82.375,
@@ -1440,7 +1439,7 @@
         {
           "id": "3.2b",
           "kind": "archive_video",
-          "start_s": 523.041667,
+          "start_s": 524.7061,
           "asset": "V-LOC-TR-ARRIVAL",
           "in_s": 89.292,
           "out_s": 127.5,
@@ -1459,7 +1458,7 @@
         {
           "id": "3.3",
           "kind": "archive_video",
-          "start_s": 561.25,
+          "start_s": 562.9144,
           "asset": "V-LOC-TR-SPEAKING",
           "in_s": 43.7,
           "out_s": 83.7,
@@ -1478,7 +1477,7 @@
         {
           "id": "3.4",
           "kind": "archive_still",
-          "start_s": 601.25,
+          "start_s": 602.9144,
           "asset": "S-NARA-TR-DECAUVILLE",
           "dur_s": 10.333333,
           "transition_in": {
@@ -1490,7 +1489,7 @@
         {
           "id": "3.4b",
           "kind": "drawn",
-          "start_s": 611.583333,
+          "start_s": 613.2477,
           "asset": "D-PAGE-TR-1906-P19",
           "dur_s": 15.5,
           "transition_in": {
@@ -1502,7 +1501,7 @@
         {
           "id": "3.5",
           "kind": "archive_still",
-          "start_s": 627.083333,
+          "start_s": 628.7477,
           "asset": "S-NARA-EMPIRE-MARKET-1905",
           "dur_s": 7.0,
           "transition_in": {
@@ -1516,7 +1515,7 @@
         {
           "id": "N3-1",
           "kind": "narration",
-          "start_s": 496.125,
+          "start_s": 497.7894,
           "text": "In November, nineteen oh four, William H. Taft, Secretary of War, came to Panama; on the first of December the government gave a banquet for him.",
           "wav": "audio/narration/N3-1.wav",
           "read_by": "v-narrator",
@@ -1528,7 +1527,7 @@
         {
           "id": "N3-2",
           "kind": "narration",
-          "start_s": 510.25,
+          "start_s": 511.9144,
           "text": "The fifteenth of November, nineteen oh six. President Roosevelt was received in the city of Panama by President Amador.",
           "wav": "audio/narration/N3-2.wav",
           "read_by": "v-narrator",
@@ -1540,7 +1539,7 @@
         {
           "id": "N3-3",
           "kind": "narration",
-          "start_s": 529.25,
+          "start_s": 530.7044,
           "text": "President Amador's address of welcome:",
           "wav": "audio/narration/N3-3.wav",
           "read_by": "v-narrator",
@@ -1552,7 +1551,7 @@
         {
           "id": "R2",
           "kind": "testimony",
-          "start_s": 532.125,
+          "start_s": 533.7894,
           "text": "that of the great Colossus of the North, with its immense riches, unlimited credit, its vast store of knowledge, and numerous elements that contribute to make it the only entity capable of successfully carrying on such a great enterprise, with the small and the youngest republic of America, owner of the land, which she gladly lends for the work",
           "speaker": "sp-amador",
           "year": 1906,
@@ -1564,7 +1563,7 @@
         {
           "id": "R0",
           "kind": "testimony",
-          "start_s": 564.25,
+          "start_s": 565.9144,
           "text": "For the first time in the history of the United States it has become advisable for a President of the United States to step on territory not beneath the flag of the United States, and it is in the territory of Panama that this has occurred",
           "speaker": "sp-roosevelt",
           "year": 1906,
@@ -1576,7 +1575,7 @@
         {
           "id": "N3-4",
           "kind": "narration",
-          "start_s": 602.25,
+          "start_s": 603.9144,
           "text": "He stayed three days on the Isthmus, and spent the second of them in the Culebra Cut.",
           "wav": "audio/narration/N3-4.wav",
           "read_by": "v-narrator",
@@ -1588,7 +1587,7 @@
         {
           "id": "N3-5",
           "kind": "narration",
-          "start_s": 609.375,
+          "start_s": 611.0394,
           "text": "To Congress, the seventeenth of December:",
           "wav": "audio/narration/N3-5.wav",
           "read_by": "v-narrator",
@@ -1600,7 +1599,7 @@
         {
           "id": "R9",
           "kind": "testimony",
-          "start_s": 612.583333,
+          "start_s": 614.2477,
           "text": "I questioned many of these Jamaica laborers as to the conditions of their work and what, if any, changes they wished. I received many complaints from them, but as regards most of these complaints they themselves contradicted one another.",
           "speaker": "sp-roosevelt",
           "year": 1906,
@@ -1615,8 +1614,8 @@
         {
           "id": "TX-3.0",
           "kind": "chapter_card",
-          "start_s": 491.125,
-          "end_s": 495.125,
+          "start_s": 492.7894,
+          "end_s": 496.7894,
           "lines": [
             "3  The visit",
             "1904 to 1906"
@@ -1625,8 +1624,8 @@
         {
           "id": "LT-R2",
           "kind": "lower_third",
-          "start_s": 532.125,
-          "end_s": 537.125,
+          "start_s": 533.7894,
+          "end_s": 538.7894,
           "lines": [
             "Manuel Amador Guerrero",
             "President of Panama, 1906"
@@ -1635,8 +1634,8 @@
         {
           "id": "LT-R0",
           "kind": "lower_third",
-          "start_s": 564.25,
-          "end_s": 569.25,
+          "start_s": 565.9144,
+          "end_s": 570.9144,
           "lines": [
             "Theodore Roosevelt",
             "President of the United States, 1906"
@@ -1654,7 +1653,7 @@
         {
           "id": "4.0",
           "kind": "card",
-          "start_s": 634.083333,
+          "start_s": 635.7477,
           "dur_s": 4.0,
           "text": [
             "4  Fever",
@@ -1671,9 +1670,9 @@
         {
           "id": "4.1",
           "kind": "archive_still",
-          "start_s": 638.083333,
+          "start_s": 639.7477,
           "asset": "S-NARA-GORGAS-STAFF",
-          "dur_s": 14.0,
+          "dur_s": 14.524,
           "transition_in": {
             "type": "cut"
           },
@@ -1683,7 +1682,7 @@
         {
           "id": "4.2",
           "kind": "archive_video",
-          "start_s": 652.083333,
+          "start_s": 654.2717,
           "asset": "V-LOC-GORGAS",
           "in_s": 13.042,
           "out_s": 37.042,
@@ -1703,7 +1702,7 @@
         {
           "id": "4.3",
           "kind": "archive_still",
-          "start_s": 676.083333,
+          "start_s": 678.2717,
           "asset": "S-NARA-LARVICIDE-PLANT",
           "dur_s": 21.916667,
           "transition_in": {
@@ -1715,7 +1714,7 @@
         {
           "id": "4.4",
           "kind": "archive_still",
-          "start_s": 697.083333,
+          "start_s": 699.2717,
           "asset": "S-NARA-KNAPSACK-1910",
           "dur_s": 18.0,
           "transition_in": {
@@ -1728,7 +1727,7 @@
         {
           "id": "4.5",
           "kind": "archive_still",
-          "start_s": 715.083333,
+          "start_s": 717.2717,
           "asset": "S-NARA-ANCONHOSP-1910",
           "dur_s": 30.0,
           "transition_in": {
@@ -1740,7 +1739,7 @@
         {
           "id": "4.6",
           "kind": "archive_still",
-          "start_s": 745.083333,
+          "start_s": 747.2717,
           "asset": "S-NARA-AMBULANCE-1906",
           "dur_s": 12.0,
           "transition_in": {
@@ -1752,7 +1751,7 @@
         {
           "id": "4.7",
           "kind": "card",
-          "start_s": 757.083333,
+          "start_s": 759.2717,
           "dur_s": 10.0,
           "text": [
             "“There have been so many erroneous and exaggerated statements made regarding the conditions in the hospitals of Panama and the status of the nurses employed there that we, the nurses of Ancon, feel it incumbent upon us to refute these charges”",
@@ -1771,9 +1770,9 @@
         {
           "id": "4.8",
           "kind": "drawn",
-          "start_s": 767.083333,
+          "start_s": 769.2717,
           "asset": "D-PAGE-TR-1906-P10",
-          "dur_s": 14.416667,
+          "dur_s": 14.5347,
           "transition_in": {
             "type": "cut"
           },
@@ -1783,9 +1782,9 @@
         {
           "id": "4.9",
           "kind": "archive_still",
-          "start_s": 781.5,
+          "start_s": 783.8064,
           "asset": "S-NARA-BURNGRASS-1910",
-          "dur_s": 18.791667,
+          "dur_s": 20.3424,
           "transition_in": {
             "type": "cut"
           },
@@ -1795,7 +1794,7 @@
         {
           "id": "4.10",
           "kind": "card",
-          "start_s": 800.291667,
+          "start_s": 804.1488,
           "dur_s": 10.0,
           "text": [
             "“The much higher admission and noneffective rates for whites, as compared with blacks is, no doubt, due to the fact that the whites receive pay for 24 days per year while sick from disease, while the blacks do not.”",
@@ -1817,9 +1816,9 @@
         {
           "id": "4.11",
           "kind": "archive_still",
-          "start_s": 810.291667,
+          "start_s": 814.1488,
           "asset": "S-NARA-COLONHOSP-OR-1910",
-          "dur_s": 25.0,
+          "dur_s": 25.135,
           "transition_in": {
             "type": "cut"
           },
@@ -1831,7 +1830,7 @@
         {
           "id": "N4-1",
           "kind": "narration",
-          "start_s": 639.083333,
+          "start_s": 640.7477,
           "text": "William Crawford Gorgas, chief sanitary officer of the Canal Zone.",
           "wav": "audio/narration/N4-1.wav",
           "read_by": "v-narrator",
@@ -1843,7 +1842,7 @@
         {
           "id": "N4-3",
           "kind": "narration",
-          "start_s": 643.583333,
+          "start_s": 645.7717,
           "text": "Trained women nurses served only at the Colon and Ancon hospitals; Ancon had five hundred beds and sixty-one nurses.",
           "wav": "audio/narration/N4-3.wav",
           "read_by": "v-narrator",
@@ -1855,7 +1854,7 @@
         {
           "id": "R55",
           "kind": "testimony",
-          "start_s": 655.083333,
+          "start_s": 657.2717,
           "text": "I have no intention of criticising the French. If we had come down here twenty-four years ago, situated as they were, I am not sure that we could have done very much better. In the first place, no one knew at that time how malaria or yellow fever was conveyed from one person to another",
           "speaker": "sp-gorgas",
           "year": 1905,
@@ -1867,7 +1866,7 @@
         {
           "id": "N4-2",
           "kind": "narration",
-          "start_s": 677.083333,
+          "start_s": 679.2717,
           "text": "Gorgas, in the Medical Record, the eighteenth of May, nineteen oh seven:",
           "wav": "audio/narration/N4-2.wav",
           "read_by": "v-narrator",
@@ -1881,7 +1880,7 @@
         {
           "id": "R5",
           "kind": "testimony",
-          "start_s": 682.541667,
+          "start_s": 684.7301,
           "text": "I know of no disease that causes the panic among the whites that yellow fever does. [...] The French during all these years, from 1881 to 1889, with a white nonimmune force which had as its maximum 3,000 men, did not pass a month in which one or more deaths from yellow fever did not occur in this force. With a nonimmune force four times as large, for we now have over 10,000 whites, if we include women and children, we have passed fifteen months with not a single case of yellow fever.",
           "speaker": "sp-gorgas",
           "year": 1907,
@@ -1893,7 +1892,7 @@
         {
           "id": "N4-4",
           "kind": "narration",
-          "start_s": 716.083333,
+          "start_s": 718.2717,
           "text": "Isabelle Freeland, a nurse at Ancon, in June nineteen oh seven:",
           "wav": "audio/narration/N4-4.wav",
           "read_by": "v-narrator",
@@ -1907,7 +1906,7 @@
         {
           "id": "R48",
           "kind": "testimony",
-          "start_s": 721.166667,
+          "start_s": 723.3551,
           "text": "There has not been a case of yellow fever in the hospital for nearly a year; vessels from South American ports are quarantined. Many accidents happen on the railroad and in digging the canal. Malaria and pneumonia are the medical cases, the latter being fatal to white or black men.",
           "speaker": "sp-freeland",
           "year": 1907,
@@ -1919,7 +1918,7 @@
         {
           "id": "R49",
           "kind": "testimony",
-          "start_s": 746.083333,
+          "start_s": 748.2717,
           "text": "To give an example of one ward: ward 3, section A, is a surgical ward for colored men; it has twenty-six beds and two private rooms.",
           "speaker": "sp-freeland",
           "year": 1907,
@@ -1931,7 +1930,7 @@
         {
           "id": "N4-5",
           "kind": "narration",
-          "start_s": 768.083333,
+          "start_s": 770.2717,
           "text": "Roosevelt, to Congress, December nineteen oh six:",
           "wav": "audio/narration/N4-5.wav",
           "read_by": "v-narrator",
@@ -1945,7 +1944,7 @@
         {
           "id": "R6",
           "kind": "testimony",
-          "start_s": 771.666667,
+          "start_s": 773.9731,
           "text": "In October, of the 19,000 negroes on the roll 86 died from disease; pneumonia being the most destructive disease, and malarial fever coming second.",
           "speaker": "sp-roosevelt",
           "year": 1906,
@@ -1957,7 +1956,7 @@
         {
           "id": "N4-6",
           "kind": "narration",
-          "start_s": 782.5,
+          "start_s": 786.3571,
           "text": "In the year to June, nineteen oh seven, the Commission recorded one hundred and twenty-three deaths among its white employees, and one thousand one hundred and fifty among its black employees. In the year to June, nineteen thirteen: ninety-four, and three hundred and eighty-nine.",
           "wav": "audio/narration/N4-6.wav",
           "read_by": "v-narrator",
@@ -1969,7 +1968,7 @@
         {
           "id": "N4-7",
           "kind": "narration",
-          "start_s": 811.291667,
+          "start_s": 815.1488,
           "text": "Mary Chatfield, a stenographer for the Commission at Cristobal, in letters printed in nineteen oh eight:",
           "wav": "audio/narration/N4-7.wav",
           "read_by": "v-narrator",
@@ -1981,7 +1980,7 @@
         {
           "id": "R45",
           "kind": "testimony",
-          "start_s": 818.25,
+          "start_s": 822.2421,
           "text": "That women are debarred from taking the examinations for the positions in offices on the Isthmus is most unjust and senseless. The Isthmian Canal Commission sends plenty of trained nurses here, whose chief duty is to take care of colored men when they are sick",
           "speaker": "sp-chatfield",
           "year": 1908,
@@ -1997,8 +1996,8 @@
         {
           "id": "TX-4.0",
           "kind": "chapter_card",
-          "start_s": 634.083333,
-          "end_s": 638.083333,
+          "start_s": 635.7477,
+          "end_s": 639.7477,
           "lines": [
             "4  Fever",
             "1905 to 1914"
@@ -2007,8 +2006,8 @@
         {
           "id": "LT-R55",
           "kind": "lower_third",
-          "start_s": 655.083333,
-          "end_s": 660.083333,
+          "start_s": 657.2717,
+          "end_s": 662.2717,
           "lines": [
             "William C. Gorgas",
             "Chief Sanitary Officer, Canal Zone, 1905"
@@ -2017,8 +2016,8 @@
         {
           "id": "LT-R48",
           "kind": "lower_third",
-          "start_s": 721.166667,
-          "end_s": 726.166667,
+          "start_s": 723.3551,
+          "end_s": 728.3551,
           "lines": [
             "Isabelle Freeland",
             "Nurse, Ancon Hospital, 1907"
@@ -2027,8 +2026,8 @@
         {
           "id": "LT-R6",
           "kind": "lower_third",
-          "start_s": 771.666667,
-          "end_s": 776.666667,
+          "start_s": 773.9731,
+          "end_s": 778.9731,
           "lines": [
             "Theodore Roosevelt",
             "President of the United States, 1906"
@@ -2037,8 +2036,8 @@
         {
           "id": "LT-R45",
           "kind": "lower_third",
-          "start_s": 818.25,
-          "end_s": 823.25,
+          "start_s": 822.2421,
+          "end_s": 827.2421,
           "lines": [
             "Mary A. Chatfield",
             "Stenographer, Canal Commission, 1908"
@@ -2047,8 +2046,8 @@
         {
           "id": "PL-4.3",
           "kind": "lower_third",
-          "start_s": 676.083333,
-          "end_s": 681.083333,
+          "start_s": 678.2717,
+          "end_s": 683.2717,
           "lines": [
             "Ancon",
             "1910"
@@ -2057,8 +2056,8 @@
         {
           "id": "PL-4.4",
           "kind": "lower_third",
-          "start_s": 698.0,
-          "end_s": 703.0,
+          "start_s": 700.1884,
+          "end_s": 705.1884,
           "lines": [
             "Miraflores",
             "June 1910"
@@ -2067,8 +2066,8 @@
         {
           "id": "PL-4.5",
           "kind": "lower_third",
-          "start_s": 726.166667,
-          "end_s": 731.166667,
+          "start_s": 728.3551,
+          "end_s": 733.3551,
           "lines": [
             "Ancon",
             "1910"
@@ -2077,8 +2076,8 @@
         {
           "id": "PL-4.6",
           "kind": "lower_third",
-          "start_s": 745.083333,
-          "end_s": 750.083333,
+          "start_s": 747.2717,
+          "end_s": 752.2717,
           "lines": [
             "Ancon",
             "1906"
@@ -2087,8 +2086,8 @@
         {
           "id": "PL-4.11",
           "kind": "lower_third",
-          "start_s": 810.291667,
-          "end_s": 815.291667,
+          "start_s": 814.1488,
+          "end_s": 819.1488,
           "lines": [
             "Colon",
             "1910"
@@ -2106,7 +2105,7 @@
         {
           "id": "5.0",
           "kind": "card",
-          "start_s": 835.291667,
+          "start_s": 839.2838,
           "dur_s": 4.0,
           "text": [
             "5  Gold and silver",
@@ -2123,7 +2122,7 @@
         {
           "id": "5.1",
           "kind": "drawn",
-          "start_s": 839.291667,
+          "start_s": 843.2838,
           "asset": "TBL-CANAL-RECORD-1907-09-04",
           "dur_s": 10.0,
           "transition_in": {
@@ -2135,7 +2134,7 @@
         {
           "id": "5.2",
           "kind": "card",
-          "start_s": 849.291667,
+          "start_s": 853.2838,
           "dur_s": 8.0,
           "text": [
             "“hereafter there shall be no distinction between employees on the gold rolls and those on the silver rolls”",
@@ -2157,7 +2156,7 @@
         {
           "id": "5.3",
           "kind": "archive_still",
-          "start_s": 857.291667,
+          "start_s": 861.2838,
           "asset": "S-NARA-MUSTER-GORGONA",
           "dur_s": 17.0,
           "transition_in": {
@@ -2169,9 +2168,9 @@
         {
           "id": "5.4",
           "kind": "archive_still",
-          "start_s": 874.291667,
+          "start_s": 878.2838,
           "asset": "S-NARA-BARBADOS-1909a",
-          "dur_s": 20.375,
+          "dur_s": 21.17,
           "transition_in": {
             "type": "cut"
           },
@@ -2181,7 +2180,7 @@
         {
           "id": "5.6",
           "kind": "archive_still",
-          "start_s": 894.666667,
+          "start_s": 899.4538,
           "asset": "S-NARA-BATTLEALLEY-1906",
           "dur_s": 23.0,
           "transition_in": {
@@ -2193,9 +2192,9 @@
         {
           "id": "5.7",
           "kind": "archive_still",
-          "start_s": 917.666667,
+          "start_s": 922.4538,
           "asset": "S-NARA-PEDROMIGUEL-MESS-1911",
-          "dur_s": 28.0,
+          "dur_s": 28.4823,
           "transition_in": {
             "type": "cut"
           },
@@ -2205,7 +2204,7 @@
         {
           "id": "5.8",
           "kind": "archive_still",
-          "start_s": 945.666667,
+          "start_s": 950.9361,
           "asset": "S-NARA-PAYCAR-CROWD-1908",
           "dur_s": 30.0,
           "transition_in": {
@@ -2217,7 +2216,7 @@
         {
           "id": "5.9",
           "kind": "archive_still",
-          "start_s": 975.666667,
+          "start_s": 980.9361,
           "asset": "S-NARA-WI-WEDDING-1913",
           "dur_s": 9.0,
           "transition_in": {
@@ -2229,7 +2228,7 @@
         {
           "id": "5.10",
           "kind": "archive_still",
-          "start_s": 984.666667,
+          "start_s": 989.9361,
           "asset": "S-NARA-DSTREET-1907",
           "dur_s": 28.0,
           "transition_in": {
@@ -2241,9 +2240,9 @@
         {
           "id": "5.11",
           "kind": "archive_still",
-          "start_s": 1012.666667,
+          "start_s": 1017.9361,
           "asset": "S-NARA-COMMISSARY-GATUN-1911",
-          "dur_s": 26.291666,
+          "dur_s": 26.692,
           "transition_in": {
             "type": "cut"
           },
@@ -2253,7 +2252,7 @@
         {
           "id": "5.12",
           "kind": "archive_still",
-          "start_s": 1038.958333,
+          "start_s": 1044.628,
           "asset": "S-NARA-TRACKGANG-1912",
           "dur_s": 20.0,
           "transition_in": {
@@ -2265,7 +2264,7 @@
         {
           "id": "5.13",
           "kind": "card",
-          "start_s": 1058.958333,
+          "start_s": 1064.628,
           "dur_s": 7.0,
           "text": [
             "“1. American citizens alone shall be eligible for medals”",
@@ -2287,7 +2286,7 @@
         {
           "id": "5.14",
           "kind": "card",
-          "start_s": 1065.958333,
+          "start_s": 1071.628,
           "dur_s": 7.0,
           "text": [
             "“whose names are on the gold roll”",
@@ -2308,7 +2307,7 @@
         {
           "id": "5.15",
           "kind": "archive_still",
-          "start_s": 1072.958333,
+          "start_s": 1078.628,
           "asset": "S-LOC-WASHINGTON-BEE-1908-06-20",
           "dur_s": 11.0,
           "transition_in": {
@@ -2323,7 +2322,7 @@
         {
           "id": "N5-1",
           "kind": "narration",
-          "start_s": 840.291667,
+          "start_s": 844.2838,
           "text": "The Canal Record, the Commission's own weekly, first appeared on the fourth of September, nineteen oh seven.",
           "wav": "audio/narration/N5-1.wav",
           "read_by": "v-narrator",
@@ -2335,7 +2334,7 @@
         {
           "id": "N5-2",
           "kind": "narration",
-          "start_s": 858.291667,
+          "start_s": 862.2838,
           "text": "On the thirtieth of April, nineteen oh eight, thirty-three thousand one hundred and ninety-three were at work: five thousand eight hundred and thirty-one on the gold roll, twenty-seven thousand three hundred and sixty-two on the silver roll.",
           "wav": "audio/narration/N5-2.wav",
           "read_by": "v-narrator",
@@ -2347,7 +2346,7 @@
         {
           "id": "N5-3",
           "kind": "narration",
-          "start_s": 875.291667,
+          "start_s": 879.2838,
           "text": "By July, nineteen oh nine, twenty-seven thousand five hundred had been recruited in the West Indies, seventeen thousand nine hundred and forty-nine of them in Barbados.",
           "wav": "audio/narration/N5-3.wav",
           "read_by": "v-narrator",
@@ -2359,7 +2358,7 @@
         {
           "id": "N5-4",
           "kind": "narration",
-          "start_s": 885.75,
+          "start_s": 890.5371,
           "text": "On the second of September, nineteen oh nine, the steamer Ancon came into Cristobal with fifteen hundred laborers from Barbados.",
           "wav": "audio/narration/N5-4.wav",
           "read_by": "v-narrator",
@@ -2371,7 +2370,7 @@
         {
           "id": "N5-5",
           "kind": "narration",
-          "start_s": 895.666667,
+          "start_s": 900.4538,
           "text": "Mary Chatfield, from Cristobal, the second of August, nineteen oh six:",
           "wav": "audio/narration/N5-5.wav",
           "read_by": "v-narrator",
@@ -2383,7 +2382,7 @@
         {
           "id": "R44",
           "kind": "testimony",
-          "start_s": 900.708333,
+          "start_s": 905.4954,
           "text": "They are not allowed to cook in their quarters for fear of fire and no covered place is provided for them in which to cook, so these poor men exist under difficulties. [...] They receive the splendid wage of 10 cents, U. S. currency, an hour.",
           "speaker": "sp-chatfield",
           "year": 1906,
@@ -2395,7 +2394,7 @@
         {
           "id": "N5-6",
           "kind": "narration",
-          "start_s": 918.666667,
+          "start_s": 923.4538,
           "text": "Helen Varick Boswell came to the Isthmus in September, nineteen oh seven, to organise women's clubs. To the New York Tribune, on her return:",
           "wav": "audio/narration/N5-6.wav",
           "read_by": "v-narrator",
@@ -2409,7 +2408,7 @@
         {
           "id": "R7",
           "kind": "testimony",
-          "start_s": 928.541667,
+          "start_s": 933.8111,
           "text": "You see, it has been very monotonous for the women on the Isthmus. The men had their work, but the women had only their housekeeping, and the housekeeping there isn't the absorbing thing it is with us. It is more like housekeeping in a camp.",
           "speaker": "sp-boswell",
           "year": 1907,
@@ -2421,7 +2420,7 @@
         {
           "id": "N5-7",
           "kind": "narration",
-          "start_s": 946.666667,
+          "start_s": 951.9361,
           "text": "Henry Williams, a blacksmith helper from Houston, to William H. Taft, the sixteenth of June, nineteen oh eight:",
           "wav": "audio/narration/N5-7.wav",
           "read_by": "v-narrator",
@@ -2433,7 +2432,7 @@
         {
           "id": "R40",
           "kind": "testimony",
-          "start_s": 954.333333,
+          "start_s": 959.6027,
           "text": "I have been working as blacksmith helper for nearly a year, and was paid in gold. For some unexplained cause I was informed that I would be assigned to the silver roll, which woud greatly reduce me in pay and deprive me of certain benefits that are accorded to white foreigners who don't, understand their duties assigned to them.",
           "speaker": "sp-williams",
           "year": 1908,
@@ -2445,7 +2444,7 @@
         {
           "id": "N5-8",
           "kind": "narration",
-          "start_s": 985.666667,
+          "start_s": 990.9361,
           "text": "Rhodelle Wheat, in a letter printed in New Hampshire, December nineteen oh nine:",
           "wav": "audio/narration/N5-8.wav",
           "read_by": "v-narrator",
@@ -2457,7 +2456,7 @@
         {
           "id": "R46",
           "kind": "testimony",
-          "start_s": 992.583333,
+          "start_s": 997.8527,
           "text": "I am really living on United States territory, as the canal zone belongs to the American government, but when we step foot on Colon or Panama city, we are in a foreign country.",
           "speaker": "sp-wheat",
           "year": 1909,
@@ -2469,7 +2468,7 @@
         {
           "id": "R47",
           "kind": "testimony",
-          "start_s": 1004.375,
+          "start_s": 1009.6444,
           "text": "I say gold, as all Panamian money is silver, and ten silver dollars would only equal five American dollars",
           "speaker": "sp-wheat",
           "year": 1909,
@@ -2481,7 +2480,7 @@
         {
           "id": "N5-9",
           "kind": "narration",
-          "start_s": 1013.666667,
+          "start_s": 1018.9361,
           "text": "W. W. Wilson, barber on the Isthmus from nineteen oh seven to nineteen ten, in the St. Louis Advance, August nineteen ten:",
           "wav": "audio/narration/N5-9.wav",
           "read_by": "v-narrator",
@@ -2493,7 +2492,7 @@
         {
           "id": "R42",
           "kind": "testimony",
-          "start_s": 1022.791667,
+          "start_s": 1028.4614,
           "text": "The employes are divided into two classes, termed silver employes and gold employes. All Americans are gold, and all others are silver employes. On all divisions and the Panama relocation railroad there are about 30,000 colored men, from Jamaica, Barbadoes, Grenada and Trinidad.",
           "speaker": "sp-wilson",
           "year": 1910,
@@ -2505,7 +2504,7 @@
         {
           "id": "R43",
           "kind": "testimony",
-          "start_s": 1039.958333,
+          "start_s": 1045.628,
           "text": "They have on the canal over 500 dirt trains, daily; all are fired by colored men. They have over 300 steam shovels, all fired by colored men.",
           "speaker": "sp-wilson",
           "year": 1910,
@@ -2517,7 +2516,7 @@
         {
           "id": "N5-10",
           "kind": "narration",
-          "start_s": 1049.958333,
+          "start_s": 1055.628,
           "text": "A medal for two years' service was cast from the copper of old French excavators and locomotives.",
           "wav": "audio/narration/N5-10.wav",
           "read_by": "v-narrator",
@@ -2529,7 +2528,7 @@
         {
           "id": "R41",
           "kind": "testimony",
-          "start_s": 1073.958333,
+          "start_s": 1079.628,
           "text": "The moment a white foreigner arrives, who does not know a word of English, he is assigned to the gold roll.",
           "speaker": "sp-williams",
           "year": 1908,
@@ -2544,8 +2543,8 @@
         {
           "id": "TX-5.0",
           "kind": "chapter_card",
-          "start_s": 835.291667,
-          "end_s": 839.291667,
+          "start_s": 839.2838,
+          "end_s": 843.2838,
           "lines": [
             "5  Gold and silver",
             "1906 to 1913"
@@ -2554,8 +2553,8 @@
         {
           "id": "LT-R44",
           "kind": "lower_third",
-          "start_s": 900.708333,
-          "end_s": 905.708333,
+          "start_s": 905.4954,
+          "end_s": 910.4954,
           "lines": [
             "Mary A. Chatfield",
             "Stenographer, Canal Commission, 1906"
@@ -2564,8 +2563,8 @@
         {
           "id": "LT-R7",
           "kind": "lower_third",
-          "start_s": 928.541667,
-          "end_s": 933.541667,
+          "start_s": 933.8111,
+          "end_s": 938.8111,
           "lines": [
             "Helen Varick Boswell",
             "Women's clubs, as quoted in the New York Tribune, 1907"
@@ -2574,8 +2573,8 @@
         {
           "id": "LT-R40",
           "kind": "lower_third",
-          "start_s": 954.333333,
-          "end_s": 959.333333,
+          "start_s": 959.6027,
+          "end_s": 964.6027,
           "lines": [
             "Henry Williams",
             "Blacksmith helper, Canal Zone, 1908"
@@ -2584,8 +2583,8 @@
         {
           "id": "LT-R46",
           "kind": "lower_third",
-          "start_s": 992.583333,
-          "end_s": 997.583333,
+          "start_s": 997.8527,
+          "end_s": 1002.8527,
           "lines": [
             "Rhodelle Emery Young Wheat",
             "Canal Zone, 1909"
@@ -2594,8 +2593,8 @@
         {
           "id": "LT-R42",
           "kind": "lower_third",
-          "start_s": 1022.791667,
-          "end_s": 1027.791667,
+          "start_s": 1028.4614,
+          "end_s": 1033.4614,
           "lines": [
             "W. W. Wilson",
             "Barber, on the Isthmus 1907 to 1910, 1910"
@@ -2604,8 +2603,8 @@
         {
           "id": "PL-5.6",
           "kind": "lower_third",
-          "start_s": 905.708333,
-          "end_s": 910.708333,
+          "start_s": 910.4954,
+          "end_s": 915.4954,
           "lines": [
             "Colon",
             "September 1906"
@@ -2614,8 +2613,8 @@
         {
           "id": "PL-5.11",
           "kind": "lower_third",
-          "start_s": 1027.791667,
-          "end_s": 1032.791667,
+          "start_s": 1033.4614,
+          "end_s": 1038.4614,
           "lines": [
             "Gatun",
             "1911"
@@ -2624,8 +2623,8 @@
         {
           "id": "PL-5.7",
           "kind": "lower_third",
-          "start_s": 933.541667,
-          "end_s": 938.541667,
+          "start_s": 938.8111,
+          "end_s": 943.8111,
           "lines": [
             "Pedro Miguel",
             "1911"
@@ -2634,8 +2633,8 @@
         {
           "id": "PL-5.8",
           "kind": "lower_third",
-          "start_s": 959.333333,
-          "end_s": 964.333333,
+          "start_s": 964.6027,
+          "end_s": 969.6027,
           "lines": [
             "Culebra Cut",
             "January 1908"
@@ -2644,8 +2643,8 @@
         {
           "id": "PL-5.10",
           "kind": "lower_third",
-          "start_s": 997.583333,
-          "end_s": 1002.583333,
+          "start_s": 1002.8527,
+          "end_s": 1007.8527,
           "lines": [
             "Colon",
             "January 1907"
@@ -2654,8 +2653,8 @@
         {
           "id": "PL-5.12",
           "kind": "lower_third",
-          "start_s": 1044.958333,
-          "end_s": 1049.958333,
+          "start_s": 1050.628,
+          "end_s": 1055.628,
           "lines": [
             "Culebra Cut",
             "January 1912"
@@ -2673,7 +2672,7 @@
         {
           "id": "6.0",
           "kind": "card",
-          "start_s": 1083.958333,
+          "start_s": 1089.628,
           "dur_s": 4.0,
           "text": [
             "6  The cut and the lake",
@@ -2690,7 +2689,7 @@
         {
           "id": "6.1",
           "kind": "drawn",
-          "start_s": 1087.958333,
+          "start_s": 1093.628,
           "asset": "TBL-ICC-SURVEYS-1908",
           "dur_s": 13.0,
           "transition_in": {
@@ -2702,7 +2701,7 @@
         {
           "id": "6.2",
           "kind": "archive_still",
-          "start_s": 1100.958333,
+          "start_s": 1106.628,
           "asset": "S-NARA-SHOVEL205-1908",
           "dur_s": 8.0,
           "transition_in": {
@@ -2714,7 +2713,7 @@
         {
           "id": "6.3",
           "kind": "archive_still",
-          "start_s": 1108.958333,
+          "start_s": 1114.628,
           "asset": "S-NARA-MULE-1913a",
           "dur_s": 23.149,
           "transition_in": {
@@ -2726,7 +2725,7 @@
         {
           "id": "6.4",
           "kind": "archive_video",
-          "start_s": 1132.107333,
+          "start_s": 1137.777,
           "asset": "V-NARA-TAFT-1912",
           "in_s": 460.832,
           "out_s": 483.433,
@@ -2746,7 +2745,7 @@
         {
           "id": "6.4b",
           "kind": "archive_video",
-          "start_s": 1154.708333,
+          "start_s": 1160.378,
           "asset": "V-NARA-TAFT-1912",
           "in_s": 491.3,
           "out_s": 498.675,
@@ -2766,7 +2765,7 @@
         {
           "id": "6.5",
           "kind": "archive_still",
-          "start_s": 1162.083333,
+          "start_s": 1167.753,
           "asset": "S-IA-CANAL-RECORD-1912-12-18-P135",
           "dur_s": 16.0,
           "preset": "READ",
@@ -2779,7 +2778,7 @@
         {
           "id": "6.6",
           "kind": "archive_still",
-          "start_s": 1178.083333,
+          "start_s": 1183.753,
           "asset": "S-NARA-OLDGATUN-1907",
           "dur_s": 17.0,
           "transition_in": {
@@ -2791,7 +2790,7 @@
         {
           "id": "6.7",
           "kind": "archive_still",
-          "start_s": 1195.083333,
+          "start_s": 1200.753,
           "asset": "S-NARA-FRIJOLES-1912",
           "dur_s": 8.0,
           "transition_in": {
@@ -2803,9 +2802,9 @@
         {
           "id": "6.8",
           "kind": "archive_still",
-          "start_s": 1203.083333,
+          "start_s": 1208.753,
           "asset": "S-NARA-GORGONA-REMOVAL",
-          "dur_s": 18.5,
+          "dur_s": 20.905,
           "transition_in": {
             "type": "cut"
           },
@@ -2815,7 +2814,7 @@
         {
           "id": "6.9",
           "kind": "archive_still",
-          "start_s": 1221.583333,
+          "start_s": 1229.658,
           "asset": "S-NARA-GORGONA-BURNING",
           "dur_s": 9.541667,
           "transition_in": {
@@ -2827,7 +2826,7 @@
         {
           "id": "6.10",
           "kind": "archive_still",
-          "start_s": 1231.125,
+          "start_s": 1239.1997,
           "asset": "S-NARA-CUCARACHA-1913",
           "dur_s": 14.0,
           "transition_in": {
@@ -2839,7 +2838,7 @@
         {
           "id": "6.11",
           "kind": "archive_still",
-          "start_s": 1245.125,
+          "start_s": 1253.1997,
           "asset": "S-NARA-SPANISH-TRACKS-1913",
           "dur_s": 10.0,
           "transition_in": {
@@ -2851,7 +2850,7 @@
         {
           "id": "6.12",
           "kind": "archive_still",
-          "start_s": 1255.125,
+          "start_s": 1263.1997,
           "asset": "S-NARA-TUGGATUN-CROWD",
           "dur_s": 19.25,
           "transition_in": {
@@ -2865,7 +2864,7 @@
         {
           "id": "N6-1",
           "kind": "narration",
-          "start_s": 1088.958333,
+          "start_s": 1094.628,
           "text": "In the winter of nineteen oh eight, one hundred and three steam shovels in the Cut moved more than two and a third million cubic yards a month.",
           "wav": "audio/narration/N6-1.wav",
           "read_by": "v-narrator",
@@ -2877,7 +2876,7 @@
         {
           "id": "N6-2",
           "kind": "narration",
-          "start_s": 1109.958333,
+          "start_s": 1115.628,
           "text": "Goethals, in nineteen oh nine, on the locks:",
           "wav": "audio/narration/N6-2.wav",
           "read_by": "v-narrator",
@@ -2889,7 +2888,7 @@
         {
           "id": "R30",
           "kind": "testimony",
-          "start_s": 1113.916667,
+          "start_s": 1119.5864,
           "text": "This is met by providing every possible safety device, by building the locks in duplicate and by the installation of a system by which the vessels will be controlled by powerful electric machinery on the lock walls, thus avoiding mistakes on the part of the vessels' crew or engine-room staff",
           "speaker": "sp-goethals",
           "year": 1909,
@@ -2901,7 +2900,7 @@
         {
           "id": "N6-3",
           "kind": "narration",
-          "start_s": 1135.107333,
+          "start_s": 1140.777,
           "text": "December, nineteen twelve. President Taft reached Cristobal on the twenty-fourth, aboard the Arkansas.",
           "wav": "audio/narration/N6-3.wav",
           "read_by": "v-narrator",
@@ -2913,7 +2912,7 @@
         {
           "id": "N6-4",
           "kind": "narration",
-          "start_s": 1163.083333,
+          "start_s": 1168.753,
           "text": "On the fifth of December, President Taft had signed an Executive Order on the lands of the Canal Zone.",
           "wav": "audio/narration/N6-4.wav",
           "read_by": "v-narrator",
@@ -2925,7 +2924,7 @@
         {
           "id": "N6-5",
           "kind": "narration",
-          "start_s": 1179.083333,
+          "start_s": 1184.753,
           "text": "The Gorgona district was abolished by order of the second of September, nineteen twelve. The towns of the old railroad line between Gorgona and Gatun were cleared: Bohio, Frijoles, San Pablo, Tabernilla.",
           "wav": "audio/narration/N6-5.wav",
           "read_by": "v-narrator",
@@ -2939,7 +2938,7 @@
         {
           "id": "N6-6",
           "kind": "narration",
-          "start_s": 1204.083333,
+          "start_s": 1209.753,
           "text": "Gorgona was moved between March and June, nineteen thirteen: two hundred American families, six hundred bachelors, several hundred West Indians.",
           "wav": "audio/narration/N6-6.wav",
           "read_by": "v-narrator",
@@ -2951,7 +2950,7 @@
         {
           "id": "N6-7",
           "kind": "narration",
-          "start_s": 1212.291667,
+          "start_s": 1220.3664,
           "text": "A Joint Land Commission, Federico Boyd, Roland Falkner, Samuel Lewis and L. S. Rowe, made awards for houses in Gorgona and Cruces.",
           "wav": "audio/narration/N6-7.wav",
           "read_by": "v-narrator",
@@ -2963,7 +2962,7 @@
         {
           "id": "N6-8",
           "kind": "narration",
-          "start_s": 1222.583333,
+          "start_s": 1230.658,
           "text": "The former owners in the old town of Gorgona were refused free transport for the material of their houses.",
           "wav": "audio/narration/N6-8.wav",
           "read_by": "v-narrator",
@@ -2975,7 +2974,7 @@
         {
           "id": "N6-9",
           "kind": "narration",
-          "start_s": 1232.125,
+          "start_s": 1240.1997,
           "text": "Between May, nineteen oh four, and August, nineteen thirteen, the Central Division took one hundred and nine million cubic yards from its territory, with about thirty-eight million pounds of explosives.",
           "wav": "audio/narration/N6-9.wav",
           "read_by": "v-narrator",
@@ -2987,7 +2986,7 @@
         {
           "id": "N6-10",
           "kind": "narration",
-          "start_s": 1246.125,
+          "start_s": 1254.1997,
           "text": "On the twenty-sixth of March, nineteen thirteen, the force was at its largest: forty-four thousand seven hundred and thirty-three.",
           "wav": "audio/narration/N6-10.wav",
           "read_by": "v-narrator",
@@ -2999,7 +2998,7 @@
         {
           "id": "N6-11",
           "kind": "narration",
-          "start_s": 1256.125,
+          "start_s": 1264.1997,
           "text": "On the twenty-sixth of September the tug Gatun was lifted through the west flight of the Gatun locks.",
           "wav": "audio/narration/N6-11.wav",
           "read_by": "v-narrator",
@@ -3011,7 +3010,7 @@
         {
           "id": "N6-12",
           "kind": "narration",
-          "start_s": 1263.583333,
+          "start_s": 1271.658,
           "text": "Gatun Lake had stood at thirty-one feet on the first of July, nineteen twelve. The sluices were closed on the twenty-seventh of June, nineteen thirteen.",
           "wav": "audio/narration/N6-12.wav",
           "read_by": "v-narrator",
@@ -3026,8 +3025,8 @@
         {
           "id": "TX-6.0",
           "kind": "chapter_card",
-          "start_s": 1083.958333,
-          "end_s": 1087.958333,
+          "start_s": 1089.628,
+          "end_s": 1093.628,
           "lines": [
             "6  The cut and the lake",
             "1907 to 1913"
@@ -3036,8 +3035,8 @@
         {
           "id": "LT-R30",
           "kind": "lower_third",
-          "start_s": 1113.916667,
-          "end_s": 1118.916667,
+          "start_s": 1119.5864,
+          "end_s": 1124.5864,
           "lines": [
             "George W. Goethals",
             "Chairman, Isthmian Canal Commission, 1909"
@@ -3046,8 +3045,8 @@
         {
           "id": "PL-6.3",
           "kind": "lower_third",
-          "start_s": 1118.916667,
-          "end_s": 1123.916667,
+          "start_s": 1124.5864,
+          "end_s": 1129.5864,
           "lines": [
             "Gatun Locks",
             "14 March 1913"
@@ -3064,7 +3063,7 @@
         {
           "id": "C1",
           "kind": "archive_still",
-          "start_s": 1274.375,
+          "start_s": 1282.4497,
           "asset": "S-NARA-GAMBOA-DYNAMITE",
           "dur_s": 15.0,
           "transition_in": {
@@ -3077,7 +3076,7 @@
         {
           "id": "C2",
           "kind": "archive_still",
-          "start_s": 1289.375,
+          "start_s": 1297.4497,
           "asset": "S-NARA-GOETHALS-DIKE",
           "dur_s": 9.0,
           "transition_in": {
@@ -3089,7 +3088,7 @@
         {
           "id": "C3",
           "kind": "archive_still",
-          "start_s": 1298.375,
+          "start_s": 1306.4497,
           "asset": "S-NARA-FIRSTWATER-1913",
           "dur_s": 10.0,
           "transition_in": {
@@ -3101,7 +3100,7 @@
         {
           "id": "C4",
           "kind": "card",
-          "start_s": 1308.375,
+          "start_s": 1316.4497,
           "dur_s": 9.0,
           "text": [
             "“Half an hour or more after the dike was broken, a cayuco, or native canoe, made the passage through, followed shortly by three launches.”",
@@ -3123,7 +3122,7 @@
         {
           "id": "C5",
           "kind": "archive_still",
-          "start_s": 1317.375,
+          "start_s": 1325.4497,
           "asset": "S-NARA-LAVALLEY-MIRA",
           "dur_s": 14.9,
           "transition_in": {
@@ -3135,7 +3134,7 @@
         {
           "id": "C6",
           "kind": "archive_still",
-          "start_s": 1331.375,
+          "start_s": 1339.4497,
           "asset": "S-NARA-LAVALLEY-PM",
           "dur_s": 8.0,
           "transition_in": {
@@ -3148,7 +3147,7 @@
         {
           "id": "C7",
           "kind": "archive_still",
-          "start_s": 1339.375,
+          "start_s": 1347.4497,
           "asset": "S-NARA-SANTACLARA-1914",
           "dur_s": 10.0,
           "transition_in": {
@@ -3160,7 +3159,7 @@
         {
           "id": "C8",
           "kind": "archive_still",
-          "start_s": 1349.375,
+          "start_s": 1357.4497,
           "asset": "S-NARA-CRISTOBAL-0803",
           "dur_s": 10.0,
           "transition_in": {
@@ -3172,7 +3171,7 @@
         {
           "id": "C9",
           "kind": "archive_still",
-          "start_s": 1359.375,
+          "start_s": 1367.4497,
           "asset": "S-NARA-ANCON-MAMEI",
           "dur_s": 15.0,
           "transition_in": {
@@ -3184,7 +3183,7 @@
         {
           "id": "C10",
           "kind": "archive_still",
-          "start_s": 1374.375,
+          "start_s": 1382.4497,
           "asset": "S-NARA-ANCON-CUCARACHA",
           "dur_s": 10.0,
           "transition_in": {
@@ -3196,7 +3195,7 @@
         {
           "id": "C11",
           "kind": "archive_still",
-          "start_s": 1384.375,
+          "start_s": 1392.4497,
           "asset": "S-LOC-BAIN-ANCON-GATUN-1914",
           "dur_s": 13.875,
           "transition_in": {
@@ -3208,7 +3207,7 @@
         {
           "id": "C11b",
           "kind": "drawn",
-          "start_s": 1398.25,
+          "start_s": 1406.3247,
           "asset": "D-PAGE-GARRISON-1914-08-15",
           "dur_s": 9.125,
           "transition_in": {
@@ -3220,7 +3219,7 @@
         {
           "id": "C12",
           "kind": "drawn",
-          "start_s": 1407.375,
+          "start_s": 1415.4497,
           "asset": "D-ZONE-ROUTE-1914",
           "dur_s": 16.666667,
           "transition_in": {
@@ -3234,7 +3233,7 @@
         {
           "id": "NC-1",
           "kind": "narration",
-          "start_s": 1275.875,
+          "start_s": 1283.9497,
           "text": "At two minutes past two on the afternoon of the tenth of October, nineteen thirteen, President Wilson, at Washington, fired the Gamboa dike by telegraph.",
           "wav": "audio/narration/NC-1.wav",
           "read_by": "v-narrator",
@@ -3247,7 +3246,7 @@
         {
           "id": "NC-2",
           "kind": "narration",
-          "start_s": 1318.375,
+          "start_s": 1326.4497,
           "text": "On the seventh of January, nineteen fourteen, the crane boat Alex. LaValley passed through the locks at Pedro Miguel and Miraflores: the first steam vessel through from ocean to ocean.",
           "wav": "audio/narration/NC-2.wav",
           "read_by": "v-narrator",
@@ -3259,7 +3258,7 @@
         {
           "id": "NC-3",
           "kind": "narration",
-          "start_s": 1360.375,
+          "start_s": 1368.4497,
           "text": "The fifteenth of August, nineteen fourteen. The steamer Ancon left Cristobal at ten minutes past seven, with about two hundred guests aboard, President Porras of Panama among them. Gatun, eight o'clock.",
           "wav": "audio/narration/NC-3.wav",
           "read_by": "v-narrator",
@@ -3272,7 +3271,7 @@
         {
           "id": "NC-4",
           "kind": "narration",
-          "start_s": 1375.375,
+          "start_s": 1383.4497,
           "text": "Gamboa, a quarter past eleven. Cucaracha, twenty past twelve. Pedro Miguel, four minutes to one.",
           "wav": "audio/narration/NC-4.wav",
           "read_by": "v-narrator",
@@ -3284,7 +3283,7 @@
         {
           "id": "NC-5",
           "kind": "narration",
-          "start_s": 1385.375,
+          "start_s": 1393.4497,
           "text": "Miraflores, from four minutes to two until twenty past three. The end of the channel, half past four.",
           "wav": "audio/narration/NC-5.wav",
           "read_by": "v-narrator",
@@ -3296,7 +3295,7 @@
         {
           "id": "NC-6",
           "kind": "narration",
-          "start_s": 1392.833333,
+          "start_s": 1400.908,
           "text": "That day the Secretary of War, Lindley Garrison, cabled Goethals at Culebra.",
           "wav": "audio/narration/NC-6.wav",
           "read_by": "v-narrator",
@@ -3308,7 +3307,7 @@
         {
           "id": "R8",
           "kind": "testimony",
-          "start_s": 1399.25,
+          "start_s": 1407.3247,
           "text": "By the successful passage of vessels through the Canal the dream of the centuries has become a reality.",
           "speaker": "sp-garrison",
           "year": "1914-08-15",
@@ -3320,7 +3319,7 @@
         {
           "id": "N22",
           "kind": "narration",
-          "start_s": 1408.875,
+          "start_s": 1416.9497,
           "text": "When the water runs from one sea to the other, whose ground is it running through?",
           "wav": "audio/narration/N22.wav",
           "read_by": "v-narrator",
@@ -3336,8 +3335,8 @@
         {
           "id": "LT-R8",
           "kind": "lower_third",
-          "start_s": 1399.25,
-          "end_s": 1404.25,
+          "start_s": 1407.3247,
+          "end_s": 1412.3247,
           "lines": [
             "Lindley M. Garrison",
             "Secretary of War, 1914"
@@ -3354,7 +3353,7 @@
         {
           "id": "E1",
           "kind": "card",
-          "start_s": 1424.041667,
+          "start_s": 1432.1164,
           "dur_s": 5.0,
           "text": [
             "A void document production",
@@ -3371,7 +3370,7 @@
         {
           "id": "E2",
           "kind": "card",
-          "start_s": 1429.041667,
+          "start_s": 1437.1164,
           "dur_s": 27.0,
           "text": [
             "Archives: National Archives (Record Group 185, Records of the Panama Canal; Record Group 111, Signal Corps) · Library of Congress (Prints and Photographs, Geography and Map, Chronicling America, Motion Picture) · Internet Archive · Office of the Historian, Foreign Relations of the United States",
@@ -3388,7 +3387,7 @@
         {
           "id": "E3",
           "kind": "black",
-          "start_s": 1456.041667,
+          "start_s": 1464.1164,
           "dur_s": 8.0,
           "black_reason": "The film ends in the room tone of its own score.",
           "transition_in": {
@@ -3404,8 +3403,8 @@
         {
           "id": "TX-E1",
           "kind": "title_card",
-          "start_s": 1424.041667,
-          "end_s": 1429.041667,
+          "start_s": 1432.1164,
+          "end_s": 1437.1164,
           "lines": [
             "A void document production",
             "void document"
@@ -3567,1370 +3566,1370 @@
     },
     {
       "ref": "LT-R13",
-      "start_s": 164.083333,
-      "end_s": 169.083333,
+      "start_s": 164.47,
+      "end_s": 169.47,
       "en": "[Philippe Bunau-Varilla,\nEngineer at Colon, 1885; written 1913]"
     },
     {
       "ref": "R13",
-      "start_s": 164.083333,
-      "end_s": 168.75,
+      "start_s": 164.47,
+      "end_s": 169.1367,
       "en": "Meanwhile death was constantly gathering\nits harvest all about me. Never had the"
     },
     {
       "ref": "R13-2",
-      "start_s": 168.75,
-      "end_s": 173.25,
+      "start_s": 169.1367,
+      "end_s": 173.6367,
       "en": "yellow fever been more deadly. Some\nfathoms only from my house at Colon, ships"
     },
     {
       "ref": "PL-1.5",
-      "start_s": 169.083333,
-      "end_s": 174.083333,
+      "start_s": 169.47,
+      "end_s": 174.47,
       "en": "[Aspinwall,\n1885]"
     },
     {
       "ref": "R13-3",
-      "start_s": 173.25,
-      "end_s": 177.75,
+      "start_s": 173.6367,
+      "end_s": 178.1367,
       "en": "were anchored in the Company's harbour\nwithout a single soul on board. All the"
     },
     {
       "ref": "R13-4",
-      "start_s": 177.75,
-      "end_s": 178.75,
+      "start_s": 178.1367,
+      "end_s": 179.1367,
       "en": "crew had died."
     },
     {
       "ref": "N1-4",
-      "start_s": 181.25,
-      "end_s": 185.666667,
+      "start_s": 181.6367,
+      "end_s": 186.0534,
       "en": "On the fourth of February, eighteen\neighty-nine, a liquidator was appointed."
     },
     {
       "ref": "N1-4-2",
-      "start_s": 185.666667,
-      "end_s": 189.041667,
+      "start_s": 186.0534,
+      "end_s": 189.4284,
       "en": "On the ninth, from Paris, Lesseps wrote to\nthe subscribers."
     },
     {
       "ref": "R12",
-      "start_s": 190.041667,
-      "end_s": 195.041667,
+      "start_s": 191.0341,
+      "end_s": 196.0341,
       "en": "I cannot, therefore, constitute a company\nfor the completion of the Panama Canal. It"
     },
     {
       "ref": "R12-2",
-      "start_s": 195.041667,
-      "end_s": 199.666667,
+      "start_s": 196.0341,
+      "end_s": 200.6591,
       "en": "will now be necessary to leave to the\nliquidator the care of our interests and"
     },
     {
       "ref": "R12-3",
-      "start_s": 199.666667,
-      "end_s": 204.625,
+      "start_s": 200.6591,
+      "end_s": 205.6174,
       "en": "the directing of a work which must yet be\ncompleted. We will show our confidence by"
     },
     {
       "ref": "R12-4",
-      "start_s": 204.625,
-      "end_s": 207.375,
+      "start_s": 205.6174,
+      "end_s": 208.3674,
       "en": "calmly awaiting the decision of the\nliquidator."
     },
     {
       "ref": "N1-5",
-      "start_s": 210.25,
-      "end_s": 213.208333,
+      "start_s": 211.2424,
+      "end_s": 214.2007,
       "en": "Work was suspended on the fifteenth of\nMay."
     },
     {
       "ref": "N1-6",
-      "start_s": 229.25,
-      "end_s": 233.333333,
+      "start_s": 230.2424,
+      "end_s": 234.3257,
       "en": "In October, eighteen ninety-four, a New\nPanama Canal Company was organised."
     },
     {
       "ref": "N2-1",
-      "start_s": 253.25,
-      "end_s": 257.791667,
+      "start_s": 254.2424,
+      "end_s": 258.7841,
       "en": "In January, nineteen oh two, after\nreporting for Nicaragua in November, the"
     },
     {
       "ref": "N2-1-2",
-      "start_s": 257.791667,
-      "end_s": 262.541667,
+      "start_s": 258.7841,
+      "end_s": 263.5341,
       "en": "Isthmian Canal Commission reported for the\nPanama route and a canal with locks."
     },
     {
       "ref": "N2-2",
-      "start_s": 264.916667,
-      "end_s": 269.5,
+      "start_s": 265.9091,
+      "end_s": 270.4924,
       "en": "On the second of November, nineteen oh\nthree, the Navy Department cabled the"
     },
     {
       "ref": "N2-2-2",
-      "start_s": 269.5,
-      "end_s": 271.208333,
+      "start_s": 270.4924,
+      "end_s": 272.2007,
       "en": "gunboat Nashville, at Colon."
     },
     {
       "ref": "N2-3",
-      "start_s": 272.0,
-      "end_s": 277.375,
+      "start_s": 273.1304,
+      "end_s": 278.5054,
       "en": "On the evening of the third, in the city\nof Panama, the independence of the Isthmus"
     },
     {
       "ref": "N2-3-2",
-      "start_s": 277.375,
-      "end_s": 281.666667,
+      "start_s": 278.5054,
+      "end_s": 282.7971,
       "en": "was proclaimed. About four hundred\nColombian troops were at Colon."
     },
     {
       "ref": "N2-4",
-      "start_s": 312.916667,
-      "end_s": 317.0,
+      "start_s": 314.0471,
+      "end_s": 318.1304,
       "en": "On the eighteenth of November, at\nWashington, a convention was signed."
     },
     {
       "ref": "N2-5",
-      "start_s": 317.791667,
-      "end_s": 323.5,
+      "start_s": 318.9221,
+      "end_s": 324.6304,
       "en": "A zone ten miles wide, five miles on each\nside of the canal, the cities of Panama"
     },
     {
       "ref": "N2-5-2",
-      "start_s": 323.5,
-      "end_s": 328.958333,
+      "start_s": 324.6304,
+      "end_s": 330.0887,
       "en": "and Colon excepted, in which the United\nStates would hold the rights it “would"
     },
     {
       "ref": "N2-5-3",
-      "start_s": 328.958333,
-      "end_s": 332.208333,
+      "start_s": 330.0887,
+      "end_s": 333.3387,
       "en": "possess and exercise if it were the\nsovereign”."
     },
     {
       "ref": "N2-6",
-      "start_s": 334.708333,
-      "end_s": 339.666667,
+      "start_s": 335.8387,
+      "end_s": 340.7971,
       "en": "Colombia protested: on the seventh of\nNovember through its chargé at Washington,"
     },
     {
       "ref": "N2-6-2",
-      "start_s": 339.666667,
-      "end_s": 340.666667,
+      "start_s": 340.7971,
+      "end_s": 341.7971,
       "en": "Tomás Herrán,"
     },
     {
       "ref": "LT-R23",
-      "start_s": 341.666667,
-      "end_s": 346.666667,
+      "start_s": 342.8894,
+      "end_s": 347.8894,
       "en": "[Tomás Herrán,\nColombian chargé, Washington, 1903]"
     },
     {
       "ref": "R23",
-      "start_s": 341.666667,
-      "end_s": 346.333333,
+      "start_s": 342.8894,
+      "end_s": 347.556,
       "en": "I am discharging a duty by lodging in\nadvance with your excellency, in the name"
     },
     {
       "ref": "R23-2",
-      "start_s": 346.333333,
-      "end_s": 351.291667,
+      "start_s": 347.556,
+      "end_s": 352.5144,
       "en": "of my Government, a solemn protest against\nthe attitude assumed in the Department of"
     },
     {
       "ref": "R23-3",
-      "start_s": 351.291667,
-      "end_s": 356.0,
+      "start_s": 352.5144,
+      "end_s": 357.2227,
       "en": "Panama by the Government of the United\nStates to the injury of Colombia's rights"
     },
     {
       "ref": "N2-7",
-      "start_s": 358.5,
-      "end_s": 362.208333,
+      "start_s": 359.7227,
+      "end_s": 363.431,
       "en": "and on the twenty-third of December\nthrough General Rafael Reyes."
     },
     {
       "ref": "LT-R20b",
-      "start_s": 363.208333,
-      "end_s": 368.208333,
+      "start_s": 364.431,
+      "end_s": 369.431,
       "en": "[Rafael Reyes,\nEnvoy of Colombia, Washington, 1903]"
     },
     {
       "ref": "R20b",
-      "start_s": 363.208333,
-      "end_s": 367.333333,
+      "start_s": 364.431,
+      "end_s": 368.556,
       "en": "The Government and people of Colombia\nconsider themselves aggrieved by that of"
     },
     {
       "ref": "R20b-2",
-      "start_s": 367.333333,
-      "end_s": 371.416667,
+      "start_s": 368.556,
+      "end_s": 372.6394,
       "en": "the United States in that they are\nconvinced that the course followed by its"
     },
     {
       "ref": "R20b-3",
-      "start_s": 371.416667,
-      "end_s": 375.625,
+      "start_s": 372.6394,
+      "end_s": 376.8477,
       "en": "administration, in relation to the events\nthat have developed and recently been"
     },
     {
       "ref": "R20b-4",
-      "start_s": 375.625,
-      "end_s": 379.208333,
+      "start_s": 376.8477,
+      "end_s": 380.431,
       "en": "accomplished at Panama, have worked deep\ninjury to their interests."
     },
     {
       "ref": "R20c",
-      "start_s": 381.708333,
-      "end_s": 386.375,
+      "start_s": 382.931,
+      "end_s": 387.5977,
       "en": "The true character of the new State of\nPanama is revealed in the fact that it"
     },
     {
       "ref": "R20c-2",
-      "start_s": 386.375,
-      "end_s": 391.125,
+      "start_s": 387.5977,
+      "end_s": 392.3477,
       "en": "came into existence by a coup de main,\neffected by the winning over of troops,"
     },
     {
       "ref": "R20c-3",
-      "start_s": 391.125,
-      "end_s": 395.5,
+      "start_s": 392.3477,
+      "end_s": 396.7227,
       "en": "valorous without doubt, but who have\nfought against no one, assaulted no"
     },
     {
       "ref": "R20c-4",
-      "start_s": 395.5,
-      "end_s": 397.375,
+      "start_s": 396.7227,
+      "end_s": 398.5977,
       "en": "intrenchment, captured no fort"
     },
     {
       "ref": "N2-8",
-      "start_s": 399.875,
-      "end_s": 403.916667,
+      "start_s": 401.0977,
+      "end_s": 405.1394,
       "en": "Roosevelt, in his message to Congress of\nthe seventh of December:"
     },
     {
       "ref": "LT-R19",
-      "start_s": 404.916667,
-      "end_s": 409.916667,
+      "start_s": 406.1394,
+      "end_s": 411.1394,
       "en": "[Theodore Roosevelt,\nPresident of the United States, 1903]"
     },
     {
       "ref": "R19",
-      "start_s": 404.916667,
-      "end_s": 410.25,
+      "start_s": 406.1394,
+      "end_s": 411.4727,
       "en": "When it became evident that the treaty was\nhopelessly lost, the people of Panama rose"
     },
     {
       "ref": "R19-2",
-      "start_s": 410.25,
-      "end_s": 415.25,
+      "start_s": 411.4727,
+      "end_s": 416.4727,
       "en": "literally as one man. Not a shot was fired\nby a single man on the Isthmus in the"
     },
     {
       "ref": "R19-3",
-      "start_s": 415.25,
-      "end_s": 417.583333,
+      "start_s": 416.4727,
+      "end_s": 418.806,
       "en": "interest of the Colombian Government."
     },
     {
       "ref": "N2-9",
-      "start_s": 420.083333,
-      "end_s": 425.625,
+      "start_s": 421.306,
+      "end_s": 426.8477,
       "en": "In Panama, Ramón Valdés's account of the\nseparation was approved by the Junta on"
     },
     {
       "ref": "N2-9-2",
-      "start_s": 425.625,
-      "end_s": 427.5,
+      "start_s": 426.8477,
+      "end_s": 428.7227,
       "en": "the eighteenth of December."
     },
     {
       "ref": "LT-R21",
-      "start_s": 428.5,
-      "end_s": 433.5,
+      "start_s": 429.7227,
+      "end_s": 434.7227,
       "en": "[Ramón M. Valdés,\nPanama, approved by the Junta, 1903]"
     },
     {
       "ref": "R21",
-      "start_s": 428.5,
-      "end_s": 433.0,
+      "start_s": 429.7227,
+      "end_s": 434.2227,
       "en": "the act executed on November 3 last is the\nlogical sequence of a situation already"
     },
     {
       "ref": "R21-2",
-      "start_s": 433.0,
-      "end_s": 437.25,
+      "start_s": 434.2227,
+      "end_s": 438.4727,
       "en": "unendurable, the solution of a grave and\nvexatious problem, the sincere, firm,"
     },
     {
       "ref": "R21-3",
-      "start_s": 437.25,
-      "end_s": 440.833333,
+      "start_s": 438.4727,
+      "end_s": 442.056,
       "en": "definite, and irrevocable manifestation of\nthe will of the people."
     },
     {
       "ref": "N2-10",
-      "start_s": 462.333333,
-      "end_s": 466.833333,
+      "start_s": 463.556,
+      "end_s": 468.056,
       "en": "On the eleventh of August, nineteen oh\nfour, Obaldía, Panama's minister at"
     },
     {
       "ref": "N2-10-2",
-      "start_s": 466.833333,
-      "end_s": 468.625,
+      "start_s": 468.056,
+      "end_s": 469.8477,
       "en": "Washington, to Secretary Hay:"
     },
     {
       "ref": "LT-R3",
-      "start_s": 469.625,
-      "end_s": 474.625,
+      "start_s": 471.2894,
+      "end_s": 476.2894,
       "en": "[José Domingo de Obaldía,\nMinister of Panama, Washington, 1904]"
     },
     {
       "ref": "R3",
-      "start_s": 469.625,
-      "end_s": 473.916667,
+      "start_s": 471.2894,
+      "end_s": 475.5811,
       "en": "Article III of the Varilla-Hay treaty, the\nonly one treating of the rights of"
     },
     {
       "ref": "R3-2",
-      "start_s": 473.916667,
-      "end_s": 478.458333,
+      "start_s": 475.5811,
+      "end_s": 480.1227,
       "en": "sovereignty, stipulates that the United\nStates should (shall) possess and exercise"
     },
     {
       "ref": "R3-3",
-      "start_s": 478.458333,
-      "end_s": 483.0,
+      "start_s": 480.1227,
+      "end_s": 484.6644,
       "en": "the rights, power, and authority which the\nRepublic of Panama conceded it over the"
     },
     {
       "ref": "R3-4",
-      "start_s": 483.0,
-      "end_s": 487.333333,
+      "start_s": 484.6644,
+      "end_s": 488.9977,
       "en": "zone, as if it were sovereign in the\nterritory; but this expression implicitly"
     },
     {
       "ref": "R3-5",
-      "start_s": 487.333333,
-      "end_s": 489.625,
+      "start_s": 488.9977,
+      "end_s": 491.2894,
       "en": "conveys the idea that it is not sovereign"
     },
     {
       "ref": "N3-1",
-      "start_s": 496.125,
-      "end_s": 501.75,
+      "start_s": 497.7894,
+      "end_s": 503.4144,
       "en": "In November, nineteen oh four, William H.\nTaft, Secretary of War, came to Panama; on"
     },
     {
       "ref": "N3-1-2",
-      "start_s": 501.75,
-      "end_s": 505.75,
+      "start_s": 503.4144,
+      "end_s": 507.4144,
       "en": "the first of December the government gave\na banquet for him."
     },
     {
       "ref": "N3-2",
-      "start_s": 510.25,
-      "end_s": 514.958333,
+      "start_s": 511.9144,
+      "end_s": 516.6227,
       "en": "The fifteenth of November, nineteen oh\nsix. President Roosevelt was received in"
     },
     {
       "ref": "N3-2-2",
-      "start_s": 514.958333,
-      "end_s": 517.291667,
+      "start_s": 516.6227,
+      "end_s": 518.9561,
       "en": "the city of Panama by President Amador."
     },
     {
       "ref": "N3-3",
-      "start_s": 529.25,
-      "end_s": 531.125,
+      "start_s": 530.7044,
+      "end_s": 532.5794,
       "en": "President Amador's address of welcome:"
     },
     {
       "ref": "LT-R2",
-      "start_s": 532.125,
-      "end_s": 537.125,
+      "start_s": 533.7894,
+      "end_s": 538.7894,
       "en": "[Manuel Amador Guerrero,\nPresident of Panama, 1906]"
     },
     {
       "ref": "R2",
-      "start_s": 532.125,
-      "end_s": 536.875,
+      "start_s": 533.7894,
+      "end_s": 538.5394,
       "en": "that of the great Colossus of the North,\nwith its immense riches, unlimited credit,"
     },
     {
       "ref": "R2-2",
-      "start_s": 536.875,
-      "end_s": 541.541667,
+      "start_s": 538.5394,
+      "end_s": 543.2061,
       "en": "its vast store of knowledge, and numerous\nelements that contribute to make it the"
     },
     {
       "ref": "R2-3",
-      "start_s": 541.541667,
-      "end_s": 545.958333,
+      "start_s": 543.2061,
+      "end_s": 547.6227,
       "en": "only entity capable of successfully\ncarrying on such a great enterprise, with"
     },
     {
       "ref": "R2-4",
-      "start_s": 545.958333,
-      "end_s": 550.333333,
+      "start_s": 547.6227,
+      "end_s": 551.9977,
       "en": "the small and the youngest republic of\nAmerica, owner of the land, which she"
     },
     {
       "ref": "R2-5",
-      "start_s": 550.333333,
-      "end_s": 551.791667,
+      "start_s": 551.9977,
+      "end_s": 553.4561,
       "en": "gladly lends for the work"
     },
     {
       "ref": "LT-R0",
-      "start_s": 564.25,
-      "end_s": 569.25,
+      "start_s": 565.9144,
+      "end_s": 570.9144,
       "en": "[Theodore Roosevelt,\nPresident of the United States, 1906]"
     },
     {
       "ref": "R0",
-      "start_s": 564.25,
-      "end_s": 569.583333,
+      "start_s": 565.9144,
+      "end_s": 571.2477,
       "en": "For the first time in the history of the\nUnited States it has become advisable for"
     },
     {
       "ref": "R0-2",
-      "start_s": 569.583333,
-      "end_s": 574.833333,
+      "start_s": 571.2477,
+      "end_s": 576.4977,
       "en": "a President of the United States to step\non territory not beneath the flag of the"
     },
     {
       "ref": "R0-3",
-      "start_s": 574.833333,
-      "end_s": 579.583333,
+      "start_s": 576.4977,
+      "end_s": 581.2477,
       "en": "United States, and it is in the territory\nof Panama that this has occurred"
     },
     {
       "ref": "N3-4",
-      "start_s": 602.25,
-      "end_s": 607.583333,
+      "start_s": 603.9144,
+      "end_s": 609.2477,
       "en": "He stayed three days on the Isthmus, and\nspent the second of them in the Culebra"
     },
     {
       "ref": "N3-4-2",
-      "start_s": 607.583333,
-      "end_s": 608.583333,
+      "start_s": 609.2477,
+      "end_s": 610.2477,
       "en": "Cut."
     },
     {
       "ref": "N3-5",
-      "start_s": 609.375,
-      "end_s": 611.583333,
+      "start_s": 611.0394,
+      "end_s": 613.2477,
       "en": "To Congress, the seventeenth of December:"
     },
     {
       "ref": "R9",
-      "start_s": 612.583333,
-      "end_s": 616.541667,
+      "start_s": 614.2477,
+      "end_s": 618.2061,
       "en": "I questioned many of these Jamaica\nlaborers as to the conditions of their"
     },
     {
       "ref": "R9-2",
-      "start_s": 616.541667,
-      "end_s": 620.583333,
+      "start_s": 618.2061,
+      "end_s": 622.2477,
       "en": "work and what, if any, changes they\nwished. I received many complaints from"
     },
     {
       "ref": "R9-3",
-      "start_s": 620.583333,
-      "end_s": 624.583333,
+      "start_s": 622.2477,
+      "end_s": 626.2477,
       "en": "them, but as regards most of these\ncomplaints they themselves contradicted"
     },
     {
       "ref": "R9-4",
-      "start_s": 624.583333,
-      "end_s": 625.583333,
+      "start_s": 626.2477,
+      "end_s": 627.2477,
       "en": "one another."
     },
     {
       "ref": "N4-1",
-      "start_s": 639.083333,
-      "end_s": 642.791667,
+      "start_s": 640.7477,
+      "end_s": 644.4561,
       "en": "William Crawford Gorgas, chief sanitary\nofficer of the Canal Zone."
     },
     {
       "ref": "N4-3",
-      "start_s": 643.583333,
-      "end_s": 648.541667,
+      "start_s": 645.7717,
+      "end_s": 650.7301,
       "en": "Trained women nurses served only at the\nColon and Ancon hospitals; Ancon had five"
     },
     {
       "ref": "N4-3-2",
-      "start_s": 648.541667,
-      "end_s": 650.625,
+      "start_s": 650.7301,
+      "end_s": 652.8134,
       "en": "hundred beds and sixty-one nurses."
     },
     {
       "ref": "LT-R55",
-      "start_s": 655.083333,
-      "end_s": 660.083333,
+      "start_s": 657.2717,
+      "end_s": 662.2717,
       "en": "[William C. Gorgas,\nChief Sanitary Officer, Canal Zone, 1905]"
     },
     {
       "ref": "R55",
-      "start_s": 655.083333,
-      "end_s": 659.666667,
+      "start_s": 657.2717,
+      "end_s": 661.8551,
       "en": "I have no intention of criticising the\nFrench. If we had come down here"
     },
     {
       "ref": "R55-2",
-      "start_s": 659.666667,
-      "end_s": 664.75,
+      "start_s": 661.8551,
+      "end_s": 666.9384,
       "en": "twenty-four years ago, situated as they\nwere, I am not sure that we could have"
     },
     {
       "ref": "R55-3",
-      "start_s": 664.75,
-      "end_s": 670.083333,
+      "start_s": 666.9384,
+      "end_s": 672.2717,
       "en": "done very much better. In the first place,\nno one knew at that time how malaria or"
     },
     {
       "ref": "R55-4",
-      "start_s": 670.083333,
-      "end_s": 673.416667,
+      "start_s": 672.2717,
+      "end_s": 675.6051,
       "en": "yellow fever was conveyed from one person\nto another"
     },
     {
       "ref": "PL-4.3",
-      "start_s": 676.083333,
-      "end_s": 681.083333,
+      "start_s": 678.2717,
+      "end_s": 683.2717,
       "en": "[Ancon,\n1910]"
     },
     {
       "ref": "N4-2",
-      "start_s": 677.083333,
-      "end_s": 681.541667,
+      "start_s": 679.2717,
+      "end_s": 683.7301,
       "en": "Gorgas, in the Medical Record, the\neighteenth of May, nineteen oh seven:"
     },
     {
       "ref": "R5",
-      "start_s": 682.541667,
-      "end_s": 687.916667,
+      "start_s": 684.7301,
+      "end_s": 690.1051,
       "en": "I know of no disease that causes the panic\namong the whites that yellow fever does."
     },
     {
       "ref": "R5-2",
-      "start_s": 687.916667,
-      "end_s": 693.166667,
+      "start_s": 690.1051,
+      "end_s": 695.3551,
       "en": "... The French during all these years,\nfrom 1881 to 1889, with a white nonimmune"
     },
     {
       "ref": "R5-3",
-      "start_s": 693.166667,
-      "end_s": 698.541667,
+      "start_s": 695.3551,
+      "end_s": 700.7301,
       "en": "force which had as its maximum 3,000 men,\ndid not pass a month in which one or more"
     },
     {
       "ref": "PL-4.4",
-      "start_s": 698.0,
-      "end_s": 703.0,
+      "start_s": 700.1884,
+      "end_s": 705.1884,
       "en": "[Miraflores,\nJune 1910]"
     },
     {
       "ref": "R5-4",
-      "start_s": 698.541667,
-      "end_s": 703.833333,
+      "start_s": 700.7301,
+      "end_s": 706.0217,
       "en": "deaths from yellow fever did not occur in\nthis force. With a nonimmune force four"
     },
     {
       "ref": "R5-5",
-      "start_s": 703.833333,
-      "end_s": 708.708333,
+      "start_s": 706.0217,
+      "end_s": 710.8967,
       "en": "times as large, for we now have over\n10,000 whites, if we include women and"
     },
     {
       "ref": "R5-6",
-      "start_s": 708.708333,
-      "end_s": 713.875,
+      "start_s": 710.8967,
+      "end_s": 716.0634,
       "en": "children, we have passed fifteen months\nwith not a single case of yellow fever."
     },
     {
       "ref": "N4-4",
-      "start_s": 716.083333,
-      "end_s": 720.166667,
+      "start_s": 718.2717,
+      "end_s": 722.3551,
       "en": "Isabelle Freeland, a nurse at Ancon, in\nJune nineteen oh seven:"
     },
     {
       "ref": "LT-R48",
-      "start_s": 721.166667,
-      "end_s": 726.166667,
+      "start_s": 723.3551,
+      "end_s": 728.3551,
       "en": "[Isabelle Freeland,\nNurse, Ancon Hospital, 1907]"
     },
     {
       "ref": "R48",
-      "start_s": 721.166667,
-      "end_s": 726.166667,
+      "start_s": 723.3551,
+      "end_s": 728.3551,
       "en": "There has not been a case of yellow fever\nin the hospital for nearly a year; vessels"
     },
     {
       "ref": "PL-4.5",
-      "start_s": 726.166667,
-      "end_s": 731.166667,
+      "start_s": 728.3551,
+      "end_s": 733.3551,
       "en": "[Ancon,\n1910]"
     },
     {
       "ref": "R48-2",
-      "start_s": 726.166667,
-      "end_s": 731.166667,
+      "start_s": 728.3551,
+      "end_s": 733.3551,
       "en": "from South American ports are quarantined.\nMany accidents happen on the railroad and"
     },
     {
       "ref": "R48-3",
-      "start_s": 731.166667,
-      "end_s": 735.333333,
+      "start_s": 733.3551,
+      "end_s": 737.5217,
       "en": "in digging the canal. Malaria and\npneumonia are the medical cases, the"
     },
     {
       "ref": "R48-4",
-      "start_s": 735.333333,
-      "end_s": 737.833333,
+      "start_s": 737.5217,
+      "end_s": 740.0217,
       "en": "latter being fatal to white or black men."
     },
     {
       "ref": "PL-4.6",
-      "start_s": 745.083333,
-      "end_s": 750.083333,
+      "start_s": 747.2717,
+      "end_s": 752.2717,
       "en": "[Ancon,\n1906]"
     },
     {
       "ref": "R49",
-      "start_s": 746.083333,
-      "end_s": 751.458333,
+      "start_s": 748.2717,
+      "end_s": 753.6467,
       "en": "To give an example of one ward: ward 3,\nsection A, is a surgical ward for colored"
     },
     {
       "ref": "R49-2",
-      "start_s": 751.458333,
-      "end_s": 754.75,
+      "start_s": 753.6467,
+      "end_s": 756.9384,
       "en": "men; it has twenty-six beds and two\nprivate rooms."
     },
     {
       "ref": "N4-5",
-      "start_s": 768.083333,
-      "end_s": 770.666667,
+      "start_s": 770.2717,
+      "end_s": 772.8551,
       "en": "Roosevelt, to Congress, December nineteen\noh six:"
     },
     {
       "ref": "LT-R6",
-      "start_s": 771.666667,
-      "end_s": 776.666667,
+      "start_s": 773.9731,
+      "end_s": 778.9731,
       "en": "[Theodore Roosevelt,\nPresident of the United States, 1906]"
     },
     {
       "ref": "R6",
-      "start_s": 771.666667,
-      "end_s": 776.416667,
+      "start_s": 773.9731,
+      "end_s": 778.7231,
       "en": "In October, of the 19,000 negroes on the\nroll 86 died from disease; pneumonia being"
     },
     {
       "ref": "R6-2",
-      "start_s": 776.416667,
-      "end_s": 780.0,
+      "start_s": 778.7231,
+      "end_s": 782.3064,
       "en": "the most destructive disease, and malarial\nfever coming second."
     },
     {
       "ref": "N4-6",
-      "start_s": 782.5,
-      "end_s": 787.166667,
+      "start_s": 786.3571,
+      "end_s": 791.0238,
       "en": "In the year to June, nineteen oh seven,\nthe Commission recorded one hundred and"
     },
     {
       "ref": "N4-6-2",
-      "start_s": 787.166667,
-      "end_s": 791.583333,
+      "start_s": 791.0238,
+      "end_s": 795.4404,
       "en": "twenty-three deaths among its white\nemployees, and one thousand one hundred"
     },
     {
       "ref": "N4-6-3",
-      "start_s": 791.583333,
-      "end_s": 796.041667,
+      "start_s": 795.4404,
+      "end_s": 799.8988,
       "en": "and fifty among its black employees. In\nthe year to June, nineteen thirteen:"
     },
     {
       "ref": "N4-6-4",
-      "start_s": 796.041667,
-      "end_s": 798.791667,
+      "start_s": 799.8988,
+      "end_s": 802.6488,
       "en": "ninety-four, and three hundred and\neighty-nine."
     },
     {
       "ref": "PL-4.11",
-      "start_s": 810.291667,
-      "end_s": 815.291667,
+      "start_s": 814.1488,
+      "end_s": 819.1488,
       "en": "[Colon,\n1910]"
     },
     {
       "ref": "N4-7",
-      "start_s": 811.291667,
-      "end_s": 815.541667,
+      "start_s": 815.1488,
+      "end_s": 819.3988,
       "en": "Mary Chatfield, a stenographer for the\nCommission at Cristobal, in letters"
     },
     {
       "ref": "N4-7-2",
-      "start_s": 815.541667,
-      "end_s": 817.25,
+      "start_s": 819.3988,
+      "end_s": 821.1071,
       "en": "printed in nineteen oh eight:"
     },
     {
       "ref": "LT-R45",
-      "start_s": 818.25,
-      "end_s": 823.25,
+      "start_s": 822.2421,
+      "end_s": 827.2421,
       "en": "[Mary A. Chatfield,\nStenographer, Canal Commission, 1908]"
     },
     {
       "ref": "R45",
-      "start_s": 818.25,
-      "end_s": 822.958333,
+      "start_s": 822.2421,
+      "end_s": 826.9504,
       "en": "That women are debarred from taking the\nexaminations for the positions in offices"
     },
     {
       "ref": "R45-2",
-      "start_s": 822.958333,
-      "end_s": 827.291667,
+      "start_s": 826.9504,
+      "end_s": 831.2838,
       "en": "on the Isthmus is most unjust and\nsenseless. The Isthmian Canal Commission"
     },
     {
       "ref": "R45-3",
-      "start_s": 827.291667,
-      "end_s": 832.166667,
+      "start_s": 831.2838,
+      "end_s": 836.1588,
       "en": "sends plenty of trained nurses here, whose\nchief duty is to take care of colored men"
     },
     {
       "ref": "R45-4",
-      "start_s": 832.166667,
-      "end_s": 833.25,
+      "start_s": 836.1588,
+      "end_s": 837.2421,
       "en": "when they are sick"
     },
     {
       "ref": "N5-1",
-      "start_s": 840.291667,
-      "end_s": 844.875,
+      "start_s": 844.2838,
+      "end_s": 848.8671,
       "en": "The Canal Record, the Commission's own\nweekly, first appeared on the fourth of"
     },
     {
       "ref": "N5-1-2",
-      "start_s": 844.875,
-      "end_s": 846.625,
+      "start_s": 848.8671,
+      "end_s": 850.6171,
       "en": "September, nineteen oh seven."
     },
     {
       "ref": "N5-2",
-      "start_s": 858.291667,
-      "end_s": 862.833333,
+      "start_s": 862.2838,
+      "end_s": 866.8254,
       "en": "On the thirtieth of April, nineteen oh\neight, thirty-three thousand one hundred"
     },
     {
       "ref": "N5-2-2",
-      "start_s": 862.833333,
-      "end_s": 867.208333,
+      "start_s": 866.8254,
+      "end_s": 871.2004,
       "en": "and ninety-three were at work: five\nthousand eight hundred and thirty-one on"
     },
     {
       "ref": "N5-2-3",
-      "start_s": 867.208333,
-      "end_s": 872.0,
+      "start_s": 871.2004,
+      "end_s": 875.9921,
       "en": "the gold roll, twenty-seven thousand three\nhundred and sixty-two on the silver roll."
     },
     {
       "ref": "N5-3",
-      "start_s": 875.291667,
-      "end_s": 879.708333,
+      "start_s": 879.2838,
+      "end_s": 883.7004,
       "en": "By July, nineteen oh nine, twenty-seven\nthousand five hundred had been recruited"
     },
     {
       "ref": "N5-3-2",
-      "start_s": 879.708333,
-      "end_s": 883.958333,
+      "start_s": 883.7004,
+      "end_s": 887.9504,
       "en": "in the West Indies, seventeen thousand\nnine hundred and forty-nine of them in"
     },
     {
       "ref": "N5-3-3",
-      "start_s": 883.958333,
-      "end_s": 884.958333,
+      "start_s": 887.9504,
+      "end_s": 888.9504,
       "en": "Barbados."
     },
     {
       "ref": "N5-4",
-      "start_s": 885.75,
-      "end_s": 890.0,
+      "start_s": 890.5371,
+      "end_s": 894.7871,
       "en": "On the second of September, nineteen oh\nnine, the steamer Ancon came into"
     },
     {
       "ref": "N5-4-2",
-      "start_s": 890.0,
-      "end_s": 893.166667,
+      "start_s": 894.7871,
+      "end_s": 897.9538,
       "en": "Cristobal with fifteen hundred laborers\nfrom Barbados."
     },
     {
       "ref": "N5-5",
-      "start_s": 895.666667,
-      "end_s": 899.708333,
+      "start_s": 900.4538,
+      "end_s": 904.4954,
       "en": "Mary Chatfield, from Cristobal, the second\nof August, nineteen oh six:"
     },
     {
       "ref": "LT-R44",
-      "start_s": 900.708333,
-      "end_s": 905.708333,
+      "start_s": 905.4954,
+      "end_s": 910.4954,
       "en": "[Mary A. Chatfield,\nStenographer, Canal Commission, 1906]"
     },
     {
       "ref": "R44",
-      "start_s": 900.708333,
-      "end_s": 905.5,
+      "start_s": 905.4954,
+      "end_s": 910.2871,
       "en": "They are not allowed to cook in their\nquarters for fear of fire and no covered"
     },
     {
       "ref": "R44-2",
-      "start_s": 905.5,
-      "end_s": 910.0,
+      "start_s": 910.2871,
+      "end_s": 914.7871,
       "en": "place is provided for them in which to\ncook, so these poor men exist under"
     },
     {
       "ref": "PL-5.6",
-      "start_s": 905.708333,
-      "end_s": 910.708333,
+      "start_s": 910.4954,
+      "end_s": 915.4954,
       "en": "[Colon,\nSeptember 1906]"
     },
     {
       "ref": "R44-3",
-      "start_s": 910.0,
-      "end_s": 914.708333,
+      "start_s": 914.7871,
+      "end_s": 919.4954,
       "en": "difficulties. ... They receive the\nsplendid wage of 10 cents, U. S. currency,"
     },
     {
       "ref": "R44-4",
-      "start_s": 914.708333,
-      "end_s": 915.708333,
+      "start_s": 919.4954,
+      "end_s": 920.4954,
       "en": "an hour."
     },
     {
       "ref": "N5-6",
-      "start_s": 918.666667,
-      "end_s": 923.5,
+      "start_s": 923.4538,
+      "end_s": 928.2871,
       "en": "Helen Varick Boswell came to the Isthmus\nin September, nineteen oh seven, to"
     },
     {
       "ref": "N5-6-2",
-      "start_s": 923.5,
-      "end_s": 927.541667,
+      "start_s": 928.2871,
+      "end_s": 932.3288,
       "en": "organise women's clubs. To the New York\nTribune, on her return:"
     },
     {
       "ref": "LT-R7",
-      "start_s": 928.541667,
-      "end_s": 933.541667,
+      "start_s": 933.8111,
+      "end_s": 938.8111,
       "en": "[Helen Varick Boswell,\nWomen's clubs, as quoted in the New York Tribune, 1907]"
     },
     {
       "ref": "R7",
-      "start_s": 928.541667,
-      "end_s": 933.416667,
+      "start_s": 933.8111,
+      "end_s": 938.6861,
       "en": "You see, it has been very monotonous for\nthe women on the Isthmus. The men had"
     },
     {
       "ref": "R7-2",
-      "start_s": 933.416667,
-      "end_s": 938.5,
+      "start_s": 938.6861,
+      "end_s": 943.7694,
       "en": "their work, but the women had only their\nhousekeeping, and the housekeeping there"
     },
     {
       "ref": "PL-5.7",
-      "start_s": 933.541667,
-      "end_s": 938.541667,
+      "start_s": 938.8111,
+      "end_s": 943.8111,
       "en": "[Pedro Miguel,\n1911]"
     },
     {
       "ref": "R7-3",
-      "start_s": 938.5,
-      "end_s": 943.541667,
+      "start_s": 943.7694,
+      "end_s": 948.8111,
       "en": "isn't the absorbing thing it is with us.\nIt is more like housekeeping in a camp."
     },
     {
       "ref": "N5-7",
-      "start_s": 946.666667,
-      "end_s": 951.666667,
+      "start_s": 951.9361,
+      "end_s": 956.9361,
       "en": "Henry Williams, a blacksmith helper from\nHouston, to William H. Taft, the sixteenth"
     },
     {
       "ref": "N5-7-2",
-      "start_s": 951.666667,
-      "end_s": 953.333333,
+      "start_s": 956.9361,
+      "end_s": 958.6027,
       "en": "of June, nineteen oh eight:"
     },
     {
       "ref": "LT-R40",
-      "start_s": 954.333333,
-      "end_s": 959.333333,
+      "start_s": 959.6027,
+      "end_s": 964.6027,
       "en": "[Henry Williams,\nBlacksmith helper, Canal Zone, 1908]"
     },
     {
       "ref": "R40",
-      "start_s": 954.333333,
-      "end_s": 959.041667,
+      "start_s": 959.6027,
+      "end_s": 964.3111,
       "en": "I have been working as blacksmith helper\nfor nearly a year, and was paid in gold."
     },
     {
       "ref": "R40-2",
-      "start_s": 959.041667,
-      "end_s": 963.666667,
+      "start_s": 964.3111,
+      "end_s": 968.9361,
       "en": "For some unexplained cause I was informed\nthat I would be assigned to the silver"
     },
     {
       "ref": "PL-5.8",
-      "start_s": 959.333333,
-      "end_s": 964.333333,
+      "start_s": 964.6027,
+      "end_s": 969.6027,
       "en": "[Culebra Cut,\nJanuary 1908]"
     },
     {
       "ref": "R40-3",
-      "start_s": 963.666667,
-      "end_s": 968.375,
+      "start_s": 968.9361,
+      "end_s": 973.6444,
       "en": "roll, which woud greatly reduce me in pay\nand deprive me of certain benefits that"
     },
     {
       "ref": "R40-4",
-      "start_s": 968.375,
-      "end_s": 973.0,
+      "start_s": 973.6444,
+      "end_s": 978.2694,
       "en": "are accorded to white foreigners who\ndon't, understand their duties assigned to"
     },
     {
       "ref": "R40-5",
-      "start_s": 973.0,
-      "end_s": 974.0,
+      "start_s": 978.2694,
+      "end_s": 979.2694,
       "en": "them."
     },
     {
       "ref": "N5-8",
-      "start_s": 985.666667,
-      "end_s": 990.458333,
+      "start_s": 990.9361,
+      "end_s": 995.7277,
       "en": "Rhodelle Wheat, in a letter printed in New\nHampshire, December nineteen oh nine:"
     },
     {
       "ref": "LT-R46",
-      "start_s": 992.583333,
-      "end_s": 997.583333,
+      "start_s": 997.8527,
+      "end_s": 1002.8527,
       "en": "[Rhodelle Emery Young Wheat,\nCanal Zone, 1909]"
     },
     {
       "ref": "R46",
-      "start_s": 992.583333,
-      "end_s": 997.291667,
+      "start_s": 997.8527,
+      "end_s": 1002.5611,
       "en": "I am really living on United States\nterritory, as the canal zone belongs to"
     },
     {
       "ref": "R46-2",
-      "start_s": 997.291667,
-      "end_s": 1002.541667,
+      "start_s": 1002.5611,
+      "end_s": 1007.8111,
       "en": "the American government, but when we step\nfoot on Colon or Panama city, we are in a"
     },
     {
       "ref": "PL-5.10",
-      "start_s": 997.583333,
-      "end_s": 1002.583333,
+      "start_s": 1002.8527,
+      "end_s": 1007.8527,
       "en": "[Colon,\nJanuary 1907]"
     },
     {
       "ref": "R46-3",
-      "start_s": 1002.541667,
-      "end_s": 1003.583333,
+      "start_s": 1007.8111,
+      "end_s": 1008.8527,
       "en": "foreign country."
     },
     {
       "ref": "R47",
-      "start_s": 1004.375,
-      "end_s": 1009.083333,
+      "start_s": 1009.6444,
+      "end_s": 1014.3527,
       "en": "I say gold, as all Panamian money is\nsilver, and ten silver dollars would only"
     },
     {
       "ref": "R47-2",
-      "start_s": 1009.083333,
-      "end_s": 1010.708333,
+      "start_s": 1014.3527,
+      "end_s": 1015.9777,
       "en": "equal five American dollars"
     },
     {
       "ref": "N5-9",
-      "start_s": 1013.666667,
-      "end_s": 1019.166667,
+      "start_s": 1018.9361,
+      "end_s": 1024.4361,
       "en": "W. W. Wilson, barber on the Isthmus from\nnineteen oh seven to nineteen ten, in the"
     },
     {
       "ref": "N5-9-2",
-      "start_s": 1019.166667,
-      "end_s": 1021.791667,
+      "start_s": 1024.4361,
+      "end_s": 1027.0611,
       "en": "St. Louis Advance, August nineteen ten:"
     },
     {
       "ref": "LT-R42",
-      "start_s": 1022.791667,
-      "end_s": 1027.791667,
+      "start_s": 1028.4614,
+      "end_s": 1033.4614,
       "en": "[W. W. Wilson,\nBarber, on the Isthmus 1907 to 1910, 1910]"
     },
     {
       "ref": "R42",
-      "start_s": 1022.791667,
-      "end_s": 1027.25,
+      "start_s": 1028.4614,
+      "end_s": 1032.9197,
       "en": "The employes are divided into two classes,\ntermed silver employes and gold employes."
     },
     {
       "ref": "R42-2",
-      "start_s": 1027.25,
-      "end_s": 1031.708333,
+      "start_s": 1032.9197,
+      "end_s": 1037.378,
       "en": "All Americans are gold, and all others are\nsilver employes. On all divisions and the"
     },
     {
       "ref": "PL-5.11",
-      "start_s": 1027.791667,
-      "end_s": 1032.791667,
+      "start_s": 1033.4614,
+      "end_s": 1038.4614,
       "en": "[Gatun,\n1911]"
     },
     {
       "ref": "R42-3",
-      "start_s": 1031.708333,
-      "end_s": 1035.75,
+      "start_s": 1037.378,
+      "end_s": 1041.4197,
       "en": "Panama relocation railroad there are about\n30,000 colored men, from Jamaica,"
     },
     {
       "ref": "R42-4",
-      "start_s": 1035.75,
-      "end_s": 1037.458333,
+      "start_s": 1041.4197,
+      "end_s": 1043.128,
       "en": "Barbadoes, Grenada and Trinidad."
     },
     {
       "ref": "R43",
-      "start_s": 1039.958333,
-      "end_s": 1044.875,
+      "start_s": 1045.628,
+      "end_s": 1050.5447,
       "en": "They have on the canal over 500 dirt\ntrains, daily; all are fired by colored"
     },
     {
       "ref": "R43-2",
-      "start_s": 1044.875,
-      "end_s": 1048.958333,
+      "start_s": 1050.5447,
+      "end_s": 1054.628,
       "en": "men. They have over 300 steam shovels, all\nfired by colored men."
     },
     {
       "ref": "PL-5.12",
-      "start_s": 1044.958333,
-      "end_s": 1049.958333,
+      "start_s": 1050.628,
+      "end_s": 1055.628,
       "en": "[Culebra Cut,\nJanuary 1912]"
     },
     {
       "ref": "N5-10",
-      "start_s": 1049.958333,
-      "end_s": 1055.208333,
+      "start_s": 1055.628,
+      "end_s": 1060.878,
       "en": "A medal for two years' service was cast\nfrom the copper of old French excavators"
     },
     {
       "ref": "N5-10-2",
-      "start_s": 1055.208333,
-      "end_s": 1056.25,
+      "start_s": 1060.878,
+      "end_s": 1061.9197,
       "en": "and locomotives."
     },
     {
       "ref": "R41",
-      "start_s": 1073.958333,
-      "end_s": 1079.25,
+      "start_s": 1079.628,
+      "end_s": 1084.9197,
       "en": "The moment a white foreigner arrives, who\ndoes not know a word of English, he is"
     },
     {
       "ref": "R41-2",
-      "start_s": 1079.25,
-      "end_s": 1080.958333,
+      "start_s": 1084.9197,
+      "end_s": 1086.628,
       "en": "assigned to the gold roll."
     },
     {
       "ref": "N6-1",
-      "start_s": 1088.958333,
-      "end_s": 1094.958333,
+      "start_s": 1094.628,
+      "end_s": 1100.628,
       "en": "In the winter of nineteen oh eight, one\nhundred and three steam shovels in the Cut"
     },
     {
       "ref": "N6-1-2",
-      "start_s": 1094.958333,
-      "end_s": 1099.333333,
+      "start_s": 1100.628,
+      "end_s": 1105.003,
       "en": "moved more than two and a third million\ncubic yards a month."
     },
     {
       "ref": "N6-2",
-      "start_s": 1109.958333,
-      "end_s": 1112.916667,
+      "start_s": 1115.628,
+      "end_s": 1118.5864,
       "en": "Goethals, in nineteen oh nine, on the\nlocks:"
     },
     {
       "ref": "LT-R30",
-      "start_s": 1113.916667,
-      "end_s": 1118.916667,
+      "start_s": 1119.5864,
+      "end_s": 1124.5864,
       "en": "[George W. Goethals,\nChairman, Isthmian Canal Commission, 1909]"
     },
     {
       "ref": "R30",
-      "start_s": 1113.916667,
-      "end_s": 1118.5,
+      "start_s": 1119.5864,
+      "end_s": 1124.1697,
       "en": "This is met by providing every possible\nsafety device, by building the locks in"
     },
     {
       "ref": "R30-2",
-      "start_s": 1118.5,
-      "end_s": 1122.75,
+      "start_s": 1124.1697,
+      "end_s": 1128.4197,
       "en": "duplicate and by the installation of a\nsystem by which the vessels will be"
     },
     {
       "ref": "PL-6.3",
-      "start_s": 1118.916667,
-      "end_s": 1123.916667,
+      "start_s": 1124.5864,
+      "end_s": 1129.5864,
       "en": "[Gatun Locks,\n14 March 1913]"
     },
     {
       "ref": "R30-3",
-      "start_s": 1122.75,
-      "end_s": 1127.541667,
+      "start_s": 1128.4197,
+      "end_s": 1133.2114,
       "en": "controlled by powerful electric machinery\non the lock walls, thus avoiding mistakes"
     },
     {
       "ref": "R30-4",
-      "start_s": 1127.541667,
-      "end_s": 1130.583333,
+      "start_s": 1133.2114,
+      "end_s": 1136.253,
       "en": "on the part of the vessels' crew or\nengine-room staff"
     },
     {
       "ref": "N6-3",
-      "start_s": 1135.107333,
-      "end_s": 1138.940667,
+      "start_s": 1140.777,
+      "end_s": 1144.6104,
       "en": "December, nineteen twelve. President Taft\nreached Cristobal on the twenty-fourth,"
     },
     {
       "ref": "N6-3-2",
-      "start_s": 1138.940667,
-      "end_s": 1139.940667,
+      "start_s": 1144.6104,
+      "end_s": 1145.6104,
       "en": "aboard the Arkansas."
     },
     {
       "ref": "N6-4",
-      "start_s": 1163.083333,
-      "end_s": 1168.875,
+      "start_s": 1168.753,
+      "end_s": 1174.5447,
       "en": "On the fifth of December, President Taft\nhad signed an Executive Order on the lands"
     },
     {
       "ref": "N6-4-2",
-      "start_s": 1168.875,
-      "end_s": 1170.125,
+      "start_s": 1174.5447,
+      "end_s": 1175.7947,
       "en": "of the Canal Zone."
     },
     {
       "ref": "N6-5",
-      "start_s": 1179.083333,
-      "end_s": 1183.791667,
+      "start_s": 1184.753,
+      "end_s": 1189.4614,
       "en": "The Gorgona district was abolished by\norder of the second of September, nineteen"
     },
     {
       "ref": "N6-5-2",
-      "start_s": 1183.791667,
-      "end_s": 1188.625,
+      "start_s": 1189.4614,
+      "end_s": 1194.2947,
       "en": "twelve. The towns of the old railroad line\nbetween Gorgona and Gatun were cleared:"
     },
     {
       "ref": "N6-5-3",
-      "start_s": 1188.625,
-      "end_s": 1190.958333,
+      "start_s": 1194.2947,
+      "end_s": 1196.628,
       "en": "Bohio, Frijoles, San Pablo, Tabernilla."
     },
     {
       "ref": "N6-6",
-      "start_s": 1204.083333,
-      "end_s": 1208.291667,
+      "start_s": 1209.753,
+      "end_s": 1213.9614,
       "en": "Gorgona was moved between March and June,\nnineteen thirteen: two hundred American"
     },
     {
       "ref": "N6-6-2",
-      "start_s": 1208.291667,
-      "end_s": 1211.5,
+      "start_s": 1213.9614,
+      "end_s": 1217.1697,
       "en": "families, six hundred bachelors, several\nhundred West Indians."
     },
     {
       "ref": "N6-7",
-      "start_s": 1212.291667,
-      "end_s": 1217.25,
+      "start_s": 1220.3664,
+      "end_s": 1225.3247,
       "en": "A Joint Land Commission, Federico Boyd,\nRoland Falkner, Samuel Lewis and L. S."
     },
     {
       "ref": "N6-7-2",
-      "start_s": 1217.25,
-      "end_s": 1220.458333,
+      "start_s": 1225.3247,
+      "end_s": 1228.533,
       "en": "Rowe, made awards for houses in Gorgona\nand Cruces."
     },
     {
       "ref": "N6-8",
-      "start_s": 1222.583333,
-      "end_s": 1227.666667,
+      "start_s": 1230.658,
+      "end_s": 1235.7414,
       "en": "The former owners in the old town of\nGorgona were refused free transport for"
     },
     {
       "ref": "N6-8-2",
-      "start_s": 1227.666667,
-      "end_s": 1229.625,
+      "start_s": 1235.7414,
+      "end_s": 1237.6997,
       "en": "the material of their houses."
     },
     {
       "ref": "N6-9",
-      "start_s": 1232.125,
-      "end_s": 1236.666667,
+      "start_s": 1240.1997,
+      "end_s": 1244.7414,
       "en": "Between May, nineteen oh four, and August,\nnineteen thirteen, the Central Division"
     },
     {
       "ref": "N6-9-2",
-      "start_s": 1236.666667,
-      "end_s": 1240.875,
+      "start_s": 1244.7414,
+      "end_s": 1248.9497,
       "en": "took one hundred and nine million cubic\nyards from its territory, with about"
     },
     {
       "ref": "N6-9-3",
-      "start_s": 1240.875,
-      "end_s": 1243.25,
+      "start_s": 1248.9497,
+      "end_s": 1251.3247,
       "en": "thirty-eight million pounds of explosives."
     },
     {
       "ref": "N6-10",
-      "start_s": 1246.125,
-      "end_s": 1250.416667,
+      "start_s": 1254.1997,
+      "end_s": 1258.4914,
       "en": "On the twenty-sixth of March, nineteen\nthirteen, the force was at its largest:"
     },
     {
       "ref": "N6-10-2",
-      "start_s": 1250.416667,
-      "end_s": 1253.166667,
+      "start_s": 1258.4914,
+      "end_s": 1261.2414,
       "en": "forty-four thousand seven hundred and\nthirty-three."
     },
     {
       "ref": "N6-11",
-      "start_s": 1256.125,
-      "end_s": 1261.5,
+      "start_s": 1264.1997,
+      "end_s": 1269.5747,
       "en": "On the twenty-sixth of September the tug\nGatun was lifted through the west flight"
     },
     {
       "ref": "N6-11-2",
-      "start_s": 1261.5,
-      "end_s": 1262.791667,
+      "start_s": 1269.5747,
+      "end_s": 1270.8664,
       "en": "of the Gatun locks."
     },
     {
       "ref": "N6-12",
-      "start_s": 1263.583333,
-      "end_s": 1268.625,
+      "start_s": 1271.658,
+      "end_s": 1276.6997,
       "en": "Gatun Lake had stood at thirty-one feet on\nthe first of July, nineteen twelve. The"
     },
     {
       "ref": "N6-12-2",
-      "start_s": 1268.625,
-      "end_s": 1272.875,
+      "start_s": 1276.6997,
+      "end_s": 1280.9497,
       "en": "sluices were closed on the twenty-seventh\nof June, nineteen thirteen."
     },
     {
       "ref": "NC-1",
-      "start_s": 1275.875,
-      "end_s": 1280.375,
+      "start_s": 1283.9497,
+      "end_s": 1288.4497,
       "en": "At two minutes past two on the afternoon\nof the tenth of October, nineteen"
     },
     {
       "ref": "NC-1-2",
-      "start_s": 1280.375,
-      "end_s": 1285.125,
+      "start_s": 1288.4497,
+      "end_s": 1293.1997,
       "en": "thirteen, President Wilson, at Washington,\nfired the Gamboa dike by telegraph."
     },
     {
       "ref": "NC-2",
-      "start_s": 1318.375,
-      "end_s": 1322.916667,
+      "start_s": 1326.4497,
+      "end_s": 1330.9914,
       "en": "On the seventh of January, nineteen\nfourteen, the crane boat Alex. LaValley"
     },
     {
       "ref": "NC-2-2",
-      "start_s": 1322.916667,
-      "end_s": 1327.75,
+      "start_s": 1330.9914,
+      "end_s": 1335.8247,
       "en": "passed through the locks at Pedro Miguel\nand Miraflores: the first steam vessel"
     },
     {
       "ref": "NC-2-3",
-      "start_s": 1327.75,
-      "end_s": 1329.458333,
+      "start_s": 1335.8247,
+      "end_s": 1337.533,
       "en": "through from ocean to ocean."
     },
     {
       "ref": "NC-3",
-      "start_s": 1360.375,
-      "end_s": 1364.708333,
+      "start_s": 1368.4497,
+      "end_s": 1372.783,
       "en": "The fifteenth of August, nineteen\nfourteen. The steamer Ancon left Cristobal"
     },
     {
       "ref": "NC-3-2",
-      "start_s": 1364.708333,
-      "end_s": 1369.5,
+      "start_s": 1372.783,
+      "end_s": 1377.5747,
       "en": "at ten minutes past seven, with about two\nhundred guests aboard, President Porras of"
     },
     {
       "ref": "NC-3-3",
-      "start_s": 1369.5,
-      "end_s": 1371.833333,
+      "start_s": 1377.5747,
+      "end_s": 1379.908,
       "en": "Panama among them. Gatun, eight o'clock."
     },
     {
       "ref": "NC-4",
-      "start_s": 1375.375,
-      "end_s": 1379.916667,
+      "start_s": 1383.4497,
+      "end_s": 1387.9914,
       "en": "Gamboa, a quarter past eleven. Cucaracha,\ntwenty past twelve. Pedro Miguel, four"
     },
     {
       "ref": "NC-4-2",
-      "start_s": 1379.916667,
-      "end_s": 1380.916667,
+      "start_s": 1387.9914,
+      "end_s": 1388.9914,
       "en": "minutes to one."
     },
     {
       "ref": "NC-5",
-      "start_s": 1385.375,
-      "end_s": 1391.0,
+      "start_s": 1393.4497,
+      "end_s": 1399.0747,
       "en": "Miraflores, from four minutes to two until\ntwenty past three. The end of the channel,"
     },
     {
       "ref": "NC-5-2",
-      "start_s": 1391.0,
-      "end_s": 1392.041667,
+      "start_s": 1399.0747,
+      "end_s": 1400.1164,
       "en": "half past four."
     },
     {
       "ref": "NC-6",
-      "start_s": 1392.833333,
-      "end_s": 1397.25,
+      "start_s": 1400.908,
+      "end_s": 1405.3247,
       "en": "That day the Secretary of War, Lindley\nGarrison, cabled Goethals at Culebra."
     },
     {
       "ref": "LT-R8",
-      "start_s": 1399.25,
-      "end_s": 1404.25,
+      "start_s": 1407.3247,
+      "end_s": 1412.3247,
       "en": "[Lindley M. Garrison,\nSecretary of War, 1914]"
     },
     {
       "ref": "R8",
-      "start_s": 1399.25,
-      "end_s": 1403.416667,
+      "start_s": 1407.3247,
+      "end_s": 1411.4914,
       "en": "By the successful passage of vessels\nthrough the Canal the dream of the"
     },
     {
       "ref": "R8-2",
-      "start_s": 1403.416667,
-      "end_s": 1405.25,
+      "start_s": 1411.4914,
+      "end_s": 1413.3247,
       "en": "centuries has become a reality."
     },
     {
       "ref": "N22",
-      "start_s": 1408.875,
-      "end_s": 1414.791667,
+      "start_s": 1416.9497,
+      "end_s": 1422.8664,
       "en": "When the water runs from one sea to the\nother, whose ground is it running through?"
     }
   ]
